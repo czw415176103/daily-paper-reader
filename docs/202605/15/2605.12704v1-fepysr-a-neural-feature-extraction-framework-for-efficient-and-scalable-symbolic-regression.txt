@@ -1,0 +1,1866 @@
+Title: FePySR: A Neural Feature Extraction Framework for Efficient and Scalable Symbolic Regression
+
+URL Source: https://arxiv.org/pdf/2605.12704v1
+
+Published Time: Thu, 14 May 2026 00:13:00 GMT
+
+Number of Pages: 36
+
+Markdown Content:
+# FePySR: A Neural Feature Extraction Framework for Efficient and Scalable Symbolic Regression 
+
+Zhiming Yu 1, Wangtao Lu 1,* , Xin Lai 2,* 
+
+> 1
+
+School of Mathematical Sciences, Zhejiang University, Hangzhou, Zhejiang, China 
+
+> 2
+
+Faculty of Medicine and Health Technology, Tampere University, Tampere, Finland 
+
+Abstract 
+
+A fundamental challenge in symbolic regression (SR) is efficiently recovering complex mathematical expressions from observational data. Although this problem is NP-hard, many expressions of practical interest decompose naturally into combinations of nonlinear feature modules, concentrating structural complexity into a small number of reusable components. Here, we introduce FePySR, a two-stage frame-work that reduces the SR search space by extracting valid features prior to equation search. FePySR first employs a heterogeneous neural network to constrain observational data to a set of candidate ex-pressions, then performs structural optimization within this refined expression space using PySR. Across five standard benchmarks, FePySR outperforms state-of-the-art methods by achieving higher equation recovery rates. On a set of 75 highly complex synthesized equations, FePySR recovers 36 equations, while producing substantially smaller mean squared errors on the remaining unrecovered cases, with reduced computation time compared to PySR. FePySR’s first stage also maintains consistent performance under varying numbers of selected top features and increasing levels of noise in the observational data. Applied to ordinary differential equations governing biological systems, FePySR successfully identifies governing equations in 24 out of 100 tests where PySR recovers none. Taken together, FePySR is a generalizable framework that can enhance the SR solvers, enabling the efficient and reliable recovery of symbolic expressions across scientific domains. 
+
+Keywords: feature engineering, feature discovery, combinatorial search reduction, expression trees, neu-ral network. 
+
+Data and Code Availability: https://github.com/laixn/FePySR. 
+
+> ∗
+
+Corresponding authors: wangtaolu@zju.edu.cn (WL); xin.lai@tuni.fi (XL) 
+
+1
+
+> arXiv:2605.12704v1 [cs.SC] 12 May 2026
+
+## 1 Introduction 
+
+Symbolic regression (SR) is a fundamental challenge in machine learning. It aims to discover concise, physically interpretable mathematical models directly from observational data to empower automated scien-tific discovery. However, SR is computationally challenging due to its proven NP-hard complexity, which comes from its dual computational tasks. First, the feature selection task aims to identify valid features from high-dimensional inputs [1]. Second, the structural optimization task aims to identify optimal mathematical formulas within a vast space of basic operators and primitives [2]. Both tasks require exhaustive combinato-rial search, rendering the overall problem computationally intractable as input dimensionality and equation complexity grow. Current research approaches can be categorized into three types for addressing the combinatorial explosion of the search space resulting from the NP-hard nature of SR. The first approach involves building more powerful searchers dedicated to efficiently exploring the unconstrained space of equations. These approaches originate from genetic programming (GP) and drive the search process by simulating genetic evolutionary mechanisms, such as crossover and mutation [3, 4]. Subsequent studies have further optimized individual selections [5] and offspring generation strategies [6]. Recently, frameworks such as PySR have greatly improved search efficiency through engineering optimization and distributed computing [7]. LASR uses a concept library that is queried by large language models (LLMs) to accelerate SR [8]. Besides genetic evolutionary algorithms, deep learning provides a new paradigm for combinatorial explo-ration. For example, deep symbolic regression (DSR) reformulates the generation of equations as a Markov decision process. It employs risk-seeking policy gradients and enhanced exploration strategies to guide neu-ral networks through non-convex heuristic searches [9, 10]. In such methods, the network typically outputs the probability distribution of symbols in an autoregressive manner [11, 12], while dynamically incorpo-rating the intrinsic tree structure of symbolic expressions based on current contexts [13]. To overcome the limitations of single-method approaches, hybrid frameworks integrate diverse mechanisms. For instance, neural-guided genetic programming (NGGP) uses neural models to initialize high-quality feature populations for evolutionary searches [11], and recent advances couple continuous optimization with discrete structural searches [14]. Similarly, reinforcement learning has been adopted to guide evolutionary searches in a hybrid system called [15]. Furthermore, transformer-based models have fundamentally changed traditional search paradigms by reframing the problem as a sequence-to-sequence translation task. These models leverage massive pre-training data to directly learn the conditional probability distribution from numerical values to combinations of mathematical features, enabling end-to-end generation from data to formulas [16–22]. The second approach aims to constrain the search space. It transforms an infinite-dimensional discrete search problem into a parameter optimization problem within a finite continuous space by imposing inductive biases. A representative example is SINDy, which achieves the decoupled discovery of dominant features by performing sparse regression over a predefined library of basic functions [23]. Based on this method, Implicit-SINDy overcame the underlying model’s inability to handle implicit dynamics and rational fractions [24]. To address the extreme noise sensitivity introduced by this implicit extension, SINDy-PI constructs a parallelized convex optimization framework that achieves robust identification in high-noise environments [25]. Furthermore, ADAM-SINDy integrates continuous space optimization techniques to refine the accuracy of the representation of time-varying parameters within the system [26]. Another notable work is the equation learner (EQL), which replaces the activation functions of shallow neural networks with a custom library of mathematical operators. When combined with sparse regularization, EQL realizes end-to-end formula discovery within a predefined continuous hyperspace [27, 28]. The third approach advocates simplifying the search space. Instead of directly optimizing the searcher, this paradigm aims to reduce the problem’s complexity at its source. Pioneering work in this area is AI Feynman, 2which uses neural networks as detectors to recursively identify hidden structures in observational data, such as translational symmetry and separability [29]. The successor AI Feynman 2.0 analyzes the gradient properties during neural network training to reveal modular structures within the computational graph of formulas [30]. This strategy decomposes high-dimensional problems into multiple low-dimensional subspaces, which is highly effective in mitigating the NP-hard challenges induced by the curse of dimensionality. Integrating AI Feynman’s philosophy into hybrid frameworks like uDSR [12] fully validates the potential of combining dimensionality reduction with advanced search methods for SR. AI Feynman and its variants demonstrate that reducing the feature space can simplify the SR problem. Inspired by this, we investigate whether a complementary strategy can be designed to address the alternate root cause of SR’s NP-hardness: the combinatorial explosion of operators. This challenge is central to feature engineering and representation learning in SR. Historically, methods addressing this have relied on explicit module discovery, such as automatically defined functions [31] or recursive library learning, such as InceptionSR [32]. While effective for tasks with high structural reusability, these methods couple feature discovery with GP, resulting in substantial computational overhead and code inflation [33]. This coupling also renders the stability and quality of the discovered operators dependent on evolutionary search paths and the structural properties of the target equations [34]. We assume that many structurally complex symbolic expressions can be decomposed into combinations of simple features. For example, the expression search tree for the equation 𝑒 1+𝑥 (1−𝑥 ) − 𝑒 𝑦 𝑥 𝑒 1+𝑥 +𝑒 𝑦 has high topological complexity and depth (Figure 1). However, identifying valid features (e.g., 𝑥 − 𝑦 , 𝑒 𝑥 , 𝑒 𝑦 , and 𝑒 𝑥 −𝑦 )from observational data shortens the tree into a shallower, simpler structure. We define valid features as data-derived features that reduce the depth of the target symbolic expression tree, thereby allowing complex topologies to be substituted with streamlined representations. Extracting valid features frees the following search algorithm from reconstructing an equation over a vast vocabulary of atomic operators (e.g., 
+
+(·) 2, sin (·) , cos (·) , exp (·) , +, ×) that requires high computational resources. Instead, the search is conducted within an optimized feature space that allows for the efficient recovery of equations’ structures. Function 
+
+Figure 1: Illustration of expression tree simplification via effective feature extraction . This figure compares the structural complexity of the expression tree—measured by the total number of nodes (symbols)—required to represent the target symbolic expression 𝑒 1+𝑥 (1−𝑥 ) − 𝑒 𝑦 𝑥 𝑒 1+𝑥 +𝑒 𝑦 under the progressive introduction of different effective features. When relying exclusively on the raw input variables 𝑥 and 𝑦 (leftmost), the representation necessitates a 14-node tree structure. Introducing the simple feature 𝑥 − 𝑦 reduces the tree complexity to 13 nodes. Further incorporating the nonlinear features 
+
+𝑒 𝑥 and 𝑒 𝑦 , which are highly structurally aligned with the target expression, decreases the node count to 11. Finally, supplying the highly relevant composite feature 𝑒 𝑥 −𝑦 (rightmost) yields the most compact representation, requiring only 9 nodes. 
+
+3Here, we demonstrate that FePySR outperforms existing methods in symbolic expression recovery across several benchmarks. When the complexity of the target equation makes exact recovery impossible, integrating relevant features results in symbolic expressions with lower mean squared error (MSE) than state-of-the-art (SOTA) models. Furthermore, the feature extraction step provides heuristic guidance, even when the extracted features are not exact constituents of the target equation. Features that share structural similarity with valid features steer the search toward promising regions of the expression space. This establishes favorable initial conditions for SR solvers to convergence to the exact solution. Taken together, this feature extraction framework offers the complementary benefits of improved approximation accuracy and heuristic guidance for SR. Its integration with existing SR solvers, such as PySR, establishes a generalizable paradigm for complex SR tasks. 42 Method 
+
+We propose FePySR, a two-stage SR framework. The framework first employs a feature mapping network (FMN) to extract highly expressive nonlinear features from observational data. This streamlines the search space for downstream SR. Next, the data and the identified valid features are concatenated to form a feature representation. This enriched representation is then fed into the PySR solver, which efficiently reconstructs the target symbolic expression within an optimized search space (Figure 2). 
+
+2.1 FMN’s architecture 
+
+In inspired by EQL [27, 28], we develop the proposed FMN that significantly extends the EQL architecture. Conventional EQL networks employ a multi-layer feedforward topology wherein successive layers are mapped via fully connected linear transformations ( ℎ𝑖 = 𝑊 𝑖 𝑦 𝑖 −1). Each layer’s activation function 𝑓 (·) is composed of a predefined library of mathematical primitives (e.g., 𝑖𝑑, (·) 2, sin (·) , ×), thereby projecting the linear combinations into symbolic outputs 𝑦 𝑖 = 𝑓 (ℎ𝑖 ). In this paradigm, information propagates forward through dense linear mappings, with the goal of directly inducing a complete SR via weight sparsification. However, this architecture faces significant challenges in practice. Shallow networks often have limited nonlinear expressivity due to restricted operator combinations. Deep networks, on the other hand, are highly susceptible to severe gradient instabilities, such as exploding gradients, during training. Consequently, learning efficacy degrades, and the resulting symbolic expressions often become overly convoluted and lose physical meaning. To overcome the limitations inherent to EQL, we modify the training objective and architectural topology. Instead of forcing the network to produce a single, monolithic symbolic expression, we leverage its nonlinear approximation capabilities to learn and reconstruct relevant features that encapsulate the data’s intrinsic dynamics. To achieve this goal, we decompose the standard EQL layer into multiple parallel heterogeneous activation units (HAUs) and reorganize the information flow into a dense connectivity scheme similar to fully connected neural networks (Figure 2). In this architecture, the output of each layer is the concatenation of the results of the current layer’s HAU and all the original and derivative features from the preceding layers. This design transforms the process of learning a sparse path for a single formula into the continuous construction of a repository of relevant features through forward propagation. The FMN’s detailed workflow is elucidated below. 
+
+• HAU: Unlike standard neural networks, which use a uniform activation function (e.g., ReLU), each HAU is designed to perform a specific mathematical operation chosen from a predefined library of candidates. Depending on the required arity, the computation is categorized into unary operators (e.g., 
+
+(·) 2, sin (·) ) and binary operators (e.g., +, ×). Accordingly, it is expressed as: 
+
+𝑦 𝑖 𝑗 = 𝑓 𝑖 𝑗 (𝑊 𝑖 𝑗 𝑦 𝑖 −1) or 𝑦 𝑖 𝑗 = 𝑓 𝑖 𝑗 (𝑊 𝑖 𝑗 1 𝑦 𝑖 −1, 𝑊 𝑖 𝑗 2 𝑦 𝑖 −1)
+
+where 𝑦 𝑖 −1 denotes the output from the (𝑖 − 1)-th layer, and 𝑊 𝑖 𝑗 , 𝑊 𝑖 𝑗 1 , 𝑊 𝑖 𝑗 2 are the trainable weight matrices for the unary and binary HAUs. In contrast to standard transformations ( 𝑊𝑥 + 𝑏 ), the HAU omits the bias term 𝑏 . Here, 𝑓 𝑖 𝑗 and 𝑦 𝑖 𝑗 denote the specific mathematical operator and the resulting output of the 𝑗 -th HAU in the 𝑖 -th layer, respectively. 
+
+• Heterogeneous Layer: A heterogeneous layer is constructed by a parallel array of HAUs. To formulate the output of a hidden layer, we concatenate the outputs of the HAUs with the layer’s input. The output of the 𝑖 -th layer is expressed as: 
+
+𝑦 𝑖 = [𝑦 𝑖 −1, 𝑦 𝑖, 1, · · · , 𝑦 𝑖, 𝑗 ]
+
+• Regression Layer: The output layer of the network adopts a linear, fully connected structure. For an 5Heterogeneous 
+
+> Layer
+> Heterogeneous
+> Layer
+> Heterogeneous
+> Activation Unit
+> Heterogeneous
+> Layer
+> Regression
+> Layer
+> Hidden Layer
+
+Figure 2: Overall architecture of FMN . The architecture comprises an input layer, multiple heterogeneous hidden layers, and a regression layer. A heterogeneous activation unit (HAU) uses a specific mathematical primitive (e.g., 
+
+(·) 2, sin (·) , cos (·) , exp (·) , +, ×) as its activation function and learns optimal weights to approximate the target equation’s structural components. For simplicity, only four HAUs are presented. A heterogeneous layer is constructed by multiple HAUs arranged in parallel. Training is governed by a loss function including a joint objective integrating a standard squared loss ( L2), a sparsity penalty ( Lsparse ), and a contrastive loss ( Lcontrast ). 
+
+architecture comprising 𝐿 hidden layers, the final prediction is computed as: 
+
+ˆ𝑦 = 𝑦 𝐿 +1 = 𝑊 𝐿 +1 𝑦 𝐿 
+
+In FMN, each HAU contains a primitive including {(·) 2, sin (·) , cos (·) , exp (·) , +, ×} . It can be expanded to include nonlinearities such as log (·) , |(·)| , and √︁ (·) as dictated by task requirements. Furthermore, inspired by EQL, multiple HAUs are deployed within the same heterogeneous layer. This design reduces the model’s sensitivity to stochasticity in parameter initialization, promoting efficient optimization and mitigating the network’s tendency to converge to local optima. More details about the model’s configurations and hyperparameters are provided in Appendix A. 
+
+2.1.1 FePySR’s Loss Function 
+
+The loss function of FePySR has three terms accounting for a squared error, a sparsity penalty, and a contrastive loss, respectively. This loss function steers the model toward building a robust, highly relevant feature library while simultaneously maximizing approximation accuracy. The loss function L is defined as: 
+
+L = L2 + L sparse + L contrast ,
+
+where L2 quantifies the errors of FePySR’s predictions against the ground-truth equation’s solutions (i.e., the observational data). Lsparse is a term that enforces structural parsimony and enhances interpretability by pruning irrelevant features. Lcontrast is a term to prevent the functional collapse of symmetric binary operators during the training. The individual terms are described in detail as follows: 6• Squared Loss ( L2): This term measures the squared errors between the model’s prediction ˆ𝑦 and the target equation’s solutions 𝑦 , formalized as: 
+
+L2 = ( ˆ𝑦 − 𝑦 )2
+
+Minimizing this term during training can maximize the model’s prediction accuracy. 
+
+• Sparsity Regularization ( Lsparse ): To conduct feature selection during training, we impose an 𝐿 1
+
+sparsity penalty on the model weights, thereby suppressing the selection of irrelevant features. Unlike conventional regularization schemes, which require global network sparsity, this term is designed to reduce the weight of irrelevant features while maintaining valid ones. Specifically, the sparsity penalty of the weight matrix of the 𝑗 -th HAU in the 𝑖 -th layer as 𝑊 𝑖 𝑗 is computed as: 
+
+Lsparse = 𝜆 1∑︁ 𝑖, 𝑗 
+
+|𝑊 𝑖 𝑗 |,
+
+where 𝜆 1 = 0.08 is a regularization coefficient. This ensures that valid features drive the model training while suppressing the influence of irrelevant ones, thereby strengthening the reliability of feature selection without compromising the model’s prediction accuracy. 
+
+• Contrastive Loss ( Lcontrast ): It is known that that under unconstrained model training, the weights for the two branches of symmetric binary primitives (e.g., +, ×) often converge, leading to the failure of learning distinct features [35]. This pathological weight convergence causes severe functional collapse. For instance, an addition operator could degenerate into a simple scalar multiplier ( 𝑥 + 𝑥 = 2𝑥 ), and a multiplication operator could collapse into a squared function ( 𝑥 × 𝑥 = 𝑥 2). Such phenomenon limits the operator’s degrees of freedom, impairing the model’s ability to encompass a diverse, generalized nonlinear feature space. To avoid this, we introduce a contrastive penalty that minimizes the cosine similarity between the input branches, thereby preserving the specificity of binary operators. The corresponding loss is defined as: 
+
+Lcontrast = 𝜆 2 cos (𝑊 1, 𝑊 2) = 𝜆 2
+
+𝑊 ⊤ 
+
+> 1
+
+𝑊 2
+
+∥𝑊 1 ∥∥ 𝑊 2 ∥ ,
+
+where 𝑊 1 and 𝑊 2 represent the weight vectors of the two input branches, and 𝜆 2 = 0.001 governs the penalty magnitude. This effectively protects the model from operator degeneration, maintaining a rich and diverse set of features. 
+
+2.1.2 Stabilizing Model Training 
+
+A limitation of the EQL architecture is numerical instability, which intensifies with network depth. This instability arises from substituting standard activation functions with mathematical primitives that exhibit domain singularities, such as division, logarithms, and square roots. To overcome this challenge, we use a standard gradient descent optimizer coupled with unit-wise gradient normalization during the backpropaga-tion phase. FMN contains a repository of primitives, such as sin (·) , exp (·) , log (·) , that can induce different gradient scales during training. Consequently, primitives that generate large gradients dominate training, causing operators with smaller gradients to stagnate. Gradient normalization is therefore introduced during training to improve numerical stability, neutralizing gradient explosions and oscillations triggered by division or logarithmic operators near their singularities. This normalization strategy also ensures that all primitives receive comparable update opportunities within a fixed training period (e.g., 100 epochs), thereby accelerating an unbiased feature selection process. 7Heterogeneous  
+
+> Layer
+> Variable
+> Value
+> Library Variable
+> Value
+> PySR
+
+Figure 3: Illustration of the feature extraction process in FMN . Within heterogeneous layers, the feature correspond-ing to the term with the maximum absolute weight is first extracted. Subsequently, predefined formulas are applied to the extracted features to obtain new features, constructing a feature library. Finally, the feature library together with the target equation’s observational data are fed into PySR for SR. 
+
+Although gradient normalization improves training robustness, scaling to deeper networks introduces an additional challenge: the superposition effect of nested exponential operations (( exp (·) ). During forward propagation, cascading activations through consecutive exponential units trigger exponential growth, leading to numerical overflow in deeper layers. In particular, a two-layer network remains numerically stable, whereas a three-layer topology overflows within a few training epochs and a four-layer variant encounters numerical exceptions during the initial forward computation. To address this, a mask-based structural constraint is introduced for exponential HAUs. This mechanism sets the corresponding weights to zero when the input to an exponential HAU originates directly from the output of a preceding exponential operation, truncating the propagation of numerical overflow through consecutive exponential units. Importantly, this strategy does not eliminate exponential operations, but it removes the exponential superposition structures. This constraint eliminates numerical overflow in deep layers to improve the stability of model training. 
+
+2.1.3 Model Training and Feature Extraction 
+
+Given the observational data (i.e., a target equation’s solution), we optimize the FMN by minimizing the loss function defined as: 
+
+𝑊 ∗ = arg min  
+
+> 𝑊
+
+L = arg min  
+
+> 𝑊
+
+(L 2 + L sparse + L contrast )
+
+After training (e.g., 100 epochs), the model weights 𝑊 ∗ are fixed. Starting with the initial heterogeneous layer, we derive a candidate feature for each HAU by applying its assigned mathematical primitive to the input feature with the highest absolute weight. As shown in Figure 3, for the 𝑗 -th HAU in the 𝑖 -th layer, the feature extracted is defined as follows: 
+
+ℎ∗ = arg max  
+
+> ℎ∈ { 1,2,...,𝑛 𝑙 }
+
+|𝑊 ℎ𝑖, 𝑗 |, 𝑊 𝑖, 𝑗 = [𝑊 1 
+
+> 𝑖, 𝑗
+
+, 𝑊 2 
+
+> 𝑖, 𝑗
+
+, . . . , 𝑊 𝑛 𝑙  
+
+> 𝑖, 𝑗
+
+]
+
+𝜙 𝑖, 𝑗 = 𝑓 𝑖, 𝑗 (Φℎ∗
+
+> 𝑖 −1
+
+), Φ𝑖 −1 = [Φ𝑖 −2, 𝜙 𝑖 −1,1, 𝜙 𝑖 −1,2, · · · , 𝜙 𝑖 −1,𝑛 ]
+
+where 𝑊 𝑖, 𝑗 denotes the weight vector of the 𝑗 -th HAU in the 𝑖 -th layer, ℎ∗ is the index of the dominant weight, Φ𝑖 −1 denotes the cumulative feature representation up to layer 𝑖 − 1, and 𝑓 𝑖, 𝑗 represents the activation function of the HAU. Following the dense-connection paradigm, the cumulative feature set for the 𝑖 -th layer is constructed by concatenating the features accumulated up to the (𝑖 − 1)-th layer with the features extracted in the 𝑖 -th layer: 
+
+Φ𝑖 = [Φ𝑖 −1, 𝜙 𝑖, 1, 𝜙 𝑖, 2, · · · , 𝜙 𝑖,𝑛 ]
+
+8Iterating this protocol through to the last layer yields a candidate feature set for a single training run. We build a feature library using candidate features from multiple independent training runs. Then, we use the SymPy library to simplify all extracted features algebraically into their most parsimonious canonical forms . This allows us to accurately count the number of times structurally identical features occur. We then rank the unique features by their cumulative frequencies, identify the top-ranked features, and evaluate their numerical outputs over the input domain. Finally, we concatenate these extracted features with the observational data to construct an enriched representation, thereby completing the first-stage feature extraction (Algorithm 1). In the second stage, we deploy PySR to perform structural search on this FMN-derived enriched representation, ultimately identifying the target symbolic expression (see Appendix A2). 
+
+Algorithm 1 FMN 
+
+Require: Original dataset D = {𝑥, 𝑦 }, Network depth 𝐿 , Epochs 𝐸 
+
+Ensure: Set of generated features Φ 
+
+> 1:
+
+Initialize network weights 𝑤 ⊲ Phase 1: Tranining FMN  
+
+> 2:
+
+for 𝑒 = 1 to 𝐸 do  
+
+> 3:
+
+L ← L 2 + L 𝑠 𝑝𝑎𝑟 𝑠𝑒 + L 𝑐𝑜𝑛𝑡𝑟 𝑎𝑠𝑡  
+
+> 4:
+
+Update 𝑊 ← 𝑊 − 𝜂 ∇𝑊 L∥ ∇ 𝑊 L ∥ 2+𝜖 ⊲ Minimize combined loss  
+
+> 5:
+
+end for  
+
+> 6:
+
+Fix optimal parameters 𝑊  
+
+> 7: 8:
+
+Initialize feature pool Φ0 ← ∅ ⊲ Phase 2: Layer-wise Feature Generation  
+
+> 9:
+
+for layer 𝑖 = 1 to 𝐿 do  
+
+> 10:
+
+S𝑖 ← ∅ ⊲ Temp storage for layer 𝑖  
+
+> 11:
+
+for unit 𝑗 = 1 to 𝑁 𝑢𝑛𝑖𝑡 𝑠 do  
+
+> 12:
+
+Get weights 𝑊 𝑖, 𝑗 = [𝑊 1 
+
+> 𝑖, 𝑗
+
+, . . . , 𝑊 𝑛 𝑙  
+
+> 𝑖, 𝑗
+
+] 
+
+> 13:
+
+ℎ∗ ← arg max 𝑘 |𝑊 𝑘 𝑖, 𝑗 | ⊲ Select most influential input index  
+
+> 14:
+
+𝜙 𝑖𝑛 𝑝𝑢𝑡 ← Φℎ∗ 
+
+> 𝑖 −1
+
+⊲ Retrieve feature at index ℎ∗ 
+
+> 15:
+
+𝜙 𝑖, 𝑗 ← 𝑓 𝑖, 𝑗 (𝜙 𝑖𝑛 𝑝𝑢𝑡 ) ⊲ Apply activation function  
+
+> 16:
+
+S𝑖 ← S 𝑖 ∪ { 𝜙 𝑖, 𝑗 } 
+
+> 17:
+
+end for  
+
+> 18:
+
+Φ𝑖 ← [ Φ𝑖 −1, S𝑖 ] ⊲ Residual connection: stack features  
+
+> 19:
+
+end for  
+
+> 20:
+
+return Φ(Φ𝐿 )
+
+93 Results 
+
+To comprehensively evaluate the performance of FePySR, we first conduct a systematic benchmarking against SOTA models using five SR datasets including Nguyen [36], Livermore [11], Jin [37], Constant [37], and R [38]. The results demonstrate that FePySR accurately recovers the majority of the equations in the datasets (Sections 3.1). To further evaluate FePySR, an LLM-generated benchmark containing 75 complex equations is introduced (Section 3.2). Performance is assessed along two primary metrics. (I) Symbolic Recovery Accuracy: the recovery rate of FePySR is compared against two baseline models, PySR and DSO. (II) Approximation Fidelity: the minimum mean squared error (MSE) achieved by FePySR is compared against that of PySR under equivalent computational settings. FePySR outperforms both baselines on both metrics. Further analysis demonstrates the effectiveness of FePySR in identifying relevant features for SR and its robustness to noise. Finally, to assess the practical applicability of FePySR, we apply it to ordinary differential equations (ODEs) governing the dynamics of biological regulatory networks [39] (Section 3.3). FePySR recovers the underly-ing mathematical structures responsible for bistability in gene expression directly from observational data, achieving a success rate of 24% where PySR recovers none. This result demonstrates the capacity of FePySR to identify governing equations in complex, real-world biological systems. 
+
+3.1 Standard Benchmark Evaluations 
+
+We compare FePySR wtih SOTA models using five SR datasets such as Nguyen (and its variants), Livermore, Jin, Constant, and R. We evaluate their performance using symbolic recovery accuracy, defined as the proportion of trails in which the discovered expression is mathematically equivalent to the ground-truth equation (e.g., (𝑥 + 1)2 is considered semantically identical to 𝑥 2 + 2𝑥 + 1). To mitigate the variance induced by stochastic optimization, we perform 100 independent trials for each mathematical expression. The results show that, compared to NGGP, DSR, PySR, PQT, and Eureqa using the Nguyen equations, FePySR achieves a 6.4%-23.7% improvement in the overall recovery rate (Table 1). Interestingly, Nguyen-12 and Nguyen-2 have similar structures, but the SOTA models perform differently. While almost all SOTA models achieve a 100% recovery rate on Nguyen-2, they fail completely on Nguyen-12, achieving a 0% recovery rate. Further analysis of the equations yields two explanations. First, Nguyen-12 is a bivariate equation, which has a larger search space than the univariate equation Nguyen-2. Second, an examination of the search trajectories shows that the SOTA models converge on the nested, factorized form of Nguyen-2 (i.e., 𝑥 (𝑥 (𝑥 (𝑥 + 1) + 1) + 1)), which has only 13 symbolic tokens. In contrast, the factorized form of Nguyen-12 is 𝑥 · 𝑥 · 𝑥 · ( 𝑥 − 1) + 0.5 · 𝑦 · 𝑦 − 𝑦 , which entails 17 tokens. This elevated structural complexity results in a bottleneck for symbolic searching by the SOTA models. In contrast, FePySR’s feature extraction stage successfully identifies 𝑥 2 and 𝑦 2 as valid nonlinear features. This allows Nguyen-12 to be condensed into 𝑥 2 (𝑥 2 − 𝑥 ) + 0.5𝑦 2 − 𝑦 , reducing the symbolic tokens to 11. Consequently, although the input features increase during the symbolic search with PySR, the reduction in the depth of the symbol search tree fundamentally simplifies the search space. This ultimately enables the exact recovery of Nguyen-12. Furthermore, we compare FePySR with NGGP [11], PySR [7], GEGL [39], and DSR [9] using the Nguyen, R, and Livermore datasets. It is worth noting that both NGGP and GEGL are advanced models with hybrid recurrent neural networks and GP. Our results show that, on average, FePySR outperforms these models by increasing the recovery rate by between 6.19% and 50.70% across all three datasets (Table 2). Moreover, FePySR outperforms PySR on four other datasets and increases the recovery rate by an average of 19.18% (Table 2). 10 Table 1: Recovery rate comparison between FePySR and other models on the Nguyen dataset. We test each equation 100 times for FePySR and PySR. The other models’ statistics are taken from their papers. 
+
+Benchmark Expression FePySR NGGP DSR PySR PQT Eureqa 
+
+Nguyen-1 𝑥 3 +𝑥 2 +𝑥 100% 100% 100% 100% 100% 100% Nguyen-2 𝑥 4 +𝑥 3 +𝑥 2 +𝑥 100% 100% 100% 100% 99% 100% Nguyen-3 𝑥 5 +𝑥 4 +𝑥 3 +𝑥 2 +𝑥 78% 100% 100% 52% 86% 95% Nguyen-4 𝑥 6 +𝑥 5 +𝑥 4 +𝑥 3 +𝑥 2 +𝑥 100% 100% 100% 62% 93% 70% Nguyen-5 sin (𝑥 2) cos (𝑥 ) − 1 100% 100% 72% 92% 73% 73% Nguyen-6 sin (𝑥 ) + sin (𝑥 +𝑥 2) 100% 100% 100% 100% 98% 100% Nguyen-7 log (𝑥 +1) + log (𝑥 2 +1) 100% 97% 35% 19% 41% 85% Nguyen-8 √𝑥 100% 100% 96% 100% 21% 0% Nguyen-9 sin (𝑥 ) + sin (𝑦 2) 100% 100% 100% 100% 100% 100% Nguyen-10 2 sin (𝑥 ) cos (𝑦 ) 100% 100% 100% 100% 91% 64% Nguyen-11 𝑥 𝑦 100% 100% 100% 99% 100% 100% Nguyen-12 𝑥 4 −𝑥 3 + 12 𝑦 2 −𝑦 95% 0% 0% 0% 0% 0% Average 97.8% 91.4% 83.6% 77.0% 75.2% 73.9% 
+
+Table 2: Recovery rate comparison between FePySR and other models on the Nguyen, Livermore, and R datasets. . We test each equation 100 times for FePySR and PySR. The other models’ statistics are taken from their papers. Recovery rates for individual equations are reported in Table A2 of Appendix B.1. Recovery rate (%) Nguyen Livermore R ALL 
+
+FePySR 97.75 77.45 41.33 81.11 
+
+NGGP [11] 92.33 71.09 33.33 74.92 PySR [7] 77.00 67.36 34.67 70.46 GEGL [40] 86.00 56.36 33.33 64.11 DSR [9] 45.19 83.58 0.00 30.41 
+
+Table 3: Recovery rate comparison between FePySR and PySR on the Nguyen’, Jin, Constant datasets. We test each equation 100 times for both methods. Recovery rates for individual equations are reported in Table A2 of Appendix B.1. Recovery rate (%) Nguyen’ Jin Costant ALL 
+
+FePySR 89.67 87.00 91.38 89.55 
+
+PySR [7] 76.33 76.17 88.50 81.15 
+
+Overall, FePySR achieves high equation recovery rates across standard benchmarks, showing top perfor-mance on multiple challenging test cases. This suggests that constructing a refined feature space prior to symbolic search is an effective strategy for reducing structural complexity and improving recovery of complex mathematical expressions.Comprehensive independent results, including evaluations on additional datasets, are detailed in Appendix B.1. 
+
+3.2 Model Evaluation on Synthesized Benchmarks 
+
+We present a synthetic dataset consisting of complex expressions generated by LLMs. The dataset spans a broad spectrum of equations to emulate the intricate modeling challenges in physics and mathematics. The dataset includes equations ranging from univariate to quadvariate. Importantly, it goes beyond standard poly-11 nomial forms by incorporating a wide range of nonlinear dynamics governed by trigonometric, exponential, logarithmic, and hyperbolic functions. To rigorously test the capacity of FePySR, we increase the structural complexity of the target equations. We achieve this by incorporating deep operator nesting (e.g., sin (cos (𝑥 ) + tan (𝑦𝑧 )) ), highly convoluted rational fractions (e.g., 𝑥 2 −𝑦 2     
+
+> sin 2(𝜋 𝑥 ) − cos 2(𝜋 𝑦 )
+
+), and discontinuous piecewise functions. In total, we generate 75 complex equations. We divide these equations into two groups based on recovery outcomes: recoverable (Table A3) and unrecoverable (Table A10). For the 36 recoverable equations, we use the recovery rate to compare FePySR with PySR and DSO. Due to their ultra-complex structure, the unrecoverable 39 equations fail all models. Thus, we compare their minimum MSE over 100 runs. By comparing the minimum MSE of FePySR and PySR, we quantitatively assess their proficiency in navigating highly non-convex search spaces and converging on optimal functional approximations. 
+
+3.2.1 Recovery Rate Analysis 
+
+Here, we present the comparison results for the 36 recoverable equations using FePySR, PySR, and DSO (Table A3). With an average recovery rate of 85.78%, FePySR significantly outperforms baseline models, including PySR (20.24%) and DSO (36.11%) (Table 4). Notably, FePySR’s superior performance is largely due to high recovery rates on some equations. In these equations, FePySR effectively learns essential nonlinear features that correspond to the intrinsic structure of the target equations. This feature extraction function reduces the time for the subsequent feature searching and also enables near 100% recovery rates in some cases where PySR and DSO fail (Table A4). 
+
+Table 4: Comparison of FePySR, PySR, and DSO on recoverable equations. We test each equation 100 times. 
+
+Expression FePySR PySR DSO Expression FePySR PySR DSO 
+
+𝑥 6 +𝑥 5 +𝑥 4 +𝑥 3 +𝑥 2 +𝑥 100% 76.8% 100% 𝑥 6 +2𝑥 5 +3𝑥 4 +4𝑥 3 +𝑥 2 +𝑥 98% 0% 100% 
+
+𝑥 6 +0.5𝑥 5 +0.7𝑥 4 +3𝑥 3 +5𝑥 2 +𝑥 14% 0% 100% Í9 
+
+> 𝑖 =1
+
+𝑥 𝑖 100% 0% 100% 
+
+sin (𝑥 2)cos (𝑥 ) + sin (𝑥 ) + sin (𝑥 4+𝑥 2) 98% 57% 0% 𝑥 𝑦    
+
+> exp (𝑥 )+ sin (𝑦 )2
+
+100% 0% 0% 
+
+2𝑥 4 +2𝑦 4−6𝑥 2 𝑦 2 100% 32% 100% 𝑥 5 +3𝑥 3 𝑦 2−𝑥 2 𝑦 3 +𝑦 5 49% 0% 100% 
+
+𝑒 𝑥 2+sin ( 𝑦 ) 100% 100% 100% 𝑥 3 +𝑥 2 +𝑥 +sin (𝑥 ) + sin (𝑦 2) 100% 100% 100% 
+
+𝑥 4 𝑦 −𝑥 3 +0.5𝑦 2 cos (𝑥 ) − 𝑥 100% 87% 0% 𝑥 4 𝑦 −𝑥 3 +0.5𝑦 2 sin (𝑥 ) − 𝑥 100% 0% 0% 
+
+𝑥𝑦𝑡𝑎𝑛ℎ (𝑥 +𝑦 ) 99% 0% 0% cos (𝑦 2) sin (𝑥 ) − 1+√︁ 𝑥 2 +𝑦 2 +1 94% 0% 0% 
+
+cos (𝑥𝑦 ) cos (𝑦 ) − 1+√︁ 𝑥 2 +𝑦 2 +1 39% 0% 0% exp (1+𝑥 ) (1−𝑥 )− exp 𝑦 𝑥   
+
+> exp (1+𝑥 )+exp 𝑦
+
+99% 9% 0%      
+
+> 𝑒 𝑥 sin (𝑦 )− 𝑒 𝑦 cos (𝑥 )
+> 𝑥 𝑦
+
+7% 0% 0% 𝑒 𝑥 cos ( 𝑦 )− 𝑒 𝑦 sin ( 𝑥 ) 
+
+> 𝑥 𝑦
+
+99% 0% 0% 
+
+𝑒 −0.5(sin 2 ( 𝑥 )+ cos 2 ( 𝑦 ) ) cos (𝑥𝑦 ) 24% 18% 0% sin 
+
+
+
+𝑥 +𝑒 −𝑦 2 
+
+−cos 
+
+
+
+𝑦 −𝑒 −𝑥 2 
+
+39% 12% 0% 
+
+𝑥 4 +𝑦 2 𝑧 2 −𝑥 2 𝑧 2 +𝑦 4 100% 0% 100% 𝑥 5 −𝑦 4 𝑧 +𝑧 3𝑥 2 −𝑥𝑦𝑧 −𝑥 +𝑦 100% 0% 100% 
+
+𝑒 𝑠𝑖𝑛 ( 𝑥 ) 𝑦 3 +cos (𝑒 𝑧 ) 100% 100% 0% 2(𝑥 2 +𝑦 2) sin (𝑧 ) + 𝑥 exp (𝑥 +𝑦 ) 100% 0% 0% 
+
+0.5 sin (𝑥 +𝑦 )𝑧 4 +𝑥 2 𝑦 3 𝑧 99% 80% 0% √𝑧 4 +1 cos (𝑦 +𝑒 𝑥 ) 81% 7% 0% 
+
+𝑥 4 𝑦 +𝑦 2 𝑧 3 sin (𝑧 ) + 𝑥𝑧 4 82% 0% 0% 𝑥 3 𝑦 5 +cos (𝑧 2) ∗ 𝑦 −𝑒 𝑥𝑧 100% 0% 0% 
+
+𝑧 4 cos (𝑥 )𝑒 sin ( 𝑦 ) +𝑥𝑒 𝑦 +𝑧 88% 34% 0% 0.5 sin (𝑥 )𝑧 4 +𝑥 2 𝑦 3 𝑧 55% 0% 0% 
+
+0.9(𝑥 2 +𝑦 2) sin (3𝑧 +2𝑥 ) + 𝑥𝑒 𝑥 −𝑦 85% 0% 0% (𝑧 2 +1)/( 𝑒 𝑥 +cos (𝑦 )2) 100% 14% 0% 
+
+(𝑧 2 +1)/( 𝑒 𝑦 +sin (𝑥 )2) 96% 2% 0% 𝑥 3 𝑦 −𝑦 3 𝑧 +𝑧 3 ℎ−ℎ3𝑥 +𝑥𝑦𝑧ℎ 62% 0% 100% 
+
+𝑥 4 +𝑦 4 −𝑧 4 −ℎ4 +𝑥 2 𝑧 2 81% 0% 100% 𝑥 5 −𝑦 4 +𝑧 3 −ℎ2 +𝑥𝑦𝑧ℎ 100% 0% 100% Average 85.78 % 20.24% 36.11% 
+
+3.2.2 Sensitivity to Feature Quantities 
+
+To investigate FePySR’s sensitivity to the extracted feature space, we vary the number of input features from four to nine and use them for equation recovery. The results show that increasing the number of input features 12 does not necessarily result in faster convergence of the loss trajectories (Figure A1) or fewer training epochs required for successful recovery (Figure A2). This can be explained by the varying number of valid features identified by FePySR (i.e., features that equal constituent terms in an equation) in the input features. For example, Recover-15 exhibits faster loss convergence and shorter SR runtime as the number of input features increases to six. This improvement is attributable to the additional valid feature introduced by the expanded feature set, which reduces the structural complexity of the downstream search. However, if the number of the identified valid features remains unchanged, then increasing the number of input features increase recovery time with an exception equation (Table A5). Particularly, the equation 𝑥 3 + 𝑥 2 + 𝑥 + sin (𝑥 ) + sin (𝑦 2) (Recover-10) defies this expectation. With five input features, FePySR achieves a 98% recovery rate and an average runtime of 39.8 seconds. Increasing the number of input features to six, despite the absence of additional valid features, increases the model’s success rate to 100% and reduces the average runtime to 30.9 seconds. The runtime is even shorter than the model that uses four input features. This is further corroborated by the model’s faster loss trajectory convergence (Figure 4a) and the smaller number of epochs required to recover the equation when the input feature is six (Figure 4b). To better understand this phenomenon, we analyze PySR’s selection process to identify the target equation, which is the second stage of FePySR. We find that, when the model introduces the sixth input feature sin (𝑦 ), it is frequently selected by PySR for SR. Although sin (𝑦 ) is an invalid feature and it cannot be used to reduce the depth of the expression tree of the Recover-10 equation, its structure is similar to the valid feature sin (𝑦 2), suggesting that it has a guidance function for SR at the second stage. Specifically, PySR uses a Pareto front that evaluates the MSE and complexity of candidate equations over iterations to reproduce the input data (i.e., the target equation’s solutions). Since sin (𝑦 ) is a partial approximation of the value of sin (𝑦 2), candidate equations that include sin (𝑦 ) (e.g., 𝑥 3 + 𝑥 2 + 𝑥 + sin (𝑥 ) + sin (𝑦 )) yield significantly smaller MSEs than those that contain other structurally irrelevant features (e.g., 𝑒 𝑥 or log (𝑦 )). As PySR uses GP to process candidate equations, those producing smaller MSEs are more likely to be retained during the evolution (i.e., iteration). This guides PySR to search for a space containing relevant features (e.g., sin (·) ). Once sin (·) is found within PySR’s selection process, subsequent PySR operations (e.g., random substitution and exchanging of elements in candidate equations) can drive the search process to efficiently identify the target equation containing sin (𝑦 2).Taken together, structurally similar but invalid features can effectively guide the equation search process in PySR toward those with valid features. This shows that identifying relevant features in FePySR’s first stage can improve the model’s performance. 
+
+3.2.3 Noise Sensitivity Evaluation 
+
+To evaluate the generalization capability and robustness of FePySR, we design a series of noise-sensitivity experiments. Following the experimental protocol introduced in DSR [9], we add independent Gaussian noise N ( 0, 𝜎 ) into the dependent variable 𝑦 (i.e., the equation’s solutions). The standard deviation 𝜎 is scaled proportionally to the root mean square (RMS) of the training targets 𝑦 , formulated as 𝜎 = 𝛼 · RMS (𝑦 ),where 𝛼 is a coefficient that determines noise’s scale factor. To systematically assess the impact of noise on FMN’s performance on feature extract (i.e., FePySR’s first stage), we evaluate each dataset across multiple noise levels. Specifically, we set seven noise scale factors: 
+
+𝛼 ∈ { 0, 0.02 , 0.04 , 0.06 , 0.08 , 0.1, 0.2}. For each noise level, we run FMN 256 times utilizing 16 CPU cores for parallel computing. In each run, we find the top 10 most frequently extracted features and identify the valid ones by comparing them against the ground-truth equation. We use three metrics to quantify the robustness of FMN: EFR, which represents the model’s efficiency in identifying valid features; DCG-1, which represents the ranking of the identified valid features; and DCG-2, which represents the confidence of the identified valid features. 13 0 200 400 600 800 1000 1200       
+
+> Iterations (Step = 20)
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 10 1
+> 10 3
+> Loss (Log Scale)
+> Features num
+> 4 Features (2/4)
+> 5 Features (2/5)
+> 6 Features (2/6)
+> 7 Features (2/7)
+> 8 Features (2/8)
+> 9 Features (2/9)
+
+(a) 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features  
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> Iterations to Reach Minimum Loss
+
+(b) 
+
+Figure 4: FePySR performance on the Recover-10 equation across different feature counts. (a) Model loss over training epochs for feature counts ranging from four to nine selected for SR. The x-axis represents the training epoch, with the value in parentheses indicating the recording interval. (b) Distributions of training epochs required to successfully recover the target equation across different feature counts.The x-axis represents the number of selected top-n features. The y-axis represents the number of epochs required for the model to converge to the minimum MSE. Boxes represent the interquartile range (IQR; 25th, 50th, and 75th percentiles), orange lines denote the median, and circles indicate outliers. 
+
+• EFR : This metric measures the frequency of valid features among the top 10 results, reflecting FMN’s ability to filter out irrelevant, noisy terms. A higher EFR value indicates FMN’s stronger capability to identify valid features. 
+
+• DCG-1 : Inspired by the widely used discounted cumulative gain (DCG) metric in information retrieval [41], this metric evaluates the ranking of valid features. It operates under the assumption that all valid features are equally important, regardless of their extraction frequency. Thus, a higher rank yields a higher score. 
+
+• DCG-2 : This metric extends DCG-1 by incorporating frequency weighting. It posits that the greater the frequency of a valid feature, the greater the model’s confidence. Therefore, valid features that are frequently found and highly ranked receive greater weight. The metrics are defined as follows: EFR =
+
+Í10 
+
+𝑖 =1 Freq (𝑖 ) · I(𝑖 ∈ Valid )
+
+Í10 
+
+𝑗 =1 Freq ( 𝑗 ) ,
+
+DCG-1 =
+
+10 ∑︁ 
+
+𝑖 =1
+
+I(𝑖 ∈ Valid )
+
+log 2 (𝑖 + 1) ,
+
+DCG-2 =
+
+10 ∑︁ 
+
+𝑖 =1
+
+Freq (𝑖 ) · I(𝑖 ∈ Valid )
+
+log 2 (𝑖 + 1) ,
+
+where Freq (𝑖 ) denotes the frequency of the feature ranked at position 𝑖 , Valid represents the set of valid features, and I(·) is the indicator function, which equals 1 if the feature belongs to the valid feature set and 0
+
+otherwise. Detailed calculations of the metrics under each noise level are provided in Appendix B.2.3. 14 0.00 0.02 0.04 0.06 0.08 0.10 0.20              
+
+> 80
+> 60
+> 40
+> 20
+> 0
+> 20
+> 40
+> 60
+> 80
+> Relative Change in EFR (%)
+> EFR
+> Recover-1
+> Recover-4
+> Recover-5
+> Recover-7
+> Recover-10
+> Recover-12
+> Recover-14
+> Recover-15
+> Recover-21
+> Recover-22
+> Recover-30
+> Recover-34
+> 0.00 0.02 0.04 0.06 0.08 0.10 0.20
+> 80
+> 60
+> 40
+> 20
+> 0
+> 20
+> 40
+> 60
+> 80
+> Relative Change in DCG-1 (%)
+> DCG-1
+> 0.00 0.02 0.04 0.06 0.08 0.10 0.20
+> 80
+> 60
+> 40
+> 20
+> 0
+> 20
+> 40
+> 60
+> 80
+> Relative Change in DCG-2 (%)
+> DCG-2
+> Noise Level ( )
+
+Figure 5: FMN’s sensitivity to noises. The figure presents the normalized values of three evaluation metrics, namely EFR, DCG-1, and DCG-2, across noise levels ranging from 0.02 to 0.20 applied to the observational data. All values are normalized relative to the zero-noise baseline, where values above unity indicate improved feature extraction performance and values below unity indicate degraded performance. The raw data for drawing this plot found in Appendix B.2.3. Tables A6-A8 
+
+.The three metrics demonstrate that the FMN maintains stable feature selection capability under increasing noise conditions for most equations. Most show deviations of approximately 5% or less across all metrics and noise levels (Figure 5). The consistency across EFR, DCG-1, and DCG-2 indicates that the FMN’s feature selection mechanism is robust to input perturbations and irrelevant noisy inputs do not degrade its performance. Among the individual equations, Recover-22 exhibits consistent positive deviations across all three metrics as noise increases. Gains range from approximately 9% in EFR to 62% in DCG-1 and 36% in DCG-2 at the highest noise level. This pattern of convergence across metrics suggests that noise may systematically strengthen the relative prominence of valid features in this equation. Recover-1 exhibits an opposite pattern, demonstrating rapid and early degradation across DCG-1 and DCG-2. Declines of approximately 23.5% and 28%, respectively, emerge at the lowest non-zero noise level and persist throughout the entire noise range. Meanwhile, its EFR remains relatively stable. The divergence between the EFR and DCG metrics indicates that, although the quantity of selected features remains intact, their ranking quality and associated confidence deteriorate substantially, even under minimal noise. Recover-21 exhibits the most inconsistent behavior across all three metrics, combining a pronounced negative EFR trend with highly volatile DCG-2 values that rise sharply at intermediate noise levels before collapsing at the highest noise level, and a similarly unstable DCG-1 trajectory. This instability across metrics suggests that Recover-21’s feature selection process is structurally sensitive to noise, affecting both selection quality and confidence. FMN’s robustness stems from the statistical aggregation effect. As we use multiple random initializations and independent training, the noise perturbations captured by the FMN behave in a stochastic and nonsystem-atic manner. Unlike underlying analytical structures, random noise lacks persistent mathematical patterns. Therefore, it is unable to systematically bias operator-level selections across diverse training trajectories. This mechanism operates like a filter, separating random numerical fluctuations from signals of symbolic expressions. It also explains why the performance of certain equations degrades under high noise conditions. For example, the filter reduces the extraction of valid features with weak signals in Recover-1 and Recover-30. This degrades their index values as the noise level increases. However, these structural advantages at the first stage do not fully translate into the final recovery rate of the target expressions. We find that even under mild noise conditions, the overall success rate of reconstructing the target equation drops to zero (Table A9). This indicates that the noise robustness of FePySR is primarily limited by its second stage, which employs PySR for symbolic regression. It is well established that SR methods encounter difficulty in recovering symbolic 15 expressions from noisy data. Several approaches have been proposed to address this limitation [42, 43]. Because the second stage minimizes pointwise errors on individual noisy datasets, the search process is susceptible to overfitting random fluctuations, thereby diverting the evolutionary search trajectory away from the true symbolic expression. Taken together, the results suggest functional decoupling in noise robustness between the first-stage feature extraction module and the second-stage SR module of FePySR. 
+
+3.2.4 Model Fitting on Unrecovered Equations 
+
+In theory, with unlimited computational resources, our framework can use SR methods like PySR and DSO to recover mathematical equations of any complexity. In real-world scenarios, however, the utility of any SR method is limited by finite computational resources, such as search time and the total number of equations to be evaluated. It is important to note that the differences in the core algorithms and search strategies between FePySR and DSO make it highly challenging to conduct a fair comparison under identical resource constraints (e.g., fixed runtime or evaluation counts), as any standard metric may introduce an inherent bias toward a specific approach. To avoid this unquantifiable bias and ensure a rigorous evaluation, we focus on a comparative analysis with PySR. To evaluate both methods, we performed 50 tests for each equation using 39 high-complexity equations synthesized by LLMs (Table A10). We then compare the minimum MSE achieved across all tests (Figure 6). The results show that FePySR achieves a lower minimum MSE in 87.2% of the tests, whereas PySR outperforms FePySR in only 12.8% of the instances. A closer inspection of the error ratios reveals FePySR’s advantage in approximating the equations’ solutions. Of the 32 cases in which FePySR is superior, 13 have an error ratio of < 0.5 than PySR. Three of these cases have an improvement in tenfold (error ratio < 0.1)with the minimum error ratio of 2.79 × 10 −5 (Unrecover-9). Conversely, of the seven cases in which PySR is superior, only one has a relative performance margin greater than twofold (error ratio > 2.14 ; Unrecover-3). Taken together, these findings suggest that, although FePySR cannot discover the exact equations with high complexities, it is more effective than PySR at approximating the equations’ solutions. 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39                                                        
+
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> 3×10 3
+> 1×10 32×10 22×10 2
+> 1×10 1
+> 3×10 4
+> 1×10 5
+> 1×10 4
+> 6×10 9
+> 3×10 5
+> 5×10 5
+> 1×10 42×10 1
+> 7×10 38×10 3
+> 3×10 2
+> 5×10 5
+> 6×10 3
+> 1×10 4
+> 4×10 19×10 4
+> 4×10 23×10 29×10 4
+> 6×10 4
+> 9×10 1
+> 4×10 16×10 34×10 1
+> 2×10 21×10 4
+> 3×10 3
+> 2×10 3
+> 1×10 2
+> 1×10 2
+> 4×10 3
+> 4×10 35×10 24×10 1
+> PySR is Better
+> FePySR is Better
+
+Figure 6: MSE comparison between FePySR and PySR for unrecoverable equations . The y-axis represents the error ratio (FePySR/PySR) and the x-axis indicates the expression index. Blue bars denote cases where FePySR achieves a lower MSE than PySR, and orange bars denote the reverse. Numerical values above each bar indicate the MSE of FePySR. 
+
+3.3 Case Study: Modeling Biochemical Dynamics 
+
+Tyson et al. proposes an ODE model to study the dynamics of biological networks [39]. This formalism characterizes a regulatory system between two proteins (represented by 𝑋 1, 𝑋 2) whose expression dynamics are driven by an external stimulus 𝑆 . The proteins’ temporal dynamics are dictated by the nonlinear balance 16 between an activation term (the rate equation 𝐴 ) and an inhibition term (the rate equation 𝐵 ). These rate equations use exponential function, where the interaction strengths are governed by an activation coefficient 
+
+𝛼 and an inhibition coefficient 𝛽 , respectively, while a parameter 𝜎 modulates the steepness of the response function. By adjusting these parameters’ values, the model can encode different network motifs, such as positive and negative feedback loops, which can result in bistability and oscillation in proteins’ expression levels [39]. This allows the model to serve as a theoretical basis for studying the relationship between network topology and gene expression dynamics. 
+
+𝑑𝑋 1
+
+𝑑𝑡 = 𝛾 1
+
+𝐴 1 (1 − 𝑋 1) − 𝐵 1 𝑋 1
+
+𝐴 1 + 𝐵 1
+
+𝑑𝑋 2
+
+𝑑𝑡 = 𝛾 2
+
+𝐴 2 (1 − 𝑋 2) − 𝐵 2 𝑋 2
+
+𝐴 2 + 𝐵 2
+
+𝐴 1 = exp {𝜎 (𝑆 + 𝑎 10 + 𝑎 12 𝑋 2)} 
+
+𝐵 1 = exp {𝜎 (𝛽 10 + 𝛽 12 𝑋 2)} 
+
+𝐴 2 = exp {𝜎 (𝑎 20 + 𝑎 21 𝑋 1)} 
+
+𝐵 2 = exp {𝜎 (𝛽 20 + 𝛽 21 𝑋 1)} 
+
+Here, we test FePySR’s ability to identify the governing equations from observational data, thereby exploring its efficacy in modeling complex biological systems. To do so, we configure the model to generate data with 
+
+𝜎 = 𝛾 1 = 𝛾 2 = 1, 𝛼 10 = −0.15 , 𝛼 12 = 0,𝛼 20 = −0.15 ,𝛼 21 = 0.5, 𝛽 10 = −0.4,𝛽 12 = 1,𝛽 20 = 0 and 𝛽 21 = 0.The external signal 𝑆 is partitioned into three piecewise regimes ( 0.05 , 0.5, and 0.25 ). For each segment, we sample 1000 data points over 20 seconds and the model shows protein expression levels caused by a stimulus signal (Figure 7). The objective is to reconstruct the differential equation governing 𝑑𝑋 1 
+
+> 𝑑𝑡
+
+as a function of the variables {𝑆, 𝑋 1, 𝑋 2}.
+
+𝑑𝑋 1
+
+𝑑𝑡 = 𝑒 𝑆 −0.15 (1 − 𝑋 1) − 𝑒 −0.4+𝑋 2 𝑋 1
+
+𝑒 𝑆 −0.15 + 𝑒 −0.4+𝑋 2
+
+𝑑𝑋 2
+
+𝑑𝑡 = 𝑒 −0.15 +0.5𝑋 1 (1 − 𝑋 2) − 𝑋 2
+
+𝑒 −0.15 +0.5𝑋 1 + 1
+
+Figure 7: Ground-truth equations and corresponding observational data for SR . (Left) ODEs governing a two-protein regulatory system ( 𝑋 1, 𝑋 2) driven by an external stimulus 𝑆 , initialized with specific parameter values. (Right) Time-series dynamics produced by the ODEs. The input signal 𝑆 drives the temporal evolution of 𝑋 1 and 𝑋 2, and the resulting time-series data serves as the observational data for evaluating the equation recovery performance of FePySR relative to PySR. 
+
+We compare the recovery performance of FePySR and PySR (Table 5). In 100 runs under identical settings, PySR completely fails to recover the true structure of the target equation. Its best result is a linear polynomial equation that yields a MSE of 1.23 × 10 −10 . In contrast, FePySR reconstructs the exact nonlinear dynamics in 24 out of 100 runs (e.g., 𝑑𝑋 1 
+
+> 𝑑𝑡
+
+= 𝑒 𝑆 (1−𝑋 1 ) − 0.779 𝑒 𝑋 2 𝑋 1  
+
+> 𝑒 𝑆 +0.779 𝑒 𝑋 2
+
+). Furthermore, FePySR achieves a much smaller MSE 17 of 7.04 × 10 −16 , demonstrating its superiority in recovering complex equations used to model biological systems. 
+
+Table 5: ODE recovery comparison between FePySR and PySR. For each method, the table reports the best recovered equation with structural similarity to the ground-truth, the recovery rate across 100 independent runs, and the minimum MSE across 100 independent runs. 
+
+FePySR PySR Best recovered equation 𝑑𝑋 1 
+
+> 𝑑𝑡
+
+= 𝑒 𝑆 (1−𝑋 1 ) − 0.779 𝑒 𝑋 2 𝑋 1  
+
+> 𝑒 𝑆 +0.779 𝑒 𝑋 2
+> 𝑑𝑋 1
+> 𝑑𝑡
+
+= −𝑋 1 − 0.249 𝑋 2 + 0.249 𝑆 + 0.562 
+
+Recover rate 24 /100 0/100 
+
+MSE 7.04 × 10 −16 1.23 × 10 −10 
+
+18 4 Discussion and Conclusion 
+
+Our work is grounded in the theoretical premise that SR is fundamentally an NP-hard problem. SR method development falls into three categories: efficient space exploration, constrained search, and search space simplification. Building on this premise, we introduce FePySR, an AI framework that falls into the space simplification category. It is a complement to dimensionality reduction methods, such as AI Feynman [29]. FePySR is a two-stage model that combines FMN (a feature extraction neural network) and PySR (a SR method that uses GP to reconstruct mathematical equations). In the first stage, neural networks perform targeted feature engineering, extracting critical latent nonlinear structures from the data and thereby optimizing the search space via dimensionality reduction. Next, the challenging task of structural discovery is reformulated as an evolutionary search over the features discovered in the first stage. Model evaluation shows that FePySR significantly outperforms existing SOTA methods on Nguyen, Livermore, R, Costant, and Jin datasets. For highly complex equations generated by LLMs, FePySR outperforms PySR and DSO by 49%–65% for recoverable equations and has smaller MSEs than PySR for most unrecoverable ones. Furthermore, our case study reveals that FePySR can recover complex ODEs of a biological system that is not achievable by PySR. These findings demonstrate FePySR’s ability to efficiently recover non-linear equations, even highly complex ones in biological systems. Though our results demonstrate the efficacy of FePySR in SR, the method has limitations. One such limitation is its limited capacity to handle constants. For example, when given the target equations sin (1.5𝑥 )
+
+and cos (0.5𝑦 ), the model can identify the base functions sin (𝑥 ) and cos (𝑦 ), but it struggles to resolve the constants because it lacks a dedicated constant optimization module. In the literature, PySR uses stochastic mutations within its genetic algorithm to iteratively approximate constants. By contrast, DSO and SymbolicGPT employ placeholders for constants in equations and perform gradient-based optimization to determine their exact values. However, adapting these approaches directly to the feature engineering stage in FePySR is challenging. Introducing learnable constants into FMN would fill the feature space with many invalid features, such as sin (1.11 𝑥 ) and sin (1.12 𝑥 ), which would obscure the identification of valid features and therefore undermine the model’s training efficiency. To resolve this issue, a possible solution is to use LLMs to maintain a dynamic feature library as demonstrated in LaSR [8]. This approach would leverage LLMs’ reasoning capability to prune invalid features and recommend novel candidates based on feedback from each SR iteration in PySR. Such a dynamic pruning and generation strategy would enhance the precision of feature space and therefore enable the identification of features with constants. In addition, FMN demonstrates robustness in identifying relevant features under noisy observational data. However, the integration of these features in the second stage does not prevent PySR from failing to recover the exact target equation when noise is present. This is consistent with the known limitation that SR methods generally struggle with noisy data, a challenge that has motivated several dedicated mitigation strategies in the literature [42, 43]. Future work could investigate the incorporation of noise-robust mechanisms into the second stage of FePySR, such as denoising preprocessing or noise-aware loss formulations, to improve end-to-end recovery performance under realistic data conditions. In conclusion, the feature space reconstruction strategy proposed in this work offers a new perspective for improving SR methods. Our work demonstrates the potential of combining deep neural networks and robust search algorithms to improve automated symbolic discovery in complex, high-dimensional settings. 19 5 Data Availability 
+
+FePySR is accessible at https://github.com/laixn/FePySR. 
+
+## 6 Author Contributions 
+
+ZY (Data curation [lead], Formal analysis [supporting], Methodology [equal], Software [lead], Visualization [equal], Writing—original draft [equal], Writing—review & editing [supporting]). WL (Funding acquisition [equal], Project administration [support], Resources [equal], Supervision [supporting], Writing—review & editing [supporting]). XL (Conceptualization [lead], Formal analysis [lead], Funding acquisition [equal], Investigation [lead], Methodology [equal], Project administration [Lead], Resources [equal], Software [sup-porting], Supervision [lead], Validation [lead], Visualization [equal], Writing—original draft [equal], Writ-ing—review & editing [lead]). 
+
+## 7 Acknowledgements 
+
+We are thankful for Julio R. Banga’s insightful discussion and feedback on our paper. XL is funded by the PROFI6 Health Data Science program at Tampere University. WL is partially supported by the National Key Research and Development Program of China (2024YFA1012600, 023YFA1009100), China NSF grant 12174310, and a Key Project of Joint Funds for Regional Innovation and Development (U21A20425), Zhejiang Provincial NSF Distinguished Youth Program (Extended Program LRG25A010001). 20 References 
+
+[1] Marco Virgolin and Solon P. Pissis. Symbolic regression is NP-hard. Transactions on Machine Learning Research , 2022. [2] Jinglu Song, Qiang Lu, Bozhou Tian, Jingwen Zhang, Jake Luo, and Zhiguang Wang. Prove symbolic regression is NP-hard by symbol graph. arXiv preprint arXiv:2404.13820 , 2024. [3] John R. Koza. Genetic programming 2 - automatic discovery of reusable programs . MIT Press, 1994. ISBN 978-0-262-11189-8. [4] Michael Schmidt and Hod Lipson. Distilling free-form natural laws from experimental data. Science ,324(5923):81–85, 2009. [5] William G. La Cava, Lee Spector, and Kourosh Danai. Epsilon-lexicase selection for regression. In 
+
+Genetic and Evolutionary Computation Conference , pages 741–748, 2016. [6] Marco Virgolin, Tanja Alderliesten, and Peter AN Bosman. Surrogate modeling for genetic program-ming by evolving model complexity. In Genetic Programming Theory and Practice XIV , pages 217–236, 2017. [7] Miles Cranmer. Interpretable machine learning for science with PySR and SymbolicRegression.jl. 
+
+arXiv preprint arXiv:2305.01582 , 2023. [8] Arya Grayeli, Atharva Sehgal, Omar Costilla-Reyes, Miles D. Cranmer, and Swarat Chaudhuri. Sym-bolic regression with a learned concept library. In Advances in Neural Information Processing Systems ,2024. [9] Brenden K. Petersen, Mikel Landajuela, T. Nathan Mundhenk, Cláudio Prata Santiago, Sookyung Kim, and Joanne Taery Kim. Deep symbolic regression: Recovering mathematical expressions from data via risk-seeking policy gradients. In International Conference on Learning Representations , 2021. [10] Mikel Landajuela, Brenden K. Petersen, Soo K. Kim, Claudio P. Santiago, Ruben Glatt, T. Nathan Mundhenk, Jacob F. Pettit, and Daniel M. Faissol. Improving exploration in policy gradient search: Application to symbolic optimization. In Mathematical Reasoning in General Artificial Intelligence Workshop , 2021. [11] Terrell Mundhenk, Mikel Landajuela, Ruben Glatt, Claudio P. Santiago, Daniel M. Faissol, and Bren-den K. Petersen. Symbolic regression via neural-guided genetic programming population seeding. In 
+
+Advances in Neural Information Processing Systems , volume 34, pages 24912–24923, 2021. [12] Mikel Landajuela, Chak Shing Lee, Jiachen Yang, Ruben Glatt, Cláudio P. Santiago, Ignacio Aravena, Terrell Nathan Mundhenk, Garrett Mulcahy, and Brenden K. Petersen. A unified framework for deep symbolic regression. In Advances in Neural Information Processing Systems , 2022. [13] Brenden K Petersen, Claudio Santiago, and Mikel Landajuela. Incorporating domain knowledge into neural-guided search via in situ priors and constraints. In International Conference on Machine Learn-ing . PMLR, 2021. [14] Jacob F. Pettit, Chak Shing Lee, Jiachen Yang, Alex Ho, Daniel M. Faissol, Brenden K. Petersen, and Mikel Landajuela. DisCo-DSO: Coupling discrete and continuous optimization for efficient generative design in hybrid spaces. In AAAI Conference on Artificial Intelligence , pages 27117–27125, 2025. 21 [15] Hengzhe Zhang and Aimin Zhou. RL-GEP: symbolic regression via gene expression programming and reinforcement learning. In International Joint Conference on Neural Networks , pages 1–8, 2021. [16] Luca Biggio, Tommaso Bendinelli, Alexander Neitz, Aurélien Lucchi, and Giambattista Parascandolo. Neural symbolic regression that scales. In International Conference on Machine Learning , pages 936–945, 2021. [17] Juho Lee, Yoonho Lee, Jungtaek Kim, Adam R. Kosiorek, Seungjin Choi, and Yee Whye Teh. Set transformer: A framework for attention-based permutation-invariant neural networks. In International Conference on Machine Learning , pages 3744–3753, 2019. [18] Wenqiang Li, Weijun Li, Linjun Sun, Min Wu, Lina Yu, Jingyi Liu, Yanjie Li, and Songsong Tian. Transformer-based model for symbolic regression via joint supervised learning. In International Con-ference on Learning Representations , 2023. [19] Mojtaba Valipour, Bowen You, Maysum Panju, and Ali Ghodsi. SymbolicGPT : A generative trans-former model for symbolic regression. arXiv preprint arXiv:2106.14131 , 2021. [20] Guillaume Lample and François Charton. Deep learning for symbolic mathematics. In International Conference on Learning Representations , 2020. [21] Pierre-Alexandre Kamienny, Stéphane d’Ascoli, Guillaume Lample, and François Charton. End-to-end symbolic regression with transformers. In Advances in Neural Information Processing Systems , 2022. [22] Yuan Tian, Wenqi Zhou, Michele Viscione, Hao Dong, David S. Kammer, and Olga Fink. Interac-tive symbolic regression with co-design mechanism through offline reinforcement learning. Nature Communications , 16(1):3930, 2025. [23] Steven L. Brunton, Joshua L. Proctor, and J. Nathan Kutz. Discovering governing equations from data by sparse identification of nonlinear dynamical systems. Proceedings of the National Academy of Sciences , 113(15):3932–3937, 2016. [24] Niall M. Mangan, Steven L. Brunton, Joshua L. Proctor, and J. Nathan Kutz. Inferring biological networks by sparse identification of nonlinear dynamics. IEEE Trans. Mol. Biol. Multi Scale Commun. ,2(1):52–63, 2016. [25] Kadierdan Kaheman, J Nathan Kutz, and Steven L Brunton. Sindy-pi: a robust algorithm for parallel implicit sparse identification of nonlinear dynamics. Proceedings of the Royal Society A , 476(2242): 20200279, 2020. [26] Siva Viknesh, Younes Tatari, Chase Christenson, and Amirhossein Arzani. Adam-sindy: An efficient optimization framework for parameterized nonlinear dynamical system identification. arXiv preprint arXiv:2410.16528 , 2024. [27] Subham S. Sahoo, Christoph H. Lampert, and Georg Martius. Learning equations for extrapolation and control. In International Conference on Machine Learning , pages 4439–4447, 2018. [28] Samuel Kim, Peter Y. Lu, Srijon Mukherjee, Michael Gilbert, Li Jing, Vladimir Ceperic, and Marin Sol-jacic. Integration of neural network-based symbolic regression in deep learning for scientific discovery. 
+
+IEEE Trans. Neural Networks Learn. Syst. , 32(9):4166–4177, 2021. [29] Silviu-Marian Udrescu and Max Tegmark. Ai feynman: A physics-inspired method for symbolic regression. Science Advances , 6(16):eaay2631, 2020. 22 [30] Silviu-Marian Udrescu, Andrew K. Tan, Jiahai Feng, Orisvaldo Neto, Tailin Wu, and Max Tegmark. AI feynman 2.0: Pareto-optimal symbolic regression exploiting graph modularity. In Advances in Neural Information Processing Systems , 2020. [31] John R. Koza. Genetic Programming: On the Programming of Computers by Means of Natural Selection . MIT Press, 1993. [32] Edward Gu, Simon Alford, Omar Costilla-Reyes, Miles Cranmer, and Kevin Ellis. InceptionSR: Recursive symbolic regression for equation synthesis. In AAAI Conference on Artificial Intelligence ,2025. [33] Marco Virgolin, Tanja Alderliesten, Arjan Bel, Cees Witteveen, and Peter A. N. Bosman. Symbolic regression and feature construction with GP-GOMEA applied to radiotherapy dose reconstruction of childhood cancer survivors. In Genetic and Evolutionary Computation Conference , pages 1395–1402, 2018. [34] Marco Virgolin, Tanja Alderliesten, Cees Witteveen, and Peter A. N. Bosman. Scalable genetic pro-gramming by gene-pool optimal mixing and input-space entropy-based building-block learning. In 
+
+Genetic and Evolutionary Computation Conference , pages 1041–1048, 2017. [35] Nitin Bansal, Xiaohan Chen, and Zhangyang Wang. Can we gain more from orthogonality regulariza-tions in training deep networks? Advances in Neural Information Processing Systems , 2018. [36] Nguyen Quang Uy, Nguyen Xuan Hoai, Michael O’Neill, Robert I. McKay, and Edgar Galván López. Semantically-based crossover in genetic programming: application to real-valued symbolic regression. 
+
+Genetic Programming and Evolvable Machines , 12(2):91–119, 2011. [37] Yanjie Li, Jingyi Liu, Min Wu, Lina Yu, Weijun Li, Xin Ning, Wenqiang Li, Meilan Hao, Yusong Deng, and Shu Wei. MMSR: symbolic regression is a multi-modal information fusion task. Inf. Fusion , 114: 102681, 2025. [38] Krzysztof Krawiec and Tomasz Pawlak. Approximating geometric crossover by semantic backpropa-gation. In Genetic and Evolutionary Computation Conference , pages 941–948, 2013. [39] John J. Tyson, Réka Albert, Albert Goldbeter, Peter Ruoff, and Jill C. Sible. Functional motifs in biochemical reaction networks. Annual Review of Physical Chemistry , 61:219–240, 2010. [40] Sungsoo Ahn, Junsu Kim, Hankook Lee, and Jinwoo Shin. Guiding deep molecular optimization with genetic exploration. In Advances in Neural Information Processing Systems , 2020. [41] Kalervo Järvelin and Jaana Kekäläinen. Cumulated gain-based evaluation of IR techniques. ACM Transactions on Information Systems , 20(4):422–446, 2002. [42] Patrick AK Reinbold, Logan M Kageorge, Michael F Schatz, and Roman O Grigoriev. Robust learn-ing from noisy, incomplete, high-dimensional experimental data via physically constrained symbolic regression. Nature communications , 12(1):3219, 2021. [43] Chenglu Sun, Shuo Shen, Wenzhi Tao, Deyi Xue, and Zixia Zhou. Noise-resilient symbolic regression with dynamic gating reinforcement learning. In Proceedings of the AAAI Conference on Artificial Intelligence , 2025. 23 Appendix 
+
+This appendix details the training configuration of the FePySR parameters, along with the training procedures applied to the benchmark datasets and additional expressions evaluated in the experiments. 
+
+## A Implementation of FePySR 
+
+FePySR operates in two sequential stages. In the first stage, FMN extracts nonlinear features from the observational data and concatenates them with the original inputs to form an augmented feature space. In the second stage, this augmented representation is passed to the PySR solver, which reconstructs the target symbolic expression within the reduced search space. The model parameters are shown in Table A1. 
+
+Table A1: FePySR Hyperparameters. FMN-par contains FMN’s hyperparameters such as batch size, learn-ing rate, and epochs used in the first. The fun-net defines the mathematical function set, defaulting to 
+
+{(·) 2, sin (·) , cos (·) , exp (·) , +, ×} . net-depth controls the neural network’s depth and is set to 3 layers for univari-ate and 4 layers for multivariate functions, respectively. Following configuration, the network is trained repeatedly in parallel, using random weight initializations for each run. num-experiments is the number of training runs, and num-workers is the number of parallel processes. pysr-num specifies the number of target features (default: 4) used for SR. After the first stage, all extracted features are aggregated, deduplicated with frequency counts, and sorted. The top selected features are concatenated with the original data for SR in the second stage. PySR performs sym-bolic regression on this enriched representation. Its default operators are divided into unary-operators (defaulting to 
+
+{sin (·) , cos (·) , exp (·) ,√︁ (·)} ) and binary-operators (defaulting to {× , +, −, /} ). The full pseudo-code of this process is detailed in Algorithm A2. 
+
+Category Parameter Default Value FMN-par batch size 50 learning rate 0.5 epoches 100 fun-net {(·) 2, sin (·) , cos (·) , exp (·) , +, ×} 
+
+net-depth 4Parallel-par num-experiments 16 num-workers 8Data-symbol-par pysr-num 4PySR-par unary-operators {sin (·) , cos (·) , exp (·) ,√︁ (·)} 
+
+binary-operators {× , +, −, /} 
+
+24 Algorithm A2 FePySR 
+
+Require: Original dataset D = {𝑥, 𝑦 }, Hyperparameters {Θ𝐹 𝑀 𝑁 , Θ𝑃 , Θ𝑆 }
+
+Ensure: Symbolic expression F 
+
+> 1:
+
+Extract parameters: {𝑏𝑠, 𝜂, 𝐸, 𝐿 } ← Θ𝐹 𝑀 𝑁 ⊲ Initialize FMN  
+
+> 2:
+
+Extract parallel settings: {𝑁 𝑒𝑥 𝑝 , 𝑁 𝑤 } ← Θ𝑃 ⊲ Initialize Parallelism  
+
+> 3:
+
+𝐾 ← Θ𝑆 ⊲ Target number of features  
+
+> 4:
+
+Φ ← ∅  
+
+> 5:
+
+for 𝑖 = 1 to 𝑁 𝑒𝑥 𝑝 do ⊲ Iterative Feature Extraction  
+
+> 6:
+
+Φ𝑖 = {𝜙 𝑖 1, 𝜙 𝑖 2, . . . } ← FMN (𝑥, 𝑦 ; Θ𝐹 𝑀 𝑁 ) ⊲ Extract features (Alg.1)  
+
+> 7:
+
+Φ ← Φ ∪ Φ𝑖 ⊲ Update candidate feature pool  
+
+> 8:
+
+end for  
+
+> 9:
+
+Φ𝑡𝑜 𝑝 ← Select (Φ, 𝐾 ) ⊲ Rank and select 𝐾 features  
+
+> 10:
+
+D𝑎𝑢𝑔 ← { 𝑥, Φ𝑡𝑜 𝑝 , 𝑦 } ⊲ Augment original data  
+
+> 11:
+
+F ← PySR (D 𝑎𝑢𝑔 ) ⊲ Final symbolic search  
+
+> 12:
+
+return F
+
+## B Model Evaluation and Comparison 
+
+B.1 Model Evaluation on Standard Datasets 
+
+Table A2: Comparison of between FePySR and PySR on the Nguyen, Nguyen’, Livermore, Jin, Constan, and R datasets. We test each equation 100 times for both models. 𝑈 (𝑎, 𝑏, 𝑐 ) indicates 𝑐 points sampled uniformly at random between 𝑎 and 𝑏 per input variable; 𝐸 (𝑎, 𝑏, 𝑐 ) denotes 𝑐 evenly spaced points between 𝑎 and 𝑏 per input variable. For all benchmark datasets, the feature extraction stage utilizes the operator set {(·) 2, exp (·) , sin (·) , cos (·) , ×, +} , whereas the PySR solving stage employs {+ , −, ×, /, sin (·) , cos (·) , exp (·) , log (·)} .
+
+Dataset Equation Input data FePySR PySR 
+
+Nguyen-1 𝑥 3 + 𝑥 2 + 𝑥 U(-1,1,20) 100% 100% Nguyen-2 𝑥 4 + 𝑥 3 + 𝑥 2 + 𝑥 U(-1,1,20) 100% 100% Nguyen-3 𝑥 5 + 𝑥 4 + 𝑥 3 + 𝑥 2 + 𝑥 U(-1,1,20) 78% 52% Nguyen-4 𝑥 6 + 𝑥 5 + 𝑥 4 + 𝑥 3 + 𝑥 2 + 𝑥 U(-1,1,20) 100% 62% Nguyen-5 sin (𝑥 2) cos (𝑥 ) − 1 U(-1,1,20) 100% 92% Nguyen-6 sin (𝑥 ) + sin (𝑥 + 𝑥 2) U(-1,1,20) 100% 100% Nguyen-7 log (𝑥 + 1) + log (𝑥 2 + 1) U(0,2,20) 100% 19% Nguyen-8 √𝑥 U(0,4,20) 100% 100% Nguyen-9 sin (𝑥 ) + sin (𝑦 2) U(0,1,20) 100% 100% Nguyen-10 2 sin (𝑥 ) cos (𝑦 ) U(0,1,20) 100% 100% Nguyen-11 𝑥 𝑦 U(0,1,20) 100% 99% Nguyen-12 𝑥 4 − 𝑥 3 + 12 𝑦 2 − 𝑦 U(0,1,20) 95% 0% 
+
+Nguyen average 97.75% 77% Nguyen-2’ 4𝑥 4 + 3𝑥 3 + 2𝑥 2 + 𝑥 U(-1, 1, 20) 76% 84% Nguyen-5’ sin (𝑥 2) cos (𝑥 ) − 2 U(-1, 1, 20) 99% 96% Nguyen-8” 3
+
+√𝑥 2 U(0, 4, 20) 99% 100% Nguyen-1 𝑐 3.39 𝑥 3 + 2.12 𝑥 2 + 1.78 𝑥 U(-1, 1, 20) 100% 100% Nguyen-5 𝑐 sin (𝑥 2) cos (𝑥 ) − 0.75 U(-1, 1, 20) 99% 76% Nguyen-7 𝑐 log (𝑥 + 1.4) + log (𝑥 2 + 1.3) U(0, 2, 20) 65% 2% 
+
+Nguyen’ average 89.67% 76.33% Livermore-1 13 + 𝑥 + sin (𝑥 2) U(-3, 3, 100) 100% 100% 25 Livermore-2 sin (𝑥 2) cos (𝑥 ) − 2 U(-3, 3, 100) 100% 96% Livermore-3 sin (𝑥 3) cos (𝑥 2) − 1 U(-3, 3, 100) 38% 60% Livermore-4 log (𝑥 + 1) + log (𝑥 2 + 1) + log (𝑥 ) U(-3, 3, 100) 100% 43% Livermore-5 𝑥 4 − 𝑥 3 + 𝑥 2 − 𝑦 U(-3, 3, 100) 100% 100% Livermore-6 4𝑥 4 + 3𝑥 3 + 2𝑥 2 + 𝑥 U(-3, 3, 100) 100% 100% Livermore-7 (exp ( 𝑥 ) − exp (− 𝑥 ) )  
+
+> 2
+
+U(-1, 1, 100) 0% 0% Livermore-8 (exp ( 𝑥 )+ exp (− 𝑥 ) )  
+
+> 2
+
+U(-1, 1, 100) 0% 0% Livermore-9 Í9 
+
+> 𝑖 =1
+
+𝑥 𝑖 U(-1, 1, 100) 19% 0% Livermore-10 6 sin (𝑥 ) cos (𝑦 ) U(-3, 3, 100) 100% 100% Livermore-11 𝑥 2 𝑦 2  
+
+> (𝑥 +𝑦 )
+
+U(-3, 3, 100) 76% 100% Livermore-12 𝑥 5 
+
+> 𝑦 3
+
+U(-3, 3, 100) 18% 3% Livermore-13 𝑥 13 U(-3, 3, 100) 100% 100% Livermore-14 𝑥 3 + 𝑥 2 + 𝑥 + sin (𝑥 ) + sin (𝑦 2) U(-1, 1, 100) 87% 0% Livermore-15 𝑥 15 U(-3, 3, 100) 100% 80% Livermore-16 𝑥 23 U(-3, 3, 100) 98% 100% Livermore-17 4 sin (𝑥 ) cos (𝑦 ) U(-3, 3, 100) 100% 100% Livermore-18 sin (𝑥 2) cos (𝑥 ) − 5 U(-3, 3, 100) 100% 100% Livermore-19 𝑥 5 + 𝑥 4 + 𝑥 2 + 𝑥 U(-3, 3, 100) 100% 100% Livermore-20 𝑒 −𝑥 2
+
+U(-3, 3, 100) 100% 100% Livermore-21 Í8 
+
+> 𝑖 =1
+
+𝑥 𝑖 U(-1, 1, 20) 68% 0% Livermore-22 𝑒 −0.5𝑥 2
+
+U(-3, 3, 100) 100% 100% 
+
+Livermore average 77.45% 67.36% Jin-1 2.5𝑥 4 − 1.3𝑥 3 + 0.5𝑦 2 − 1.7𝑦 U(-3, 3, 100) 99% 45% Jin-2 8.0𝑥 2 + 8.0𝑦 3 − 15 .0 U(-3, 3, 100) 100% 100% Jin-3 0.2𝑥 3 + 0.5𝑦 3 − 1.2𝑦 − 0.5𝑥 U(-3, 3, 100) 23% 12% Jin-4 1.5 exp (𝑥 ) + 5.0 cos (𝑦 ) U(-3, 3, 100) 100% 100% Jin-5 6.0 sin (𝑥 ) cos (𝑦 ) U(-3, 3, 100) 100% 100% Jin-6 1.35 𝑥𝑦 + 5.5 sin (( 𝑥 − 1.0)( 𝑦 − 1.0)) U(-3, 3, 100) 100% 100% 
+
+Jin average 87% 76.17% Constan-1 3.39 𝑥 3 + 2.12 𝑥 2 + 1.78 𝑥 U(-4, 4, 100) 100% 100% Constan-2 sin (𝑥 2) cos (𝑥 ) − 0.75 U(-4, 4, 100) 97% 98% Constan-3 sin (1.5𝑥 ) cos (0.5𝑦 ) U(0.1, 4, 100) 100% 100% Constan-4 2.7𝑥 𝑦 U(0.3, 4, 100) 100% 100 % Constan-5 √1.23 𝑥 U(0.1, 4, 100) 100% 100% Constan-6 𝑥 0.423 U(0, 4, 100) 100% 100% Constan-7 2 sin (1.3𝑥 ) cos (𝑦 ) U(-4, 4, 100) 100% 100% Constan-8 ln (𝑥 + 1.4) + ln (𝑥 2 + 1.3) U(0, 4, 100) 34% 10% 
+
+Constan average 91.375% 88.5% R-1 ( 𝑥 +1)3  
+
+> 𝑥 2−𝑥 +1
+
+E(-5, 5, 100) 6% 8% R-2 ( 𝑥 5 −3𝑥 3+1) 
+
+> 𝑥 2+1
+
+E(-4, 4, 100) 18% 6% R-3 𝑥 6+𝑥 5 
+
+> 𝑥 4+𝑥 3+𝑥 2+𝑥
+
+E(-4, 4, 100) 100% 90% 
+
+R average 41.33% 34.67% 
+
+All average 84.07% 72.51% 26 B.2 Model Evaluations on Equations Generated by LLMs 
+
+Table A3: Features extracted by FMN on recoverable equations. Input data for the equations consist of 500 points sampled from a Gaussian distribution. The network utilizes the operator set {(·) 2, exp (·) , sin (·) , cos (·) , ×, +} and adopts 3-layer and 4-layer architectures for univariate and multivariate equations, respectively. Numbers in parentheses indicate feature frequencies within the feature library, while blue features represent valid ones. 
+
+Identifier Equation Features 
+
+Recover-1 𝑥 6 +𝑥 5 +𝑥 4 +𝑥 3 +𝑥 2 +𝑥 cos (𝑥 )( 127 ), 𝑥 4 (120 ), 𝑥 2 (118 ), sin (𝑥 )( 108 ), 𝑒 𝑥 (98 )
+
+2𝑥 2 (44 ), sin (𝑥 2)( 42 ), 𝑒 𝑥 2
+
+(32 ), 𝑒 sin ( 𝑥 ) (26 )
+
+Recover-2 𝑥 6 +2𝑥 5 +3𝑥 4 +4𝑥 3 +𝑥 2 +𝑥 𝑥 4 (124 ), cos (𝑥 )( 119 ), 𝑥 2 (109 ), sin (𝑥 )( 92 ), 𝑒 𝑥 (86 )
+
+sin (sin (𝑥 ))( 67 ), 2𝑥 2 (62 ), 𝑒 𝑥 2
+
+(49 ), cos (sin (𝑥 ))( 38 )
+
+Recover-3 𝑥 6 +0.5𝑥 5 +0.7𝑥 4 +3𝑥 3 +5𝑥 2 +𝑥 cos (𝑥 )( 119 ), sin (𝑥 )( 118 ), 𝑥 4 (118 ), 𝑥 2 (116 ), 𝑒 𝑥 (100 )
+
+2𝑥 2 (53 ), 𝑒 𝑥 2
+
+(40 ), sin (sin (𝑥 ))( 24 ), cos (sin (𝑥 ))( 23 )
+
+Recover-4 Í9 
+
+> 𝑖 =1
+
+𝑥 𝑖 𝑥 4 (192 ), cos (cos (𝑥 ))( 124 ), 𝑒 𝑥 (108 ), 𝑥 2 (95 ), sin (𝑥 )( 73 )
+
+cos (cos (𝑥 )) 2 (68 ), 2 cos (cos (𝑥 ))( 67 ), sin (𝑥 2)( 62 ), 2𝑥 2 (57 )
+
+Recover-5 sin (𝑥 2) cos (𝑥 ) + sin (𝑥 ) + sin (𝑥 4 +𝑥 2) sin (𝑥 )( 131 ), cos (𝑥 )( 125 ), 𝑒 𝑥 (95 ), 𝑥 2 (84 ), 𝑥 4 (41 )
+
+sin (𝑥 )2 (31 ), 𝑒 𝑥 2
+
+(27 ), 𝑒 sin ( 𝑥 ) (26 ), cos (cos (𝑥 ))( 18 )
+
+Recover-6 𝑥 𝑦 𝑒 𝑥 +sin ( 𝑦 )2
+
+sin (𝑦 )( 105 ), 𝑥𝑦 (81 ), 𝑦 2 (68 ), 𝑒 𝑦 (65 ), cos (𝑦 )( 64 )
+
+𝑥 + 𝑦 (56 ), 𝑥 2 (56 ), cos (𝑥 )( 54 ), 𝑒 𝑥 (50 )
+
+Recover-7 2𝑥 4 +2𝑦 4 −6𝑥 2 𝑦 2 sin (𝑦 )( 137 ), 𝑒 𝑦 (107 ), 𝑦 2 (106 ), 𝑥 2 (102 ), cos (𝑦 )( 75 )
+
+𝑥𝑦 (75 ), cos (𝑥 )( 68 ), 2𝑥𝑦 (59 ), 2𝑦 (58 )
+
+Recover-8 𝑥 5 +3𝑥 3 𝑦 2 −𝑥 2 𝑦 3 +𝑦 5 𝑥 2 (119 ), 𝑒 𝑥 (117 ), sin (𝑦 )( 95 ), 𝑦 2 (83 ), cos (𝑥 )( 71 )
+
+sin (𝑥 )( 62 ), 𝑒 𝑦 (56 ), 2𝑦 (51 ), 2𝑥 2 (51 )
+
+Recover-9 𝑒 𝑥 2+sin ( 𝑦 ) 𝑥 2 (169 ), 𝑒 𝑥 (96 ), cos (cos (𝑥 ))( 93 ), sin (𝑥 )( 84 ), cos (𝑥 )( 76 )
+
+2𝑥 (71 ), cos (cos (𝑥 )) 2 (58 ), 𝑦 2 (55 ), sin (𝑦 )( 49 )
+
+Recover-10 𝑥 3 +𝑥 2 +𝑥 +sin (𝑥 ) + sin (𝑦 2) 𝑒 𝑥 (132 ), sin (𝑥 )( 103 ), cos (cos (𝑥 ))( 100 ), 𝑥 2 (95 ), 2𝑥 (69 )
+
+sin (𝑦 )( 64 ), cos (𝑥 )( 61 ), 𝑥𝑦 (57 ), 𝑥 + 𝑦 (48 )
+
+Recover-11 𝑥 4 𝑦 −𝑥 3 +0.5𝑦 2 cos (𝑥 ) − 𝑥 𝑦 2 (115 ), sin (𝑥 )( 99 ), 𝑥 2 (90 ), 𝑒 𝑦 (65 ), cos (𝑦 )( 65 )
+
+𝑒 𝑥 (61 ), cos (𝑥 )( 54 ), cos (cos (𝑥 ))( 53 ), sin (𝑦 )( 49 )
+
+Recover-12 𝑥 4 𝑦 −𝑥 3 +0.5𝑦 2 sin (𝑥 ) − 𝑥 𝑥 2 (186 ), sin (𝑥 )( 86 ), cos (cos (𝑥 ))( 74 ), 𝑒 𝑦 (60 ), cos (𝑥 )( 58 )
+
+𝑒 𝑥 (57 ), sin (cos (𝑥 ))( 57 ), 𝑦 2 (51 ), cos (𝑦 )( 44 )
+
+Recover-13 𝑥𝑦𝑡𝑎𝑛ℎ (𝑥 +𝑦 ) 𝑒 𝑥 𝑦 (74 ), 𝑥𝑦 (63 ), 𝑥 + 𝑦 (60 ), cos (cos (𝑥 ))( 58 ), sin (𝑦 )( 57 )
+
+cos (cos (𝑦 ))( 55 ), sin (𝑥 )( 54 ), 𝑒 𝑦 (49 ), cos (𝑥 )( 45 )
+
+Recover-14 cos (𝑦 2) sin (𝑥 ) − 1+√︁ 𝑥 2 +𝑦 2 +1 sin (𝑥 )( 97 ), 𝑒 𝑥 (94 ), 𝑥𝑦 (82 ), 𝑥 2 (78 ), cos (𝑦 )( 72 )
+
+𝑥 +𝑦 (63 ), 𝑦 2 (57 ), cos (cos (𝑦 ))( 54 ), sin (𝑦 )( 51 ), 𝑒 𝑦 (47 )
+
+Recover-15 cos (𝑥𝑦 ) cos (𝑦 ) − 1+√︁ 𝑥 2 +𝑦 2 +1 𝑥𝑦 (83 ), cos (𝑦 )( 69 ), 𝑥 + 𝑦 (68 ), 𝑦 2 (63 ), sin (𝑦 )( 63 )
+
+𝑥 2 (59 ), 𝑒 𝑥 (58 ), sin (𝑥 )( 55 ), cos (cos (𝑦 ))( 50 )
+
+Recover-16 𝑒 (1+𝑥 ) (1−𝑥 )− 𝑒 𝑦 𝑥 𝑒 (1+𝑥 )+𝑒 𝑦 
+
+𝑒 𝑥 (84 ), sin (𝑦 )( 82 ), sin (𝑥 )( 75 ), −𝑥 + 𝑦 (74 ), 𝑒 𝑦 −𝑥 (73 )−𝑥 2 + 𝑦 (65 ), 𝑥𝑦 (63 ), 𝑦 2 (62 ), 𝑥 − 𝑦 2 (62 )
+
+Recover-17 𝑒 𝑥 sin ( 𝑦 )− 𝑒 𝑦 cos ( 𝑥 )
+
+> 𝑥 𝑦
+
+sin (𝑦 )( 94 ), cos (𝑥 )( 88 ), 2𝑥𝑦 (83 ), 𝑥𝑦 2 (82 ), 𝑥𝑦 (78 )
+
+cos (cos (𝑥 ))( 77 ), 2𝑥 (68 ), 𝑦 2 (60 ), 𝑒 𝑦 (60 )
+
+Recover-18 𝑒 𝑥 cos ( 𝑦 )− 𝑒 𝑦 sin ( 𝑥 )
+
+> 𝑥 𝑦
+
+sin (𝑥 )( 73 ), cos (𝑦 )( 63 ), 𝑥 2 (62 ), 𝑒 𝑥 (58 ), 𝑒 𝑦 (55 )
+
+sin (𝑦 )( 55 ), 2𝑥𝑦 (53 ), 𝑥𝑦 (47 ), 𝑦 2 (46 )
+
+Recover-19 𝑒 −0.5(sin 2 ( 𝑥 )+ cos 2 ( 𝑦 ) ) cos (𝑥𝑦 ) 𝑥𝑦 (79 ), sin (𝑦 )( 78 ), 𝑥 + 𝑦 (70 ), sin (𝑥 )( 64 ), 𝑒 𝑥 (58 )
+
+𝑥𝑦 2 (53 ), 𝑦 2 (51 ), cos (cos (𝑥 ))( 51 ), cos (𝑦 )( 49 )
+
+Recover-20 sin 
+
+
+
+𝑥 +𝑒 −𝑦 2 
+
+−cos 
+
+
+
+𝑦 −𝑒 −𝑥 2  sin (𝑦 )( 96 ), 𝑥𝑦 (80 ), 𝑥 + 𝑦 (80 ), 𝑦 2 (76 ), 𝑒 𝑦 (75 )
+
+27 Table A3 
+
+Identifier Equation Features 
+
+sin (𝑥 )( 69 ), 𝑒 𝑥 (63 ), cos (cos (𝑦 ))( 61 ), cos (𝑦 )( 55 )
+
+Recover-21 𝑥 4 +𝑦 2𝑧 2 −𝑥 2𝑧 2 +𝑦 4 𝑦 2 (162 ), 𝑥 2 (96 ), 𝑒 𝑦 (93 ), 𝑧 2 (75 ), sin (𝑦 )( 74 )
+
+cos (𝑦 )( 74 ), 2𝑥 (68 ), 𝑒 𝑥 (59 ), sin (𝑧 )( 56 )
+
+Recover-22 𝑥 5 −𝑦 4𝑧 +𝑧 3𝑥 2 −𝑥𝑦𝑧 −𝑥 +𝑦 𝑥 2 (143 ), 𝑒 𝑥 (123 ), 𝑦 2 (97 ), 𝑧 2 (94 ), 2𝑥 (80 )
+
+sin (𝑦 )( 72 ), sin (𝑧 )( 69 ), cos (𝑥 )( 68 ), sin (𝑥 )( 60 )
+
+Recover-23 𝑒 sin ( 𝑥 ) 𝑦 3 +cos (𝑒 𝑧 ) 𝑒 𝑦 (110 ), 𝑦 2 (74 ), sin (𝑥 )( 60 ), 𝑥𝑦 (52 ), cos (𝑥 )( 47 )
+
+cos (cos (𝑦 ))( 45 ), sin (𝑦 )( 43 ), 𝑒 𝑧 (39 ), cos (cos (𝑥 ))( 39 )
+
+Recover-24 2(𝑥 2 +𝑦 2) sin (𝑧 ) + 𝑥𝑒 𝑥 +𝑦 sin (𝑧 )( 96 ), 𝑥 2 (83 ), 𝑒 𝑥 (77 ), 𝑦 2 (62 ), 𝑧 2 (60 )
+
+cos (cos (𝑧 ))( 54 ), cos (𝑧 )( 52 ), 𝑒 𝑦 (41 ), sin (𝑦 )( 40 )
+
+Recover-25 0.5 sin (𝑥 +𝑦 )𝑧 4 +𝑥 2 𝑦 3𝑧 𝑧 2 (103 ), 𝑥 2 (83 ), 𝑦 2 (81 ), sin (𝑥 )( 70 ), sin (𝑧 )( 64 )
+
+sin (𝑦 )( 61 ), cos (𝑧 )( 60 ), 𝑒 𝑧 (57 ), 𝑥𝑦 (50 )
+
+Recover-26 √𝑧 4 +1 cos (𝑦 +𝑒 𝑥 ) sin (𝑥 )( 82 ), 𝑧 2 (71 ), cos (𝑥 )( 58 ), 𝑒 𝑧 (41 ), sin (𝑧 )( 39 )
+
+𝑒 𝑦 (37 ), 𝑒 𝑥 (37 ), cos (cos (𝑥 ))( 37 ), 𝑦 2 (36 )
+
+Recover-27 𝑥 4 𝑦 +𝑦 2𝑧 3 sin (𝑧 ) + 𝑥𝑧 4 𝑥 2 (88 ), 𝑦 2 (73 ), 𝑧 2 (69 ), 𝑒 𝑥 (68 ), sin (𝑧 )( 63 )
+
+cos (𝑧 )( 63 ), cos (cos (𝑧 ))( 57 ), 𝑒 𝑧 (53 ), sin (𝑥 )( 48 )
+
+Recover-28 𝑥 3 𝑦 5 +cos (𝑧 2)𝑦 −𝑒 𝑥𝑧 𝑥 2 (107 ), 2𝑦 (82 ), 𝑦 2 (74 ), cos (cos (𝑥 ))( 72 ), 𝑒 𝑦 (71 )
+
+𝑒 𝑥 (65 ), sin (𝑥 )( 55 ), sin (𝑦 )( 49 ), cos (𝑥 )( 46 )
+
+Recover-29 𝑧 4 cos (𝑥 )𝑒 sin ( 𝑦 ) +𝑥𝑒 𝑦 +𝑧 𝑒 𝑧 (111 ), 𝑧 2 (92 ), cos (cos (𝑧 ))( 77 ), sin (𝑧 )( 74 ), cos (𝑧 )( 71 )
+
+𝑥 2 (65 ), sin (𝑥 )( 61 ), 𝑒 𝑥 (61 ), cos (𝑧 )2 (58 )
+
+Recover-30 0.5 sin (𝑥 )𝑧 4 +𝑥 2 𝑦 3𝑧 𝑧 2 (75 ), sin (𝑥 )( 58 ), cos (cos (𝑧 ))( 55 ), 𝑦 2 (54 ), sin (𝑦 )( 40 )
+
+𝑥 2 (38 ), 𝑒 𝑥 (38 ), 𝑒 𝑦𝑧 (38 ), cos (𝑧 )( 37 )
+
+Recover-31 0.9(𝑥 2 +𝑦 2) sin (3𝑧 +2𝑥 ) + 𝑥𝑒 𝑥 −𝑦 𝑒 𝑥 (153 ), 𝑥 2 (137 ), sin (𝑧 )( 67 ), 2𝑥 (64 ), cos (cos (𝑧 ))( 64 )
+
+𝑦 2 (61 ), cos (𝑧 )( 48 ), sin (𝑦 )( 45 ), 𝑦 + 𝑧 (36 )
+
+Recover-32 (𝑧 2 +1)/( 𝑒 𝑥 +cos (𝑦 )2) 𝑒 𝑥 (89 ), 𝑧 2 (84 ), 𝑦 2 (70 ), sin (𝑧 )( 58 ), sin (𝑥 )( 56 )
+
+cos (cos (𝑧 ))( 51 ), cos (𝑧 )( 49 ), 𝑒 𝑧 (47 ), sin (𝑦 )( 45 )
+
+Recover-33 (𝑧 2 +1)/( 𝑒 𝑦 +sin (𝑥 )2) 𝑧 2 (74 ), sin (𝑥 )( 67 ), 𝑒 𝑦 (67 ), 𝑒 𝑧 (65 ), cos (cos (𝑥 ))( 63 )
+
+𝑥 2 (54 ), cos (𝑥 )( 46 ), sin (𝑦 )( 39 ), 𝑦 2 (33 )
+
+Recover-34 𝑥 3 𝑦 −𝑦 3𝑧 +𝑧 3 ℎ−ℎ3𝑥 +𝑥𝑦𝑧ℎ 𝑧 2 (71 ), ℎ 2 (71 ), 𝑥 2 (70 ), 𝑦 2 (67 ), 𝑒 𝑥 (60 )
+
+sin (ℎ)( 55 ), sin (𝑦 )( 55 ), cos (𝑥 )( 54 ), sin (𝑥 )( 48 )
+
+Recover-35 𝑥 4 +𝑦 4 −𝑧 4 −ℎ4 +𝑥 2𝑧 2 𝑥 2 (95 ), 𝑦 2 (78 ), sin (𝑥 )( 72 ), 𝑧 2 (69 ), cos (𝑥 )( 63 )
+
+𝑒 𝑥 (60 ), ℎ 2 (59 ), sin (𝑦 )( 50 ), 𝑒 ℎ (42 )
+
+Recover-36 𝑥 5 −𝑦 4 +𝑧 3 −ℎ2 +𝑥𝑦𝑧ℎ 𝑥 2 (124 ), 2𝑥 (112 ), 𝑦 2 (99 ), 𝑒 𝑥 (87 ), 𝑧 2 (81 )
+
+sin (𝑦 )( 71 ), sin (𝑥 )( 58 ), cos (𝑦 )( 55 ), cos (𝑥 )( 47 )
+
+28 B.2.1 Detailed Exact Recovery Rate Analysis  
+
+> Table A4: Comparision of FePySR, PySR, and DSO on the recoverable equations. We test each equation 100 times for all methods. FePySR employs only the top four features for SR.
+
+Identifier FePySR PySR DSO Identifier FePySR PySR DSO Runtime Runtime Runtime Runtime Runtime Runtime 
+
+Recover-1 100% 76.8% 100% Recover-19 24% 18% 0% 4.82s 8.92s 9.33s 46.5s 59.5s \Recover-2 98% 0% 100% Recover-20 39% 12% 0% 14.0s \ 8.87s 77.5s 135.9s \Recover-3 14% 0% 100% Recover-21 100% 0% 100% 47.6s \ 8.84s 6.74s \ 19.7s Recover-4 100% 0% 100% Recover-22 100% 0% 100% 8.51s \ 8.79s 49.3s \ 17.4s Recover-5 98% 57% 0% Recover-23 100% 100% 0% 16.3s 159s \ 10.5s 23.7s \Recover-6 100% 0% 0% Recover-24 100% 0% 0% 22.0s \ \ 8.69s \ \Recover-7 100% 32% 100% Recover-25 99% 80% 0% 7.21s 32.5s 15.1s 20.9s 35.1s \Recover-8 49% 0% 100% Recover-26 81% 7% 0% 26.1s \ 18.9s 114s 79.6s \Recover-9 100% 100% 100% Recover-27 82% 0% 0% 5.41s 24.1s 251s 36.0s \ \Recover-10 100% 100% 100% Recover-28 100% 0% 0% 31.8s 18.5s 1256s 26.1s \ \Recover-11 100% 87% 0% Recover-29 88% 34% 0% 20.0s 68.8s \ 92.3s 27.6s \Recover-12 100% 0% 0% Recover-30 55% 0% 0% 15.5s \ \ 52.0s \ \Recover-13 99% 0% 0% Recover-31 85% 0% 0% 244s \ \ 82.7s \ \Recover-14 94% 0% 0% Recover-32 100% 14% 0% 78.8s \ \ 76.2s 164s \Recover-15 39% 0% 0% Recover-33 83% 2% 0% 137s \ \ 62.4s 91.6s \Recover-16 99% 0% 0% Recover-34 62% 0% 100% 73.2s \ \ 63.5s \ 45.5s Recover-17 7% 0% 0% Recover-35 81% 0% 100% 205s \ \ 57.6s \ 36.7s Recover-18 99% 9% 0% Recover-36 100% 0% 100% 51.3s 299s \ 83.3s \ 35.9s 29 B.2.2 Feature Quantity Sensitivity Analysis       
+
+> Table A5: Effect of the number of selected top-n features on the recovery rate and runtime of FePySR. Results are reported for 12 recoverable equations, with the number of input features increasing from four to nine. The notation
+> 𝑎 /𝑏 indicates that 𝑎 out of 𝑏 selected features successfully reduce the search space for SR.
+
+Identifier 4-Features 5-Features 6-Features 7-Features 8-Features 9-Features 
+
+Recover-1 2/4 2/5 2/6 2/7 2/8 2/9 100% 100% 100% 100% 100% 100% 4.822s 5.257s 5.612s 6.065s 6.083s 6.075s Recover-4 2/4 2/5 2/6 2/7 2/8 2/9 100% 100% 99% 100% 100% 100% 8.514s 8.3099s 8.649s 10.18s 10.37s 10.123s Recover-5 3/4 4/5 4/6 4 /7 4/8 4/9 100% 100% 100% 100% 100% 100% 16.25s 11.73s 13.476s 15.87s 20.181s 28.853s Recover-7 2/4 2/5 3/6 3/7 3/8 3/9 100% 100% 100% 100% 100% 100% 7.208s 7.534s 7.860s 8.745s 9.610s 9.644s Recover-10 2/4 2/5 2/6 2/7 2/8 2/9 100% 98% 100% 98% 98% 96% 31.845s 39.762s 30.890s 47.211s 48.001s 64.177s Recover-12 2/4 2/5 2/6 2/7 3/8 3/9 100% 100% 99% 100% 100% 100% 15.484s 18.159s 23.564s 12.037s 13.966s 13.219s Recover-14 2/4 2/5 2/6 3/7 3/8 3/9 94% 93% 90% 100% 100% 100% 78.679s 114.423s 125.12s 14.685s 16.146s 19.111s Recover-15 3/4 3/5 4/6 4/7 4/8 4/9 39% 31% 69% 73% 63% 60% 133.630s 163.948s 86.313s 87.653s 94.026s 91.506s Recover-21 3/4 3/5 3/6 3/7 3/8 3/9 100% 100% 99% 100% 100% 100% 6.741s 6.699s 6.648s 6.700s 6.714s 7.489s Recover-22 3/4 3/5 3/6 3/7 3/8 3/9 84% 89% 91% 88% 84% 85% 49.263s 64.217s 52.036s 70.791s 58.829s 59.513s Recover-30 3/4 3/5 4/6 4/7 4/8 4/9 55% 43% 95% 97% 94% 95% 51.993s 50.541s 28.483s 18.764s 17.34s 24.02s Recover-34 4/4 4/5 4/6 4/7 4/8 4/9 62% 63% 57% 56% 44% 37% 63.513s 68.0413s 70.343s 70.414s 71.270s 70.471s 30 0 20 40 60 80 100 
+
+Iterations (Step = 1) 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+10 2
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (2/4) 
+
+5 Features (2/5) 
+
+6 Features (2/6) 
+
+7 Features (2/7) 
+
+8 Features (2/8) 
+
+9 Features (2/9) Recover-1 0 25 50 75 100 125 150 175 200 
+
+Iterations (Step = 1) 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+10 3
+
+10 5
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (2/4) 
+
+5 Features (2/5) 
+
+6 Features (2/6) 
+
+7 Features (2/7) 
+
+8 Features (2/8) 
+
+9 Features (2/9) Recover-4 0 200 400 600 800 1000 
+
+Iterations (Step = 5) 
+
+10 12 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (3/4) 
+
+5 Features (4/5) 
+
+6 Features (4/6) 
+
+7 Features (4/7) 
+
+8 Features (4/8) 
+
+9 Features (4/9) Recover-5 0 25 50 75 100 125 150 175 200 
+
+Iterations (Step = 1) 
+
+10 11 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (2/4) 
+
+5 Features (2/5) 
+
+6 Features (3/6) 
+
+7 Features (3/7) 
+
+8 Features (3/8) 
+
+9 Features (3/9) 
+
+Recover-7 0 200 400 600 800 1000 1200 
+
+Iterations (Step = 20) 
+
+10 11 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+10 3
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (2/4) 
+
+5 Features (2/5) 
+
+6 Features (2/6) 
+
+7 Features (2/7) 
+
+8 Features (2/8) 
+
+9 Features (2/9) Recover-10 0 200 400 600 800 1000 1200 1400 
+
+Iterations (Step = 10) 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+10 3
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (2/4) 
+
+5 Features (2/5) 
+
+6 Features (2/6) 
+
+7 Features (2/7) 
+
+8 Features (3/8) 
+
+9 Features (3/9) Recover-12 0 200 400 600 800 
+
+Iterations (Step = 3) 
+
+10 12 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (2/4) 
+
+5 Features (2/5) 
+
+6 Features (2/6) 
+
+7 Features (3/7) 
+
+8 Features (3/8) 
+
+9 Features (3/9) 
+
+Recover-14 0 500 1000 1500 2000 2500 3000 
+
+Iterations (Step = 30) 
+
+10 12 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (3/4) 
+
+5 Features (3/5) 
+
+6 Features (4/6) 
+
+7 Features (4/7) 
+
+8 Features (4/8) 
+
+9 Features (4/9) Recover-15 0 500 1000 1500 2000 2500 3000 3500 4000 
+
+Iterations (Step = 20) 
+
+10 12 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+10 2
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (3/4) 
+
+5 Features (3/5) 
+
+6 Features (4/6) 
+
+7 Features (4/7) 
+
+8 Features (4/8) 
+
+9 Features (4/9) Recover-21 0 20 40 60 80 100 
+
+Iterations (Step = 1) 
+
+10 11 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (3/4) 
+
+5 Features (3/5) 
+
+6 Features (3/6) 
+
+7 Features (3/7) 
+
+8 Features (3/8) 
+
+9 Features (3/9) 
+
+Recover-22 0 500 1000 1500 2000 2500 3000 3500 4000 
+
+Iterations (Step = 20) 
+
+10 11 
+
+10 9
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+10 3
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (3/4) 
+
+5 Features (3/5) 
+
+6 Features (3/6) 
+
+7 Features (3/7) 
+
+8 Features (3/8) 
+
+9 Features (3/9) Recover-30 0 2000 4000 6000 8000 10000 
+
+Iterations (Step = 50) 
+
+10 12 
+
+10 10 
+
+10 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+10 2
+
+> Loss (Log Scale)
+
+Features num 
+
+4 Features (4/4) 
+
+5 Features (4/5) 
+
+6 Features (4/6) 
+
+7 Features (4/7) 
+
+8 Features (4/8) 
+
+9 Features (4/9) Recover-34 
+
+Figure A1: Loss trajectories of FePySR under varying numbers of selected top-n features. The x-axis represents the training epoch, with the value in parentheses indicating the recording interval. The y-axis represents the training loss on a logarithmic scale. Solid lines denote the median loss across 20 independent runs, and shaded regions denote the corresponding min-max range. 
+
+31 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+70 
+
+> Iterations to Reach Minimum Loss
+
+Recover-1 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+20 
+
+40 
+
+60 
+
+80  
+
+> Iterations to Reach Minimum Loss
+
+Recover-4 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+300 
+
+350 
+
+400  
+
+> Iterations to Reach Minimum Loss
+
+Recover-5 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+> Iterations to Reach Minimum Loss
+
+Recover-7 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+1000  
+
+> Iterations to Reach Minimum Loss
+
+Recover-10 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+700 
+
+800  
+
+> Iterations to Reach Minimum Loss
+
+Recover-12 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+50 
+
+100 
+
+150 
+
+200 
+
+250 
+
+300 
+
+> Iterations to Reach Minimum Loss
+
+Recover-14 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+500 
+
+1000 
+
+1500 
+
+2000 
+
+2500 
+
+3000  
+
+> Iterations to Reach Minimum Loss
+
+Recover-15 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000  
+
+> Iterations to Reach Minimum Loss
+
+Recover-21 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+> Iterations to Reach Minimum Loss
+
+Recover-22 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+250 
+
+500 
+
+750 
+
+1000 
+
+1250 
+
+1500 
+
+1750 
+
+2000  
+
+> Iterations to Reach Minimum Loss
+
+Recover-30 4 Features 5 Features 6 Features 7 Features 8 Features 9 Features 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+5000  
+
+> Iterations to Reach Minimum Loss
+
+Recover-34 
+
+Figure A2: Training epochs required to achieve the minimum MSE under varying numbers of selected top-n features. The x-axis represents the number of selected top-n features. The y-axis represents the number of epochs required for the model to converge to the minimum MSE. Boxes represent the interquartile range (IQR; 25th, 50th, and 75th percentiles), orange lines denote the median, and circles indicate outliers. 
+
+32 B.2.3 FePySR’s Noise Sensitivity Evaluation 
+
+> Table A6: EFR raw data for drawing Figure 5 in the main text.
+
+EFR 0 0.02 0.04 0.06 0.08 0.1 0.2 Recover-1 0.17029 0.17035 0.17120 0.16248 0.16638 0.17004 0.16962 Recover-4 0.17725 0.18445 0.18512 0.18341 0.18292 0.17804 0.18488 Recover-5 0.30945 0.31732 0.30811 0.31384 0.30969 0.30450 0.31000 Recover-7 0.11263 0.11576 0.12341 0.12533 0.12040 0.11886 0.11662 Recover-10 0.15344 0.15548 0.15291 0.12760 0.14880 0.12952 0.15780 Recover-12 0.17208 0.17444 0.17668 0.17554 0.18140 0.17912 0.17228 Recover-14 0.12223 0.12183 0.12150 0.11804 0.11983 0.11979 0.12439 Recover-15 0.14897 0.14762 0.14811 0.14897 0.14636 0.14368 0.14368 Recover-21 0.10754 0.11373 0.11422 0.10152 0.12569 0.10636 0.09583 Recover-22 0.10848 0.12801 0.11877 0.12854 0.12533 0.12667 0.11812 Recover-30 0.15169 0.13078 0.12394 0.12821 0.14913 0.12459 0.15120 Recover-34 0.13147 0.13460 0.13680 0.13322 0.13452 0.13241 0.12988 
+
+> Table A7: DCG-1 raw data for drawing Figure 5 in the main text.
+
+DCG-1 0 0.02 0.04 0.06 0.08 0.1 0.2 Recover-1 2.00081 1.53157 1.53157 1.46835 1.63159 1.53157 1.53157 Recover-4 2.16405 2.16405 2.16405 2.00081 2.16405 2.06403 2.06403 Recover-5 2.73382 2.73382 2.73382 2.76682 2.73382 2.73382 2.73382 Recover-7 1.85658 2.25292 2.14549 2.11249 2.11249 2.25292 2.25292 Recover-10 2.76997 2.76997 2.76997 2.16405 2.59834 2.35294 2.78723 Recover-12 3.36617 3.50858 3.32808 3.34534 3.42939 3.32808 3.39195 Recover-14 2.67795 2.64495 2.72216 2.64495 2.64495 2.64495 2.61917 Recover-15 3.29928 2.73382 3.24050 2.67060 2.73382 3.13604 3.23606 Recover-21 1.63159 1.63159 2.16405 1.63159 2.58108 2.35294 1.63159 Recover-22 1.53157 1.94860 1.94860 1.94860 2.49832 2.48106 2.48106 Recover-30 3.94644 3.20306 3.45517 3.42495 4.00522 3.34774 3.16811 Recover-34 3.15885 3.15885 3.34774 3.15885 3.15885 3.13307 3.13307 33 Table A8: DCG-2 raw data for drawing Figure 5 in the main text. 
+
+DCG-2 0 0.02 0.04 0.06 0.08 0.1 0.2 Recover-1 3027.308 2174.147 2183.135 1995.925 2224.608 2182.597 2173.914 Recover-4 3335.511 3582.933 3530.275 3421.523 3531.718 3311.416 3463.963 Recover-5 3564.715 3701.384 3558.558 3640.664 3603.126 3570.567 3600.931 Recover-7 1722.497 2170.659 2227.845 2284.345 2163.386 2225.215 2168.296 Recover-10 3972.309 4019.649 4010.947 3485.551 3605.849 3832.284 4088.089 Recover-12 3837.552 4044.047 4013.557 4007.846 4140.607 4033.505 3852.622 Recover-14 2935.854 2932.037 2982.963 2848.361 2923.622 2881.062 3051.589 Recover-15 3145.091 2519.847 3090.538 2478.495 2520.645 2901.561 2977.224 Recover-21 2166.814 2285.715 3075.105 2043.055 3016.609 3081.675 1932.055 Recover-22 2132.882 2267.268 2115.370 2307.804 3036.837 3115.033 2897.672 Recover-30 3218.510 2797.675 2742.017 2902.841 3198.497 2786.817 2473.161 Recover-34 2779.991 2869.259 3107.165 2836.879 2863.059 2889.813 2810.401                                                                                              
+
+> Table A9: Recovery rates of FePySR across 12 recoverable equations under varying noise levels 𝛼 .For the first five equations, 25 tests are conducted per noise level. For the remaining seven equations, 10 tests are conducted per noise level.
+> Identifier Noise Level ( 𝛼 )00.02 0.04 0.06 0.08 0.1 0.2
+> Recover-1 100% 0% 0% 0% 0% 0% 0% Recover-4 100% 0% 0% 0% 0% 0% 0% Recover-5 100% 0% 0% 0% 0% 0% 0% Recover-7 100% 0% 0% 0% 0% 0% 0% Recover-10 100% 0% 0% 0% 0% 0% 0% Recover-12 100% 0% 0% 0% 0% 0% 0% Recover-14 94% 0% 0% 0% 0% 0% 0% Recover-15 39% 0% 0% 0% 0% 0% 0% Recover-21 100% 0% 0% 0% 0% 0% 0% Recover-22 84% 0% 0% 0% 0% 0% 0% Recover-30 55% 0% 0% 0% 0% 0% 0% Recover-34 62% 0% 0% 0% 0% 0% 0%
+
+34 B.2.4 Model Performance on Unrecovered Equations 
+
+Table A10: Comparison of FePySR and PySR on unrecoverable equations generated by LLMs. The minimum MSE and error ratios (FePySR / PySR) are reported in 50 tests. Among these runs, FePySR recovers the target expression once for Unrecover-7 and Unrecover-21; for Unrecover-15, FePySR and PySR succeed in seven and five runs, respectively. Given the low recovery rates, these equations are classified as unrecoverable. The reported minimum MSE values exclude the runs in which SR is successful. 
+
+Identifier Equation FePySR PySR rate 
+
+Unrecover-1 ln (𝑥 2 + 𝑦 2)
+
+2 + sin 2 (𝑥𝑦 ) 3.53 ×10 −3 5.21 ×10 −3 0.678 
+
+Unrecover-2 |𝑥 |1.5 + | 𝑦 |2.5 − 𝑥𝑦 √︁ 
+
+1 + 𝑥 2 + 0.5𝑦 2 1.61 ×10 −3 1.56 ×10 −3 1.032 
+
+Unrecover-3 cos (6 arctan (𝑦 /𝑥 )) 
+
+1 + 0.2(𝑥 2 + 𝑦 2) 2.83 ×10 −2 1.32 ×10 −2 2.144 
+
+Unrecover-4 𝑥 2 − 𝑦 2
+
+sin 2 (𝜋𝑥 ) − cos 2 (𝜋𝑦 ) 2.99 ×10 +2 4.01 ×10 +2 0.746 
+
+Unrecover-5 𝑥 2 + 𝑦 3 − 𝑧 
+
+|𝑦𝑧 | + 1 + sin (𝑥𝑧 ) 1.20 ×10 −1 2.29 ×10 −1 0.524 
+
+Unrecover-6 tanh (𝑥 2 − 𝑦 2) cos (𝑦 3)
+
+𝑥 4 + 𝑦 4 + sin 2 (𝑥𝑦 ) + 1 3.24 ×10 −4 1.39 ×10 −3 0.233 
+
+Unrecover-7 √︃ |√︁ |𝑥 | + √︁ |𝑦𝑧 || − 𝑥 2 1.14 ×10 −5 3.72 ×10 −3 0.003 
+
+Unrecover-8 sin (𝑥 2𝑒 − | 𝑦 | ) cos (𝑦 2𝑒 − | 𝑥 | ) 1.61 ×10 −4 2.64 ×10 −4 0.610 
+
+Unrecover-9 𝑒 −0.1( 𝑥 2+𝑦 2 ) cos (𝑥 sin (𝑦 )) 6.31 ×10 −9 2.26 ×10 −4 2.8×10 −5
+
+Unrecover-10 𝑥 2 tanh (𝑦 ) − 𝑦 2 tanh (𝑥 )
+
+1 + cosh (𝑥𝑦 ) 3.58 ×10 −5 1.62 ×10 −4 0.221 
+
+Unrecover-11 sin (𝑥 ln (2 + 𝑦 2 cos 2 (𝑦 ))) 
+
+1 + 0.2𝑒 − | 𝑥 −𝑦 2 | 5.64 ×10 −5 1.17 ×10 −4 0.482 
+
+Unrecover-12 ln (1 + sin (𝑥 2 + cos (𝑦 2)) ) 1.83 ×10 −4 2.00 ×10 −4 0.915 
+
+Unrecover-13 ln 
+
+ 𝑥 2 + 𝑦 2
+
+𝑧 + 1
+
+
+
++√︁ |𝑥 − 𝑧 | 2.20 ×10 −1 2.19 ×10 −1 1.005 
+
+Unrecover-14 √︁ ln (1 + | 𝑥𝑦 |) + √︁ |𝑧 − 𝑥𝑦 | 7.05 ×10 −3 1.21 ×10 −2 0.582 
+
+Unrecover-15 sin (𝑥 2 cos (3𝑦 ) + 𝑦 2 sin (3𝑥 )) 8.73 ×10 −3 1.79 ×10 −2 0.488 
+
+Unrecover-16 ln (1 + | sin (𝑥 )|) tanh (𝑦 2 − 𝑥 )
+
+ln (1 + | cos (𝑦 )|) cosh (𝑥 2 − 𝑦 ) 3.32 ×10 −2 3.42 ×10 −2 0.971 
+
+Unrecover-17 ln (1 + | sin (𝑥𝑦 )|) · √︁ |𝑧 2 + 𝑦 2 | 5.07 ×10 −5 2.16 ×10 −4 0.235 
+
+Unrecover-18 tanh (𝑥 2 − 𝑦 ) + 𝑒 − | 𝑥 𝑦 | sin (𝑦 ) − 𝑥 6.33 ×10 −3 6.47 ×10 −3 0.978 
+
+Unrecover-19 𝑥𝑦 
+
+ln (1 + | 𝑥 | + | 𝑦 |) + 0.1𝑥 2 + 0.1𝑦 2 1.71 ×10 −4 2.88 ×10 −4 0.594 
+
+Unrecover-20 sinh (𝑥 2 − 𝑦 ) cosh (𝑦𝑧 ) − tanh (𝑧 2) 4.98 ×10 −1 4.58 ×10 +0 0.109 
+
+35 Table A10 
+
+Identifier Equation FePySR PySR rate 
+
+Unrecover-21 sin (𝑥 2 𝑦 ) cos (𝑦 2) − cos (𝑥 2) sin (𝑥𝑦 ) 9.23 ×10 −4 8.60 ×10 −3 0.107 
+
+Unrecover-22 sin (𝑥 2 + cos (𝑦 )) · sgn (tan (𝑧 ) + 𝑥 ) 4.42 ×10 −2 3.41 ×10 −2 1.296 
+
+Unrecover-23 sin (cos (𝑥 ) + tan (𝑦𝑧 )) − arctan (𝑥𝑧 ) 3.46 ×10 −2 4.12 ×10 −2 0.840 
+
+Unrecover-24 tanh (50 (sin (𝑥𝑦 ) − 0.5)) 𝑒 −0.1( 𝑥 2+𝑦 2 ) 9.49 ×10 −4 1.47 ×10 −3 0.646 
+
+Unrecover-25 |𝑥𝑦 + 10 −5 |1.5+exp (− 0.2(sin ( 𝑥 ) − cos ( 𝑦 ) ) 2 ) 6.66 ×10 −4 4.77 ×10 −3 0.139 
+
+Unrecover-26 
+
+(
+
+sin (𝑥𝑧 ) if 𝑥 > 𝑦 
+
+cos (𝑦 − 𝑧 ) otherwise + sgn (𝑧𝑥 ) 9.90 ×10 −2 1.75 ×10 −1 0.566 
+
+Unrecover-27 arctan 
+
+ 𝑥 3 − 3𝑥𝑦 2
+
+3𝑥 2 𝑦 − 𝑦 3
+
+
+
+ln (1 + 𝑥 2 + 𝑦 2) 4.29 ×10 −1 3.46 ×10 −1 1.240 
+
+Unrecover-28 arctan (sinh (𝑥 ) + cosh (𝑦𝑧 )) − tanh (𝑥𝑦 ) 6.15 ×10 −3 6.23 ×10 −3 0.987 
+
+Unrecover-29 
+
+ 0.1𝑥 3 𝑦 2 −0.05 𝑥 4 +0.02 𝑦 5 −𝑥𝑦 +𝑥 −𝑦 ×
+
+cos (2𝜋 √︁ 𝑥 2 + 𝑦 2) + sin (5𝑥 ) cos (5𝑦 ) 4.99 ×10 −1 3.71 ×10 −1 1.345 
+
+Unrecover-30 ln 
+
+
+
+1 + tan 
+
+ 𝑥 𝑦 2 + 1
+
+
+
++ tan 
+
+ 𝑦 𝑥 2 + 1
+
+ 
+
+2.28 ×10 −2 4.47 ×10 −2 0.510 
+
+Unrecover-31 sin  𝑒 𝑥 /10  cos (𝑥𝑦 )𝑒 −√𝑥 2+𝑦 2/20 +ln (1+𝑥 2 𝑦 2) 1.28 ×10 −4 2.33 ×10 −4 0.549 
+
+Unrecover-32 𝐽 0
+
+√︁ 
+
+𝑥 4 + 𝑦 4
+
+
+
++ 𝑌 1 (𝑥 2 + 𝑦 2 + 1)𝑒 − ( 𝑥 2+𝑦 2 )/ 100 3.31 ×10 −3 4.02 ×10 −3 0.823 
+
+Unrecover-33 erf (sin (𝑥 ) − cos (𝑦 )) 𝑒 − ( 𝑥 −𝑦 )2/10 + 2𝑥𝑦 𝑥 2 + 𝑦 2 + 0.1 2.90 ×10 −3 1.41 ×10 −2 0.206 
+
+Unrecover-34 
+
+
+
+1 − 𝑒 −1/√𝑥 2+𝑦 2 
+
+cos 
+
+
+
+5 arctan 
+
+ sin (𝑥𝑦 )
+
+cos (𝑥 + 𝑦 )
+
+ 
+
+1.68 ×10 −2 4.02 ×10 −2 0.418 
+
+Unrecover-35 𝑒 −𝑥 2
+
+1+  𝑦 −sin (5𝑥 )𝑒 −𝑥 2/10 2 + 𝑒 −𝑦 2
+
+1+  𝑥 −cos (5𝑦 )𝑒 −𝑦 2/10 2 1.92 ×10 −2 2.26 ×10 −2 0.850 
+
+Unrecover-36 ln 
+
+
+
+| sin (𝑥 ) + cos (𝑦 )|+ √︁ 𝑥 2 +𝑦 2 +1
+
+ 3√︁ |𝑥𝑦 2 −𝑦𝑥 2 |+ 1 4.37 ×10 −3 9.16 ×10 −3 0.477 
+
+Unrecover-37 sin (𝑥𝑦 ) + 0.3 sin (4𝑥 cos (4𝑦 )) + 0.1 cos (12 𝑦 sin (12 𝑥 )) 4.73 ×10 −3 4.74 ×10 −3 0.998 
+
+Unrecover-38 
+
+(
+
+sin (𝑥 ) if 𝑥 + 𝑦 > 𝑧 
+
+cos (𝑦 ) otherwise 
+
+!
+
++
+
+(
+
+𝑧 2 if 𝑧 < 0
+
+−𝑧 2 otherwise 
+
+!
+
+5.79 ×10 −2 5.80 ×10 −2 0.998 
+
+Unrecover-39 ln (| sin (𝑥 ) − cos (𝑦 )|+ 1)+ cos (7arctan (𝑦 /𝑥 )) √︁ 
+
+𝑥 2 + 𝑦 2 −tanh (𝑥𝑦 ) 4.74 ×10 −1 4.71 ×10 −1 1.006 
+
+36

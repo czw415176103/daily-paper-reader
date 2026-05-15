@@ -1,0 +1,436 @@
+Title: EnergyLens: Interpretable Closed-Form Energy Models for Multimodal LLM Inference Serving
+
+URL Source: https://arxiv.org/pdf/2605.10556v1
+
+Published Time: Tue, 12 May 2026 02:47:36 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# EnergyLens: Interpretable Closed-Form Energy Models for Multimodal LLM Inference Serving 
+
+1st Vittorio Palladino 
+
+Politecnico di Milano & UIC 
+
+vpall3@uic.edu 
+
+2nd Gianluca Palermo 
+
+Politecnico di Milano 
+
+gianluca.palermo@polimi.it 
+
+3rd Michael E. Papka 
+
+University of Illinois Chicago 
+
+papka@uic.edu 
+
+4th Zhiling Lan 
+
+University of Illinois Chicago 
+
+zlan@uic.edu 
+
+Abstract —As large language models span dense, mixture-of-experts, and state-space architectures and are deployed on het-erogeneous accelerators under increasingly diverse multimodal workloads, optimising inference energy has become as critical as optimizing latency and throughput. Existing approaches either treat latency as an energy proxy or rely on data-hungry black-box surrogates. Both fail under varying parallelism strategies: latency and energy optima diverge in over 20% of configurations we tested, and black-box surrogates require hundreds of profiling samples to generalize across model families and hardware. We present ENERGY LENS , which uses symbolic regression as astructure-discovery tool over profiling data to derive a single twelve-parameter closed-form energy model expressed in terms of system properties such as degree of parallelism, batch size, and sequence length. Unlike black-box surrogates, E NERGY LENS 
+
+decouples tensor and pipeline parallelism contributions and sepa-rates prefill from decode energy, making its predictions physically interpretable and actionable. Fitted from as few as 50 profiling measurements, E NERGY LENS achieves 88.2% Top-1 configuration selection accuracy across many evaluation scenarios compared to 60.9% for the closest prior analytical baseline, matches the predictive accuracy of ensemble ML methods with 10 × fewer profiling samples, and extrapolates reliably to unseen batch sizes and hardware platforms without structural modification, making it a practical, interpretable tool for energy-optimal LLM deployment. 
+
+I. I NTRODUCTION 
+
+Large language models now span dense transformers, mixture-of-experts (MoE), and state-space architectures, are deployed across a heterogeneous landscape of accelerators (NVIDIA, Intel, AMD), and serve increasingly diverse multi-modal workloads spanning text, image, and video. Inference energy has emerged as a first-class optimization objective alongside latency and throughput [1]. Data centers running LLM inference at scale face mounting pressure to reduce their energy footprint, yet lack reliable tools to predict how deployment choices parallelism strategy, batch size, sequence length affect energy consumption before committing to a con-figuration. Predicting inference energy is challenging for three primary reasons. First, energy consumption arises from a complex interplay among model architecture, workload characteristics, and parallel execution strategy. Tensor parallelism (TP) and pipeline parallelism (PP) affect GPU utilization and idle power in fundamentally different ways that a single model cannot capture. Moreover, energy does not scale linearly with these factors, requiring specialized models for each combination of architecture, workload, and hardware. Second, existing machine learning surrogate approaches [2] achieve reasonable accuracy but rely on black-box models (e.g., neural networks or tree ensembles). These methods require extensive profiling data, are tightly coupled to specific model–hardware configurations, are costly to retrain as systems evolve, and offer limited in-terpretability. Third, analytical approaches that estimate energy via latency [3] introduce systematic error when latency and energy objectives diverge a common scenario under varying parallelism configurations and multimodal workloads. In such cases, energy penalties of up to 79.8% have been observed relative to the true energy-optimal configuration [4]–[6]. We address these limitations with E NERGY LENS , an en-ergy modeling framework that leverages symbolic regression to discover compact, closed-form expressions capturing the nonlinear, physically grounded relationships governing GPU energy consumption during inference. Rather than fitting an opaque predictor to profiling data, symbolic regression searches the space of mathematical expressions and returns interpretable formulas whose terms correspond directly to measurable system properties such as tensor-parallelism degree, pipeline-bubble overhead, and per-device idle power making predictions both auditable and actionable. Our central observation is that inference energy exhibits consistent mathematical structure across model families, modal-ities, hardware platforms, and that symbolic regression is well suited to uncover it. To obtain the structured measurements required to derive these formulas, we develop a profiling framework that systematically sweeps parallelism strategies, quantization schemes, batch sizes, and sequence lengths across NVIDIA, Intel, and AMD GPUs. We evaluate ENERGY LENS on a suite of text, vision-language, and video workloads spanning dense transformers, mixture-of-experts models, and state-space models across three GPU vendors. E NERGY LENS achieves 88.2% Top-1 configu-ration selection accuracy across many scenarios compared to 60.9% for the closest prior analytical baseline, matches the pre-dictive accuracy of ensemble ML methods while requiring 10 ×
+
+fewer profiling samples (13.0% MAPE at n=50 vs. 49.0% for Random Forest). The formula transfers across model families and hardware platforms without structural modification: only its scalar coefficients need to be re-fitted on a small representative set of measurements. Our contributions are as follows:          
+
+> arXiv:2605.10556v1 [cs.CV] 11 May 2026 Fig. 1. Overview of the E NERGY LENS training pipeline. The procedure consists of five stages: (1) definition of the input space, comprising configuration parameters, families of models, GPU architectures, and workload types; (2) systematic energy profiling of multimodal LLM serving across diverse models and configurations, producing reusable datasets; (3) symbolic-regression-driven model construction that discovers closed-form energy formulas from profiling data; (4) optimization of E NERGY LENS by identifying Pareto-optimal configurations from the learned energy function Energy =f(max_tokens ,tp ,pp , . . . )after having it being fitted on a small set of configs profiled; and (5) deployment, yielding optimal configurations for known setups and energy profiles for unseen configurations.
+
+1) We develop E NERGY LENS , a unified closed-form energy model that decouples the contributions of tensor and pipeline parallelism, batch size, and sequence length, with parameters that carry explicit physical meaning and are fitted accurately from as few as 50 profiling measurements. 2) We demonstrate that symbolic regression can discover nonlinear formula structure that generalizes across di-verse architectures (dense, MoE, SSM), modalities (text, image, video), and GPU platforms (NVIDIA, Intel, AMD) without changing the formula template. 3) We implement a profiling framework that systemati-cally explores the joint space of parallelism strategies, quantization schemes, batch sizes, and sequence lengths, producing the structured energy measurements needed to fit and validate analytical models. 4) By modeling energy directly rather than using latency as a proxy, E NERGY LENS is capable of identifying more energy-efficient parallelism configurations, consistently outperforming the baselines across all evaluated work-loads. The remainder of this paper is organized as follows. §II reviews related work on analytical, surrogate, and latency-based energy models. §III formalises the problem and charac-terises the deployment space. §IV describes the E NERGY LENS 
+
+framework, covering the profiling harness, symbolic regression pipeline, and unified energy formula. §V presents the experi-mental evaluation, including serving-parameter characterisation and predictive benchmarks against all baselines. §VI concludes and outlines directions for future work. II. R ELATED WORK 
+
+We organize prior work along four axes: analytical and roofline-based models, black-box ML surrogates, energy-aware deployment systems, and environmental-footprint estimation models. Table I summarizes how E NERGY LENS compares to the closest prior studies. 
+
+A. Analytical and Roofline-Based Models 
+
+Classical roofline models [7] bound compute throughput via arithmetic intensity and peak memory bandwidth. They treat parallelism as a scalar multiplier and cannot differentiate between TP and PP, whose energy effects are qualitatively distinct (§V-B). MAVER IQ [3] derives an analytical latency formula from first principles and is the closest prior baseline to our work. However, it first targets latency rather than energy, implicitly assuming the two share an optimum, secondly evaluates only on text-only workloads on a single NVIDIA platform, and lastly models batch-size scaling as linear, which breaks at the saturation regime our profiling consistently exposes (§V-B4). SWEET SPOT [8] derives a closed-form efficiency curve from Transformer FLOPs and memory-access complexity, correctly identifying non-linear sweet spots as a function of sequence length on a single GPU. It does not address multi-GPU paral-lelism or multimodal workloads, and is therefore not directly comparable on the deployment regimes we target. PIE-P [9] decomposes multi-GPU inference energy into com-pute, communication, and synchronisation components under TP and PP. Conceptually it is close analytically to ours work, but it requires per-operator instrumentation, does not cover multimodal inputs, and has been validated only on a single GPU vendor. ENERGY LENS (ours) targets the same multi-GPU paral-lelism regime as PIE-P while matching the interpretability of S WEET SPOT , requires no per-operator instrumentation, fits from ∼50 profiling samples, and generalizes across GPU ven-dors and input modalities without structural modification. 
+
+B. Black-Box Surrogate Models 
+
+Data-driven surrogates random forests, gradient-boosted trees, and neural networks [2] achieve strong in-distribution TABLE I COMPARISON OF ENERGY LENS WITH REPRESENTATIVE PRIOR ENERGY AND PERFORMANCE MODELS FOR LLM INFERENCE . ✓/✗ INDICATE WHETHER THE PROPERTY IS SUPPORTED .                                               
+
+> Method Interpretable Decouples TP/PP Multi-GPU Multimodal Cross-vendor Roofline [7] ✓✗✗✗✓
+> SWEET SPOT [8] ✓✗✗✗✗
+> MAVER IQ [3] ✓✗✓✗✗
+> PIE-P [9] ✓✓✓✗✗
+> ML surrogates [2] ✗✓✓✗✗
+> LLMCO2 [10] ✗✗✗✓✓
+> Prompt-level estimators [11], [12] ✗✗✗✓✓
+> ENERGY LENS (ours) ✓✓✓✓✓
+
+accuracy but share three weaknesses for our setting. First, they are data-hungry : a Random Forest needs n=500 
+
+measurements to reach 12.3% MAPE on Mistral-7B, whereas ENERGY LENS achieves 13.0% MAPE at n=50 , a 10 × reduc-tion in profiling cost as shown in V-C1 Second, they are black box models : hundreds of decision trees provide no physical insight into why one configuration is more efficient than another. Third, they extrapolate poorly : when trained on the smallest 40% of batch sizes and evaluated on larger ones, ensemble methods degrade sharply, while E NERGY LENS maintains ≥
+
+93% pairwise ranking accuracy on five of seven datasets, as shown later. A practical limitation is that black-box surrogates require retraining from scratch for each new model–hardware combina-tion. In contrast, because the structural form of E NERGY LENS ’s formula is fixed, only its scalar coefficients need to be re-fitted. 
+
+C. Energy-Aware Deployment and Environmental Footprint 
+
+Complementary work improves inference energy by mod-ifying how requests are executed: speculative decoding [13], KV-cache compression, and dynamic batching reduce per-request cost without modelling energy directly, while DY-
+
+> NAMO
+
+LLM [14] dynamically adjusts instance count, GPU frequency, and model parallelism under changing load. Abroader sustainability literature estimates prompt-level energy, carbon, and resource footprint for AI inference, including From Prompts to Power [11], LLMCO2 [10], C LOVER [15], and infrastructure-scale studies such as How Hungry is AI? [12]. Both lines of work are orthogonal to E NERGY LENS : they either modify runtime execution or estimate pointwise foot-prints, whereas our model exposes a parametric closed-form expression over the full deployment parameter space, re-fittable for unseen model–hardware pairs. III. M ETHODOLOGY 
+
+This section formalizes the energy prediction problem and describes the orthogonal axes of the deployment space. 
+
+A. Problem Formulation 
+
+We consider a serving request characterised by a tuple 
+
+(M, W, H, θ), where M denotes the model architecture, W
+
+the workload modality, H the hardware platform, and θ the vector of serving-engine parameters (parallelism degrees, batch size, sequence length, quantisation scheme). Our goal is to learn a compact, closed-form function 
+
+bE = f  M, W, H, θ; ϕ, (1) parametrised by a small fitted vector ϕ, that predicts the per-inference energy consumption E (in Joules) while satisfying four properties: 
+
+P1 Parallelism decoupling. The function must distinguish the contributions of tensor parallelism (TP) and pipeline par-allelism (PP), which have qualitatively different physical effects on per-GPU computation and idle power. 
+
+P2 Phase decomposition. The function must separate the compute-bound prefill phase from the memory-bound decode phase, since their energy scales with different combinations of workload parameters. 
+
+P3 Cross-domain transferability. The functional form must generalise across model families, modalities, and GPU vendors with only the scalar parameters ϕ re-fitted. 
+
+P4 Sample efficiency. The parameters ϕ must be estimable from a small profiling budget compatible with production constraints. We define an energy-optimal configuration as θ⋆ =arg min θ∈Θ E(M, W, H, θ), where Θ is the discrete config-uration space defined in §III-B. The downstream objective of ENERGY LENS is to identify θ⋆ using bE as a selection oracle, so we evaluate not only predictive error (§V-C1) but also ranking 
+
+and selection quality (§V-C3). 
+
+B. Deployment Space 
+
+The deployment space is organized along four orthogonal axes, summarized in Table II, each of which influences energy in qualitatively different ways. 
+
+1) Model Architecture: We consider three families that span the dominant design philosophies of current LLM deployment:  
+
+> •
+
+Dense Transformer (Mistral-7B-Instruct-v0.3, Qwen2-VL-7B-Instruct, NVIDIA Nemotron-v2-9B): every token at-tends to every other token via multi-head self-attention, and all feed-forward parameters activate per token. Per-token compute is constant, but memory bandwidth scales with sequence length due to KV-cache growth. TABLE II THE FOUR ORTHOGONAL AXES OF THE DEPLOYMENT SPACE .           
+
+> Axis Values Model architecture Dense (Mistral-7B, Qwen2-VL-7B, Nemotron-v2-9B), MoE (Qwen1.5-MoE-A2.7B), SSM (Mamba-130M) Workload modality Text (WikiText-2), Image+text (COCO-2017), Video+text (Video-MME), Video-only (MSR-VTT) Hardware platform NVIDIA A100, AMD MI100, Intel GPU Max 1550 Serving parameters TP, PP, batch size, max output tokens (Table III)
+> •
+
+Mixture-of-Experts (Qwen1.5-MoE-A2.7B): the feed-forward block is a set of expert sub-networks, only a small subset of which is activated per token via a learned router. This decouples total parameter count from per-token FLOPs but introduces all-to-all communication over-head under parallelism.  
+
+> •
+
+State-Space Model (Mamba-130M): a recurrent architec-ture based on selective state-space models that replaces attention with a structured recurrence over a fixed-size hidden state, reducing per-step complexity from O(n2) to 
+
+O(n) and eliminating the KV-cache. 
+
+2) Workload Modality: We consider four modalities with progressively increasing computational and memory demands:  
+
+> •
+
+Text-only (WikiText-2-raw-v1): pure language modelling.  
+
+> •
+
+Image+text (COCO 2017): vision-language inference re-quiring a vision-encoder forward pass and additional vi-sual tokens during prefill.  
+
+> •
+
+Video+text (Video-MME): temporal visual understanding requiring encoding of multiple frames and substantially longer effective sequence lengths.  
+
+> •
+
+Video-only (MSR-VTT): video understanding without ac-companying text context. 
+
+3) Hardware Platform: To assess generalization across ven-dors, we cover hardware accelerators from all three major GPU vendors:  
+
+> •
+
+NVIDIA A100 : part of the Sophia system at ALCF [16], with each compute node equipped with 4× 40 GB A100 GPUs interconnected via NVLink 3.0.  
+
+> •
+
+Intel Data Center GPU Max 1550 : part of the Aurora system at ALCF [17], with each compute node equipped with 6× 128 GB Ponte Vecchio accelerators using Intel Xe Link fabric.  
+
+> •
+
+AMD Instinct MI100 : part of ChameleonCloud, with compute nodes equipped with 2× 192 GB MI100 GPUs connected via AMD Infinity Fabric [18]. 
+
+4) Serving-Engine Parameters: In this study, we use the vLLM serving engine. We partition its configuration parameters into two classes based on the cost of applying a change (Table III):  
+
+> •
+
+Heavy configurations require a full model reload and determine the deployment architecture: TP degree dTP ∈{1, 2, 4}, PP degree dPP ∈ { 1, 2, 4}, and maximum num-ber of batched tokens ∈ { 1024 , 2048 , 4096 , 8192 , 16384 }. 
+
+> •
+
+Light configurations can be modified at runtime with-out restarting the serving instance and primarily af- 
+
+> TABLE III
+> VLLM CONFIGURATION PARAMETERS AND SWEPT VALUES .
+
+Class Parameter Values Heavy Tensor Parallel Size ( dTP ) 1, 2, 4 Pipeline Parallel Size ( dPP ) 1, 2, 4 Max Batched Tokens 1024, 2048, 4096, 8192, 16384 Light Max Output Tokens 64, 128, 256, 512 
+
+fect sampling behaviour: maximum output tokens ∈{64 , 128 , 256 , 512 }.This distinction has practical implications for profiling: heavy-configuration changes must be executed as separate jobs, whereas light-configuration sweeps can run within a single instance, substantially reducing total profiling time. Throughout this paper, we adopt the following conventions to avoid overloading the term architecture : platform refers to the hardware vendor (NVIDIA, Intel, AMD); model family refers to the neural-network type (dense Transformer, MoE, SSM); and workload refers to the request modality (text, image+text, video+text). IV. T HE ENERGY LENS MODEL 
+
+A. Unified Parallelism-Aware Energy Model 
+
+We conduct extensive experiments across the different axes of the deployment space listed in Table II. A consistent pattern emerges across independent runs spanning different model families and workload modalities. For text-only workloads, the discovered formulas consistently express energy as a function of the ratio between token load and a parallelism-weighted batch term: 
+
+E ∝ c1
+
+parallelism ·  batch size / max tokens  + c2
+
++c3, (2) while for video and image workloads the search converges to a logarithmic compression of a similar ratio: 
+
+E ∝ log 
+
+ max tokens 
+
+dTP · total input tokens · c1
+
+· 1
+
+parallelism + c2
+
+
+
+.
+
+(3) Two structural invariants recur across both modalities and all model families: (i) token load over parallelism energy scales with the number of tokens each device must process, captured as token counts divided by a parallelism factor; and (ii) batch-size saturation increasing batch size reduces per-request energy with diminishing returns, encoded as batch size appearing in the denominator with a sublinear or ratio-based role. A key finding from our profiling study is that tensor par-allelism (TP) and pipeline parallelism (PP) affect fundamen-tally differently the energy and must therefore be modeled separately. TP splits tensor operations within each layer across GPUs, reducing per-GPU computation through efficient tensor-core utilisation while introducing all-reduce synchronisation overhead [19]. PP distributes layers sequentially across GPUs, incurring pipeline-bubble overhead and keeping all GPUs pow-ered during idle stages [20], [21]. Treating these two axes uniformly, as prior work does, combine their distinct physical mechanisms and leads to systematic mispredictions. We employ symbolic regression to derive a unified, closed-form energy model. Importantly, its role is to uncover recurring structural patterns across independent runs. The resulting motifs token-load scaling, batch-size saturation, and TP/PP asymmetry are then consolidated into a single closed-form formula that pre-serves their structure while remaining compact and physically grounded. Furthermore, LLM inference operates in two distinct phases with different computational profiles: a compute-bound prefill phase (processing input tokens) and a memory-bound decode phase (generating output tokens). Equation (4) encodes these shared motifs directly, decomposing energy into prefill, decode, and baseline overhead components: 
+
+E = αp · total input tokens 
+
+ batch size βp + ϵp
+
+ · d γ1,p  
+
+> TP
+
+· d γ2,p 
+
+> PP
+
+| {z }
+
+> Prefill Energy ( Epf )
+
++ αd · max tokens 
+
+ batch size βd + ϵd
+
+ · d γ1,d  
+
+> TP
+
+· d γ2,d 
+
+> PP
+
+| {z }
+
+> Decode Energy ( Edc )
+
++ δ1 · dTP + δ2 · dPP 
+
+| {z }
+
+> Baseline Overhead
+
+, (4) where dTP and dPP denote the degrees of tensor and pipeline parallelism, respectively. These twelve parameters carry explicit physical meaning. The αp and αd parameters are global workload-scaling con-stants for the prefill and decode phases, absorbing model size and hardware throughput. The βp and βd terms control the rate at which batching amortises per-request costs in their respective phases, while ϵp and ϵd regularise behaviour at small batch sizes. The γ parameters independently capture the energy impact of scaling TP ( γ1,p , γ 1,d ) versus PP ( γ2,p , γ 2,d ), cleanly decoupling how compute and memory bottlenecks shift under different parallelism strategies. Finally, δ1 and δ2 account for the hardware-level baseline power draw and static overheads introduced by each parallelism axis. 
+
+B. Parameter Fitting 
+
+Vector ϕ = {α{p,d }, β {p,d }, γ 1,{p,d }, γ 2,{p,d }, ϵ {p,d }, δ 1, δ 2}
+
+is estimated by minimizing the Mean Absolute Percentage Error (MAPE) on a small representative profiling sample: 
+
+ϕ⋆ = arg min 
+
+> ϕ
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+Ei − bE(θi; ϕ)
+
+Ei
+
+. (5) We solve Equation (5) with the L-BFGS-B optimiser [22] under the bound constraints α, δ > 0, β ∈ [0 , 2] , γ ∈ [−2, 2] ,
+
+ϵ ∈ [10 −3, 1] . Because Equation (4) is non-convex in ϕ,we use a multi-start strategy: 10 random initialisations sam-pled uniformly within the bounds, retaining the lowest-MAPE solution. Convergence typically occurs within ∼200 function evaluations and takes under one second on a single CPU core. As demonstrated in §V-C1, n=50 profiling measurements suffice to achieve 13 .0% MAPE a regime where ensemble ML methods require 10 × as many samples to match. Unlike black-box ensembles whose hundreds of decision trees offer no physical intuition [23], every term in Eq. (4) is directly inspectable. An operator can compare γ1,d against 
+
+γ2,d to verify the relative energy cost of scaling along the TP versus PP axis during decoding, or evaluate δ1 and δ2 to understand base GPU idle-power contributions insights that are immediately actionable for deployment and capacity planning. Crucially, the extensive profiling required to discover these structural motifs is a one-time investment: once the symbolic expressions are identified, the model can be retrained on new hardware or workloads by collecting only lightweight measure-ments, without repeating the full profiling procedure. 
+
+C. Using ENERGY LENS in Practice 
+
+To illustrate how E NERGY LENS is used in practice, consider an operator seeking to minimize inference energy for a vision-language model on a previously unseen hardware platform. The operator first collects a small profiling dataset of approximately 50 measurements by sweeping a representative subset of the configuration space defined in Table III, a process that typi-cally completes within minutes without disrupting production workloads. The twelve parameters of Eq. (4) are then fitted to these measurements via L-BFGS-B optimization [22], yielding a closed-form energy model ready for deployment. The result-ing formula can then be evaluated analytically over the full configuration space including parallelism degrees, batch sizes, and sequence lengths beyond those observed during profiling to identify the energy-optimal deployment configuration without exhaustive measurement. Because the formula structure is fixed across model families and hardware platforms, the same work-flow applies when migrating to new models or GPUs, requiring only re-fitting of scalar coefficients on a small representative sample, additional details on sampling techniques and ablations are provided in §V-C2. V. E XPERIMENTS 
+
+We evaluate E NERGY LENS along two complementary di-mensions: (1) analyzing how serving parameters affect energy and latency across models, workloads, and hardware, and (2) benchmarking ENERGY LENS against baselines in terms of accuracy, sample efficiency, and configuration-selection quality. 
+
+A. Experimental Setup a) Baseline methods.: We compare E NERGY LENS against four baselines:  
+
+> •
+
+Linear Regression [24]: a standard linear model over the same input features, representing the simplest parametric baseline.  
+
+> •
+
+Random Forest [25]: an ensemble of 100 decision trees, representing a nonparametric, data-hungry approach. • Gradient Boosting [26]: a sequential ensemble method that iteratively corrects residual errors, representing the strongest ML baseline.  
+
+> •
+
+MAVER IQ [3]: the closest prior analytical approach, which derives a formula for end-to-end request latency from profiling data. Since M AVER IQ targets latency rather than energy; we multiply its predicted latency by the GPU power at the corresponding configuration and re-fit its parameters via gradient descent to minimize energy MAPE, following the methodology described in their paper and code. 
+
+b) Evaluation metrics.: We report three metrics:  
+
+> •
+
+MAPE (Mean Absolute Percentage Error): scale-invariant accuracy, our primary metric.  
+
+> •
+
+R2 (Coefficient of Determination): fraction of variance explained.  
+
+> •
+
+RMSE (Root Mean Squared Error): absolute prediction error in Joules. 
+
+c) Datasets and models: We evaluate five hard-ware–model combinations: Mamba-130M, Nemotron-v2-9B, and Mistral-7B on NVIDIA A100; Mistral-7B on Intel GPU Max 1550; and Mistral-7B on AMD MI100. For multimodal evaluation, we additionally profile Qwen2-VL-7B-Instruct un-der text-only, image+text, and video+text workloads. 
+
+B. Empirical Foundations of ENERGY LENS 
+
+Before evaluating E NERGY LENS as a predictive model, we present the profiling results that informed its design. These experiments reveal how serving parameters parallelism strategy, batch size, and input modality affect both energy and latency, and critically demonstrate that latency cannot always be used as a reliable proxy for energy optimization.             
+
+> Fig. 2. Average latency (seconds) versus TP/PP configuration for four model architectures: Qwen1.5-MoE (blue), Mamba-130m (orange), Mistral-7B (green), and NVIDIA Nemotron-Nano-9B (red). Dense and MoE models achieve 60–64% latency reductions from TP = 1 to TP = 4 , while Mamba-130m remains largely insensitive due to its cache-free recurrent architecture.
+
+1) Latency vs. TP/PP Configuration: Figure 2 shows av-erage latency as a function of TP/PP configuration for four models spanning three architecture families on NVIDIA A100. The curves separate into three distinct regimes that remain stable across all parallelism settings, with TP driving the dominant latency reductions for all transformer-based models and PP having negligible or even detrimental effect. Dense and MoE transformers respond strongly to tensor parallelism because it partitions both attention weight matrices and the KV-cache, easing the memory-bandwidth bottleneck that governs decode. Pure pipeline parallelism is at best neutral for these models: Nemotron’s latency actually increases under PP=4, as inter-stage communication and bubble overhead ex-ceed any benefit from distributing parameters. Qwen1.5-MoE alone derives non-trivial benefit from PP, which we attribute to the alignment between expert sharding and pipeline stages: distributing experts reduces per-stage mem-ory footprint without the heavy all-reduce traffic seen in dense TP. Mamba-130m is insensitive to both axes the absence of a KV-cache removes the memory pressure TP typically relieves, and the model’s small size fits within a single A100, removing any motivation for PP. A practical consequence is that the latency gap between architectures collapses substantially under aggressive TP. Par-allelism strategy can therefore reshape rather than merely scale the relative cost ordering of candidate models.     
+
+> Fig. 3. Average energy (Joules) versus TP/PP configuration for four model architectures. Energy trends largely follow latency, with all large models achiev-ing 67–71% reductions at (TP =4 ,PP =1) . Crucially, unlike latency, pipeline parallelism provides measurable energy savings even for dense transformers. Mamba-130m maintains 10–20 ×lower energy across all configurations.
+
+2) Energy vs. TP/PP Configuration: Figure 3 shows energy consumption across the same configurations. The overall shape mirrors the latency plot, but two divergences reveal why latency alone is an insufficient proxy for energy optimization. First, pipeline parallelism yields meaningful energy savings for dense transformers both Nemotron-Nano-9B and Mistral-7B show substantial drops under PP-only configurations despite providing no latency improvement. Distributing model parame-ters across stages reduces per-GPU memory pressure, enabling lower power states between micro-batches, an effect entirely invisible to latency-based reasoning. Second, a non-monotone energy spike is visible at 
+
+(TP =2 , PP =1) for all three large models: energy rises relative to its neighbours even as latency continues to fall. Two-way tensor parallelism keeps both GPUs in high-utilisation states with frequent all-reduce communication, whereas configura-tions involving PP allow pipeline stages to idle between micro-batches. The result is a configuration that is simultaneously faster and less energy-efficient than a PP alternative. 
+
+Latency and energy optima can diverge. 
+
+Pipeline parallelism reduces energy by distributing memory pressure across devices and enabling lower GPU power states an effect that a latency-based op-timiser will systematically overlook.  
+
+> Fig. 4. Average energy (Joules) versus TP/PP configuration for Mistral-7B across Intel Aurora, AMD MI100, and NVIDIA A100. AMD achieves the lowest absolute energy; NVIDIA benefits most from higher TP degrees; Intel exhibits a non-monotone response to PP scaling.
+
+3) Cross-Platform Energy Comparison: Figure 4 compares per-inference energy for Mistral-7B across three hardware platforms. The three curves occupy distinct energy ranges and respond differently to parallelism, reflecting their underlying memory and interconnect architectures. AMD MI100 maintains the lowest absolute energy across all configurations. Its large unified HBM3 capacity accommodates the entire Mistral-7B parameter set and KV-cache on a single device, eliminating the cross-device communication overhead that motivates tensor parallelism at this model scale. NVIDIA A100 shows the steepest energy reduction as TP increases, reflecting the efficiency of NVLink 3.0 for all-reduce operations distributing memory pressure across multiple GPUs is rewarded with substantial gains at higher TP degrees. Intel GPU Max 1550 presents the most irregular profile: energy rises through intermediate PP degrees before recovering at higher values. Xe Link synchronisation overhead dominates at intermediate pipeline depths but is eventually outweighed by the memory distribution benefits at higher PP. 
+
+4) Effect of Batch Size on Energy: Figure 5 shows per-inference energy as a function of batch size for Qwen-7B under text-only workloads. All curves follow a sharp decay at small batch sizes before flattening to a near-constant plateau, with the transition occurring well before batch size 50. The plateau indicates that fixed overheads model loading, KV-cache initialisation, kernel launch have been fully amor-tised, beyond which further batching yields negligible per-inference savings. The parallelism hierarchy is preserved across the entire range, but its relative importance shifts with operating   
+
+> Fig. 5. Average per-inference energy (Joules) versus batch size for Qwen-7B across TP/PP configurations. All configurations exhibit steep energy decay at small batch sizes, converging to ∼5-10 J beyond batch size 50. Higher parallelism achieves lower energy at all batch sizes.
+
+regime: at batch size 1, aggressive parallelism is the dominant energy lever, while in the saturated regime the advantage narrows, making simpler configurations increasingly viable. 
+
+Batching alone cannot arbitrarily reduce per-inference energy. 
+
+Once fixed costs are amortised, further energy reduction requires optimising compute-bound operations through architecture changes, quantisation, or more efficient parallelism not simply increasing batch size.  
+
+> Fig. 6. Average energy (Joules) versus TP/PP configuration for Qwen-7B under three workload modalities. Video + text is substantially more expensive at baseline; all modalities benefit from parallelism, but modality gaps persist even at high TP.
+
+5) Effect of Input Modality on Energy: Figure 6 compares energy across text-only, image + text, and video + text inputs for Qwen-7B. The three curves are vertically separated across the entire TP/PP range, with video + text consuming several times more energy than text-only at every configuration tested. The gap is most pronounced at low parallelism and com-presses but does not close at high TP, reflecting that the prefill cost of visual tokens dominates the energy profile and cannot be eliminated through parallelism alone. All modalities respond strongly to the early pipeline-parallelism steps and all exhibit the same non-monotone energy increase at (TP =2 , PP =1) 
+
+observed in the text-only experiments, confirming that this behaviour is a hardware-level artefact rather than modality-specific. Unlike text tokens, multimodal prefill cost is per-request and cannot be amortised across a batch in the same way, making high parallelism a necessity rather than an option for energy-efficient multimodal serving. 
+
+> Fig. 7. Average energy (Joules) versus TP/PP configuration for Qwen2-VL-7B at BF16, 4-bit, and 8-bit quantisation. Counterintuitively, 4-bit raises energy at most configurations; 8-bit offers the most robust advantage.
+
+6) Effect of Quantization on Energy: Figure 7 shows how weight quantisation alters the energy profile of Qwen2-VL-7B. The most striking feature is that 4-bit quantisation lies above 
+
+the BF16 baseline at low parallelism, even if the intuition would have expected that the reduced precision reduces cost too. The cause is dequantisation overhead and memory-access irregularity, which overcome storage savings when GPU re-sources are limited. This effect is lost at (TP =2 , PP =1) , where the 4-bit curve spikes sharply, indicating a particularly poor interaction between dequantisation kernels and two-way tensor parallelism. By contrast, 8-bit quantisation provides consistent energy savings across the measured range and is the more robust choice. Only at the highest parallelism configurations do the three curves converge, suggesting that sufficient GPU resources can eventually compensate for dequantisation over-head. 
+
+Lower bit-width does not imply lower energy. 
+
+The quantisation-parallelism interaction is non-trivial: 4-bit quantisation can increase energy at low parallelism due to dequantisation overhead. Deployments should profile quantised models under their target parallelism regime rather than assuming bit-width reduction trans-lates directly to energy reduction. 
+
+C. Prediction Evaluation 1) Sample Efficiency and Generalization: Table IV com-pares E NERGY LENS against ML baselines at ntrain = 50 and 
+
+ntrain = 500 on Mistral-7B. Each column reports MAPE, 
+
+R2, and RMSE; lower MAPE and higher R2 indicate better predictive accuracy. ENERGY LENS achieves strong performance already at 50 samples and improves only marginally at 500, demonstrat-ing that its domain-knowledge encoding of token, batch, and parallelism interactions allows accurate parameter estimation from a profiling session that typically completes in minutes. Data-driven approaches require substantially more data to reach comparable performance: Random Forest and Gradient Boost-ing both improve dramatically between 50 and 500 samples, while Linear Regression remains poor at both scales due to its inability to capture nonlinear interactions.                                        
+
+> TABLE IV MAPE, R2,AND RMSE AT nTRAIN = 50 AND nTRAIN = 500 ON
+> MISTRAL -7B. B OLD MARKS THE BEST VALUE PER COLUMN .
+> n= 50 n= 500
+> MAPE / R2RMSE MAPE / R2RMSE ENERGY LENS 13.0% /0.977 4.41 11.3% /0.981 4.01
+> Linear Reg. 127.6% / 0.409 22.54 100.3% / 0.476 21.23 Random Forest 49.0% / 0.560 19.40 12.3% / 0.917 8.43 Grad. Boosting 38.0% / 0.483 20.38 13.2% / 0.941 7.11
+
+All experiments use random sampling to draw the ntrain 
+
+profiling measurements. In a controlled ablation over 10 seeds at n=50 , random sampling consistently outperforms Latin Hypercube Sampling for E NERGY LENS (e.g., 13 .8% ±1.3% vs. 
+
+25 .9% ±1.7% MAPE on Mistral-7B). The energy surface is steepest at small batch sizes, and random draws over-represent this high-gradient region naturally, whereas LHS [27] spreads samples uniformly and under-samples exactly the region that drives the batch-size and parallelism exponent fits in Eq. (4). 
+
+2) Cross-Hardware and Cross-Model Generalization: Ta-ble V evaluates ENERGY LENS alongside all baselines and MAVER IQ across multiple hardware–model combinations at 
+
+ntrain = 50 .ENERGY LENS is consistently competitive and often achieves the best performance across diverse settings. It outper-forms all baselines, including M AVER IQ, on the majority of NVIDIA configurations. For example, on Nemotron-Nano-9B and Mistral-7B, it achieves the lowest MAPE (15.6% and 13.0%, respectively), substantially improving over both ML models and the latency-based proxy. Across multimodal workloads, E NERGY LENS continues to perform strongly, achieving the best results on most Qwen2-VL and LLaVA configurations. There are a few exceptions where data-driven methods slightly outperform it, such as Qwen2-VL video (where Random Forest achieves 28.2% vs. 33.7%) and LLaVA video (where M AVER IQ achieves 49.5% vs. 50.9%), but these differences remain modest. On non-NVIDIA hardware, E NERGY LENS also generalises well without any hardware-specific tuning. It achieves the best performance on both AMD MI100 (14.8%) and Intel 1550 (18.1%), outperforming all baselines. Overall, these results confirm that the functional form of Eq. (4) generalises effectively across GPU architectures and TABLE V MAPE OF ENERGY LENS , ML BASELINES , AND MAVER IQ [3] AT 
+
+nTRAIN = 50 ACROSS HARDWARE AND MODEL COMBINATIONS . B OLD MARKS THE BEST MAPE PER ROW .Model Type ENERGY -LENS                                                                      
+
+> Lin. Reg. Rand. Forest Grad. Boost. Lat. ×P(M AVER IQ) MAPE MAPE MAPE MAPE MAPE Nemotron-Nano-9B (NVIDIA) Text 15.6% 104.0% 53.4% 44.3% 36.1% Mistral-7B (NVIDIA) Text 13.0% 127.6% 49.0% 38.0% 36.2% Qwen1.5-MoE-2.7B (NVIDIA) Text 32.2% 73.9% 53.0% 40.0% 36.5% Qwen2-VL-7B (NVIDIA) Text 23.3% 111.0% 55.8% 48.7% 48.5% Qwen2-VL-7B (NVIDIA) Image 28.7% 74.2% 50.9% 54.5% 56.5% Qwen2-VL-7B (NVIDIA) Video 33.7% 34.3% 28.2% 31.8% 33.0% LLaVA-1.5-7B (NVIDIA) Image 34.6% 129.5% 54.0% 47.9% 66.1% LLaVA-1.5-7B (NVIDIA) Video 50.9% 109.8% 60.6% 64.3% 49.5%
+> LLaVA-1.5-7B (NVIDIA) Text 12.8% 119.6% 46.3% 34.5% 44.2% Mistral-7B (AMD MI100) Image Chat 14.8% 29.5% 18.4% 15.1% 23.9% Mistral-7B (INTEL 1550) Video Chat 18.1% 96.8% 33.7% 20.2% 37.1%
+
+model families, requiring only the re-fitting of twelve scalar parameters. 
+
+3) Pairwise Ranking Quality: Prediction accuracy (MAPE) measures absolute error, but configuration selection only re-quires correct ranking : if a model consistently identifies which of two configurations uses less energy, it will select near-optimal deployments even when its absolute predictions carry significant error. We therefore evaluate both E NERGY LENS and MAVER IQ on pairwise ranking accuracy : for every pair of 
+
+(T P, P P ) configurations within a scenario, we check whether the model correctly predicts which configuration consumes less energy. With k configurations per scenario, this yields  k
+
+> 2
+
+
+
+comparisons 36 pairs for k=9 providing a far more stable evaluation signal than the winner-take-all overhead metric. We additionally report Spearman rank correlation ( ρ) and Top-1 selection accuracy (whether the model’s top pick matches the oracle). Table VI presents results across all nine workloads. E N-
+
+ERGY LENS achieves 95.8% pairwise accuracy overall (940 scenarios) compared to M AVER IQ’s 91.5%, with Spearman 
+
+ρ = 0.951 versus 0.896. Most strikingly, ENERGY LENS 
+
+achieves 88.2% Top-1 accuracy correctly identifying the single best configuration in nearly 9 out of 10 scenarios compared to M AVER IQ’s 60.9%. On text-only workloads, E NERGY LENS 
+
+reaches 99.3% pairwise accuracy on Mistral-7B with a mean regret of just 0.26%. Even on the challenging multimodal work-loads where absolute MAPE is higher, ranking quality remains strong: 94.6% on LLava-image-chat and 88.3% on Qwen2-VL-image-chat, demonstrating that the prefill/decode formula structure captures the correct energy ordering across parallelism configurations even when absolute magnitude predictions carry larger error. 
+
+4) Robustness Without Per-Configuration Power Measure-ments: A practical limitation of latency-based energy prox-ies, such as MAVER IQ, is their reliance on precise, per-configuration power measurements to convert predicted latency into accurate energy estimates. In production environments, gathering granular power telemetry for every possible hardware configuration is often infeasible. Consequently, deployments may fall back on a static power estimate such as the mean 
+
+TABLE VI PAIRWISE RANKING ACCURACY , S PEARMAN ρ, T OP -1 SELECTION ACCURACY , AND MEAN REGRET FOR ENERGY LENS AND MAVER IQ ACROSS NINE WORKLOADS (940 TOTAL SCENARIOS ). B OLD MARKS THE BETTER VALUE PER ROW .Pairwise Acc. Spearman ρ Top-1 Acc. Mean Regret Workload EL MAV EL MAV EL MAV EL MAV                                                                         
+
+> Mistral-7B 99.3 96.0 0.994 0.957 97.6 71.7 0.3 3.9 Nemotron-V2-9B 96.1 90.6 0.953 0.877 88.7 59.8 2.1 7.7 Qwen1.5-MoE 94.8 88.1 0.942 0.854 84.5 46.4 19.0 29.2 Qwen2-VL text 95.8 92.5 0.953 0.915 90.0 65.9 3.4 6.6 Qwen2-VL image 88.3 89.3 0.877 0.874 45.0 60.0 12.5 5.6
+> Qwen2-VL vid-only 86.7 79.2 0.811 0.696 68.8 31.2 18.2 35.8 LLava vid-chat 83.3 90.8 0.793 0.907 87.5 75.0 3.9 5.1 LLava img-chat 94.6 90.4 0.939 0.893 81.2 68.8 4.4 8.8
+> Overall 95.8 91.5 0.951 0.896 88.2 60.9 7.0 12.1
+
+power consumption across all configurations. To measure the impact of this limitation, we evaluate the pre-dictive robustness of E NERGY LENS against M AVER IQ (con-strained to use mean power) using pairwise ranking accuracy. As shown in Figure 8, E NERGY LENS which models energy natively and requires no external power telemetry exhibits strong predictive robustness across eight distinct workloads. In contrast, M AVER IQ suffers significant degradation in rank-ing accuracy when deprived of exact power data for each configs. For instance, on Mistral-7B, E NERGY LENS achieves a pairwise accuracy of 99.3%, whereas M AVER IQ drops to 66.9%. This severe vulnerability is consistent across diverse models: E NERGY LENS significantly outperforms M AVER IQ on NVIDIA-Nemotron-V2-9B (96.1% vs. 71.8%), Qwen1.5-MoE-2.7B (94.8% vs. 82.9%), and LLava-1.5-7B-image-chat (94.6% vs. 85.4%). The performance gap remains evident even in complex multimodal tasks. On Qwen2-VL-7B-image-chat, M AVER IQ’s accuracy degrades to 65.7% trending perilously close to the 50% threshold of random guessing while E NERGY LENS main-tains an 88.3% accuracy. These results demonstrate that relying solely on latency as an energy proxy is non optimal approach in real-world deployments; modelling energy directly can provide a vastly superior ability to identify energy-optimal configura-tions out-of-the-box. 
+
+5) Cross-Batch-Size Extrapolation: We train both models on the smallest 40% of batch sizes and evaluate on the remain-ing 60%. M AVER IQ uses a linear batch-scaling assumption, while E NERGY LENS uses a sublinear form that captures the diminishing-returns amortisation of fixed overheads (§V-B4). Table VII reports results on the seven datasets with ≥4 unique batch sizes. E NERGY LENS achieves ≥93 % pairwise accuracy on five of seven datasets, with mean regret under 4% on six. The contrast is sharpest on Qwen1.5-MoE (93.9% vs. 76.4% pairwise, 1.4% vs. 29.2% regret) and video-only workloads (96.7% vs. 89.2%), confirming that the sublinear inductive bias enables principled extrapolation whereas M AVER IQ’s linear assumption introduces systematic error. Fig. 8. Pairwise accuracy without per-configuration power measurements. ENERGY LENS models energy directly and maintains high accuracy across all text and multimodal tasks. In contrast, M AVER IQ, when restricted to a mean power proxy, suffers widespread degradation. Models: M1 = LLaVA-1.5-7B-image-chat, M2 = Mistral-7B, M3 = NVIDIA-Nemotron-V2-9B, M4 = Qwen1.5-MoE-2.7B, M5 = Qwen2-VL-7B-image-chat, M6 = Qwen2-VL-7B-text, M7 = Qwen2-VL-7B-video-chat, M8 = Qwen2-VL-7B-video-only. TABLE VII CROSS -BATCH -SIZE EXTRAPOLATION : MODELS TRAINED ON THE SMALLEST 40% OF BATCH SIZES , EVALUATED ON THE REMAINING LARGER BATCH SIZES . P AIR ACC ” IS PAIRWISE RANKING ACCURACY (%); R EGRET ” 
+
+> IS MEAN ENERGY OVERHEAD
+
+(%) VS . ORACLE . B OLD MARKS THE BETTER EXTRAPOLATED RESULT PER ROW .ENERGY LENS MAVER IQ Extrapolated In-sample Extrapolated In-sample Workload Pair Reg Pair Reg Pair Reg Pair Reg Mistral-7B 97.3 3.0 98.9 0.4 94.8 4.8 93.6 6.4 Nemotron-V2-9B 93.0 3.9 95.9 1.3 88.7 9.3 87.4 10.0 Qwen1.5-MoE 93.9 1.4 95.7 1.4 76.4 29.2 85.3 17.3 Qwen2-VL text 93.3 0.4 93.9 1.0 87.6 8.9 91.6 5.6 Qwen2-VL image 78.3 16.0 83.9 19.9 87.2 7.5 85.0 8.4 Qwen2-VL vid-only 96.7 1.9 93.3 1.9 89.2 14.7 77.5 37.2 LLava img-chat 85.7 3.1 95.0 3.1 79.7 16.7 88.3 10.2 
+
+6) Robustness Across Workload Modalities: MAVER IQ was evaluated exclusively on text workloads [3]. To assess cross-modality generalisation, we aggregate our pairwise ranking results by input modality: text-only (4 datasets, 856 scenar-ios), image+text (2 datasets, 52 scenarios), and video+text (3 datasets, 32 scenarios). Table VIII presents the breakdown. E NERGY LENS main-tains strong ranking quality across all three modalities: 96.1% pairwise accuracy on text-only, 92.2% on image+text, and 83.3% on video+text. On the text-only workloads where both methods have been extensively evaluated, E NERGY LENS 
+
+achieves 90.1% Top-1 accuracy 29 percentage higher than MAVER IQ’s 60.9% while maintaining a mean regret under 7%. On image+text workloads, the two methods achieve comparable ranking (92.2% vs. 90.0%) and regret (7.5% vs. 7.6%). On video+text, M AVER IQ has a slight pairwise advantage (85.2% vs. 83.3%), but E NERGY LENS achieves substantially better Top-1 accuracy (68.8% vs. 53.1%), indicating that ENER -
+
+TABLE VIII PAIRWISE RANKING QUALITY BY WORKLOAD MODALITY . M AVER IQ WAS EVALUATED ONLY ON TEXT WORKLOADS IN ITS ORIGINAL PAPER .ENERGY LENS MAINTAINS STRONG RANKING ACROSS ALL MODALITIES .BOLD MARKS THE BETTER VALUE PER ROW .Modality Method Pair Acc ρ Top-1 Regret Text-only ENERGY LENS 96.1 0.954 90.1 6.4 
+
+MAVER IQ 91.8 0.901 60.9 12.0 Image+text ENERGY LENS 92.2 0.915 67.3 7.5 MAVER IQ 90.0 0.886 65.4 7.6 
+
+Video+text ENERGY LENS 83.3 0.766 68.8 24.3 MAVER IQ 85.2 0.800 53.1 22.1 Overall ENERGY LENS 95.4 0.945 88.1 7.1 
+
+MAVER IQ 91.5 0.896 60.9 12.1 GY LENS ’s ranking errors tend to occur among close-energy configurations rather than at the critical top of the ranking, which impact far less the energy consumption overhead. These results confirm that E NERGY LENS ’s formula structure with separate prefill and decode terms that can absorb vision-encoder costs generalises across input modalities without struc-tural modification, while the latency-proxy approach, untested on multimodal workloads by its authors, provides no systematic advantage even on the modalities it was not designed for. VI. C ONCLUSION AND FUTURE WORKS 
+
+We presented E NERGY LENS , a symbolic-regression frame-work that derives compact, interpretable closed-form energy formulas for LLM inference from as few as 50 profiling measurements. By decoupling tensor and pipeline parallelism and separating prefill from decode, E NERGY LENS captures the mechanisms governing GPU energy across diverse model families, modalities, and hardware vendors without structural changes to the formula. Across 940 scenarios spanning dense transformers, MoE, and state-space models on NVIDIA, Intel, and AMD GPUs, it achieves 95.8% pairwise ranking and 88.2% Top-1 selection accuracy, versus 91.5% and 60.9% for MAVER IQ. It matches ensemble ML accuracy with 10 × fewer samples and extrapolates reliably to batch sizes three to ten times larger than those seen during fitting ( ≥93%) pairwise accuracy on five of seven datasets). Several limitations point to future work. First, the current template uses additive prefill and decode terms with indepen-dent parallelism exponents; allowing multiplicative interactions between TP, PP, and sequence length could improve accuracy on MoE and long-context video workloads where cross-term effects matter. Second, adding domain-specific features such as expert routing frequency or frame-encoding cost could close the accuracy gap on these workloads. Finally, integrating E N-
+
+ERGY LENS with dynamic schedulers like VLLM’s continuous batching would enable online reconfiguration, moving from static selection to adaptive, energy-aware serving. We will release E NERGY LENS along with the associated datasets, as open-source on GitHub to support reproducibility and foster collaboration within the community. REFERENCES [1] T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell et al. , “Language models are few-shot learners,” in Advances in Neural Information Processing Systems , vol. 33, 2020, pp. 1877–1901. [2] S. Cheng, M. M. Zavlanos et al. , “Data-driven surrogate models for LLM energy consumption in distributed systems,” ACM Transactions on Embedded Computing Systems , 2025. [3] A. Liakopoulos et al. , “MaverIQ: Fingerprint-guided extrapolation and fragmentation for fast, accurate llm inference profiling,” Proceedings of the ACM/IEEE International Conference on Supercomputing (SC) , 2025. [4] H. Wang, X. Xiao, M. Yan, Z. Zhu, D. Han, D. Wang, W. Li, X. Ye, C. Hu, H. Chen, and G. Sun, “A systematic characterization of LLM inference on GPUs,” arXiv preprint arXiv:2512.01644 , 2025. [5] P. J. Maliakel, S. Ilager, and I. Brandic, “Characterizing LLM inference energy-performance tradeoffs across workloads and GPU scaling,” arXiv preprint arXiv:2501.08219 , 2025. [6] M. ¨Ozcan, P. Wiesner, P. Weiß, and O. Kao, “Quantifying the energy consumption and carbon emissions of LLM inference via simulations,” in Workshop on Performance and Energy Efficiency in Concurrent and Distributed Systems (PECS), Euro-PAR , 2025, arXiv:2507.11417. [7] S. Williams, A. Waterman, and D. Patterson, “Roofline: An insightful visual performance model for multicore architectures,” Communications of the ACM , vol. 52, no. 4, pp. 65–76, 2009. [8] H. P. Cavagna et al. , “SweetSpot: An analytical model for predicting energy efficiency of LLM inference,” 2025. [9] A. Dutt et al. , “Fine-grained energy prediction for parallelized LLM inference with PIE-P,” 2025. [10] Z. Fu, F. Chen, S. Zhou, H. Li, and L. Jiang, “Llmco2: Advancing accurate carbon footprint prediction for llm inferences,” ACM SIGENERGY Energy Informatics Review , vol. 5, no. 2, pp. 63– 68, 2025. [Online]. Available: https://doi.org/10.1145/3757892.3757901 [11] F. Caravaca, ´A. Cuevas, and R. Cuevas, “From prompts to power: Measuring the energy footprint of llm inference,” 
+
+arXiv preprint arXiv:2511.05597 , 2025. [Online]. Available: https://arxiv.org/abs/2511.05597 [12] N. Jegham, M. Abdelatti, L. Elmoubarki, and A. Hendawi, “How hungry is ai? benchmarking energy, water, and carbon footprint of llm inference,” arXiv preprint arXiv:2505.09598 , 2025. [Online]. Available: https://arxiv.org/abs/2505.09598 [13] Y. Leviathan, M. Kalman, and Y. Matias, “Fast inference from transformers via speculative decoding,” in Proceedings of the 40th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 202. PMLR, 2023, pp. 19 274–19 286. [Online]. Available: https://proceedings.mlr.press/v202/leviathan23a.html [14] J. Jovanovic et al. , “DynamoLLM: Designing LLM inference clusters for performance and energy efficiency,” in IEEE HPCA , 2025. [15] B. Li, S. Samsi, V. Gadepally, and D. Tiwari, “Clover: Toward sustainable ai with carbon-aware machine learning inference service,” in Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC ’23) , 2023. [Online]. Available: https://doi.org/10.1145/3581784.3607034 [16] Argonne Leadership Computing Facility, “Sophia Machine Overview,” https://www.alcf.anl.gov/sophia, 2024, accessed: 2024. [17] S. Muralidharan, T. Applencourt, C. Bertoni, J. Kwack, Y. Luo, E. Rangel, J. Tramm, Y. Ghadar et al. , “Aurora: Architecting Argonne’s First Exascale Supercomputer for Science and Discovery,” arXiv preprint arXiv:2509.08207 , 2025. [Online]. Available: https://arxiv.org/abs/2509.08207 [18] K. Keahey et al. , “Chameleon: A large-scale reconfigurable testbed for computer science research,” ACM Computing Surveys , 2023, canonical Chameleon testbed reference. [19] D. Narayanan, M. Shoeybi, J. Casper, P. LeGresley, M. Patwary, V. Ko-rthikanti, D. Vainbrand, P. Kashinkunti, J. Bernauer, B. Catanzaro, A. Phanishayee, and M. Zaharia, “Efficient large-scale language model training on GPU clusters using Megatron-LM,” in Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis (SC) , 2021. [20] Y. Huang, Y. Cheng, A. Bapna, O. Firat, M. X. Chen, D. Chen, H. Lee, J. Ngiam, Q. V. Le, Y. Wu, and Z. Chen, “GPipe: Efficient training of giant neural networks using pipeline parallelism,” in Advances in Neural Information Processing Systems (NeurIPS) , 2019. [21] D. Narayanan, A. Harlap, A. Phanishayee, V. Seshadri, N. R. Devanur, G. R. Ganger, P. B. Gibbons, and M. Zaharia, “PipeDream: Generalized pipeline parallelism for DNN training,” in Proceedings of the ACM Symposium on Operating Systems Principles (SOSP) , 2019. [22] R. H. Byrd, P. Lu, J. Nocedal, and C. Zhu, “A limited memory algo-rithm for bound constrained optimization,” SIAM Journal on Scientific Computing , vol. 16, no. 5, pp. 1190–1208, 1995. [23] C. Molnar, Interpretable Machine Learning , 2nd ed., 2020. [Online]. Available: https://christophm.github.io/interpretable-ml-book/ [24] F. Galton, “Regression towards mediocrity in hereditary stature,” The Journal of the Anthropological Institute of Great Britain and Ireland ,vol. 15, pp. 246–263, 1886. [25] L. Breiman, “Random forests,” Machine Learning , vol. 45, no. 1, pp. 5–32, 2001. [26] J. H. Friedman, “Greedy function approximation: A gradient boosting machine,” The Annals of Statistics , vol. 29, no. 5, pp. 1189–1232, 2001. [27] M. D. McKay, R. J. Beckman, and W. J. Conover, “A comparison of three methods for selecting values of input variables in the analysis of output from a computer code,” Technometrics , vol. 21, no. 2, pp. 239–245, 1979.

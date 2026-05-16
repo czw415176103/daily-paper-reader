@@ -1,0 +1,1422 @@
+Title: Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation
+
+URL Source: https://arxiv.org/pdf/2605.07323v1
+
+Published Time: Mon, 11 May 2026 00:45:56 GMT
+
+Number of Pages: 39
+
+Markdown Content:
+# Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Sum Kyun Song* 1 Bong Gyun Shin* 2 Jae Yong Lee 1
+
+## Abstract 
+
+Discovering governing differential equations from observational data is a fundamental challenge in scientific machine learning. Existing symbolic re-gression approaches rely primarily on quantita-tive metrics; however, real-world differential equa-tion modeling also requires incorporating domain knowledge to ensure physical plausibility. To ad-dress this gap, we propose DoLQ, a method for discovering ordinary differential equations with LLM-based qualitative and quantitative evalua-tion. DoLQ employs a multi-agent architecture: a Sampler Agent proposes dynamic system can-didates, a Parameter Optimizer refines equations for accuracy, and a Scientist Agent leverages an LLM to conduct both qualitative and quantitative evaluations and synthesize their results to itera-tively guide the search. Experiments on multi-dimensional ordinary differential equation bench-marks demonstrate that DoLQ achieves superior performance compared to existing methods, not only attaining higher success rates but also more accurately recovering the correct symbolic terms of ground truth equations. Our code is available at 
+
+https://github.com/Bon99yun/DoLQ .
+
+## 1. Introduction 
+
+To understand complex dynamical systems, scientists have long pursued concise mathematical laws (Wigner et al., 1990). Differential equations are essential tools for describ-ing the dynamic behavior of systems across various fields including physics, chemistry, and biology, and when the governing equations are known, it becomes possible to pre-dict and control the future states of the system. However, 
+
+> *
+
+Equal contribution 1Department of Artificial Intelligence, Chung-Ang University, Seoul, Republic of Korea 2Daejin Uni-versity, Pocheon, Republic of Korea. Correspondence to: Jae Yong Lee <jaeyong@cau.ac.kr >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+Figure 1. Similar MSE does not imply correct discovery: even with a low MSE, the identified equation may differ from the true one, suggesting that quantitative metrics alone are insufficient and that qualitative evaluation is therefore necessary. 
+
+in many real-world systems, the form of governing equa-tions is not clearly known, and one must infer them from observational data. Consequently, there is a growing need for methodologies capable of deriving interpretable, explicit mathematical formulas directly from data (Rudin, 2019). Sparse Identification of Nonlinear Dynamics (SINDy) (Brunton et al., 2016) addresses this equation discovery problem by constructing a predefined library of basis func-tions and identifying system dynamics via sparse regression. While efficient, SINDy struggles with selecting appropriate libraries for systems with unknown functional forms. Al-ternatively, Symbolic Regression (SR) approaches seek to find a symbolic function f that maps input variables x to observed outputs y, satisfying y ≈ f (x), from given data (Koza, 1992; Schmidt & Lipson, 2009). SR extends to dy-namical system discovery by identifying the right-hand side 
+
+f of an ordinary differential equation (ODE), formulated as 
+
+˙x = f (t, x), which governs the system. SR-based methods overcome the library constraint through autonomous dis-covery of differential equations. For instance, ODEformer (d’Ascoli et al., 2024) leverages the Transformer architec-ture to generate ODEs from observational data, enabling the discovery of diverse equation structures. However, relying solely on numerical data, these methods often fail to verify the physical meaning or consistency of the generated terms. More recently, LLMs have entered the SR landscape. These approaches replace the traditional evolutionary algorithms used for equation generation with LLMs (Shojaee et al., 2025; Grayeli et al., 2024). By leveraging the extensive prior knowledge and hypothesis generation capabilities of LLMs, these studies have outperformed traditional approaches. However, their evaluation of candidate equations still re-1 
+
+> arXiv:2605.07323v1 [cs.AI] 8 May 2026 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation
+> Figure 2. Overview of the DoLQ framework for LLM-based ODE discovery. The framework operates through an iterative loop among three components: (1) the Sampler Agent proposes candidate terms with physical justifications based on the system description and Scientist Agent’s feedback; (2) the Parameter Optimizer makes functions and fits their parameters; and (3) the Scientist Agent evaluates each term through qualitative semantic assessment and quantitative iterative comparison, determining actions that guide subsequent iterations.
+
+lies primarily on quantitative criteria such as mean squared error (MSE) or model complexity. As Figure 1 illustrates, equations with similarly low numerical error can neverthe-less imply different physical mechanisms. This highlights the limitation of purely numerical evaluation and motivates the need for qualitative assessment. Since differential equa-tions in science are often grounded in natural phenomena and human intuition, the physical plausibility of discovered terms becomes essential. To address these limitations, we propose DoLQ , a novel framework that Discovers Ordinary differential equations with LLM-based Qualitative and Quantitative evaluation. DoLQ is a collaborative framework composed of three key components: a Sampler Agent, a Parameter Optimizer, and a Scientist Agent. The Sampler Agent leverages the semantic reasoning of LLMs to propose candidate terms grounded in qualitative physical justification. The Parameter Optimizer determines the optimal numerical parameters for proposed terms. Crucially, the Scientist Agent enriches the search with qualitative evaluation by assessing whether candidate equations are semantically and physically plausible rather than relying on numerical fit alone. By combining physical reasoning with numerical validation, DoLQ can identify governing laws for multi-dimensional ODEs beyond simple polynomial forms across diverse dynamical systems. Our main contributions are summarized as follows: • Integrated qualitative-quantitative framework: 
+
+DoLQ explicitly embeds qualitative physical reason-ing into the search loop, guiding the discovery process toward equations that satisfy both numerical accuracy and physical interpretability while maintaining com-pact equation structures. • Superior performance on complex systems: We demonstrate that DoLQ achieves the highest success rates in identifying correct governing equations, par-ticularly excelling where existing methods struggle to capture the correct dynamics. • Impact of qualitative evaluation: We demonstrate the effectiveness of qualitative reasoning in filtering out physically implausible terms, validating that semantic assessment plays a crucial role in guiding the discovery process toward correct governing equations. 
+
+## 2. Problem Formulation 
+
+We consider a data-driven discovery task where the input consists of two parts: numerical observations and a semantic description. Let D = {(ti, x(ti)) }N −1 
+
+> i=0
+
+be the time-series state observations, where x(ti) ∈ Rd represents the sys-tem state at time ti. Additionally, a system description T is provided, which represents the domain-specific prior knowl-edge that a practitioner would possess when approaching the discovery task. Our goal is to discover an interpretable system of ODEs 
+
+˙x(t) = f (t, x), where f = [ f0, . . . , f d−1]T is composed of functional terms proposed by an LLM that synthesizes the domain knowledge from T with numerical patterns in 2Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+D. The objective is to identify f that minimizes the Mean Squared Error (MSE). For the j-th dimension, the integral MSE is defined as  
+
+> N−1
+
+X
+
+> i=0
+
+
+
+xj (ti) −
+
+
+
+xj (t0) + 
+
+Z ti
+
+> t0
+
+fj (s, x) ds 
+
+ 2
+
+. (1) Here, the integral represents the state trajectory obtained via numerical integration of the ODE system starting from the initial condition x(t0).Specifically, T comprises facts known before data collec-tion and without reference to mathematical formulas, such as physical principles and qualitative assessments. While providing this context, T strictly prohibits specifying math-ematical structures; for example, describing “air resistance” is permitted, whereas explicit terms like −cx 2 or sin( x)
+
+are not. This ensures the model leverages physical intuition without knowledge of the ground-truth symbolic forms. 
+
+## 3. Methodology 
+
+With the problem formulation in place, we now describe the DoLQ framework and its components in detail. DoLQ is an iterative framework consisting of a Sampler Agent for generating symbolic candidates, a Parameter Optimizer for estimating coefficients, and a Scientist Agent for qual-itative and quantitative evaluation (Figure 2). This cycle progressively refines the discovered equations by leveraging both domain knowledge and numerical patterns, guiding the search towards physically consistent and accurate models. 
+
+3.1. Sampler Agent 
+
+The Sampler Agent is an LLM-based component that pro-poses candidate terms for each dimension of the system of ODEs, along with natural language justifications grounded in the system description and feedback from the Scientist Agent. See Appendix K.1 for detailed prompt examples. 
+
+Sampler prompt. The input prompt consists of three com-ponents: (1a) the role specification stating the SR task and the system description T providing domain-specific context and physical principles; (1b) Scientist Agent guidance, in-cluding accumulated knowledge synthesized from previous iterations, term-by-term evaluation results ( keep or hold ), and the set of removed term skeletons marked as ineffective; (1c) technical constraints including output format require-ments and illustrative examples. 
+
+Sampler LLM response. The Sampler Agent generates ODE candidates in a structured format, pairing each sym-bolic term with a natural language justification grounded in the system description. Crucially, each term is format-ted as an executable Python snippet utilizing state vari-ables x and parameter placeholders params[...] (e.g., 
+
+params[0] * x ). As illustrated in Figure 2, the output is organized into multiple candidate hypotheses. For each hypothesis, a distinct set of terms is generated for every dimension of the system. Each term is accompanied by its physical justification and reasoning, allowing the framework to explore diverse structural assumptions while maintaining the ability to evaluate and ablate distinct physical mecha-nisms. 
+
+3.2. Parameter optimizer 
+
+The Parameter Optimizer takes term lists proposed by the Sampler Agent and refines them into accurate differential equations through two steps: constructing executable func-tions and optimizing their parameters. 
+
+Function construction. For each set of terms, we construct an executable skeleton function by instantiating the sym-bolic terms with trainable parameters. This function rep-resents a candidate differential equation fj (t, x; θ) for the 
+
+j-th dimension, where θ denotes the parameters to be opti-mized. See Appendix B.4 for detailed examples. 
+
+Hybrid optimization. We find the optimal parameters θ
+
+that minimize the residual MSE:  
+
+> N−1
+
+X
+
+> i=0
+
+( ˙ xj (ti) − fj (ti, x; θ)) 2 , (2) where ˙xj (ti) denotes the numerically estimated derivative at time ti, computed via finite differences from D.We adopt residual MSE instead of integral MSE (Eq. 1) for two reasons: (1) integral MSE requires costly numeri-cal integration at each optimization step, and (2) in multi-dimensional systems, errors in one dimension cause trajec-tory divergence during integration, resulting in poor scores even for correctly identified dimensions. Residual MSE eval-uates each dimension independently, enabling proper credit assignment. We therefore use residual MSE throughout op-timization. While many SR studies utilize BFGS (Fletcher, 2013), it is known to be sensitive to initialization and often fails to converge if the starting values are not well-posed (see Section 5.2). Therefore, we employ a hybrid strategy that first applies differential evolution (Storn & Price, 1997) to identify a promising parameter region, followed by BFGS optimization for refinement. In practice, we evaluate all three strategies—BFGS alone, differential evolution alone, and the hybrid method—selecting the candidate with the lowest MSE. 
+
+3.3. Scientist Agent 
+
+The Scientist Agent re-evaluates the optimized candidate equations f received from the Parameter Optimizer. It as-3Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+sesses each candidate term from two complementary per-spectives: qualitative evaluation based on the system de-scription and quantitative contribution measured through iterative comparison. Upon completing these evaluations, the agent synthesizes both results to provide feedback and recommended actions to the Sampler Agent. 3.3.1. Q UANTITATIVE EVALUATION 
+
+For quantitative evaluation, the Scientist Agent assesses which terms in the optimized equation are truly necessary. We perform a simple ablation test. For each term in the equation, we temporarily remove it by setting its coeffi-cient to zero and recalculate the residual MSE. If the error significantly increases without the term, it is contributing meaningfully to the fit. If the error stays the same or de-creases, the term is unnecessary or harmful and should be removed. Based on this ablation analysis, terms are classified into three categories: good (terms whose removal significantly increases error, indicating positive contribution), neutral 
+
+(terms whose removal has negligible impact on error), and 
+
+bad (terms whose removal decreases error, indicating nega-tive impact). To make the ablation criterion concrete, con-sider the illustrative example shown in the middle panel of Figure 2. In that example, np.sin(x1) is classified as good because removing it increases the MSE by 78.2%, whereas x1**4 is classified as bad because its removal decreases the overall error, indicating that the term was inflating the fit. See Appendix B for details. 3.3.2. Q UALITATIVE EVALUATION 
+
+For qualitative evaluation, the Scientist LLM assesses how well each term aligns with the physical or mathemati-cal meaning described in the system description. See Ap-pendix K.2 for details. 
+
+Scientist prompt. The input prompt to the Scientist Agent comprises four components: (2a) context information includ-ing the current iteration progress and system description, enabling the agent to understand the search trajectory and physical background; (2b) accumulated insights from previ-ous evaluations and constraints listing previously removed term structures to prevent redundant proposals in subsequent iterations; (2c) experimental results presenting the Global Best equation, Previous Attempt, and Current Attempt, each with per-dimension MSE values, optimized coefficients, and the Sampler’s physical justifications for each proposed term, allowing the agent to assess performance improvements and evaluate the physical plausibility of new terms relative to established baselines; (2d) evaluation instructions specify-ing semantic quality grading criteria and requirements for physical reasoning, ensuring consistent evaluation standards across iterations. 
+
+Table 1. Benchmark ODEs and their temporal domains for ID and ID-Ext evaluation. Benchmark Equation Time Domain ID ID-Ext SIR(2D) ˙x0 = −0.4x0x1 [0 , 2] [0 , 4] ˙x1 = 0 .4x0x1 − 0.314 x1                                           
+
+> CDIMA(2D) ˙x0= 8 .9−4.0x0x1
+> x20+1 −x0[0 ,5] [0 ,10] ˙x1= 1 .4x0
+> 
+> 1−x1
+> x20+1
+> 
+> Glider(2D) ˙x0=−x20/5.0−sin( x1)[0 ,5] [0 ,10] ˙x1=x0−cos( x1)/x 0
+> Glider(4D)
+> ˙x0=−9.81 sin( x1)−0.030625 x20
+> [0 ,5] [0 ,10] ˙x1=−9.81 cos( x1)
+> x0+ 0 .6125 x0
+> ˙x2=x0cos( x1)˙x3=x0sin( x1)
+
+Scientist LLM response. The Scientist Agent produces a structured response containing two components. The first component, term evaluations, provides dimension-specific assessments where each term receives a semantic quality grade paired with physical reasoning. Terms are assigned 
+
+good if they clearly align with physical principles described in the system description, neutral if they are partially rel-evant but lack a clear physical basis, or bad if they lack physical meaning or contradict the system description. The second component, updated insight, synthesizes the current analysis into accumulated knowledge, identifying captured physical mechanisms and aspects requiring further investi-gation. This structured format enables systematic tracking of modeling progress. 3.3.3. F EEDBACK SYNTHESIS .The final action for each term is determined by combining both evaluations: (1) if semantic quality is bad , immedi-ately remove regardless of performance impact; (2) if both semantic quality and performance impact are good , assign 
+
+keep ; (3) all other combinations are assigned hold . Terms re-ceiving hold for two consecutive iterations are converted to 
+
+remove . Removed term skeletons, where parameters are re-placed with placeholder symbols, are recorded to prevent re-proposal. To avoid permanently discarding potentially valid terms, a probabilistic forgetting mechanism periodically clears these entries, allowing re-exploration of previously rejected candidates. The detailed algorithm and decision logic are provided in Appendix B.3. 
+
+## 4. Experiments 
+
+4.1. Benchmark and dataset 
+
+To evaluate our method, we select seven ODE problems from ODEbench (d’Ascoli et al., 2024), a comprehensive benchmark for ODE discovery, with their physical descrip-tions and domain knowledge supplemented by referencing 4Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation                                                                                
+
+> Table 2. Quantitative performance comparison measured by NMSE. We report the dimension-averaged results. Bold with underline indicates the best, bold indicates the second best. NaN indicates solver failure or numerical instability. Model SIR(2D) CDIMA(2D) Glider(4D) Residual Integral Residual Integral Residual Integral ID ID-Ext ID ID-Ext ID ID-Ext ID ID-Ext ID ID-Ext ID ID-Ext ICSR 2.80e-8 4.62e-9 1.42e-8 1.19e-8 5.16e-4 6.06e-5 3.78e-4 2.56e-4 2.55e-2 1.16e0 2.55e-1 3.19e0 LASR 1.78e-8 7.19e-9 7.60e-9 8.61e-9 2.91e-1 1.14e1 2.90e-1 4.85e1 2.50e-2 3.52e0 4.94e-1 1.00e3 LLM-SR 1.65e-8 4.14e-9 1.61e-8 2.79e-8 2.67e-3 5.08e-3 3.14e-3 9.38e-3 9.95e-7 1.12e-6 8.54e-7 4.76e-6
+> EDL 1.86e1 NaN 1.40e1 NaN 1.07e5 NaN 1.33e5 NaN 1.48e4 NaN 1.37e4 NaN DoLQ(ours) 1.71e-8 3.98e-9 1.55e-8 2.63e-8 2.29e-8 2.69e-8 2.35e-8 1.15e-7 1.22e-6 1.53e-6 8.29e-7 5.21e-6
+
+Wikipedia and related literature. For four-dimensional sys-tems, we additionally construct benchmark problems fol-lowing the same approach. Thus, we use a total of eight ODE datasets. We focus on four representative systems for detailed analysis in the main experiments. We use three sys-tems for quantitative performance comparison as shown in Table 2: SIR(2D), CDIMA(2D), and Glider(4D). Addition-ally, we use Glider(2D) for structural equation analysis as shown in Figure 3. Details on the complete benchmark suite are provided in Appendix A. 
+
+Benchmark problems. Table 1 shows four representative systems from the benchmark suite. We categorize problems by their functional complexity: systems with polynomial terms versus those with rational, trigonometric, or exponen-tial terms. Table 2 presents quantitative evaluation on three systems: SIR(2D) models disease spread, CDIMA(2D) mod-els chemical kinetics with nonlinear saturation terms, and Glider(4D) captures flight dynamics. Figure 3 shows struc-tural equation comparison on a dimensionless Glider(2D) variant for clearer visualization. 
+
+Extended in-domain evaluation. To assess the general-ization capability of discovered equations, we build upon the evaluation framework of Shojaee et al. (2025), which proposes in-domain (ID) and out-of-domain (OOD) test sets. While OOD evaluation is ideal for testing generalization, it is impractical in our setting because integral MSE-based validation requires initial conditions that may be unavail-able in the extended regime. To address this limitation, we introduce extended-ID (ID-Ext) test sets that extend the temporal or state-space coverage while retaining observed initial conditions, enabling rigorous testing of whether dis-covered equations maintain predictive accuracy over longer horizons. 
+
+Data generation. State trajectories for both ID and ID-Ext regimes were generated using the fourth-order Runge–Kutta method. The time derivatives ˙x in Eq. (2) were obtained through numerical differentiation based on the finite dif-ference method. For each ODE, we prepared textual de-scriptions by referencing relevant research literature, with equation names and explicit formula structures removed to prevent direct inference of the symbolic form. The ID regime is used for model training and selection, while the ID-Ext regime serves to evaluate extrapolation capability under extended temporal or spatial ranges. The time domain ranges for ID and ID-Ext in Table 1 were selected based on the temporal intervals where the data distribution ex-hibited the most significant differences, ensuring rigorous evaluation of extrapolation capability. 
+
+4.2. Baseline models and experimental setup 
+
+We evaluate DoLQ against representative LLM-based SR methods: ICSR (Merler et al., 2024), L ASR (Grayeli et al., 2024), LLM-SR (Shojaee et al., 2025), and EDL (Du et al., 2024). We selected these baselines based on their capabil-ity to incorporate textual descriptions of the system T via prompts and their ability to generate symbolic ODE ex-pressions. Notably, among these baselines, LLM-SR and EDL were originally proposed and evaluated specifically for symbolic discovery of ordinary differential equations. The remaining methods, L ASR and ICSR, were primarily designed for general symbolic regression tasks; neverthe-less, we adapt them to our problem setting to enable a fair comparison on ODE discovery. Most existing SR methods target scalar-valued functions (f : Rd → R), whereas our task requires discovering vector-valued functions ( f : Rd → Rd) for ODE systems. To ensure fair comparison, we adapted the baselines to sup-port vector-valued outputs by modifying their prompts and providing the same system description T . All experiments were conducted using Gemini 2.5 Flash Lite (Team et al., 2023). To ensure equivalent LLM call conditions for a fair comparison, we configured the search budget as follows. For DoLQ, we perform 100 iterations. In contrast, base-line models LLM-SR, EDL, and ICSR are configured to perform 100 iterations per dimension, with L ASR set to a comparable expected number of iterations per dimension. A similar budget strategy was maintained for 4D systems; further details are provided in Appendix B. 5Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation     
+
+> Figure 3. Equation comparison on the 2D dimensionless Glider system. Ground truth terms are highlighted in green. Group (b) shows models with reasonable NMSE: DoLQ achieves integral NMSE <10 −3across all dimensions, and LLM-SR exhibits the lowest NMSE among the remaining methods. Group (c) shows models with higher NMSE. Each model’s discovered equation terms and their corresponding optimized coefficients are displayed.
+
+4.3. Performance comparison 
+
+We use normalized mean squared error (NMSE) to enable fair comparison across different problems with varying scales. We evaluate performance using two metrics: integral NMSE and residual NMSE, with the results summarized in Table 2. For the SIR(2D) system, since the equation form is readily inferable from the description, most models achieve low error rates, successfully identifying the govern-ing dynamics. Notably, many models identify the correct mathematical structure practically from the first iteration, demonstrating that existing methods are capable when the problem structure is relatively straightforward. However, the CDIMA(2D) system presents a distinct chal-lenge due to its complex nonlinear saturation terms. In this case, a significant divergence emerges between residual NMSE and integral NMSE. Baseline models often exhibit low residual NMSE yet high integral NMSE, indicating a failure to capture the true underlying physics. Only DoLQ consistently achieves superior performance with stable in-tegral NMSE scores, demonstrating its effectiveness in dis-covering equations with complex functional forms. For the Glider(4D) system, both LLM-SR and DoLQ suc-cessfully identify the correct governing equations with low NMSE. 
+
+4.4. Structural comparison 
+
+Beyond the three representative systems in Table 1, we fur-ther analyze the learning outcomes on an additional ODE problem: a 2D dimensionless variant of the Glider sys-tem. This simplified version retains the essential nonlinear trigonometric dynamics while enabling clearer visualization     
+
+> Figure 4. Success scores measured across eight benchmark ODEs. NMSE test: success is achieved if the integral NMSE across all dimensions is <10 −3. Term test: success is achieved if the discov-ered equation matches the ground truth structure after excluding terms with negligible impact.
+> Figure 5. Cumulative token usage on the 4D Glider system. Stars (*) indicate that LLM-SR and DoLQ successfully identified the governing equation. NMSE values reach their minimum on the Glider system.
+
+and interpretation of the discovered terms compared to the full 4D system. Qualitative examination reveals critical differences in the discovered physical laws. In Figure 3, we categorize the results on this system into groups with reasonable NMSE (b) and those without (c). Both DoLQ and LLM-SR success-fully identify all ground truth terms, whereas other baselines capture only partial dynamics. However, LLM-SR often pro-6Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+poses equation skeletons containing numerous unnecessary terms. In contrast, DoLQ proposes significantly fewer terms while successfully including all ground truth components. This efficiency stems from the Scientist Agent’s rigorous quantitative and qualitative assessment; beneficial terms receive positive evaluations, while detrimental terms are ex-plicitly identified and removed, preventing their recurrence in subsequent iterations. Consequently, DoLQ achieves su-perior performance with a more focused and efficient search process. 
+
+4.5. Overall comparison and discussion 
+
+As shown in Figure 4, DoLQ achieves the highest success rate across all evaluation criteria, outperforming baseline methods on both NMSE test and Term test across diverse problem types. Analyzing baseline characteristics reveals distinct limita-tions. L ASR demonstrates reasonable performance on prob-lems with simple polynomial terms, producing clean equa-tions with minimal unnecessary components. However, the evolutionary algorithm’s search capability is fundamentally limited, failing to discover governing equations for com-plex systems involving non-polynomial functional forms. LLM-SR achieves moderate NMSE performance (4/8 suc-cess rate), yet shows limited success in capturing the correct equation structure. This discrepancy arises from propos-ing excessive candidate terms, which not only complicates parameter optimization but also generates unnecessarily verbose prompts. As evidenced by Figure 5, LLM-SR con-sumes substantially more tokens than DoLQ, with detailed statistics provided in Appendix C.4. DoLQ addresses these fundamental limitations through the Scientist Agent’s evaluation framework. By rigorously as-sessing both qualitative evaluation and quantitative eval-uation of each proposed term, the Scientist Agent effec-tively filters out unnecessary candidates early in the search process. This prevents the bloated equation skeletons that plague LLM-SR while maintaining the capacity to discover complex functional forms beyond the reach of evolutionary methods. The result is a framework that achieves superior accuracy across both simple and complex systems, consis-tently identifying the correct governing equations where baseline methods fail. DoLQ’s multi-agent architecture not only discovers physically consistent governing equations with higher success rates but also enables more interpretable results through compact equation structures. By combining qualitative reasoning with quantitative validation, DoLQ establishes a new standard for reliable and accurate ODE discovery in dynamical systems, demonstrating robust per-formance across diverse problem types while maintaining computational efficiency as an additional benefit.     
+
+> Figure 6. Impact of the Scientist Agent on search convergence for the Glider(2D) problem. DoLQ with the Scientist Agent discovers the correct equation at iteration 27, while the baseline without the Scientist Agent finds it at iteration 62, demonstrating that qualitative feedback accelerates convergence.
+> Figure 7. Action frequencies for the top-ranked terms in each tar-get dimension during DoLQ execution on the Glider(2D) problem. Highlighted terms appear in the ground-truth equation and con-sistently receive high keep frequency, indicating that the Scientist Agent effectively preserves physically meaningful terms.
+
+## 5. Component validation 
+
+5.1. Necessity of the Scientist Agent 
+
+To demonstrate the critical role of qualitative reasoning, we conduct an ablation study comparing DoLQ against a baseline variant labeled “w/o Scientist,” where the Scien-tist Agent is removed from the loop. In this configuration, the Sampler Agent directly receives the equation skeletons, optimized coefficients, and NMSE scores from the Param-eter Optimizer as part of the prompt for the next iteration, bypassing the qualitative evaluation step. As illustrated in Figure 6, the full DoLQ framework containing the Scien-tist Agent exhibits significantly faster convergence than the baseline. An analysis of the reasoning logs confirms that the Scientist Agent plays a pivotal role in the discovery process; its feedback effectively filters out physically implausible terms early in the search, guiding the model toward the correct governing equations more efficiently. Unless otherwise noted, all methods were executed three times under the same configuration, and we report the best run; Figure 6 shows one representative convergence trace generated under this protocol rather than an average over runs. Specifically, the plotted DoLQ trace corresponds to the best of these three runs. 7Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation  
+
+> Figure 8. BFGS alone can fail even with a structurally correct skeleton, whereas the hybrid optimizer successfully recovers the correct solution. This illustrates why hybrid parameter optimiza-tion is necessary.
+
+To further understand how the Scientist Agent operates within DoLQ, we analyze its decision patterns during the discovery process. Figure 7 reveals that ground truth terms consistently receive high keep frequencies, demonstrating the Scientist Agent’s effectiveness in identifying physically relevant terms. Notably, even when these terms occasionally receive remove recommendations, they reappear frequently across iterations due to the probabilistic sampling mecha-nism that considers keep/remove probabilities, global best information, and previous iteration history, enabling robust convergence toward correct equations. 
+
+5.2. Effectiveness of hybrid parameter optimization 
+
+Our choice of combining differential evolution with BFGS is motivated by the need for robust parameter estimation in the rugged loss landscapes of symbolic regression. While the LLM may propose a structurally correct equation skele-ton, standard gradient-based optimization like BFGS often fails to identify the optimal parameters due to its sensi-tivity to initialization and susceptibility to local minima. As shown in Figure 8, even when the correct functional form is provided, BFGS yields suboptimal parameter estima-tion, whereas our hybrid approach—combining the global search of differential evolution with the local refinement of BFGS—successfully locates the global optimum. Crucially, the successful optimization by differential evolution verifies that the skeleton proposed by the LLM is indeed structurally similar to the ground truth. Relying solely on BFGS could lead to the incorrect rejection of a reasonable skeleton due to optimization failure, concealing the true quality of the proposed structure. We provide further analysis on the adop-tion frequency of each optimizer across different problem complexities in Appendix D. 
+
+## 6. Related work 
+
+Symbolic regression. SR aims to recover governing equa-tions of dynamical systems in the form of explicit mathemat-ical formulas, evolving from evolutionary algorithms (Cran-mer, 2023) to incorporate physical constraints (Udrescu & Tegmark, 2020), reinforcement learning (Petersen et al., 2021; Mundhenk et al., 2021; Xu et al., 2024), and neural se-quence models (Biggio et al., 2021; Kamienny et al., 2022; Valipour et al., 2021; Shojaee et al., 2023; Yu et al., 2025; Xiang et al., 2025; Huang et al., 2025). For dynamical sys-tems, recent methods combine neural networks with genetic programming (Gao et al., 2023) and Transformer-based ar-chitectures (d’Ascoli et al., 2024). Recent advances include symbolic-numeric pre-training (Meidani et al., 2024), inter-active offline reinforcement learning (Tian et al., 2025), and grammar-based discovery (Omejc et al., 2024). However, most existing methods prioritize point-wise or derivative-based fitting metrics without validating long-horizon trajec-tory consistency. While functional SR has been extensively studied with established benchmarks (Zhang et al., 2012), ODE-specific benchmarks (Matsubara et al., 2022) remain relatively limited, requiring further research (Oliveira et al., 2018). 
+
+LLMs for scientific discovery. LLMs leverage encoded sci-entific knowledge for equation discovery, optimizing skele-tons via evolutionary search (Shojaee et al., 2025), self-improvement (Du et al., 2024), in-context learning (Merler et al., 2024), concept libraries (Grayeli et al., 2024), and symbol-numeric pre-training (Meidani et al., 2024). Re-cent work shows LLMs can interpret discovered expres-sions (Guo et al., 2025) and diagnose errors through multi-agent reasoning (Park et al., 2026), while formal verification enables structured validation (Sun et al., 2025). Beyond SR, LLMs translate natural language to formal mathemat-ics through autoformalization and reasoning (Soroco et al., 2025) and automate research pipelines (Lu et al., 2024). However, evaluation still relies on derivative matching rather than trajectory integration, and LLMs’ semantic reasoning capacity for validation remains underutilized. 
+
+Modeling and evaluation of dynamical systems. Deep learning approaches for differential equation modeling (Czarnecki et al., 2017; Dupont et al., 2019; Greydanus et al., 2019; Raissi et al., 2019; Rubanova et al., 2019; Cran-mer et al., 2019; Karniadakis et al., 2021; Linot et al., 2023; Lee et al., 2025) achieve robust predictions but lack in-terpretability. In contrast, SR discovers interpretable gov-erning equations in closed form. Our approach integrates LLM-based physical reasoning into symbolic discovery to improve equation accuracy. 8Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+## 7. Conclusion 
+
+This paper presents DoLQ, a multi-agent framework inte-grating qualitative and quantitative evaluation for discov-ering governing ODEs. By employing LLMs to validate physical plausibility, DoLQ demonstrates substantial im-provements in discovery success rates and equation inter-pretability, particularly for systems with complex functional forms. The systematic integration of semantic reasoning with numerical validation enables consistent identification of correct governing equations across diverse problem types, achieving the highest performance on comprehensive bench-marks. Several limitations warrant further investigation: pa-rameter optimization depends on numerical differentiation, introducing sensitivity to measurement noise, and reason-ing fixation occasionally causes premature convergence to implausible hypotheses. Future research will address these through integral-based parameter estimation and diversified hypothesis generation with refined feedback mechanisms. While ODEs benefit from established numerical solvers, extension to PDEs presents considerable difficulty due to the absence of universal solution methods. We plan to in-vestigate advances in PDE solver research to enable reliable equation discovery in spatiotemporal dynamical systems. 
+
+## Impact Statement 
+
+This work advances automated scientific discovery by en-abling interpretable equation learning from observational data. The enhanced ability to discover governing equations can accelerate research in physics, biology, and engineering, reducing dependence on domain expertise for model devel-opment. However, practitioners should remain cautious of potential risks: automated discovery systems may gener-ate spurious correlations or physically implausible models if deployed without proper validation. We emphasize the importance of human oversight in applying discovered equa-tions to real-world systems, particularly in safety-critical domains. 
+
+## Acknowledgments 
+
+This work was supported by the Institute of Information & Communications Technology Planning & Evaluation (IITP) grant funded by the Korea government (MSIT) [RS-2021-II211341, Artificial Intelligence Graduate School Program (Chung-Ang University)]. This work was supported by the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT) (RS-2025-02303239 and RS-2026-25497362). 
+
+## References 
+
+Biggio, L., Bendinelli, T., Neitz, A., Lucchi, A., and Parascandolo, G. Neural symbolic regression that scales. In Meila, M. and Zhang, T. (eds.), Pro-ceedings of the 38th International Conference on Ma-chine Learning , volume 139 of Proceedings of Machine Learning Research , pp. 936–945. PMLR, 18–24 Jul 2021. URL https://proceedings.mlr.press/ v139/biggio21a.html .Brunton, S. L., Proctor, J. L., and Kutz, J. N. Discovering governing equations from data by sparse identification of nonlinear dynamical systems. Proceedings of the National Academy of Sciences , 113(15):3932– 3937, 2016. doi: 10.1073/pnas.1517384113. URL 
+
+https://www.pnas.org/doi/abs/10.1073/ pnas.1517384113 .Cranmer, M. Interpretable Machine Learning for Sci-ence with PySR and SymbolicRegression.jl, May 2023. URL http://arxiv.org/abs/2305. 01582 . arXiv:2305.01582 [astro-ph, physics:physics]. Cranmer, M., Greydanus, S., Hoyer, S., Battaglia, P., Spergel, D., and Ho, S. Lagrangian neural networks. In ICLR 2020 Workshop on Integration of Deep Neural Models and Differential Equations , 2019. URL https: //openreview.net/forum?id=iE8tFa4Nq .Czarnecki, W. M., Osindero, S., Jaderberg, M., Swirszcz, G., and Pascanu, R. Sobolev training for neural networks. In Guyon, I., Luxburg, U. V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips. cc/paper_files/paper/2017/file/ 758a06618c69880a6cee5314ee42d52f-Paper.pdf .d’Ascoli, S. et al. Odeformer: Symbolic regression of dynamical systems with transformers. In Pro-ceedings of the 12th International Conference on Learning Representations (ICLR) , Vienna, Austria, 2024. URL https://openreview.net/forum? id=TzoHLiGVMo . ICLR 2024. Du, M., Chen, Y., Wang, Z., Nie, L., and Zhang, D. Large language models for automatic equation discovery of nonlinear dynamics. Physics of Fluids , 36(9):097121, 09 2024. ISSN 1070-6631. doi: 10.1063/5.0224297. URL 
+
+https://doi.org/10.1063/5.0224297 .Dupont, E., Doucet, A., and Teh, Y. W. Augmented neural odes. In Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 9Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+2019. URL https://proceedings.neurips. cc/paper_files/paper/2019/file/ 21be9a4bd4f81549a9d1d241981cec3c-Paper.pdf .Fletcher, R. Practical methods of optimization . John Wiley & Sons, 2013. Gao, E.-H. et al. Probabilistic grammars for modeling dy-namical systems from coarse, noisy, and partial data. Re-search Square , 2023. Grayeli, A., Sehgal, A., Costilla-Reyes, O., Cranmer, M., and Chaudhuri, S. Symbolic regression with a learned concept library. In Globerson, A., Mackey, L., Belgrave, D., Fan, A., Paquet, U., Tomczak, J., and Zhang, C. (eds.), Advances in Neural Information Processing Systems , volume 37, pp. 44678–44709. Curran As-sociates, Inc., 2024. doi: 10.52202/079017-1419. URL https://proceedings.neurips. cc/paper_files/paper/2024/file/ 4ec3ddc465c6d650c9c419fb91f1c00a-Paper-Conference.pdf .Greydanus, S., Dzamba, M., and Yosinski, J. Hamiltonian neural networks. In Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips. cc/paper_files/paper/2019/file/ 26cd8ecadce0d4efd6cc8a8725cbd1f8-Paper.pdf .Guo, Z., Wang, S., Tian, Y., Yang, J., Yu, H., Na, X., Kov ´acs, L., Li, L., Ioannou, P. A., and Wang, F.-Y. Sr-llm: An incremental symbolic regression frame-work driven by llm-based retrieval-augmented gener-ation. Proceedings of the National Academy of Sci-ences , 122(52):e2516995122, 2025. doi: 10.1073/pnas. 2516995122. URL https://www.pnas.org/doi/ abs/10.1073/pnas.2516995122 .Huang, Z., Huang, D. Z., Xiao, T., Ma, D., Ming, Z., Shi, H., and Wen, Y. Improving monte carlo tree search for symbolic regression. In The Thirty-ninth Annual Conference on Neural Information Processing Systems ,2025. URL https://openreview.net/forum? id=Wic0OgYsgy .Kamienny, P.-A., d’Ascoli, S., Lample, G., and Charton, F. End-to-end symbolic regression with transform-ers. In Koyejo, S., Mohamed, S., Agarwal, A., Belgrave, D., Cho, K., and Oh, A. (eds.), Advances in Neural Information Processing Systems , vol-ume 35, pp. 10269–10281. Curran Associates, Inc., 2022. URL https://proceedings.neurips. cc/paper_files/paper/2022/file/ 42eb37cdbefd7abae0835f4b67548c39-Paper-Conference.pdf .Karniadakis, G. E., Kevrekidis, I. G., Lu, L., et al. Physics-informed machine learning. Nature Reviews Physics , 3: 422–440, 2021. Koza, J. R. Genetic Programming: On the Programming of Computers by Means of Natural Selection . MIT Press, 55 Hayward St, Cambridge, MA, United States, 1992. ISBN 978-0-262-11170-6. Lee, J. Y., Ko, S., and Hong, Y. Finite element operator network for solving elliptic-type parametric pdes. SIAM Journal on Scientific Computing , 47(2), 2025. Linot, A. J., Burby, J. W., Tang, Q., Balaprakash, P., Graham, M. D., and Maulik, R. Stabilized neu-ral ordinary differential equations for long-time forecasting of dynamical systems. Journal of Computational Physics , 474:111838, 2023. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2022.111838. URL https://www.sciencedirect.com/ science/article/pii/S0021999122009019 .Lu, C., Lu, C., Lange, R. T., Foerster, J., Clune, J., and Ha, D. The ai scientist: Towards fully automated open-ended sci-entific discovery, 2024. URL https://arxiv.org/ abs/2408.06292 .Matsubara, Y., Chiba, N., Igarashi, R., and Ushiku, Y. SRSD: Rethinking datasets of symbolic regression for scientific discovery. In NeurIPS 2022 AI for Science: Progress and Promises , 2022. Meidani, K., Shojaee, P., Reddy, C. K., and Farimani, A. B. SNIP: Bridging mathematical symbolic and nu-meric realms with unified pre-training. In The Twelfth International Conference on Learning Representations ,2024. URL https://openreview.net/forum? id=KZSEgJGPxu .Merler, M., Haitsiukevich, K., Dainese, N., and Martti-nen, P. In-context symbolic regression: Leveraging large language models for function discovery. In Fu, X. and Fleisig, E. (eds.), Proceedings of the 62nd An-nual Meeting of the Association for Computational Lin-guistics (Volume 4: Student Research Workshop) , pp. 427–444, Bangkok, Thailand, August 2024. Association for Computational Linguistics. ISBN 979-8-89176-097-4. doi: 10.18653/v1/2024.acl-srw.49. URL https: //aclanthology.org/2024.acl-srw.49/ .Mundhenk, T., Landajuela, M., Glatt, R., Santiago, C. P., faissol, D., and Petersen, B. K. Symbolic regression via deep reinforcement learning enhanced genetic programming seeding. In Ranzato, M., Beygelzimer, 10 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+A., Dauphin, Y., Liang, P., and Vaughan, J. W. (eds.), 
+
+Advances in Neural Information Processing Systems ,volume 34, pp. 24912–24923. Curran Associates, Inc., 2021. URL https://proceedings.neurips. cc/paper_files/paper/2021/file/ d073bb8d0c47f317dd39de9c9f004e9d-Paper.pdf .Oliveira, L. O. V., Martins, J. F. B., Miranda, L. F., and Pappa, G. L. Analysing symbolic regression benchmarks under a meta-learning approach. In Proceedings of the Genetic and Evolutionary Computation Conference Com-panion , pp. 1342–1349, 2018. Omejc, N., Gec, B., Brence, J., et al. Probabilistic gram-mars for modeling dynamical systems from coarse, noisy, and partial data. Machine Learning , 113(10):7689–7721, 2024. doi: 10.1007/s10994-024-06522-1. URL https: //doi.org/10.1007/s10994-024-06522-1 .Park, D., Moon, H., and Ryu, S. A self-correcting multi-agent llm framework for language-based physics sim-ulation and explanation. npj Artificial Intelligence , 2 (1):10, 2026. ISSN 3005-1460. doi: 10.1038/s44387-025-00057-z. URL https://doi.org/10.1038/ s44387-025-00057-z .Petersen, B. K., Larma, M. L., Mundhenk, T. N., Santiago, C. P., Kim, S. K., and Kim, J. T. Deep symbolic regres-sion: Recovering mathematical expressions from data via risk-seeking policy gradients. In International Confer-ence on Learning Representations , 2021. URL https: //openreview.net/forum?id=m5Qsh0kBQG .Raissi, M., Perdikaris, P., and Karniadakis, G. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2018.10. 045. URL https://www.sciencedirect.com/ science/article/pii/S0021999118307125 .Rubanova, Y., Chen, R. T. Q., and Duvenaud, D. K. Latent ordinary differential equations for irregularly-sampled time series. In Advances in Neural Information Pro-cessing Systems , volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips. cc/paper_files/paper/2019/file/ 42a6845a557bef704ad8ac9cb4461d43-Paper.pdf .Rudin, C. Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. Nature machine intelligence , 1(5):206– 215, 2019. Schmidt, M. and Lipson, H. Distilling free-form natural laws from experimental data. Science , 324(5923): 81–85, 2009. doi: 10.1126/science.1165893. URL 
+
+https://www.science.org/doi/abs/10. 1126/science.1165893 .Shojaee, P., Meidani, K., Barati Farimani, A., and Reddy, C. Transformer-based planning for symbolic regression. In Oh, A., Naumann, T., Globerson, A., Saenko, K., Hardt, M., and Levine, S. (eds.), Ad-vances in Neural Information Processing Systems ,volume 36, pp. 45907–45919. Curran Associates, Inc., 2023. URL https://proceedings.neurips. cc/paper_files/paper/2023/file/ 8ffb4e3118280a66b192b6f06e0e2596-Paper-Conference.pdf .Shojaee, P., Meidani, K., Gupta, S., Farimani, A. B., and Reddy, C. K. LLM-SR: Scientific equation discovery via programming with large language models. In The Thir-teenth International Conference on Learning Represen-tations , 2025. URL https://openreview.net/ forum?id=m2nmp8P5in .Soroco, M., Song, J., Xia, M., Emond, K., Sun, W., and Chen, W. PDE-controller: LLMs for autoformalization and reasoning of PDEs. In Forty-second International Conference on Machine Learning , 2025. URL https: //openreview.net/forum?id=7epYTVsWEI .Storn, R. and Price, K. Differential evolution – a sim-ple and efficient heuristic for global optimization over continuous spaces. Journal of Global Optimization , 11 (4):341–359, 1997. ISSN 1573-2916. doi: 10.1023/ A:1008202821328. URL https://doi.org/10. 1023/A:1008202821328 .Sun, J., Tang, Y., Li, A., Maddison, C. J., and Meel, K. S. Enumerate-conjecture-prove: Formally solving answer-construction problems in math competitions, 2025. URL 
+
+https://arxiv.org/abs/2505.18492 .Team, G., Anil, R., Borgeaud, S., Alayrac, J.-B., Yu, J., Sori-cut, R., Schalkwyk, J., Dai, A. M., Hauth, A., Millican, K., et al. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. Tian, Y., Zhou, W., Viscione, M., Dong, H., Kammer, D. S., and Fink, O. Interactive symbolic regression with co-design mechanism through offline reinforcement learning. 
+
+Nature Communications , 16(1):3930, 2025. doi: 10.1038/ s41467-025-59288-y. URL https://doi.org/10. 1038/s41467-025-59288-y .Udrescu, S.-M. and Tegmark, M. Ai feynman: A physics-inspired method for symbolic regression. Science Ad-vances , 6(16):eaay2631, 2020. doi: 10.1126/sciadv. 11 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+aay2631. URL https://www.science.org/ doi/abs/10.1126/sciadv.aay2631 .Valipour, M., You, B., Panju, M., and Ghodsi, A. Sym-bolicgpt: A generative transformer model for symbolic regression, 2021. URL https://arxiv.org/abs/ 2106.14131 .Wigner, E. P. et al. The unreasonable effectiveness of math-ematics in the natural sciences. Mathematics and science ,13:1–14, 1990. Xiang, Z., Ashen, K., Qian, X., and Qian, X. Graph-based symbolic regression with invariance and constraint encod-ing. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https: //openreview.net/forum?id=JYB6wFcbky .Xu, Y., Liu, Y., and Sun, H. Reinforcement symbolic regres-sion machine. In Kim, B., Yue, Y., Chaudhuri, S., Fragki-adaki, K., Khan, M., and Sun, Y. (eds.), International Con-ference on Learning Representations , volume 2024, pp. 54416–54440, 2024. URL https://proceedings. iclr.cc/paper_files/paper/2024/file/ ef3a55fa15aa5fe39b7a2617b3a5d06e-Paper-Conference.pdf .Yu, Z., Ding, J., Li, Y., and Jin, D. Symbolic regression via mdlformer-guided search: from minimizing prediction error to minimizing description length. In Yue, Y., Garg, A., Peng, N., Sha, F., and Yu, R. (eds.), International Con-ference on Learning Representations , volume 2025, pp. 65306–65333, 2025. URL https://proceedings. iclr.cc/paper_files/paper/2025/file/ a402493de088886740b5939f666a6e56-Paper-Conference.pdf .Zhang, Y., Duc, P. M., Corcho, O., and Calbimonte, J.-P. SRBench: a streaming RDF/SPARQL benchmark. In 
+
+International Semantic Web Conference , pp. 641–657. Springer, 2012. 12 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+## A. Dataset details 
+
+A.1. Benchmark problems and ground truth equations 
+
+Table 3 provides the complete specifications for all eight benchmark ODE systems used in our experiments. Problems ID 1-7 are sourced from ODEbench (d’Ascoli et al., 2024), while ID 8 is a 4D variant of the Glider problem, constructed to evaluate performance on four-dimensional systems with non-polynomial terms. For each benchmark problem, we list its identifier (ID 1-8), descriptive title, ground truth governing equations in mathematical form, and the temporal domains used for both ID and ID-Ext evaluation regimes. These specifications serve as the reference for comparing the equations discovered by DoLQ and baseline methods, as detailed in Table 11. 
+
+Table 3. Benchmark ODEs and their ground truth governing equations and temporal domains used for in-domain (ID) and extended in-domain (ID-Ext) evaluations. ID Title Ground Truth Equations t (ID) t (ID-Ext) 1 SIR infection model only for healthy and sick 
+
+˙x0 = −0.4x0x1
+
+˙x1 = 0 .4x0x1 − 0.314 x1
+
+[0 , 2] [0 , 4] 
+
+2 Glider (dimensionless) ˙x0 = −x20/5.0 − sin( x1)˙x1 = x0 − cos( x1)/x 0
+
+[0 , 5] [0 , 10] 
+
+3Reduced model for chlorine dioxide-iodine-malonic acid reaction (dimensionless) 
+
+˙x0 = 8 .9 − 4.0x0x1 
+
+> x20+1 .0
+
+− x0
+
+˙x1 = 1 .4x0
+
+
+
+1.0 − x1
+
+> x20+1 .0
+
+ [0 , 5] [0 , 10] 
+
+4Isothermal autocatalytic reaction model by Gray and Scott 1985 (di-mensionless) 
+
+˙x0 = 0 .5(1 .0 − x0) − x0x21
+
+˙x1 = −0.02 x1 + x0x21
+
+[0 , 2] [0 , 4] 
+
+5 Interacting bar magnets ˙x0 = 0 .33 sin( x0 − x1) − sin( x0)˙x1 = −0.33 sin( x0 − x1) − sin( x1) [0 , 2] [0 , 4] 
+
+6 Binocular rivalry model (no oscillations) 
+
+˙x0 = −x0 + ( e4.89 x1−1.4 + 1 .0) −1
+
+˙x1 = −x1 + ( e4.89 x0−1.4 + 1 .0) −1 [0 , 2] [0 , 4] 
+
+7 Oscillator death model by Ermentrout and Kopell (1990) 
+
+˙x0 = 1 .432 + sin( x1) cos( x0)˙x1 = 0 .972 + sin( x1) cos( x0) [0 , 4] [0 , 8] 
+
+8 Glider (physical units) 
+
+˙x0 = −9.81 sin( x1) − 0.030625 x20
+
+˙x1 = − 9.81 cos( x1) 
+
+> x0
+
++ 0 .6125 x0
+
+˙x2 = x0 cos( x1)˙x3 = x0 sin( x1)[0 , 5] [0 , 10] 
+
+A.2. Natural language descriptions for benchmark problems 
+
+Table 4 provides the natural language descriptions ( T ) for each benchmark ODE system. These descriptions contain domain-specific context and physical principles that are provided as input to the LLM-based agents during the equation discovery process. 13 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 4. Natural language descriptions for benchmark problems. ID Natural Language Description ( T )1 This model describes disease spread by dividing the population into susceptible and infected groups, with transmission proportional to their contact and infected individuals recovering at a constant rate. An epidemic occurs only when the transmission rate exceeds a threshold, revealing a critical condition for outbreak or extinction 2 The glider is viewed as an idealized system whose motion is expected to arise from the interplay of gravity and aerodynamic forces, with speed and flight path angle evolving from assumed initial conditions 3 One state variable represents the activator species concentration, which autocatalytically accel-erates the reaction and has limited spatial mobility due to polymer indicator binding. Another represents the inhibitor species concentration that suppresses activator production. The activa-tor production rate shows saturation beyond a certain level due to substrate limitations. The consumption process is negligible at low activator concentrations but changes sharply above a specific range. External halide addition directly reacts with the inhibitor, reducing its amount. 4 This describes an open chemical system where a precursor is continuously supplied and an autocatalytic species both self-amplifies and decays. The interplay of local activation and global depletion leads to spontaneous pattern formation such as spots, waves, spirals, and chaotic spatial behavior arising from instability of an initially uniform state 5 This system describes two nearby bar magnets whose orientations influence each other through distance-dependent magnetic interactions. Depending on initial conditions and external effects, the magnets may settle into stable alignments, oscillate, rotate together, or follow complex motion patterns 6 This describes binocular rivalry, where two competing neural populations represent different images seen by each eye and suppress each other. Depending on initial conditions and input strength, one population becomes dominant, leading to stable perception of only one image at a time 7 This describes a counterintuitive effect where coupling two identical oscillating systems can completely suppress their oscillations. Strong symmetric interaction forces both systems into a shared steady state, causing oscillatory activity to disappear regardless of initial motion 8 This is conducted to measure the physical motion characteristics of a glider in actual flight. The experimenter sets the glider’s travel speed, flight path angle relative to the horizontal plane, horizontal distance, and altitude as main measurement variables. Specifically, the state variables are defined as forward velocity, flight path angle, horizontal position, and vertical altitude. The experiment is based on an aircraft of specific mass moving through the atmosphere under constant gravitational acceleration, experiencing lift and drag determined by wing configuration and air density. The aircraft’s mass, wing area, and atmospheric conditions are defined beforehand, and the flight trajectory is recorded by setting initial launch velocity and altitude. 
+
+To reduce equation-level leakage, we removed equation names, explicit symbolic forms, and direct function-form clues from all descriptions before prompting. This design does not prove the absence of memorization in a strict causal sense, but it prevents the prompt from containing the answer in symbolic form and forces discovery to depend on consistency between the description, numerical optimization, and iterative term evaluation. 
+
+A.3. Data generation procedure 
+
+We generate synthetic trajectory data for all benchmark systems using numerical integration. The data generation process consists of three main stages: ODE solving, derivative computation, and dataset partitioning. 
+
+Numerical integration. State trajectories are generated using the Runge–Kutta method. For each ODE system specified in Table 3, we integrate the ground truth equations over the temporal domains indicated in the table. 
+
+Derivative computation. We compute time derivatives ˙x(t) using two complementary methods to validate numerical consistency. First, we evaluate the derivatives directly by substituting the interpolated state values into the ground truth ODE functions: ˙x(ti) = f (ti, x (ti)) , where f represents the right-hand side of the ODE system. This provides the analytically correct derivative values denoted as ˙xgt . Second, we compute numerical derivatives using NumPy’s gradient function with second-order accurate edge handling ( edge order=2 ), which applies the central difference scheme ˙x(ti) ≈ (x(ti+1 ) −
+
+14 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+x(ti−1)) /(2∆ t) for interior points and forward/backward differences at boundaries. These numerically differentiated values, denoted as ˙xt, serve as the target derivative values for residual-based optimization (Eq. 2 in the main text). For evaluation, we measure Residual NMSE by comparing discovered equations’ predictions against ˙xgt , ensuring consistency with the ground truth dynamics. 
+
+Dataset partitioning. Generated trajectories are partitioned into two distinct temporal regimes for model evaluation. The ID regime spans from tstart to tend as specified in Table 3, representing the temporal range used for model training and in-distribution testing. The ID-Ext regime extends from tstart to tood end , combining both the ID temporal range and an extended temporal domain for OOD evaluation. Specifically, for the extended portion beyond tend , we use the state value at tend as the initial condition and continue the integration up to tood end , creating a continuous trajectory that tests the model’s extrapolation capability over longer time horizons. All experiments use noise-free data ( σ = 0 ) with 1000 uniformly sampled time points for each regime. Initial conditions for each system are predetermined and specified in the benchmark configuration rather than randomly sampled, ensuring reproducibility and consistency across all experimental runs. 
+
+A.4. State trajectory visualization 
+
+We visualize the state trajectories for the benchmark ODE problems generated using the procedure described in the previous subsection. As shown in Figure 9, we present the temporal evolution of state variables for all eight benchmark problems (ID 1-8), where each subfigure displays both the ID training regime (solid lines) and the ID-Ext evaluation regime (extended temporal domain). The visualization demonstrates the diversity of dynamical behaviors in our benchmark suite, ranging from simple polynomial dynamics in the SIR model to complex nonlinear oscillations in systems like CDIMA and the Glider systems.  
+
+> Figure 9. State trajectories for benchmark ODEs in ID and ID-Ext regimes. The figures display: ID 1: SIR infection model; ID 2: Glider (dimensionless); ID 3: Reduced model for chlorine dioxide-iodine-malonic acid reaction; ID 4: Isothermal autocatalytic reaction model; ID 5: Interacting bar magnets; ID 6: Binocular rivalry model; ID 7: Oscillator death model; ID 8: Glider (physical units).
+
+15 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+## B. Implementation details 
+
+B.1. DoLQ hyperparameters 
+
+The specific hyperparameters used for the DoLQ framework in our experiments are detailed in Table 5. These settings were chosen to balance exploration capability with computational efficiency. 
+
+Table 5. Hyperparameters for DoLQ. Values are derived from the experimental configuration specific to the results reported.                                
+
+> Category Parameter Value Description
+> LLM Configuration Sampler Model gemini-2.5-flash-lite Model for generating candidate terms Scientist Model gemini-2.5-flash-lite Model for reasoning and evaluation Sampler Temperature 0.9High temperature for diverse generation Scientist Temperature 0.6Lower temperature for stable reasoning Max Tokens (Sampler) 3000 Constraint on generation length Max Tokens (Scientist) 3000 Constraint on evaluation length Search & Optimization Evolution Iterations 100 Total number of search cycles Max Parameters 8Maximum trainable coefficients per term Differential evolution tolerance 10 −5Convergence threshold for differential evolution BFGS Tolerance 10 −9Convergence threshold for BFGS System Settings Differential evolution strategy best1bin Standard differential evolution strategy Differential evolution population size 20 Number of candidates in the differential evolu-tion pool Forget Probability 0.01 Chance to revive a banned term Timeout 240 sMaximum execution time per iteration
+
+In all experiments, the Sampler Agent produces 3 candidate hypotheses per iteration, and each equation in a candidate is constrained to contain at most 10 terms. We do not impose a separate sparsity regularizer; instead, sparsity is controlled operationally through this term cap together with the Scientist Agent’s keep/hold/remove feedback and the subsequent ablation-based filtering. Outputs exceeding the term cap are discarded before optimization. If candidate evaluation produces overflow, underflow, division-by-zero, NaN, or ∞, we assign the corresponding objective value to ∞ and discard that candidate from further consideration in the current iteration. 
+
+B.2. Experimental settings for baseline models 
+
+To ensure a fair comparison with our proposed framework, DoLQ, we incorporated the system description T (providing domain-specific context and physical principles) into the prompts for each baseline method (L ASR, LLM-SR, EDL, ICSR), adapted to their respective prompt structures. All baseline methods utilize Gemini 2.5 Flash Lite (Team et al., 2023) as the underlying LLM. For experimental parameters not explicitly mentioned in the following tables, we followed the default settings of each respective baseline method. Specifically for ICSR, the binary and unary operators listed in Table 9 were explicitly provided in the prompt to define the permissible function space. 16 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 6. Experimental settings for LASR. Setting 2D 4D Description Included Included Iterations 31 31 Populations 6 6Variable Names x0, x 1 x0, x 1, x 2, x 3                 
+
+> Binary Operators +,−,∗, /, ˆUnary Operators cos ,sin ,log ,exp ,tan ,abs ,sinh ,cosh ,tanh ,sign ,sqrt Use LLM True Use Concepts/Evolution True LLM Probabilities 0.02 (Crossover, Mutate, Randomize)
+
+Table 7. Experimental settings for LLM-SR. Setting 2D 4D Description Included Included Max Samples (Iterations) 100 100 Number of Islands 3 3Reset Period 483 304 Cluster Sampling Temp. Period 302 190 
+
+Table 8. Experimental settings for EDL. Setting 2D 4D Description Included Included Max Epoch (Iterations) 100 100 Operands x0, x 1 x0, x 1, x 2, x 3
+
+Binary Operators +, −, ∗, /, ˆUnary Operators cos , sin , log , exp , tan ,abs , sinh , cosh , tanh , sign , sqrt Metric R2
+
+Number of Samples ( M ) 10 Optimize Type evolution optimize Mode nonlinear 
+
+Table 9. Experimental settings for ICSR. Setting 2D 4D Description Included Included Iterations 100 100 Operands x0, x 1 x0, x 1, x 2, x 3
+
+Binary Operators (Prompt) +, −, ∗, /, ˆUnary Operators (Prompt) cos , sin , log , exp , tan ,abs , sinh , cosh , tanh , sign , sqrt 
+
+The hyperparameter configurations for each baseline method are summarized in Tables 6, 7, 8, and 9. Table 6 shows the LASR settings, which employ a hybrid evolutionary approach with LLM-guided mutations at a probability of 0.02, running 31 iterations with 6 populations for both 2D and 4D systems. Table 7 details the LLM-SR configuration, which utilizes an island-based evolutionary strategy with 3 islands and adaptive reset mechanisms (reset period of 483 for 2D and 304 for 4D). Table 8 presents the EDL setup, configured with 100 epochs and using R2 as the fitness metric with 10 samples per generation. Finally, Table 9 specifies the ICSR parameters, which performs 100 iterations of in-context symbolic regression with the operator set explicitly provided in the prompt. 
+
+B.3. Algorithm for term retention strategy 
+
+This algorithm details the “simple ablation test” mentioned in Section 3.3.1, classifying terms based on their impact on residual MSE. 17 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Algorithm 1: Term Contribution Analysis via Ablation Test 
+
+Input: Equation f (x; θ), Parameters θ = {c1, . . . , c k }, Data D, Threshold δ = 0 .05 
+
+Output: Classification per term (Good/Bad/Neutral) 
+
+1: Calculate Baseline Error: 
+
+M SE base ← Evaluate (f (x; θ), D)
+
+2: For each term i ∈ { 1, . . . , k }:
+
+ctemp ← θ. copy () 
+
+ctemp [i] ← 0 // Temporarily remove term iM SE ablated ← Evaluate (f (x; ctemp ), D)∆ ← (M SE ablated − M SE base )/(M SE base + ϵ) // Calculate Change Rate 
+
+If ∆ > δ :Classification ← Good (Positive Impact) 
+
+Else If ∆ < −δ:Classification ← Bad (Negative Impact) 
+
+Else :Classification ← Neutral 
+
+3: Return Classifications 
+
+Decision logic for term retention In the ablation test, we do not re-optimize the remaining coefficients after zeroing a term; instead, we reuse the previously optimized coefficient vector and set only the selected coefficient to zero. We adopted this approximation because a pilot comparison with full re-optimization changed only a very small number of keep/remove decisions while substantially increasing runtime. All optimization and ablation steps are performed on the given training trajectory rather than on a separate validation set. The final decision for each term is determined by combining the qualitative evaluation from the Scientist LLM (Figure 15) and the quantitative evaluation from the Simple Ablation Test (Algorithm B.3). The decision matrix, including the accumulated hold mechanism, is presented in Table 10. Specifically, we enforce a “2-strike” rule where terms maintained in the Hold 
+
+state for two consecutive iterations are definitively removed ( Remove ) if they fail to improve. 
+
+Table 10. Term Retention Decision Matrix. It summarizes the final action determination based on the dual evaluation results and the accumulated hold mechanism. 
+
+Semantic Quality 
+
+(Scientist LLM) 
+
+Quantitative Impact 
+
+(Ablation Test) 
+
+Previous State 
+
+(Iteration t − 1)
+
+Final Action 
+
+(Iteration t)
+
+Bad Any Any Remove Good Good (Positive) Any Keep Good Neutral / Bad 
+
+None / Keep Hold (1st) Hold (1st strike) Hold (2nd) Hold (2nd strike) Remove Neutral Any None / Keep Hold (1st) Hold (1st strike) Hold (2nd) Hold (2nd strike) Remove 
+
+B.4. Function construction 
+
+As shown in Figure 13, the Sampler agent generates a list of candidate terms. To enable numerical optimization of the coefficients, we transform these symbolic terms into an executable Python function. Figure 10 illustrates this process, where each term is assigned a learnable parameter (e.g., params[i] ) and combined into a formatted function body. 18 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Function Construction Example 
+
+Input (Term List) Output (Python Code) 
+
+x0 t = ["x0", "np.sin(x1)", "x0*x0" ]
+
+# ⇒
+
+def x0 t (x0, x1, x2, x3, params): 
+
+import numpy as np 
+
+return (params[0]*x0) + \
+
+(params[1]*np.sin(x1)) + \
+
+(params[2]*(x0*x0)) + \
+
+params[3]*1 
+
+Figure 10. Visual representation of the function construction process. A list of symbolic terms (left) is converted into an executable Python function (right) with learnable coefficients ( params ) and a bias term, enabling numerical optimization. 
+
+## C. Comprehensive experimental results 
+
+C.1. Discovered governing equations 
+
+In this section, we present the explicit mathematical forms of the governing equations discovered by each methodology for the benchmark ODE systems, detailing the structure and the optimized high-precision coefficients. These results are systematically organized in Table 11, which provides a comprehensive comparison across all eight benchmark problems (ID 1-8 corresponding to the systems specified in Table 3). For each problem, the table lists the discovered equations from DoLQ and all baseline methods (EDL, ICSR, L ASR, LLM-SR), showing the complete equation structure with optimized coefficients for every dimension. This detailed presentation facilitates direct structural comparison between the equations recovered by our framework and those from baseline methods, enabling qualitative assessment of which methods successfully capture the ground truth terms versus those that propose spurious or incomplete dynamics. 
+
+Table 11. Governing equations discovered by each methodology. ID Method Dim. DiscoveredEquations 
+
+1DoLQ(ours) ˙x0 (−0.4000164923132323 ∗ (x0 ∗ x1)) + (1 .1797068684934541 e − 06 ∗ (−x0 ∗ x1 ∗ x1)) + 0.00014926603696994873 ∗ 1˙x1 (0 .3999858850733014 ∗ (x0 ∗ x1)) + (0 .3133017263306753 ∗ (−x1)) +(−0.00010236009691644724 ∗ (x1 ∗ x1)) − 0.000729280144169156 ∗ 1
+
+EDL ˙x0 −0.4 ∗ x0 ∗ x1˙x1 −0.1128 ∗2∗x02 +0 .0051 ∗2∗x13 +0 .0064 ∗x0∗x1+0 .4826 ∗x12 −0.2024 ∗x0∗sqrt (x1) 
+
+ICSR ˙x0 −0.4 ∗ x0 ∗ x1 + 0 .0001 ˙x1 0.4 ∗ x0 ∗ x1 − 0.314 ∗ x1 − 0.0002 
+
+LASR ˙x0 x1 ∗ (x0 ∗ − 0.4000072832475115) ˙x1 x1 ∗ (( x0 ∗ 0.40001272551202366) + −0.314017558209762) 
+
+LLM-SR ˙x0 (−0.5113286722182488 ∗ (x0 ∗ x1) /1.2782811394075673) −
+
+(−1.6210813251309898 e − 05 ∗ x1) ˙x1 (0 .7940229825361336 /(1 + −0.0007829235554072554 ∗ (x0 + x1))) ∗ (1 /(1 + 
+
+exp (−0.0023009370812258584 ∗ (( x1/(x0 + x1)) − − 0.7319833222420157)))) ∗ x0 ∗
+
+x1 − 0.31384689979086494 ∗ x1
+
+2DoLQ(ours) ˙x0 (−0.9999342734666715 ∗ (sin (x1))) + (−0.19999685243662685 ∗ (x02)) +(−3.159527567024422 e − 05 ∗ (x0 ∗ sin (x1))) + 8 .291723665240451 e − 06 ∗ 1
+
+Continued on next page... 
+
+19 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 11 – Continued from previous page ID Method Dim. DiscoveredEquations 
+
+˙x1 (−0.9996732126004018 ∗ (cos (x1) /x 0)) + ( −6.162357405925185 e − 05 ∗ (x0 ∗
+
+sin (x1))) + (1 .0002613154943063 ∗ (x0)) − 0.0006655465341315331 ∗ 1
+
+EDL ˙x0 −0.2 ∗ sin (x1) − 1.0 ∗ x02
+
+˙x1 1.2906 ∗ x1 ∗ log (abs (x0)) + 3 .7156 ∗ x1 + 0 .4329 ∗ x02 ∗ x1 − 1.2452 ∗ x0 + 1 .55 ∗
+
+x1 ∗ cos (x0) 
+
+ICSR ˙x0 −0.2 ∗ x02 − 1.0 ∗ sin (1 .0 ∗ x1) − 0.0001 ˙x1 −0.5662 /(x01.894 ∗ x10.5626 ) + 0 .8685 ∗ x0 − 0.1773 ∗ x1 + 1 .0748 
+
+LASR ˙x0 (x0/ − 1.7671421572704085) − sin (x1) ˙x1 x0 − (cos (x1) /x 0) 
+
+LLM-SR ˙x0 (−1.387691981374681 ∗ 0.9997683841467897 ∗ sin (x1) + ( −0.27884783934870216 ∗
+
+square (x0) − (−0.00023524831049328578) ∗ power (x0, 3)) +(( −0.0005339077881395173) ∗ x0 ∗ cos (x1) + (−0.0009606900297937713) ∗
+
+x0 ∗ sin (x1)) + ((1 .1025607057532369 e − 05) ∗ x0 ∗ square (x1) +(0 .0001392070749430701) ∗ square (x0) ∗ x1 + (1 .0871856110837581 e −
+
+05) ∗ x0 ∗ square (cos (x1)) + (0 .0003566962804791643) ∗ square (x0) ∗
+
+sin (x1))) /1.387691981374681 ˙x1 ((1 .00016068611199 ∗ x02) + (−0.0003203621386719613 ∗ x0) +(−0.00026883955217234126) − 0.9994481859297301 ∗ cos (x1)) /maximum (x0, 1e −
+
+6) 
+
+3DoLQ(ours) ˙x0 (−0.999924337295147 ∗ (x0)) + (0 .0013713847096808362 ∗ (x0/(1 .0 + x02))) + (4 .0000051777750265 ∗ (−x1 ∗ x0/(1 .0 + x02))) + 8 .899331099033029 ∗ 1˙x1 (1 .3999732914208531 ∗ (−x0 ∗ x1/(1 .0 + x02))) + ( −4.4947665548779136 e − 05 ∗
+
+(−x02/(1 .0+ x02)))+( −1.3999589124979535 ∗(−x0))+4 .897208257542713 e−07 ∗1
+
+EDL ˙x0 −7.159 ∗ x13 + 10 .3164 ∗ x0 − 4.0771 ∗ cos (x1) 2 − 0.3057 ∗ sqrt (x0) + 0 .0662 ∗ x1˙x1 −0.7501 ∗ sqrt (x0) + 0 .2166 ∗ x12 + 10 .8516 ∗ x02 − 9.7161 ∗ x1 − 0.3873 ∗ cos (x0) 3
+
+ICSR ˙x0 −4.0 ∗ x0 ∗ x1/(x02 + 0 .9999) − 1.0002 ∗ x0 ∗ tanh (2 .0678 ∗ x1) + 8 .9004 ˙x1 −17 .0218 ∗ x0 ∗ tanh (2 .5653 ∗ x0) + 18 .7118 ∗ x0 − 3.2262 ∗ x1/(x0 + 3 .8981) − 0.6359 
+
+LASR ˙x0 (( sin (x0) + −0.7225424108770416) ∗ − 1.3716248441728514) + tan (sinh (sin (x1 + 
+
+−1.271652676453637))) ˙x1 log (x0) 
+
+LLM-SR ˙x0 (7 .2413552436477575 ∗ (x0/(−0.09692412820488534 + x0))) ∗
+
+(1 − (x11.6726750850832244 )/(4 .267112440332994 1.6726750850832244 +
+
+x11.6726750850832244 )) + (−1.6934497454181765 ∗ x0 ∗ x1 ∗
+
+(( x0−2.2251470718338093 )/(1 .2897199381103897 −2.2251470718338093 +
+
+x0−2.2251470718338093 ))) ˙x1 (0 .15305571645674615 ∗ (x0/(1 .4598732465999258 + x0))) ∗
+
+(1 − 17 .709388951838832 ∗ x1) − (−2.096703476296624 ∗
+
+(( x01.9666706388834827 )/(2 .087291118909436 1.9666706388834827 +
+
+x01.9666706388834827 )) ∗ x1) − (−1.3593840857406783 ∗ x0) 
+
+4DoLQ(ours) ˙x0 (0 .4973058292805835 ∗ (−x0)) + (0 .21746562709380776 ∗ (−x0 ∗ x1)) +(0 .6344054886410723 ∗ (−x1 ∗ x1)) + 0 .5264411613474004 ∗ 1
+
+Continued on next page... 
+
+20 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 11 – Continued from previous page ID Method Dim. DiscoveredEquations 
+
+˙x1 (0 .41858642320557227 ∗ (x0 ∗ x13)) + ( −1.6764582281044875 ∗ (x1/(1 + x1))) + (1 .5117151384013812 ∗ (tanh (x1))) + 0 .028354488818915925 ∗ 1
+
+EDL ˙x0 −0.1566 ∗ sin (x1) 2 − 1.404 ∗ x02 + 0 .5305 ∗ x1˙x1 0.8039 ∗ x0 ∗ x1 + 0 .0724 ∗ sin (x1) 2
+
+ICSR ˙x0 2.4649 ∗ x0 ∗ cos (0 .9101 ∗ x1) − 2.9665 ∗ x0 + 0 .5033 ˙x1 0.0692 ∗ x0 + 0 .6177 ∗ x1 − 0.1679 
+
+LASR ˙x0 abs (sinh (tanh (sin (tan (x1 + (( x00.22334073977903218 ) + ( x0/x 0))) + x0))) + ( x0 ∗
+
+0.3514105571067361)) ∗ − 0.35812758021702057 ˙x1 (( x0 ∗ x1) − 0.019991627704281027) ∗ x1
+
+LLM-SR ˙x0 (0 .7575404568207408 ∗ (x01.0100603887529287 ) ∗ (x10.6955603195414775 )) +(−0.6206768205830506 ∗ x0) + 0 .39548215725015795 + ( −1.6012562268622113 ∗
+
+x1) + (0 .5863974471340245 ∗ (x10.698948044530037 )) ˙x1 (0 .007339212327735855 ∗x0)+(0 .9624797409788882 ∗x12)+(0 .7873542337819555 ∗
+
+x13) − (−0.06037485229609352 ∗ x1) − (−0.06037485265191514 ∗ x1) −
+
+(0 .09930729898681726 ∗ x0 ∗ x1) − (1 .2126452269944556 ∗ x13) +(0 .0073391823827276045 ∗ x0) 
+
+5DoLQ(ours) ˙x0 (−1.0015488038824854 ∗ (sin (x0))) + (0 .33102674079192346 ∗ (sin (x0 − x1))) + (−0.0018115741826902861 ∗ (cos (x0))) + 0 .0017490917848575025 ∗ 1˙x1 (−0.9981457993630254 ∗ (sin (x1))) + (0 .3300067495528232 ∗ (sin (x1 − x0))) + (−0.012578074617818194 ∗ (cos (x1))) + 0 .012716069769122665 ∗ 1
+
+EDL ˙x0 −0.3375 ∗ sin (x0) − 0.684 ∗ x1˙x1 −0.2973 ∗ x1 − 0.6309 ∗ x0
+
+ICSR ˙x0 5.0117 ∗ x0 ∗ sin (x1) − 2.2897 ∗ x1 − 0.2639 ˙x1 −0.2981 ∗ x0 − 0.6191 ∗ x1 + 0 .0019 
+
+LASR ˙x0 (x0 ∗ − 0.66306757779156) + 0 .04301494511373006 ˙x1 x0 ∗ (( x0/ − 1.192434344729412) + 0 .25749851031674253) 
+
+LLM-SR ˙x0 −1.000043264361751 ∗ sin (x0) + −0.3300718799861972 ∗ sin (x1 − x0) +
+
+−1.568587192043395 e − 05 ∗ cos (x1 + x0) ˙x1 −0.9938291044117465 ∗ x1 + −0.3292639827583344 ∗ sin (x0 − x1) −
+
+(−2.656564954764913 e − 06 /(x02 + x12 + 1 e − 9) 1.5) + −0.0003613964745632571 ∗
+
+x0 ∗ sin (x1) 
+
+6DoLQ(ours) ˙x0 (1 .3286098112316618 ∗ (−x0)) + (1 .178235675777727 ∗ (−x1)) +(−0.6010789351853646 ∗ (−power (x0, 3))) + 0 .9285456156774677 ∗ 1˙x1 (0 .23753405260404614 ∗ (−x1)) + (−0.7898637222390873 ∗ (−x0)) +(−0.8360904268130745 ∗ (tanh (x1))) + (2 .290634305077196 ∗ (−tanh (x0))) + 0.9338877404981648 ∗ 1
+
+EDL ˙x0 −1.1878 ∗ x1 − 0.467 ∗ log (sin (x0)) ˙x1 −1.1299 ∗ log (sin (x0)) − 0.4331 ∗ x1
+
+ICSR ˙x0 −1.8485 ∗ x1 − 0.1948 ∗ sin (x0) + 0 .7327 
+
+Continued on next page... 
+
+21 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 11 – Continued from previous page ID Method Dim. DiscoveredEquations 
+
+˙x1 0.2393 ∗ x0 − 2.1268 ∗ x1 + 0 .6431 
+
+LASR ˙x0 cos (exp (tan (x0))) ˙x1 tanh (0 .14631324378767832 /x 1) − x0
+
+LLM-SR ˙x0 (( −2.249593853293885 ∗(x0/(1 .1957556897109163+ x0))+1 .0667454050960814) −
+
+(3 .6741828960616694 ∗ (x1/(2 .3342324749372967 + x1)))) ˙x1 x1∗(−2.9587039457791064 ∗(1 −(x1/0.5623115553288086)) −(1 .966298296973735 ∗
+
+x0 ∗ 1.966298237331697)) + 0 .9508865699097846 
+
+7DoLQ(ours) ˙x0 (−1.1655257292555141 ∗ (sin (x1 − x0))) + (1 .22475958770386 ∗ (cos (x0))) + (−0.1090013166633977 ∗ (x0 ∗ sin (x0))) + 0 .817067905629052 ∗ 1˙x1 (−2.2117156170501504 ∗ (x1)) + (−1.291170751585586 ∗ (x0)) +(−4.676614135451172 ∗ (cos (x1))) + (1 .8750516943971047 ∗ (sin (x1 − x0))) + 10 .469917369126234 ∗ 1
+
+EDL ˙x0 −0.817 ∗ x12 − 4.3577 ∗ x03 ∗ sin (x0) + 2 .7509 ∗ x1 + 1 .5327 ∗ x0 ∗ sqrt (x1) + 0 .0552 ∗
+
+x0 ∗ cos (x0) ˙x1 −1.7872 ∗ x0 + 0 .3915 ∗ sqrt (x1) − 0.7313 ∗ cos (x0) + 0 .1632 ∗ x02 ∗ x1 + 0 .1673 ∗ x13
+
+ICSR ˙x0 −0.2806 ∗ x0 + 0 .6592 ∗ x1 ∗ cos (1 .1398 ∗ x0) + 2 .0662 ˙x1 −0.2806 ∗ x0 + 0 .6592 ∗ x1 ∗ cos (1 .1398 ∗ x0) + 1 .6062 
+
+LASR ˙x0 (cos (x0) ∗ sin (x1)) + 1 .4320121866725906 ˙x1 (cos (x0) ∗ sin (x1)) + 0 .9720121867249 
+
+LLM-SR ˙x0 (−(−1.231629475981958) ∗x0−2.158066362365913 ∗x02 −(−0.3037486836573964) ∗
+
+x03)+(1 .3169135770056555 ∗x1+2 .287561908522607 ∗x12+−1.2108364457957292 ∗
+
+x13) + ( −0.8950111650180933 ∗ (x1 − x0) + 1 .609022512581006 ∗ (x1 − x0) 2 +0.3125475185298518 ∗ (x1 − x0) 3)˙x1 (0 .14605034843290507 ∗ x1) + (0 .3954492324348049 ∗ x0) + (1 .249712176091898 ∗
+
+(x0 − x1)) + (−0.2869847813397451 ∗ x13) + (0 .03189090914482745 ∗
+
+x03) + (−0.08031202424973191 ∗ x12) + (−0.5242674943108351 ∗
+
+x02) + (0 .017802263147943736 ∗ x04) + (−0.15007455215067977 ∗ x14) +(−0.09580817521497335 ∗ (x0 − x1) 3)
+
+8DoLQ(ours) 
+
+˙x0 (−9.809127338404517 ∗ (sin (x1))) + ( −9.411027230248375 e − 05 ∗ (cos (x1))) + (−0.030620460686854464 ∗ (x0 ∗ x0)) − 4.9118855130869645 e − 05 ∗ 1˙x1 (0 .9990536032782628 ∗ (−9.81 /x 0 ∗ cos (x1))) + (0 .6130165352306062 ∗ (x0)) + (−0.0032944410806144153 ∗ (cos (x1))) − 0.0023916253783730504 ∗ 1˙x2 (1 .0000423141055985 ∗ (x0 ∗ cos (x1))) + ( −1.5764831178241946 e − 05 ∗ (x0 ∗ x0 ∗
+
+cos (x1))) + 0 .00014446800549605261 ∗ 1˙x3 (1 .0000402047694594 ∗ (x0 ∗ sin (x1))) + ( −2.003183912960774 e − 05 ∗ (x0 ∗ x0 ∗
+
+sin (x1))) + ( −6.303122694043895 e − 06 ∗ (9 .81 ∗ cos (x1))) − 4.353532868248261 e −
+
+05 ∗ 1
+
+EDL 
+
+˙x0 −0.0306 ∗ sin (x1) − 9.8091 ∗ x02
+
+˙x1 −0.9504 ∗ x03 − 0.2996 ∗ x12 − 0.0006 ∗ x3 + 1 .3296 ∗ sqrt (abs (x1)) − 175 .3583 ∗ x0/2˙x2 0.9999 ∗ x0 ∗ cos (x1) ˙x3 0.9999 ∗ x0 ∗ sin (x1) 
+
+Continued on next page... 
+
+22 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 11 – Continued from previous page ID Method Dim. DiscoveredEquations 
+
+ICSR 
+
+˙x0 −0.2813 ∗ x0 + 0 .0015 ∗ x1 ∗ x2 − 0.0968 ∗ x3 ∗ sin (1 .0007 ∗ x1) + 0 .4387 ˙x1 −0.0605 ∗ x0 − 6.8291 ∗ x1 ∗ exp (−2.7884 ∗ x0) − 0.0042 ∗ x2 ∗ x3 + 5 .306 ˙x2 0.9998 ∗ x0 ∗ cos (x1) + 0 .0217 ˙x3 0.9999 ∗ x0 ∗ sin (x1) + 0 .0002 
+
+LASR 
+
+˙x0 sin (x1) ∗ − 9.813480254368727 ˙x1 (( log (x0) − (( x2 − 5.963031610926088) ∗ 0.24925925160994267)) ∗
+
+8.24239810331568) /x 0˙x2 cos (x1) ∗ x0˙x3 sin (x1) ∗ x0
+
+LLM-SR 
+
+˙x0 (−9.807899351331447 ∗sin (x1))+ −((0 .4145037567137417+1 .5751662511703768 ∗
+
+(−0.0001796563617646803 + −8.696424882717339 e − 05 ∗ x1) 2) ∗
+
+0.07394440250282637 ∗x02)+(( −0.0001796563617646803+ −8.696424882717339 e−
+
+05 ∗ x1) ∗ 0.07394440250282637 ∗ x02 ∗ sin (x1)) + ( − − 0.00026688377456063225 ∗
+
+x0) + (3 .1382118431267775 e − 05 ∗ x2) + ( −7.49115792450938 e − 06 ∗ x3) + (0 .00024089007421140555 ∗ x0 ∗ cos (x1) ∗ sin (x1)) ˙x1 ((0 .4312345753897334 ∗x0)+( −7.190875450891451 ∗x02)+(115 .22337211688654 ∗
+
+cos (x1))) /(−11 .719230243958577 ∗ x0 + −0.023905720212081497 + 1e −
+
+9) + (0 .0004499464651382155 ∗ x2) + (0 .0002873146658744879 ∗ x3) +(3 .203979516768474 e − 05 ∗ x0 ∗ x1) ˙x2 (−(−8.313688998942643 e − 05) ∗ sin (x1)) + (0 .00012926385963329574 ∗−0.0002110727122192323 ∗ x3 ∗ x02 ∗ sin (x1)) + ( −0.00012926385963329574 ∗
+
+0.05 ∗ x02 ∗ cos (x1)) + ( −0.00012926385963329574 ∗ 1.5157577205870516 ∗
+
+(−0.0002110727122192323 ∗x3) 2 ∗x02 ∗cos (x1))+( −1.0∗exp (−(( x3−1.0) /1.0) 2)∗
+
+x02 ∗ cos (x1)) + ( − − 0.9999727429727798 ∗ (x0 − − 4.820794712947023 e − 05) ∗
+
+cos (x1)) + (1 .7829345690512744 e − 08 ∗ x3 ∗ x1 ∗ x0) ˙x3 (0 .00013369546648802163 ∗ x0 ∗ cos (x1)) + ( −6.586738720708613 e − 06 ∗ x02 ∗
+
+sin (x1))+( −4.30440238524879 e−06 ∗x03 ∗cos (x1))+( −2.158359661264577 e−05 ∗
+
+x2∗x0∗cos (x1))+(0 .00011240049424943671 ∗x0)+( −0.0001459955779485213 ∗x0∗
+
+sin (x1) 2) + (1 .2061925694746197 e − 05 ∗ x02 ∗ cos (x1)) + ( −3.152838841683395 e −
+
+05 ∗ x0 ∗ sin (x1) ∗ cos (x1)) + 2 .7038601280307466 e − 05 + (0 .9999723594741682 ∗
+
+x0 ∗ sin (x1)) 
+
+C.2. Quantitative results 
+
+To quantitatively assess the fidelity of the discovered models, we employ the Normalized Mean Squared Error (NMSE) metric, evaluating the deviation between the ground truth dynamics and the identified governing equations for each state variable dimension. Table 12 presents these NMSE values across all benchmark problems (ID 1-8) for both DoLQ and baseline methods. The table is structured to show four evaluation metrics for each dimension: ID NMSE (Residual) and ID NMSE (Integral) measure performance on the training domain, while ID-Ext NMSE (Residual) and ID-Ext NMSE (Integral) assess generalization to extended temporal regimes. Residual NMSE evaluates point-wise derivative matching, whereas Integral NMSE measures trajectory prediction accuracy through numerical integration from initial conditions. This comprehensive quantitative comparison enables systematic analysis of both fitting quality and extrapolation capability across different problem complexities and functional forms. Let ˆ˙xj,i denote the derivative predicted by the discovered equation at time index i, and let ˜xj,i denote the trajectory obtained by numerically integrating the discovered ODE from the initial condition. The two scale-normalized metrics are defined as follows: 
+
+Residual NMSE j =
+
+P
+
+> i
+
+( ˙ xj,i − ˆ˙xj,i )2
+
+P 
+
+> i
+
+˙x2 
+
+> j,i
+
++ ϵ
+
+23 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Integral NMSE j =
+
+P
+
+i(xj,i − ˜xj,i )2
+
+P
+
+i x2
+
+j,i + ϵ
+
+Residual MSE in Eq. (2) is used inside the search loop for parameter optimization and term ablation, whereas residual and integral NMSE are used only for final scale-normalized evaluation. 
+
+Table 12. NMSE comparison for each dimension. 
+
+ID Method Dim ID NMSE (Residual) ID NMSE (Integral) ID-Ext NMSE (Residual) ID-Ext NMSE (Integral) Value Value Value Value 1DoLQ(ours) x0 2.13 × 10 −8 3.45 × 10 −9 1.04 × 10 −8 2.36 × 10 −9
+
+x1 1.28 × 10 −8 4.52 × 10 −9 2.07 × 10 −8 5.03 × 10 −8
+
+EDL x0 2.39 × 10 −8 — 9.16 × 10 −9 —
+
+x1 3.71 × 10 1 — 2.80 × 10 1 —ICSR x0 2.92 × 10 −8 1.89 × 10 −9 1.22 × 10 −8 1.32 × 10 −9
+
+x1 2.69 × 10 −8 7.36 × 10 −9 1.62 × 10 −8 2.24 × 10 −8
+
+LASR x0 2.22 × 10 −8 5.62 × 10 −9 8.56 × 10 −9 3.42 × 10 −9
+
+x1 1.34 × 10 −8 8.77 × 10 −9 6.64 × 10 −9 1.38 × 10 −8
+
+LLM-SR x0 2.12 × 10 −8 3.70 × 10 −9 8.59 × 10 −9 2.21 × 10 −9
+
+x1 1.19 × 10 −8 4.58 × 10 −9 2.37 × 10 −8 5.36 × 10 −8
+
+2DoLQ(ours) x0 4.93 × 10 −9 1.42 × 10 −8 5.83 × 10 −9 2.19 × 10 −8
+
+x1 3.51 × 10 −8 4.69 × 10 −8 3.64 × 10 −8 5.06 × 10 −8
+
+EDL x0 1.43 × 10 1 1.02 × 10 0 1.19 × 10 1 1.43 × 10 0
+
+x1 1.64 × 10 2 — 3.19 × 10 2 —ICSR x0 1.21 × 10 −8 0.000110 1.51 × 10 −8 0.0618 
+
+x1 0.005294 0.000763 0.0772 0.0222 LASR x0 0.1127 0.0653 0.1478 0.0721 
+
+x1 5.61 × 10 −8 0.1116 5.33 × 10 −8 0.1431 LLM-SR x0 1.41 × 10 0 9.32 × 10 0 1.15 × 10 0 1.80 × 10 1
+
+x1 1.19 × 10 0 8.20 × 10 0 1.12 × 10 0 1.59 × 10 1
+
+3DoLQ(ours) x0 4.22 × 10 −8 3.79 × 10 −8 3.65 × 10 −8 1.16 × 10 −7
+
+x1 3.52 × 10 −9 1.58 × 10 −8 1.06 × 10 −8 1.14 × 10 −7
+
+EDL x0 2.14 × 10 5 — 2.65 × 10 5 —
+
+x1 4.31 × 10 2 — 4.15 × 10 2 —ICSR x0 5.11 × 10 −8 4.03 × 10 −5 5.11 × 10 −8 0.000210 
+
+x1 0.001031 8.09 × 10 −5 0.000756 0.000303 LASR x0 0.0688 1.66 × 10 1 0.0758 3.08 × 10 1
+
+x1 0.5129 6.14 × 10 0 0.5047 6.62 × 10 1
+
+LLM-SR x0 0.005255 0.004934 0.006184 0.007153 
+
+x1 8.93 × 10 −5 0.005235 9.19 × 10 −5 0.0116 4DoLQ(ours) x0 1.92 × 10 −6 3.27 × 10 −9 0.2675 0.000975 
+
+x1 9.95 × 10 −8 1.71 × 10 −9 0.001386 5.48 × 10 −5
+
+EDL x0 3.05 × 10 3 2.94 × 10 1 1.03 × 10 3 5.83 × 10 0
+
+x1 7.11 × 10 1 9.47 × 10 0 1.92 × 10 0 2.35 × 10 0
+
+ICSR x0 7.54 × 10 −6 1.35 × 10 −6 0.0120 0.001100 
+
+x1 0.000154 1.88 × 10 −5 0.0267 0.007869 LASR x0 0.000159 6.88 × 10 −7 1.05 × 10 0 0.007504 
+
+x1 1.19 × 10 −7 2.29 × 10 −8 6.71 × 10 −8 0.000871 Continued on next page... 
+
+24 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 12 – Continued from previous page ID Method Dim ID NMSE (Residual) ID NMSE (Integral) ID-Ext NMSE (Residual) ID-Ext NMSE (Integral) Value Value Value Value LLM-SR x0 6.08 × 10 −6 2.45 × 10 −8 0.5790 0.004555 
+
+x1 7.52 × 10 −7 2.13 × 10 −8 0.007890 0.000784 5DoLQ(ours) x0 2.43 × 10 −7 5.61 × 10 −10 1.27 × 10 −7 2.87 × 10 −9
+
+x1 4.85 × 10 −7 6.86 × 10 −8 4.56 × 10 −7 1.97 × 10 −7
+
+EDL x0 5.86 × 10 0 7.16 × 10 0 2.68 × 10 0 2.61 × 10 1
+
+x1 2.08 × 10 1 6.26 × 10 2 1.56 × 10 1 8.86 × 10 2
+
+ICSR x0 0.002610 4.30 × 10 −5 0.2313 0.0435 
+
+x1 2.58 × 10 −6 1.89 × 10 −5 5.54 × 10 −5 0.0310 LASR x0 0.000346 1.33 × 10 −5 0.0117 0.001680 
+
+x1 0.009038 0.0114 0.0339 0.0892 LLM-SR x0 2.48 × 10 −7 6.19 × 10 −10 1.17 × 10 −7 4.77 × 10 −8
+
+x1 4.91 × 10 −7 6.40 × 10 −8 0.000219 0.000103 6DoLQ(ours) x0 1.10 × 10 −6 3.28 × 10 −8 2.33 × 10 −6 7.31 × 10 −8
+
+x1 1.07 × 10 −6 3.71 × 10 −8 7.50 × 10 −6 4.55 × 10 −6
+
+EDL x0 1.11 × 10 −5 — 1.19 × 10 −5 —
+
+x1 5.01 × 10 1 — 7.15 × 10 1 —ICSR x0 0.000298 1.76 × 10 −5 0.004846 7.17 × 10 −5
+
+x1 0.000426 3.68 × 10 −5 0.0170 0.006141 LASR x0 0.0366 0.0161 0.0281 0.0158 
+
+x1 0.0185 0.0180 0.0262 0.0620 LLM-SR x0 7.03 × 10 −6 6.29 × 10 −7 5.25 × 10 −6 7.12 × 10 −5
+
+x1 2.47 × 10 −6 4.72 × 10 −7 0.000166 0.000228 7DoLQ(ours) x0 0.000467 3.62 × 10 −5 6.53 × 10 0 0.3966 
+
+x1 0.000239 0.000125 3.70 × 10 2 0.5569 EDL x0 3.30 × 10 5 — 1.56 × 10 7 —
+
+x1 3.93 × 10 1 — 2.10 × 10 4 —ICSR x0 0.000510 2.55 × 10 −5 1.30 × 10 1 0.4600 
+
+x1 0.000510 0.000116 1.30 × 10 1 1.01 × 10 0
+
+LASR x0 1.20 × 10 −7 3.14 × 10 −8 4.15 × 10 −7 1.79 × 10 −8
+
+x1 1.20 × 10 −7 1.43 × 10 −7 4.15 × 10 −7 3.93 × 10 −8
+
+LLM-SR x0 9.64 × 10 −6 8.79 × 10 −8 1.67 × 10 3 —
+
+x1 9.78 × 10 −6 3.77 × 10 −7 5.84 × 10 3 —8DoLQ(ours) 
+
+x0 7.23 × 10 −8 1.10 × 10 −6 6.82 × 10 −8 3.94 × 10 −6
+
+x1 4.78 × 10 −6 2.01 × 10 −7 3.20 × 10 −6 3.38 × 10 −7
+
+x2 1.23 × 10 −8 3.40 × 10 −6 1.68 × 10 −8 6.47 × 10 −6
+
+x3 9.38 × 10 −9 1.43 × 10 −6 3.13 × 10 −8 1.01 × 10 −5
+
+EDL 
+
+x0 2.69 × 10 3 — 2.60 × 10 3 —
+
+x1 5.67 × 10 4 — 5.20 × 10 4 —
+
+x2 1.61 × 10 −8 — 2.91 × 10 −8 —
+
+x3 1.08 × 10 −8 — 3.22 × 10 −8 —ICSR 
+
+x0 0.000678 1.01 × 10 0 0.000945 2.85 × 10 0
+
+x1 0.1014 1.14 × 10 0 1.02 × 10 0 2.74 × 10 0
+
+x2 3.72 × 10 −5 0.1605 6.03 × 10 −5 0.4885 
+
+x3 1.52 × 10 −8 2.32 × 10 0 3.65 × 10 −8 6.67 × 10 0
+
+Continued on next page... 
+
+25 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation                                                                                                  
+
+> Table 12 – Continued from previous page ID Method Dim ID NMSE (Residual) ID NMSE (Integral) ID-Ext NMSE (Residual) ID-Ext NMSE (Integral) Value Value Value Value LASR
+> x00.0264 4.24 ×10 00.0255 1.64 ×10 2
+> x10.0735 1.31 ×10 01.95 ×10 03.39 ×10 0
+> x21.84 ×10 −81.84 ×10 02.05 ×10 −80.8254
+> x31.51 ×10 −86.70 ×10 03.40 ×10 −83.85 ×10 3
+> LLM-SR
+> x06.89 ×10 −87.58 ×10 −77.08 ×10 −81.01 ×10 −5
+> x13.89 ×10 −61.92 ×10 −73.24 ×10 −65.18 ×10 −7
+> x21.29 ×10 −82.81 ×10 −61.71 ×10 −82.65 ×10 −6
+> x39.91 ×10 −97.05 ×10 −78.81 ×10 −85.76 ×10 −6
+
+C.3. Scores 
+
+In this section, we summarize the comprehensive evaluation scores for each benchmark problem. Figure 4 and Table 13 present a binary success/failure assessment across all eight problems (P1-P8, corresponding to benchmark IDs 1-8 from Table 3) for each method. The evaluation is based on two distinct criteria: the NMSE test row indicates whether the normalized mean squared error satisfies the designated convergence threshold (integral NMSE < 10 −3 across all dimensions), and the Term test row verifies whether the discovered equation accurately recovers the correct symbolic terms of the ground truth dynamics after excluding terms with negligible impact. A blue checkmark ( ✓) denotes success for that problem, while an empty cell indicates failure. The rightmost Total column sums the number of successful problems for each method and evaluation criterion, providing an aggregate view of discovery performance across the benchmark suite. As prior ODE-discovery baselines do not report structural recovery under a unified false-positive/false-negative (FP/FN) protocol, precision/recall metrics are omitted from the main comparison. Instead, the Term test evaluates whether the recovered equation matches the ground-truth term set after excluding negligible terms, which serves as a strict structure-recovery criterion on benchmarks with known governing equations. 
+
+Table 13. Detailed scores for each problem by evaluation type and method. EVALUATION METHOD P1 P2 P3 P4 P5 P6 P7 P8 TOTAL 
+
+NMSE TEST DOLQ ✓ ✓ ✓ ✓ ✓ ✓ ✓ 7NMSE TEST EDL 0NMSE TEST ICSR ✓ ✓ 2NMSE TEST LASR ✓ ✓ 2NMSE TEST LLM-SR ✓ ✓ ✓ ✓ 4TERM TEST DOLQ ✓ ✓ ✓ ✓ ✓ 5TERM TEST EDL 0TERM TEST ICSR 0TERM TEST LASR ✓ ✓ 2TERM TEST LLM-SR ✓ ✓ 2
+
+C.4. Token usage details 
+
+This section presents a detailed comparison of token usage between the proposed framework and baseline models. The token consumption data in the following table is reported in thousands (K) of tokens, distinguishing between input tokens (In) and output tokens (Out). For each benchmark problem (ID 1-8), we track two metrics: “Found” columns show the cumulative tokens consumed up to the point when the method successfully discovered a reasonable equation (if applicable), while “Total” columns report the tokens used throughout the entire experimental run until completion or timeout. This distinction enables analysis of both the efficiency of successful discovery and the overall computational cost. All values are reported 26 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+directly from the experiment logs collected during our experiments. Note that for DoLQ, the reported token counts represent the combined usage of both the Sampler Agent and the Scientist Agent, and no reasoning tokens were generated during our experiments.                                                                                                                                                                              
+
+> Table 14. Token usage until discovery. ID Method Found (K) Total (K) In Out In Out 1DoLQ(ours) 20.2 10.1 226 96.8 EDL 4.99 6.96 551 439 ICSR 243 24.8 243 24.8 LASR 357 387 357 387 LLM-SR 338 443 338 443 2DoLQ(ours) 69.6 40.0 289 156 EDL 149 42.5 465 118 ICSR 262 39.0 262 39.0 LASR 426 426 426 426 LLM-SR 533 602 703 816 3DoLQ(ours) 188 110 282 166 EDL 129 302 296 296 ICSR 309 44.1 309 44.1 LASR 483 447 483 447 LLM-SR 652 692 813 813 4DoLQ(ours) 44.6 26.4 201 109 EDL 1.49 2.97 193 239 ICSR 260 35.1 260 35.1 LASR 401 404 401 404 LLM-SR 781 775 781 775 ID Method Found (K) Total (K) In Out In Out 5DoLQ(ours) 20.4 12.4 223 106 EDL 0.61 0.82 186 222 ICSR 256 31.1 256 31.1 LASR 368 420 368 420 LLM-SR 624 784 624 784 6DoLQ(ours) 10.3 8.08 239 136 EDL 0.41 0.53 190 233 ICSR 255 29.4 255 29.4 LASR 345 394 345 394 LLM-SR 730 701 730 701 7DoLQ(ours) 183 89.4 233 114 EDL 26.9 29.8 279 287 ICSR 256 33.9 256 33.9 LASR 383 407 383 407 LLM-SR 758 854 758 854 8DoLQ(ours) 173 68.7 784 264 EDL 73.6 22.9 989 265 ICSR 772 72.9 772 72.9 LASR 809 930 809 930 LLM-SR 1238 1379 1852 1997
+
+## D. Analysis of optimizer adoption 
+
+To further analyze the behavior of the hybrid optimizer, we investigate the adoption frequency of BFGS and differential evolution across different problem types. As shown in Figure 11, the selection rate of these methods varies significantly depending on the mathematical complexity of the system. For systems with simpler functional forms, BFGS is frequently sufficient to find the optimal parameters due to the relatively smooth loss landscapes. Conversely, for systems with complex functional forms (e.g., Glider), differential evolution is adopted more frequently. This demonstrates that the global search capability of differential evolution is critical for escaping local minima and accurately identifying parameters in rugged loss landscapes where local gradient-based methods often fail. Moreover, the left panel of Figure 11 reveals a critical advantage of the hybrid optimizer. When examining ˙x0 with the ground truth skeleton structure, we observe that differential evolution achieves lower MSE compared to using BFGS alone. This is particularly significant because assigning better scores to correct skeleton structures provides a crucial advantage during the symbolic regression search process, enabling more effective exploration and convergence to the true underlying dynamics. 27 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Figure 11. Adoption frequency of BFGS and differential evolution across different ODE systems. Differential evolution is more frequently selected for systems with intricate functional forms where the loss landscape is more rugged, while BFGS is often sufficient for simpler systems. 
+
+## E. Quantitative results under shifted initial conditions 
+
+To evaluate robustness against initial-state variations, the discovered equations are re-assessed using an alternative initial condition (ic 1), maintaining the original ID and ID-Ext temporal regimes and NMSE metrics. The results are summarized in Table 15. 
+
+Table 15. Quantitative performance comparison measured by NMSE under shifted initial conditions. We report dimension-averaged results for the same discovered equations, re-evaluated from an alternative initial condition (ic 1) rather than the default initial state, demonstrating robustness and generalization across initial conditions. Bold with underline indicates the best, bold indicates the second best. NaN indicates solver failure or numerical instability. Benchmark Metric Regime Model ICSR LASR LLM-SR EDL DoLQ(ours) SIR(2D) Residual ID 1.47e-8 1.41e-8 2.18e-4 1.23e2 1.35e-6 ID-Ext 1.22e-9 3.30e-9 2.97e-3 NaN 7.15e-5 Integral ID 1.44e-8 1.39e-8 2.09e-4 1.29e2 1.37e-6 ID-Ext 1.13e-9 3.67e-9 8.02e-4 NaN 3.57e-5 CDIMA(2D) Residual ID 4.53e-2 4.35e-1 4.80e2 6.10e5 2.32e-8 
+
+ID-Ext 1.12e-1 NaN 6.89e-3 NaN 3.41e-8 
+
+Integral ID 2.60e-2 4.04e-1 2.42e-2 3.67e5 1.78e-8 
+
+ID-Ext 1.26e-1 NaN 1.59e-2 NaN 9.22e-8 
+
+Glider(4D) Residual ID 7.12e0 6.17e0 2.44e-4 1.17e5 1.05e-6 
+
+ID-Ext 1.18e3 9.13e2 7.71e-4 NaN 5.79e-6 
+
+Integral ID 7.43e0 5.90e1 2.76e-4 1.99e5 1.85e-6 
+
+ID-Ext 3.44e3 1.94e3 7.22e-4 NaN 7.49e-6 
+
+## F. Additional comparison on the 2D dimensionless Glider system (ID 2) 
+
+A detailed analysis of the 2D dimensionless Glider system (ID 2) is provided to supplement the main evaluation. Table 16 reports per-dimension NMSE values, Table 17 summarizes token consumption, and Table 18 lists the discovering equations across varying LLM backbones, facilitating a comprehensive comparison of accuracy, efficiency, and symbolic structure. 28 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 16. Per-dimension NMSE on the 2D dimensionless Glider system (ID 2) when DoLQ is executed with different LLM models. All settings are identical to Table 5, with only the model changed. The table reports residual and integral NMSE on the ID and ID-Ext evaluation regimes for each state dimension. 
+
+Model Dim Residual Integral ID ID-Ext ID ID-Ext Gemini 2.5 Flash-Lite x0 4.93 × 10 −9 5.83 × 10 −9 1.42 × 10 −8 2.19 × 10 −8
+
+x1 3.51 × 10 −8 3.64 × 10 −8 4.69 × 10 −8 5.06 × 10 −8
+
+GPT-4o mini x0 5.16 × 10 −9 5.07 × 10 −8 1.67 × 10 −3 8.87 × 10 −1
+
+x1 4.04 × 10 −2 8.48 × 10 −1 7.75 × 10 −3 3.28 × 10 −1
+
+DeepSeek-V3.2 x0 4.01 × 10 −9 6.93 × 10 −8 1.33 × 10 −8 6.26 × 10 −7
+
+x1 2.85 × 10 −8 5.66 × 10 −7 1.78 × 10 −8 3.22 × 10 −7
+
+Grok 4.1 Fast x0 4.04 × 10 −9 6.88 × 10 −8 1.40 × 10 −8 9.11 × 10 −7
+
+x1 2.85 × 10 −8 7.77 × 10 −7 1.79 × 10 −8 4.24 × 10 −7
+
+Table 17. Token usage on the 2D dimensionless Glider system (ID 2) when DoLQ is executed with different LLM models. All settings are identical to Table 5, with only the model changed. We report the total input and output tokens consumed during symbolic ODE discovery. Model Total input tokens Total output tokens Gemini 2.5 Flash-Lite 289K 156K GPT-4o mini 259K 89K DeepSeek-V3.2 258K 100K Grok 4.1 Fast 337K 725K 
+
+Table 18. Final equations discovered on the 2D dimensionless Glider system (ID 2) when DoLQ is executed with different LLM models. All settings are identical to Table 5, with only the model changed. For each model, we list the identified governing equations for ˙x0 and 
+
+˙x1.
+
+Model Dim Equation Gemini 2.5 Flash-Lite ˙x0 −0.999934 sin( x1) − 0.199969 x20 − 3.160 × 10 −5(x0 sin( x1)) + 8 .292 × 10 −6
+
+˙x1 −0.999673 cos( x1) 
+
+> x0
+
+− 6.162 × 10 −5(x0 sin( x1)) + 1 .000261 x0 − 6.655 × 10 −4
+
+GPT-4o mini ˙x0 −4.597 × 10 −5 cos( x1) − 0.200003 x20 − 0.999975 sin( x1) + 4 .598 × 10 −5
+
+˙x1 2.654411 log( x0) − 0.239982 cos( x1) − 0.112718( x0x1) + 1 .348938 
+
+DeepSeek-V3.2 ˙x0 −6.490 × 10 −6x0 − 1.000029 sin( x1) − 0.199997 x20 − 1.215 × 10 −5(x0 cos( x1)) + 7 .643 ×
+
+10 −5 sin(2 x1) + 1 .517 × 10 −5
+
+˙x1 −1.000027 cos( x1) 
+
+> x0
+
++ 0 .999992 x0 + 3 .221 × 10 −4 cos(2 x1) 
+
+> x0
+
++ 5 .269 × 10 −5
+
+Grok 4.1 Fast ˙x0 −1.000030 sin( x1)−0.199998 x20 +7 .786 ×10 −5 sin(2 x1)−4.216 ×10 −6(x20 cos( x1))+5 .934 ×10 −6
+
+˙x1 −1.000170 cos( x1) 
+
+> x0
+
++ 0 .999566 x0 + 4 .069 × 10 −4 cos(2 x1) 
+
+> x0
+
++ 2 .158 × 10 −4(x0 log( x0)) + 6 .012 × 10 −4
+
+## G. Robustness analyses 
+
+G.1. Sigma-noise robustness 
+
+This section reports a sigma-noise robustness comparison on the 2D dimensionless Glider system (ID 2). DoLQ stores one system-level run per sigma, whereas ICSR, L ASR, and LLM-SR store per-dimension outputs. To ensure a fair comparison, all final discovered equations are re-evaluated under a common protocol. Following the paper definition, the ID regime corresponds to the trajectory over tstart ∼ tend , while the ID-Ext regime corresponds to the full trajectory over tstart ∼ tood end .For each noise level σ and state dimension, NMSE is averaged across initial conditions. Tables 19, 20, and 21 jointly summarize the averaged metrics, per-dimension metrics, and final discovered equations under these noise levels. The results indicate that DoLQ does not intrinsically filter observation noise; its absolute accuracy deteriorates as σ increases, despite remaining competitive with baseline methods. Robust equation discovery under noisy trajectories therefore remains 29 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+a clear limitation and an important direction for future work. 
+
+Table 19. Average NMSE measured across different sigma-noise levels for the dimensionless Glider system (ID 2). DoLQ stores system-level runs, whereas ICSR, LASR, EDL, and LLM-SR store method-specific outputs; all values are re-evaluated under the same ID and ID-Ext regimes. Cases where optimization exceeded the 5-minute time limit or the loss became ∞ are reported as NaN. Method σ = 0 .001 σ = 0 .01 σ = 0 .1
+
+ID ID-Ext ID ID-Ext ID ID-Ext DoLQ 0.1086 0.1246 0.6135 0.7668 32.5799 50.3185 ICSR 0.1289 0.2188 1.1742 2.0300 1.2066 2.1584 LASR 6.0070 6.0182 0.5390 0.6768 NaN NaN EDL NaN NaN NaN NaN NaN NaN LLM-SR 4.6368 4.8001 370.2495 1.04e+04 2.17e+04 1.40e+05 
+
+30 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 20. Per-dimension NMSE measured across different sigma-noise levels for the dimensionless Glider system (ID 2). All values are recomputed from the final discovered equations using the same ID and ID-Ext evaluation protocol. Cases where optimization exceeded the 5-minute time limit or the loss became ∞ are reported as NaN. Method σ Dim ID ID-Ext DoLQ 0.001 ˙x0 0.0052 0.0078 
+
+˙x1 0.2120 0.2413 0.01 ˙x0 0.4654 0.6868 
+
+˙x1 0.7616 0.8469 0.1 ˙x0 12.5009 14.2665 
+
+˙x1 52.6590 86.3704 ICSR 0.001 ˙x0 0.0048 0.0100 
+
+˙x1 0.2530 0.4276 0.01 ˙x0 0.5786 0.5851 
+
+˙x1 1.7697 3.4750 0.1 ˙x0 0.5829 0.5762 
+
+˙x1 1.8304 3.7405 LASR 0.001 ˙x0 11.8347 11.8571 
+
+˙x1 0.1792 0.1792 0.01 ˙x0 0.6409 0.6412 
+
+˙x1 0.4371 0.7125 0.1 ˙x0 NaN NaN 
+
+˙x1 0.2028 0.2428 EDL 0.001 ˙x0 NaN NaN 
+
+˙x1 NaN NaN 0.01 ˙x0 NaN NaN 
+
+˙x1 NaN NaN 0.1 ˙x0 NaN NaN 
+
+˙x1 NaN NaN LLM-SR 0.001 ˙x0 5.5721 5.8846 
+
+˙x1 3.7015 3.7157 0.01 ˙x0 511.0606 1.89e+04 
+
+˙x1 229.4384 2035.1681 0.1 ˙x0 4.31e+04 2.79e+05 
+
+˙x1 373.0867 1072.5261 
+
+Different LLM backbones can converge to slightly different symbolic forms due to disparities in mathematical inductive bias and because early term proposals continually alter subsequent search trajectories in iterative mechanisms like DoLQ. Several distinct LLM backbones—Gemini 2.5 Flash-Lite, GPT-4o mini, DeepSeek-V3.2, and Grok 4.1 Fast—were evaluated to assess DoLQ’s robustness across providers. Empirically, Gemini 2.5 Flash-Lite, DeepSeek-V3.2, and Grok 4.1 Fast successfully recovered the Glider system dynamics with only minor discrepancies in extraneous terms or coefficients. Conversely, GPT-4o mini frequently yielded qualitatively mismatched structures and inferior integral NMSE. For established 31 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+benchmarks, discovery performance is evaluated primarily by NMSE and secondarily by term-level agreement with the ground truth; for entirely unknown systems, deeper scientific validation would be essential to confirm the physical validity of the inferred structures. 
+
+G.2. Robustness to noisy descriptions 
+
+To assess sensitivity to description noise, DoLQ was evaluated on the Glider(2D) system with modified natural-language descriptions but fixed numerical trajectories. When provided with a partially mismatched description, DoLQ retained certain meaningful components, such as sin( x1) and 1/x 0, yet failed to completely recover the ground-truth equations; average residual NMSE degraded to 1.19 × 10 −2 (ID) and 7.37 × 10 −2 (ID-Ext). Under a fully mismatched description, the core dynamics of x1 (x0 − cos( x1)/x 0) were completely lost, and the residual NMSE further increased to 3.15 × 10 −2 (ID) and 
+
+1.83 × 10 −1 (ID-Ext). This suggests that DoLQ inherently trusts the provided qualitative description and lacks an intrinsic mechanism to correct erroneous prior information. 
+
+## H. Reasoning-trace analysis 
+
+H.1. Hallucination audit of reasoning traces 
+
+We audited one representative Glider(2D) run at the log level and found that the most common hallucination pattern is premature mechanistic storytelling. Representative exploratory terms included x0 cos( x1), log( x0), and tanh( x0). These terms were sometimes assigned confident physical narratives before sufficient numerical evidence had accumulated. This effect appeared most clearly when the prompts required explicit semantic justification for exploratory terms whose physical meaning was only weakly grounded by the system description. In our audit, these narratives affected search direction but not final acceptance, because every candidate still had to pass coefficient optimization, residual evaluation, and iterative comparison against competing candidates. The over-interpreted terms were not retained in the final discovered equation. 
+
+## I. Time complexity analysis 
+
+The computational cost of DoLQ is analyzed by decoupling LLM token processing from numerical parameter optimization. As these operations utilize fundamentally different resources, merging them into a single asymptotic bound would obfuscate the system’s true computational load. Table 22 outlines the notation adopted for this complexity analysis. 
+
+LLM cost. At each DoLQ cycle, the Sampler Agent and Scientist Agent are each invoked once. If their total input and output token counts are denoted by Lsamp and Lsci , respectively, then the token-processing cost per cycle is 
+
+O(Lsamp + Lsci ). (3) The Scientist Agent can reduce practical runtime by filtering poor structures early, but this affects the average search trajectory rather than the worst-case asymptotic form of a single LLM call. 
+
+Parameter optimization cost. For the j-th dimension, one evaluation of the residual objective in Eq. (2) over N time points costs O(N k j ), assuming each symbolic primitive in a candidate term is evaluated in constant time. Differential evolution therefore incurs 
+
+O(G · N P · N · kj ). (4) Using dense BFGS refinement adds repeated residual evaluations together with quasi-Newton updates over pj trainable parameters, yielding 
+
+O  Ij (N k j + p2 
+
+> j
+
+) . (5) Since DoLQ evaluates BFGS alone, differential evolution alone, and the hybrid differential-evolution-plus-BFGS strategy before selecting the best result, the constant factor increases, but the asymptotic optimization cost per dimension remains 
+
+O  (G · N P + Ij )N k j + Ij p2
+
+> j
+
+ . (6) 
+
+Scientist quantitative evaluation cost. The quantitative evaluation in Algorithm B.3 performs one baseline residual evaluation and then one additional residual evaluation per term after temporarily zeroing its coefficient. For the j-th 32 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+dimension, this requires kj + 1 residual evaluations, so the total cost is 
+
+O (( kj + 1) N k j ) = O(N k 2 
+
+> j
+
+). (7) This term is separate from the LLM reasoning cost and must be counted explicitly in the overall complexity. 
+
+Lightweight bookkeeping. Function construction, JSON parsing, and keep/hold/remove bookkeeping are linear in the number of proposed terms, i.e., 
+
+O
+
+
+
+> dsys
+
+X
+
+> j=1
+
+kj
+
+ , (8) which is dominated by parameter optimization and ablation. 
+
+Overall complexity. For one DoLQ cycle that evaluates H candidate hypotheses, the numerical computation scales as 
+
+O
+
+H
+
+> dsys
+
+X
+
+> j=1
+
+(G · N P + Ij )N k j + Ij p2 
+
+> j
+
++ N k 2
+
+> j
+
+ , (9) while the LLM token-processing cost scales as 
+
+O(Lsamp + Lsci ). (10) Over T search cycles, the total complexity becomes 
+
+O (T (Lsamp + Lsci )) (11) for token processing and 
+
+O
+
+T H 
+
+> dsys
+
+X
+
+> j=1
+
+(G · N P + Ij )N k j + Ij p2 
+
+> j
+
++ N k 2
+
+> j
+
+ (12) for numerical computation. 
+
+Practical implication. The main numerical advantage of DoLQ comes from using residual MSE during optimization. Unlike integral-based objectives such as Eq. (1) , Eq. (2) does not require solving the ODE at every optimizer step, so the inner loop is reduced to direct residual evaluation on sampled data. Integral NMSE remains useful for final evaluation, but it is not part of the optimization loop analyzed above. Similarly, early filtering by the Scientist Agent improves practical efficiency by reducing the average number of poor candidates and unnecessary terms, rather than by changing the worst-case asymptotic order. 
+
+## J. Efficiency analysis 
+
+To ensure an equitable baseline comparison, LLM-SR’s runtime metrics are aggregated across all target dimensions, reflecting its dimension-wise execution paradigm compared to DoLQ’s joint system-level discovery. Evaluations were performed in identical environments (Intel Core i7-12700K, 20 logical cores, 94 GiB RAM). Table 23 details the empirical CPU-time, wall-clock duration, total elapsed time, and peak memory usage. Given LLM-SR’s decoupled execution, direct comparison necessitates aggregating its CPU and temporal metrics while extracting the highest peak memory recorded across per-dimension runs. The maximum value accurately captures the instantaneous memory ceiling rather than an artificial sum. Consequently, while DoLQ does not uniformly outperform baselines in raw CPU computation time, it exhibits systematically lower wall-clock duration, total elapsed time, and peak memory footprints. Floating-point operations (FLOPs) are intentionally omitted because the hybrid pipeline integrates remote LLM inference with local numerical optimization, rendering hardware-agnostic FLOP estimation both ill-defined and challenging to reproduce. Efficiency is thus benchmarked primarily through computation time and memory allocation. 33 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+## K. Prompts and responses 
+
+K.1. Sampler agent prompt and response 
+
+We present example prompts and outputs for the Sampler and Scientist agents in Figure 12 through Figure 15. The labeled sections in these figures explicitly correspond to the components illustrated in the framework overview (Figure 2), detailing the specific instructions and constraints provided to each agent during the discovery process. 
+
+K.2. Scientist agent prompt and response 
+
+Figure 14 and Figure 15 present a representative Scientist-agent prompt/response pair, showing how accumulated insights, experiment summaries, and evaluation instructions are organized before the model returns term-level judgments and actions. 
+
+K.3. Initial sampler prompt at iteration 1 
+
+Figure 16 shows the initialization-time Sampler prompt used before any prior evaluations are available, making explicit what context is given when accumulated knowledge, term-level feedback, and removed-term history are still empty. 
+
+Initial Sampler Prompt (Iteration 1) 
+
+You are a helpful assistant tasked with discovering mathematical term structures for scientific systems. Complete the term list below, considering physical meaning and relationships of inputs. 
+
+# System Description 
+
+The glider is viewed as an idealized system whose motion is expected to arise from the interplay of gravity and aerodynamic forces, with speed and flight path angle evolving from assumed initial conditions. 
+
+### SCIENTIST AGENT GUIDANCE 
+
+The Scientist agent has analyzed previous experiments and provides the following guidance: 
+
+#### Accumulated Knowledge (Theory) 
+
+None. This is the first iteration, so no accumulated insight had been produced yet. 
+
+#### Term-by-Term Evaluation (Previous Attempt Analysis) 
+
+Evaluation results for each term. keep = retain, hold = hold/modify, remove = eliminate: None. There was no previous attempt because this prompt was given before any sampler output had been evaluated. 
+
+#### Removed Terms List (Ban List) 
+
+The following term structures have negatively impacted performance. Do NOT propose them again :None. At iteration 1, no term skeleton had yet been removed. 
+
+Goal: Reflect the Scientist’s insights and guidance in the equation structure. [Required Conditions (Violation Will Cause Errors)] 1. You can use: import numpy as np 2. Target System Context: Input variables are x0, x1. -- This system is 2-dimensional -- Variables x2 and above do not exist. 3. Term Format: Propose terms WITHOUT coefficients. The system will automatically attach trainable parameters. -- Correct: "x0", "np.sin(x0)", "x0*x1" -- Incorrect: "params[0]*x0", "C*x0", "0.5*x0" 4. Term Complexity: You MAY use internal constants if they have physical meaning (e.g., frequency, phase). -- Example: "np.sin(2*x0)" is allowed and encouraged if the factor 2 is significant. -- Note: The system will still attach an outer trainable parameter (e.g., params[0]*np.sin(2*x0)). 5. Symbolic Constants: Do NOT use symbolic constants like ’g’, ’k’, ’m’. Use numerical values. -- Correct: "9.81*x0" (if g=9.81 is known), "np.pi*x0" -- Incorrect: "g*x0" (will cause NameError) 6. No duplicates: Equations identical to previous attempts are forbidden. Structural modifications are required. 7. Reasoning required: When proposing each term, provide a physical/mathematical reasoning based on the system description (desc). [Example (2D System)] x0 t: ["x0", "x1"] x1 t: ["x0", "np.sin(x1)"] 
+
+Figure 16. Initial prompt to the Sampler agent at iteration 1, where accumulated knowledge, term-level evaluation, and removed-term history are empty at initialization. 
+
+34 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Sampler Prompt 
+
+(1a) 
+
+You are a helpful assistant tasked with discovering mathematical term structures for scientific systems. Complete the ’term list’ below, considering the physical meaning and relationships of inputs. 
+
+# System Description 
+
+Glider flight experiment. State variables: forward velocity x0, path angle x1, horizontal position x2, vertical altitude x3. [.... omitted....] 
+
+### SCIENTIST AGENT GUIDANCE 
+
+The Scientist agent has analyzed previous experiments and provides the following guidance: 
+
+#### Accumulated Knowledge (Theory) 
+
+- The kinematic terms for horizontal and vertical position (x2 t and x3 t) show strong physical relevance, particularly components involving x0 and trigonometric functions of x1. The damping term in x0 t and the velocity-dependent term in x1 t demonstrate good physical grounding. However, constant terms lack clear physical justification. 
+
+(1b) 
+
+#### Term-by-Term Evaluation (Previous Attempt Analysis) 
+
+Evaluation results for each term. keep = retain, hold = hold/modify, remove = eliminate: x0 t: - C*(x0) : KEEP 
+
+- C*(np.sin(x1)) : KEEP 
+
+- C*x0**3 : REMOVE 
+
+x1 t: - C*(np.cos(x1)) : KEEP 
+
+- C*(x0) : HOLD 
+
+- C*x1**3 : REMOVE 
+
+x2 t: - C*(x0*np.cos(x1)) : KEEP 
+
+x3 t: - C*(x0*np.sin(x1)) : KEEP 
+
+- C*x0*x1*x2 : REMOVE #### Removed Terms List (Ban List) 
+
+The following term structures have negatively impacted performance. Do NOT propose them again :x0 t: C*(9.81), C*(np.cos(x1)), C*(x0*x1) x1 t: C*(1), C*(np.sin(x1)), C*(x0*x1), C*(x3) x2 t: C*(9.81), C*(x1) x3 t: C*(x0), C*(x1), C*(x3) 
+
+(1c) 
+
+Goal: Reflect the Scientist’s insights and guidance in the equation structure. [Required Conditions (Violation Will Cause Errors)] 1. You can use: import numpy as np 2. Target System Context: Input variables are x0, x1, x2, x3. - This system is 4-dimensional - Variables x4 and above do not exist. 3. Term Format: Propose terms WITHOUT coefficients. The system will automatically attach trainable parameters. - Correct: "x0", "np.sin(x0)", "x0*x1" - Incorrect: "params[0]*x0", "C*x0", "0.5*x0" 4. Term Complexity: You MAY use internal constants if they have physical meaning (e.g., frequency, phase). - Example: "np.sin(2*x0)" is allowed and encouraged if the factor 2 is significant. - Note: The system will still attach an outer trainable parameter (e.g., params[0]*np.sin(2*x0)). 5. Symbolic Constants: Do NOT use symbolic constants like ’g’, ’k’, ’m’. Use numerical values. - Correct: "9.81*x0" (if g=9.81 is known), "np.pi*x0" - Incorrect: "g*x0" (will cause NameError) 6. No duplicates: Equations identical to previous attempts are forbidden. Structural modifications are required. 7. Reasoning required: When proposing each term, provide a physical/mathematical reasoning based on the system description (desc). [Example (4D System)] x0 t: ["x0", "x1*x2", "x3"] x1 t: ["x0", "np.sin(x1)"] x2 t: ["x0*x1"] x3 t: ["-9.81", "x0"] 
+
+Figure 12. The Sampler Prompt. The labeled sections (1a)-(1c) correspond to the Sampler components in Figure 2: (1a) System Description & Insight, (1b) Feedback & Constraints, and (1c) Action & Instruction. 
+
+35 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Sampler LLM Response 
+
+{
+
+"ode pairs": [
+
+{
+
+"x0 t": ["x0", "np.sin(x1)", "x0*x0"], "x1 t": ["np.cos(x1)", "x0", "x0*x0"], "x2 t": ["x0*np.cos(x1)", "x0"], "x3 t": ["x0*np.sin(x1)", "-9.81", "x2*x2"] 
+
+},[.... other pairs omitted....] ]
+
+}
+
+Figure 13. Example response from the Sampler LLM showing the structured JSON response containing candidate ODE terms for each dimension. 
+
+Scientist Prompt 
+
+(2a) 
+
+You are a senior scientist specializing in ODE discovery. Your role is to evaluate proposed mathematical terms and provide guidance to improve the term list in the next iteration. 
+
+Progress: Currently on iteration 50 of 100 total 
+
+System Description: 
+
+Glider flight experiment. State variables: forward velocity x0, path angle x1, horizontal position x2, vertical altitude x3. [.... omitted....] 
+
+(2b) 
+
+Accumulated Insights: 
+
+The kinematic terms for x2 t and x3 t show strong physical relevance, particularly components involving x0 and trigonometric functions of x1. The damping term in x0 t and the velocity-dependent term in x1 t demonstrate good physical grounding. [.... omitted....] 
+
+(2c) 
+
+Previous Experiment Results: 
+
+[Global Best] (x0 t: 2.187e-02, x1 t: 6.520e-01, x2 t: 2.846e-07, x3 t: 2.005e-07) x0 t = -0.2688*(x0) - 9.8336*(np.sin(x1)) - 0.0279*(x0*np.cos(x1)) + 0.4777 [.... other dimensions omitted....] 
+
+Current Attempt: (x0 t: 2.761e-02, x1 t: 3.555e+00, x2 t: 2.846e-07, x3 t: 2.086e-07) x0 t = -0.2982*(x0) - 9.8333*(np.sin(x1)) [.... other dimensions omitted....] 
+
+(2d) 
+
+Task: Perform term-by-term evaluation. For all terms in the current attempt, evaluate the following 2 aspects: 1. Semantic Quality: 
+
+- good : Clearly aligns with the physical/mathematical meaning (Max 3 per function )- neutral : Has some relevance but not essential - bad : Unrelated to or contradicts the system 2. Reasoning: Explain your evaluation in 1-2 sentences. Focus on physical meaning. 
+
+Important Notes: 
+
+- Use coefficient analysis: Terms with coefficients near 0 are removal candidates. 
+
+Figure 14. The Scientist Prompt. The labeled sections (2a)-(2d) correspond to the Scientist components in Figure 2: (2a) Role & Description, (2b) Accumulated Insights, (2c) Experiment Results, and (2d) Evaluation Task. 
+
+36 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Scientist LLM Response                    
+
+> {
+> "x0 t": [
+> {"term": "C*(x0)", "semantic quality": " good ", "action": "keep "},
+> {"term": "C*(np.sin(x1))", "semantic quality": "good ", "action": "keep "},
+> {"term": "C*(x0*x0)", "semantic quality": "neutral ", "action": "hold "}
+> ], [.... x1 t, x2 t, x3 t omitted....]
+> }
+
+Figure 15. Example response from the Scientist LLM showing term-by-term evaluation with semantic quality assessment and action recommendations. 
+
+37 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 21. Final discovered equations under different noise levels for the dimensionless Glider system (ID 2). A dash (-) indicates that no valid equation was available for reporting. 
+
+Method σ Dim Equation DoLQ 0.001 ˙x0 (((( −0.17845980618743792 · (x20)) + ( −1.0941877346694517 · sin( x1))) + (0 .05314606941174399 · x1)) + (−0.3391220551372564)) ˙x1 (((( −1.8940271186983297 · (−9.81)) + ( −0.8283632477740318 · cos( x1))) + ( −0.20272251166224334 ·
+
+(x1/x 0))) + ( −15 .836236841336438)) 
+
+0.01 ˙x0 (((( −10 .284937863923174 · 9.81) + (0 .4911498533070019 · x1)) + ( −1.9129771153833335 · sin( x1))) + 97 .78128237249153) ˙x1 (((( −1.3512098187497759 · sin( x1)) + (2 .080726220812281 · x0)) + ( −0.16870678464779224 ·
+
+(x1 sin( x0)))) + ( −2.1465100178836565)) 
+
+0.1 ˙x0 ((((4 .610553824850981 · sin( x1)) + ( −12 .839898886682368 · (x0 sin( x1)))) + (2 .454264804272983 ·
+
+(x20 sin( x1)))) + 1 .9735115401721728) ˙x1 (((( −0.8346838384737242 · (x1 cos( x1))) + ( −4.785671048569711 · (x0x1))) + (1 .7968322398349674 ·
+
+(x20x1))) + 9 .272749877208437) 
+
+ICSR 0.001 ˙x0 −0.185 x20 + 0 .0035 x0x1 + 0 .0041 x21 − 1.0961 sin( x1) − 0.1851 ˙x1 0.5688 x0 − 0.0262 x21 + 2 .0966 − 1.0063 /x 0
+
+0.01 ˙x0 −0.9509 x0 sin(0 .9597 x1) + 0 .0595 x1 − 0.822 ˙x1 −1.2089 x1 cos(0 .4621 x0) + 5 .343 
+
+0.1 ˙x0 −0.9509 x0 sin(0 .9597 x1) + 0 .0595 x1 − 0.822 ˙x1 −1.2089 x1 cos(0 .4621 x0) + 5 .343 
+
+LASR 0.001 ˙x0 −4.162585368621153 /x 1
+
+˙x1 log(sinh( x0)) 
+
+0.01 ˙x0 − sin( x1) − 0.4299814235724901 ˙x1 log( |x0| · || cosh( x0)| − 1.5820667442977299 |) + 0 .2913439363183297 
+
+0.1 ˙x0 −1.339672350584124 · tan(exp( x0/x 1)/12 .367644780162692) ˙x1 x0
+
+EDL 0.001 ˙x0 -
+
+˙x1 -0.01 ˙x0 -
+
+˙x1 -0.1 ˙x0 -
+
+˙x1 -LLM-SR 0.001 ˙x0 5.7922 x1 + 0 .3353 x0 − 1.2690 x20 − 10 .4843 − 0.9018 x21 + 0 .2287 x30 + 0 .0289 x0x21 + 0 .0321 x30x1 +0.0383 x31 − 0.0019 x20x31
+
+˙x1 −1.6745 x0 − 0.6770 cos( x1)/(x0 + 10 −9) − 0.2463 x0 sin( x1) + 1 .9791 x20 − 0.2591 x30 + 0 .0039 x21 +0.3814 x0x1 − 0.2232 x20x1 − 0.2732 /(x0 + 10 −9) − 0.2510 sin(2 x1)
+
+0.01 ˙x0 −4.1139 x20 + 0 .1036 x21 + 2 .3645 x0x1 + 0 .0819 x20x1 − 0.1884 x0x21 + 0 .7252 x30 − 0.0395 x31 −
+
+1.9019 sin(clip( x0)) − 1.5588 log(clip( x0)) + 0 .0039 exp( x1)˙x1
+
+ − 1.3646 x20 cos( x1) sin( x1) − 3.1803 x20 sin( x1) + 12 .0188 cos( x1) + 57 .1401 − 3.1391 x0 sin( x1) + 1.0047 x0 cos( x1) + 0 .2624 x31
+
+/(x0 + 10 −6) + 57 .1401 /(x0 + 10 −6) − 30 .5360 x1/(x0 + 10 −6) + 0.5511 x0x1 sin( x1)
+
+0.1 ˙x00.5·0.813984 ·x20·0.813984 ·max  
+
+> 
+> −125 .0561+0 .0961( −44 .7349+22 .1524 x1−0.2354 x31)2,0.01
+> 
+> cos( x1)0.769795
+
+− 
+
+> 0.5·0.813984 ·x20·0.813984 ·0.004265( −44 .7349+22 .1524 x1−0.2354 x31) sin( x1)0.769795
+
+− 3.9405 sin( x1)˙x1 −10 .8801 x1 + 0 .1683 x31 − 9.8663 sin( x1) − 44 .2731 x0 − 0.1425 x20 − 87 .9659 /x 0 + 11 .9680 /x 20 −
+
+15 .7989 x0x1 + 5 .6508 x20x1 + 199 .1791 
+
+38 Discovering Ordinary Differential Equations with LLM-Based Qualitative and Quantitative Evaluation 
+
+Table 22. Notation used in the time complexity analysis of DoLQ. Symbol Meaning 
+
+T Total number of DoLQ search cycles 
+
+H Number of candidate hypotheses evaluated per cycle 
+
+dsys Number of state dimensions in the ODE system 
+
+N Number of sampled time points used in the residual objective 
+
+kj Number of symbolic terms in the j-th equation 
+
+pj Number of trainable parameters in the j-th equation 
+
+G Number of differential evolution generations 
+
+N P Differential evolution population size 
+
+Ij Number of BFGS refinement iterations for dimension jLsamp Total input and output tokens processed by the Sampler Agent per cycle 
+
+Lsci Total input and output tokens processed by the Scientist Agent per cycle 
+
+Table 23. CPU, runtime, and peak-memory comparison of DoLQ and LLM-SR. Total CPU time is the summed CPU time, total wall time is the wall-clock runtime, end-to-end elapsed time is the full elapsed time, and peak memory is the maximum resident memory usage in GiB. Problem (ID) Method Total CPU time (s) Total wall time (s) End-to-end elapsed (s) Peak memory (GiB) 2 DoLQ 12.169 568.095 608 0.234 LLM-SR 6.781 3080.691 3080.691 0.421 3 DoLQ 12.300 744.724 775 0.235 LLM-SR 6.848 2293.902 2296.985 0.420 8 DoLQ 12.660 712.452 746 0.238 LLM-SR 14.363 6406.439 6411.136 0.422 
+
+39

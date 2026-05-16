@@ -1,0 +1,2177 @@
+Title: EqOD: Symmetry-Informed Stability Selection for PDE Identification
+
+URL Source: https://arxiv.org/pdf/2605.11524v1
+
+Published Time: Wed, 13 May 2026 00:45:30 GMT
+
+Number of Pages: 45
+
+Markdown Content:
+# EqOD: Symmetry-Informed Stability Selection for PDE Identification 
+
+Gnankan Landry Regis N’guessan 1,2,3 Bum Jun Kim 4,∗
+
+> 1
+
+Axiom Research Group 
+
+> 2
+
+Department of Applied Mathematics and Computational Science, NM-AIST, Tanzania 
+
+> 3
+
+African Institute for Mathematical Sciences (AIMS), Research and Innovation Centre, Rwanda 
+
+> 4
+
+The University of Tokyo, Japan 
+
+> ∗
+
+Corresponding author: bumjun.kim@weblab.t.u-tokyo.ac.jp 
+
+## Abstract 
+
+Data-driven identification of partial differential equations (PDEs) relies on sparse regression over a candidate library of differential operators, where larger libraries inflate false positives under observation noise and smaller libraries risk missing true terms. We introduce Equivariant Operator Discovery (EqOD), a fully automatic method combining two library reduction mechanisms. When Galilean invariance is detected from trajectory data via a weak-form structural test, EqOD uses the symmetry-reduced library, eliminating terms that our Galilean exclusion result proves to be absent from the governing equation. Otherwise, it applies randomized LASSO stability selection guided by classical false-positive bounds. A residual-based fallback prevents degradation below the full-library baseline. On 8 PDEs at 4 noise levels, EqOD attains F1 = 1 .000 ± 0.000 on Heat at 20% noise, where WF-LASSO obtains 0.475 ± 0.181 , official PySINDy 2.0 obtains 0.000 , and the WSINDy reimplementation obtains 0.789 . Under the strict criterion that the mean F1 difference exceeds the larger of the two standard deviations, EqOD wins 7 of 32 cells. WF-LASSO wins none, and the remaining 25 cells are ties. Across all 32 cells, EqOD outperforms PySINDy 2.0.0 in 23 of 32 cells, and all 5 PySINDy wins occur on reaction PDEs. External validation on WeakIdent and PINN-SR datasets gives F1 = 1 .000 on all 5 clean benchmarks. NLS, 2D, coupled-system, and cylinder-wake extensions are reported. The Galilean library reduction is proved under explicit autonomy and library assumptions. The stability-selection step is motivated by classical false-positive bounds, while formal guarantees for correlated PDE design matrices remain open. 
+
+## 1 Introduction 
+
+The partial differential equation (PDE) identification problem Data-driven discovery of PDEs from spatiotemporal trajectory data is a central problem in scientific machine learning. Given noisy measurements {u(xi, t j ) + ϵij } of an unknown physical system on a spatiotemporal grid, the goal is to identify the governing PDE 
+
+ut = N [u] = 
+
+> s
+
+X
+
+> j=1
+
+ξ∗ 
+
+> j
+
+θj (u, u x, u xx , . . . ), (1) where θj are the library terms, ξ∗ 
+
+> j
+
+are unknown coefficients, and s is the unknown and small number of active terms. The dominant paradigm, originating with sparse identification of nonlinear dynamics (SINDy) [ 6]and later adapted to PDEs through sparse-optimization methods and partial differential equation   
+
+> Preprint.
+> arXiv:2605.11524v1 [cs.LG] 12 May 2026 Noisy PDE data
+> weak -form
+> u( x,t ) + noise
+> Full library
+
+p=10                 
+
+> 𝑢 𝑢 !
+> 𝑢 "𝑢 #
+> 𝑢 ## 𝑢 ###
+> 𝑢 #### 𝑢 "𝑢 #
+> 𝑢 "𝑢 ## 𝑢 !!𝑢 "
+> noise activate s
+> extra terms
+> EqOD
+> Symmetry gate
+> Galilean detected
+> 𝑢 𝑢 !𝑢 #
+> provably absent
+> Stability gate
+> 50 randomized fits
+> 0.5
+> stable
+> vote
+
+Sparse PDE 
+
+support   
+
+> 𝑢 !!
+> 𝑢 "𝑢 !
+> 𝑢 !!!
+> few active
+> terms
+> residual guard
+> OR
+
+Figure 1: High-level EqOD overview. Noisy trajectory data are converted into a weak-form regression system on the full 10-term library. When Galilean invariance is detected, EqOD uses a symmetry gate to remove provably absent reaction terms. Otherwise, it uses a stability gate based on 50 randomized fits to retain consistently selected terms. A residual guard protects the final sparse equation support. functional identification of nonlinear dynamics (PDE-FIND) [ 37 , 38 ], casts PDE identification as sparse regression over a candidate operator library. Specifically, one constructs a candidate library 
+
+Θ = [ θ1(u), . . . , θ p(u)] of p candidate terms and solves 
+
+ut ≈ Θξ, ∥ξ∥0 → min , (2) seeking the sparsest coefficient vector ξ that explains the data. The ℓ0 problem is typically relaxed to least absolute shrinkage and selection operator (LASSO) regularization with an ℓ1 penalty [ 44 ] or solved by sequential thresholded least squares (STLSQ). 
+
+The library size problem The quality of identification depends critically on the candidate library. Consider the standard polynomial library for PDEs in one spatial and one temporal dimension (1+1D), with up to cubic nonlinearity and fourth-order spatial derivatives: 
+
+Lstd = {u, u 2, u 3, u x, u xx , u xxx , u xxxx , u · ux, u · uxx , u 2 · ux}. (3) This library has p = 10 terms. For the Burgers equation, ut = −u · ux + νu xx , only s = 2 are active. The remaining p − s = 8 are zero-coefficient candidates that observation noise can spuriously activate. To quantify the false-positive risk, suppose each inactive term has an independent probability α of spurious selection, which is the per-term false-positive rate. The probability of observing at least one false positive is P (at least one false positive ) = 1 − (1 − α)p−s. For p = 10 , s = 2 , and α = 0 .05 ,we obtain 1 − 0.95 8 = 0 .337 . Reducing the library to p = 7 after removing 3 terms via symmetry gives 1 − 0.95 5 = 0 .226 , a 33% reduction. Further reducing to p = s, so that only the true support remains, gives zero probability under this simplified model. This false-positive calculation leaves the central challenge of reducing the library without knowing the correct answer in advance. 
+
+Two complementary reduction mechanisms We propose two mechanisms, unified within a single pipeline. The physics-based reduction described in Section 2.1 uses Lie point symmetry. When the PDE has Galilean invariance, represented by u → u + c and x → x + ct , certain library terms are provably absent from any PDE with that symmetry. Detecting this symmetry from trajectory data enables physics-based library pruning with zero false negatives. The statistics-based reduction in Section 2.2.2 handles the cases without symmetry. The randomized LASSO stability selection method of Meinshausen and Bühlmann [30] identifies terms that are consistently selected across random subsamples, and Maddu et al. [28] showed that stability-based model selection can improve noisy PDE inference. In favorable regimes, true terms remain consis-tently selected despite perturbations, whereas noise-correlated terms are selected only under specific conditions. Classical and complementary-pairs stability-selection theory provides finite-sample false-positive bounds under exchangeability or unimodality assumptions [ 30 , 41 ]. For correlated PDE 2libraries, EqOD uses these bounds as design guidance and relies on empirical stability profiles for support evidence. The key design principle is to trust the physics when strong structural information is available through detected Galilean symmetry and to trust the statistics otherwise. A detailed related-work discussion is provided in Appendix B. EqOD’s distinguishing gap is the automatic chain from data to symmetry detection, library reduction, and PDE identification. 
+
+1.1 Contributions Automatic Lie symmetry detection from data. We introduce a weak-form structural test in Algorithm 3 that identifies Galilean invariance from trajectory data with 100% accuracy, F1 = 1.000, at a threshold τ = 0 .05 across 75 test cases generated from 5 PDEs, 3 noise levels, and 5 seeds (Table 1). The test uses a 6-term targeted regression to disambiguate the convective term u · ux from reaction terms u, u2, and u3.
+
+Provable library reduction. The determining equations of the Galilean generator exclude 5 of 10 standard library terms and fix the convective coefficient to −1 (Theorem 4). The implementation conservatively removes 3 terms, while the downstream LASSO handles the remaining 2 exclusions. The worst-case false-positive count drops by 62.5% for Burgers (Corollary 6). 
+
+Stability-selected support estimation. We use randomized LASSO stability selection as a non-Galilean library-pruning gate inside EqOD, building upon stability-selection theory and prior PDE stability-selection work [ 28 , 30 ]. The novelty here is not in stability selection itself but in its role in an automatic mode-selection pipeline that combines symmetry detection, path-dependent library reduction, and residual fallback. 
+
+Unified pipeline with automatic mode selection. Algorithm 1 automatically selects the physics-based path when Galilean symmetry is detected and the statistics-based path otherwise, with a residual-based fallback to prevent degradation. The branch choice determines the library used in the final weak-form LASSO (WF-LASSO) stage, so mode selection affects the estimated support rather than only the reported method label. 
+
+Comprehensive empirical validation across 15 PDE systems. The primary benchmark contains 8 scalar one-dimensional (1D) PDEs spanning diffusion, convection, dispersion, reaction, and chaos, with 32 noise conditions, 10 seeds each, one official Python SINDy package (PySINDy) baseline, and two additional baselines. Extensions cover the nonlinear Schrödinger equation (NLS) with coupled real and imaginary components, 3 systematic two-dimensional (2D) benchmarks for Heat, advection-diffusion, and Navier–Stokes (NS) vorticity, 2 coupled reaction-diffusion systems, and real cylinder wake data. External validation uses 5 official datasets from the WeakIdent and Physics-Informed Neural Network Sparse Regression (PINN-SR) benchmarks. All extension experiments include WF-LASSO and PySINDy baselines. The rest of the paper is organized as follows. Section 2 presents the EqOD pipeline. Section 3 reports the primary 1D benchmark, which contains 8 PDEs, 32 conditions, and 3 baselines. Sec-tion 4 concludes. The appendices provide the technical foundations, proofs, implementation and reproducibility details, and extended empirical evidence, including full benchmark tables, baseline comparisons, ablations, external validations, limitations, failure cases, and supplementary figures (Appendices A–L). 
+
+## 2 Proposed Method: Equivariant Operator Discovery 
+
+EqOD is a four-stage pipeline, shown in Algorithm 1. It takes trajectory data {U (m)}Mm=1 on a spatial grid x = ( x1, . . . , x Nx ) and a temporal grid t = ( t1, . . . , t Nt ) and returns the identified PDE with coefficients. 3Algorithm 1 EqOD algorithm 
+
+Require: Trajectory data {U (m)}Mm=1 , grids x, t
+
+Ensure: Identified PDE: ut = P 
+
+> j
+
+ˆξj θj (u) 
+
+> 1:
+
+Stage 1, Lie symmetry detection (Section 2.1)  
+
+> 2:
+
+Run 5 symmetry tests: translation ( ∂x, ∂t), Galilean ( t∂ x + ∂u), scaling, reflection  
+
+> 3:
+
+Record detected generators Gdet ⊆ { v1, . . . , v5} 
+
+> 4:
+
+Stage 2, adaptive library selection (Section 2.2)  
+
+> 5:
+
+if Galilean symmetry detected ( t∂ x + ∂u ∈ G det ) then  
+
+> 6:
+
+Lred ← L std \ { u, u 2, u 3} 7 terms, physics-based  
+
+> 7:
+
+if odd reflection is also detected ( −x∂ x − u∂ u ∈ G det ) then  
+
+> 8:
+
+Lred ← L red \ { u · uxx } 6 terms  
+
+> 9:
+
+end if  
+
+> 10:
+
+mode ← symmetry  
+
+> 11:
+
+else  
+
+> 12:
+
+Build a weak-form system (Θ , b) on Lstd , using an odd-reflection-pruned library if odd reflection is detected  
+
+> 13:
+
+Run stability selection: B = 50 randomized LASSO runs  
+
+> 14:
+
+ˆπj ← selection probability for each term j 
+
+> 15:
+
+Lred ← { j : ˆ πj > 0.5} 
+
+> 16:
+
+if |L red | < 1 then  
+
+> 17:
+
+Lred ← L std full-library fallback  
+
+> 18:
+
+end if  
+
+> 19:
+
+mode ← stability  
+
+> 20:
+
+end if  
+
+> 21:
+
+Stage 3, sparse identification (Appendix F.4.1)  
+
+> 22:
+
+ˆξ ← WF-LASSO with 5-fold cross-validation (CV) on Lred  
+
+> 23:
+
+Two rounds of adaptive thresholding + ordinary least squares (OLS) debiasing  
+
+> 24:
+
+Stage 4, residual-based fallback (Appendix F.4.2)  
+
+> 25:
+
+γ ← 1.5 if mode = symmetry , else 1.2 
+
+> 26:
+
+if ∥rEqOD ∥2 > γ · ∥ rWF-LASSO ∥2 then  
+
+> 27:
+
+Use the full-library WF-LASSO result instead  
+
+> 28:
+
+end if  
+
+> 29:
+
+return ˆξ, identified equation, mode Table 1: Galilean detection: precision, recall, and F1 as functions of threshold τ across 5 PDEs, 3 noise levels {0, 5% , 10% }, and 5 seeds, for 75 test cases.                         
+
+> τ0.01 0.02 0.05 0.10 0.15 0.20 Precision 0.698 0.938 1.000 1.000 1.000 1.000 Recall 1.000 1.000 1.000 0.867 0.700 0.500 F1 0.822 0.968 1.000 0.929 0.824 0.667
+
+2.1 Stage 1: Lie symmetry detection from data 
+
+The symmetry detector runs 5 independent tests on the trajectory data. Each test returns a Boolean detection result and a score quantifying the strength of evidence. We summarize the tests here, with the full Galilean detector details in Appendix F.6.1. 
+
+Galilean detection via weak-form structural test. The central detection challenge is Galilean invariance. EqOD tests whether the nonlinear convective term u · ux contributes significantly to the PDE dynamics by solving a six-term weak-form regression and computing its energy fraction. We set τ = 0 .05 , which gives F1 = 1.000 on the threshold sweep in Table 1. The detailed motivation, full procedure, basis choice, and Algorithm 3 are reported in Appendix F.6.1. The remaining catalog symmetry tests use lightweight Fourier or parity diagnostics. 
+
+Galilean detection accuracy. Table 1 reports the detection accuracy as a function of threshold τ .4The threshold τ = 0 .05 achieves perfect classification. At τ = 0 .01 , there are 13 false positives from reaction PDEs misclassified as Galilean. At τ = 0 .10 , there are 4 false negatives from Galilean PDEs missed at high noise. The gap between the largest non-Galilean energy fraction, ≈ 0.03 , and the smallest Galilean energy fraction, ≈ 0.08 , provides a robust margin. The threshold was selected on a subset of 5 benchmark PDEs used in the main experiments, so it is an in-sample tuning choice. The wide plateau, where any τ ∈ [0 .03 , 0.07] gives F1 = 1.000, suggests the threshold is not overfit, but held-out validation on PDEs outside the benchmark, such as Sine–Gordon, Benjamin–Bona–Mahony, and Allen–Cahn, would provide stronger evidence. The sweep covers 30 Galilean true-positive cases from Burgers and KdV and 45 non-Galilean true-negative cases from Heat, Fisher-KPP, and Adv-Diff; the remaining benchmark PDEs, KS, KdV–Burgers, and React-Diff, were correctly classified in the main benchmark. 
+
+Spatial translation. On periodic domains, a spatial shift u(x, t ) → u(x + a, t ) only changes the phase of ˆu(k), which cancels in the estimated symbol ˆσ(k) = P 
+
+> i
+
+ˆu(k, t i)ˆ ut(k, t i)/ P 
+
+> i
+
+|ˆu(k, t i)|2.We compare ˆσ before and after spatial shifts of Nx/8, Nx/4, and Nx/3 points. The detection threshold is δtrans < 0.05 .
+
+Temporal translation. For autonomous PDEs, the dissipative structure Re[ˆ σ(k)] is time-independent, while the imaginary part varies for nonlinear PDEs due to mean-flow interaction. We compare Re[ˆ σ] estimated from the first and second halves of the trajectory, using adaptive win-dowing to handle strongly dissipative PDEs where signal decays to zero. The detection threshold is 
+
+δt < 0.4.
+
+Scaling. If the PDE has scaling symmetry, Re[ˆ σ(k)] follows a monomial power law: Re[ˆ σ] ∝ | k|β .We perform weighted log-log regression comparing log |Re[ˆ σ]| with log |k| on reliable modes whose power exceeds 5% of the maximum. The detection criterion is R2 > 0.90 .
+
+Reflection. Even reflection is detected by ∥U − Uflip ∥2/∥U ∥2 < 0.1, where u(−x) = u(x). Odd reflection is detected by ∥U + Uflip ∥2/∥U ∥2 < 0.1, where u(−x) = −u(x). These tests are initial-condition-dependent, so EqOD uses reflection only as an auxiliary signal: odd reflection can further prune the library when paired with stronger structural evidence, but standalone reflection detections are not treated as the main reduction mechanism. 
+
+2.2 Stage 2: Adaptive library selection 2.2.1 Physics-based path: symmetry reduction 
+
+When Galilean symmetry is detected, Proposition 3 guarantees that the terms {u, u 2, u 3} cannot appear in the PDE because they are not differential invariants and do not appear in any invariant combination beyond u · ux. The reduced library is: 
+
+LG = {ux, u xx , u xxx , u xxxx , u · ux, u · uxx , u 2 · ux}, |L G| = 7 . (4) If odd reflection is additionally detected, EqOD applies a parity prune to the Galilean implementation library. The pure-power term u2 has already been removed by Galilean pruning, so the additional retained-library removal is u · uxx , giving |L G, odd | = 6 . Figure 2 summarizes the path-dependent library sizes and the Heat stability-selection example. 
+
+Avoiding an extra stability pass after symmetry reduction. We tested stability selection on the already-reduced library of 7 terms. It was too aggressive at high noise: on Korteweg–de Vries (KdV) and Kuramoto–Sivashinsky (KS), it sometimes removed true terms, such as uxxx for KdV at 5% noise, giving F1 = 0.850 instead of 1.000. The physics-based reduction is sufficient because it already removes the reaction-like terms that cause false positives. Adding statistical pruning on top provides no benefit and introduces risk. 
+
+2.2.2 Statistics-based path: stability selection 
+
+When no Galilean symmetry is detected, we use randomized LASSO stability selection [ 7, 30 ]. The procedure runs B = 50 iterations: 5Full library  
+
+> 10 terms
+> Galilean
+> 7 terms Galilean + odd
+> 6 terms
+> Stability
+> 1 term
+
+Figure 2: Library reduction by EqOD pathway. The standard library has 10 candidate operators. The Galilean path removes the reaction terms {u, u 2, u 3}, retaining 7 terms. Adding odd reflection removes the remaining parity-incompatible retained term u · uxx and retains 6 terms. In the Heat 10% stability-selection example, the stable support collapses to uxx only. 
+
+Algorithm 2 Randomized LASSO stability selection 
+
+Require: Weak-form system (Θ , b), terms L, B = 50 , ˆπthr = 0 .5
+
+Ensure: Selection probabilities ˆπ ∈ [0 , 1] p, stable terms S = {j : ˆ πj > 0.5} 
+
+> 1:
+
+Initialize selection counts: cj = 0 for j = 1 , . . . , p  
+
+> 2:
+
+Normalize: ˜Θ ← Θ/∥Θ·,j ∥, ˜b ← b/∥b∥ 
+
+> 3:
+
+for b = 1 to B do  
+
+> 4:
+
+Draw subsample: Ib ⊂ { 1, . . . , n }, |Ib| = ⌊n/ 2⌋ 
+
+> 5:
+
+Draw random penalty weights: wj ∼ Uniform(0 .5, 1.0) for each j 
+
+> 6:
+
+Form weighted design: ˜Θ(b) = ˜ΘIb · diag( w−1) 
+
+> 7:
+
+Solve LASSO: ˆξ(b)
+
+= arg min ξ∥˜bIb − ˜Θ(b)ξ∥22 + λ∥ξ∥1 
+
+> 8:
+
+cj ← cj + 1[| ˆξ(b) 
+
+> j
+
+| > 10 −6] for each j 
+
+> 9:
+
+end for  
+
+> 10:
+
+ˆπj ← cj /B  
+
+> 11:
+
+return ˆπ, S = {j : ˆ πj > 0.5}
+
+Randomized penalty weights. Following randomized stability-selection practice [ 7 , 30 ], we use randomized penalty weights wj ∼ Uniform(0 .5, 1.0) rather than uniform penalties. This randomization creates diversity in the LASSO path: true terms with large coefficients are selected regardless of the penalty weight, while noise-correlated terms with small pseudo-coefficients are selected only when their penalty happens to be low. The combined effect of subsampling and random penalties provides a strong stability signal. 
+
+Test function density. The stability selection path uses a denser grid of test functions, 8 × 10 = 80 
+
+per trajectory, compared to the Stage 3 pipeline with 5 × 7 = 35 . This denser grid provides more equations for subsampling and improves the statistical resolution of the selection probabilities. 
+
+2.3 Stages 3 and 4: Sparse identification and fallback 
+
+After library selection, EqOD runs WF-LASSO using the selected library with CV-selected regular-ization, adaptive thresholding, and OLS debiasing. It then compares the reduced-library residual with the full-library WF-LASSO residual and reverts when the residual ratio exceeds a path-dependent threshold. Full details are in Appendix F.4. 
+
+## 3 Experiments 
+
+3.1 Experimental setup Benchmark PDEs. We evaluate 8 representative 1+1D PDEs spanning convective, dispersive, diffusive, and reaction dynamics. The suite includes classical model equations from turbulence, 60 2 4 6                        
+
+> x
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> t
+> Heat
+> 0246
+> x
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> t
+> Burgers
+> 0246
+> x
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> t
+> KdV
+> 020 40 60 80 100
+> x
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> 20.0
+> t
+> KS
+> 0246
+> x
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> t
+> Fisher-KPP
+> 0246
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> React-Diff
+> 20 10 010
+> x
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> t
+> NLS |u|
+> 0246
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> y
+> 2D NS
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1
+> 0
+> 1
+> 2
+> 3
+> 1
+> 0
+> 1
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 2
+> 1
+> 0
+> 1
+> 2
+
+Figure 3: Solution snapshots for representative PDEs: the 1D Heat equation, Burgers shock, KdV soli-ton, KS chaos, Fisher–Kolmogorov–Petrovsky–Piskunov (Fisher-KPP) wavefront, reaction-diffusion, NLS soliton modulus |u|, and 2D NS vorticity field at tmid .Table 2: Benchmark PDEs with true equations, Galilean symmetry status, and support size. All PDEs are solved on periodic spatial domains with spectral methods. 
+
+PDE Equation ut = . . . Galilean |S∗| Domain Heat 0.1uxx No 1 [0 , 2π]
+
+Burgers −u · ux + 0 .1uxx Yes 2 [0 , 2π]
+
+KdV −u · ux − uxxx Yes 2 [0 , 2π]
+
+Fisher-KPP 0.01 uxx + u − u2 No 3 [0 , 2π]
+
+Adv-Diff −ux + 0 .05 uxx No 2 [0 , 2π]
+
+KS −u · ux − uxx − uxxxx Yes 3 [0 , 32 π]
+
+KdV–Burgers −u · ux + 0 .05 uxx − uxxx Yes 3 [0 , 2π]
+
+React-Diff 0.1uxx + u − u3 No 3 [0 , 2π]
+
+shallow-water waves, reaction-diffusion fronts, and flame-front chaos, including Burgers [ 8], KdV [23 ], Fisher-KPP [ 16 , 22 ], and KS dynamics [ 1, 24 ]. We abbreviate advection-diffusion (Adv-Diff) and reaction-diffusion (React-Diff) in tables. Table 2 lists the equations, their true coefficients, Galilean symmetry status, and support size. 
+
+Data and baselines. The primary benchmark uses Nx = 128 , Nt = 128 , M = 3 trajectories per PDE and seed, and noise levels σnoise ∈ { 0, 0.05 , 0.10 , 0.20 }. Data-generation details, initial conditions, and baseline configurations are reported in Appendices F.1 and I.1. 
+
+Evaluation metric. We use the term-level F1 score to measure identification accuracy: 
+
+F1 = 2 · Precision · Recall Precision + Recall , Precision = | ˆS ∩ S∗|| ˆS| , Recall = | ˆS ∩ S∗||S∗| , (5) where ˆS = {j : | ˆξj | > 10 −3} is the identified support and S∗ = {j : ξ∗
+
+j̸ = 0 } is the true support. 
+
+3.2 Main results 
+
+Table 3 reports the F1 scores for EqOD and WF-LASSO across all 8 PDEs and 4 noise levels, mean 
+
+± std over 10 seeds. The seed flow is documented in Section G: each seed varies the data trajectories, the noise realization, the bootstrap subsamples in stability selection, and the CV fold permutation in WF-LASSO. The key observations from Table 3 are as follows. 7Table 3: Main benchmark F1 scores, reported as mean ± std over 10 seeds, comparing full-library WF-LASSO with EqOD. Bold indicates the better mean. Mode uses S for the symmetry path, SS for the stability selection path, and † for residual fallback to WF-LASSO. 
+
+PDE Noise WF-LASSO EqOD ∆ Mode Heat 0% 1.000 ± 0.000 1.000 ± 0.000 0 SS 5% 0.733 ± 0.251 1.000 ± 0.000 +0 .267 SS 10% 0.554 ± 0.222 1.000 ± 0.000 +0 .446 SS 20% 0.475 ± 0.181 1.000 ± 0.000 +0 .525 SS Burgers 0% 1.000 ± 0.000 1.000 ± 0.000 0 S5% 0.944 ± 0.176 1.000 ± 0.000 +0 .056 S10% 0.700 ± 0.258 1.000 ± 0.000 +0 .300 S20% 0.600 ± 0.194 0.920 ± 0.103 +0 .320 SKdV 0% 1.000 ± 0.000 1.000 ± 0.000 0 S5% 0.960 ± 0.084 0.967 ± 0.105 +0 .007 S10% 0.960 ± 0.084 0.920 ± 0.103 −0.040 S20% 0.887 ± 0.126 0.787 ± 0.129 −0.100 SFisher-KPP 0% 0.444 ± 0.000 0.444 ± 0.000 0 SS 5% 0.500 ± 0.000 0.500 ± 0.000 0 SS 10% 0.494 ± 0.018 0.494 ± 0.018 0 SS 20% 0.467 ± 0.068 0.467 ± 0.068 0 SS Adv-Diff 0% 1.000 ± 0.000 1.000 ± 0.000 0 SS 5% 1.000 ± 0.000 1.000 ± 0.000 0 SS 10% 1.000 ± 0.000 1.000 ± 0.000 0 SS 20% 0.980 ± 0.063 0.980 ± 0.063 0 SS KS 0% 1.000 ± 0.000 1.000 ± 0.000 0 S5% 0.957 ± 0.069 0.957 ± 0.069 0 S10% 0.914 ± 0.074 0.914 ± 0.074 0 S20% 0.857 ± 0.080 0.914 ± 0.074 +0 .057 SKdV–Burgers 0% 0.779 ± 0.137 0.957 ± 0.069 +0 .178 S5% 0.464 ± 0.065 0.613 ± 0.107 +0 .149 S10% 0.440 ± 0.075 0.440 ± 0.075 0 SS †
+
+20% 0.427 ± 0.109 0.383 ± 0.173 −0.044 SS †
+
+React-Diff 0% 0.900 ± 0.161 0.900 ± 0.161 0 SS 5% 1.000 ± 0.000 1.000 ± 0.000 0 SS 10% 0.986 ± 0.045 0.986 ± 0.045 0 SS 20% 0.914 ± 0.074 0.904 ± 0.089 −0.010 SS 0 5 10 20       
+
+> Noise level (%)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Support F1
+> Heat
+> WF-LASSO
+> PySINDy 2.0
+> EqOD
+> WSINDy reimpl.
+> 0510 20
+> Noise level (%)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Support F1
+> Burgers
+> WF-LASSO
+> PySINDy 2.0
+> EqOD
+> WSINDy reimpl.
+> 0510 20
+> Noise level (%)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Support F1
+> KdV
+> WF-LASSO
+> PySINDy 2.0
+> EqOD
+> WSINDy reimpl.
+
+Figure 4: F1 scores as a function of noise level for Heat, Burgers, and KdV across 10 seeds. 
+
+Heat. Table 3 and Figure 4 show that on the Heat equation, EqOD achieves F1 = 1 .000 ± 0.000 at all noise levels, while WF-LASSO degrades from 1.000 on clean data to 0.475 ± 0.181 at 20% noise. The improvement is due to stability selection isolating uxx as the only stably selected term across all 50 bootstrap subsamples. The standard deviation of 0.000 for EqOD across the 10 seeds means every 8bootstrap random-number-generator (RNG) draw and every CV fold permutation produced the same support. 
+
+Galilean PDEs. For the Galilean PDEs in Table 3, namely Burgers, KdV, KS, and KdV–Burgers, EqOD uses the symmetry-based path. On Burgers, EqOD wins at 10% and 20% noise. At 0% , both methods tie at F1 = 1 .000 , and at 5% , EqOD’s mean is higher, 1.000 compared with 0.944, but the gap of 0.056 is smaller than WF-LASSO’s standard deviation of 0.176, so the cell is a statistical tie. KS is tied across all four noise levels. The largest gap is at 20% , where EqOD’s mean of 0.914 exceeds WF-LASSO’s 0.857 by 0.057, still below WF-LASSO’s standard deviation of 0.080. KdV is also tied across all four noise levels under the patched pipeline. WF-LASSO has a higher mean than EqOD at 10% , 0.960 compared with 0.920, and at 20% , 0.887 compared with 0.787, but in both cells, the gap is below the larger of the two standard deviations, 0.103 and 0.129, respectively, so neither is a statistically meaningful win for WF-LASSO. We discuss the KdV high-noise regime in Appendix K.7. A directional advantage that survives larger seed counts would still motivate adapting the residual fallback to that regime. 
+
+Non-Galilean and reaction PDEs. Table 3 also shows that on non-Galilean PDEs without reaction, represented by Adv-Diff, EqOD matches WF-LASSO exactly because stability selection correctly retains the full 2-term support, and no symmetry reduction is applicable. On reaction PDEs, repre-sented by Fisher-KPP and React-Diff, EqOD also matches WF-LASSO. Fisher-KPP is a hard case for all methods because the diffusion coefficient D = 0 .01 is below the detection threshold given the bump radius and spatial resolution. 
+
+Aggregate summary. Aggregating Table 3, counting cells where the mean F1 differs by more than the larger of the two standard deviations, EqOD wins 7 cells. These are Heat at 5%, 10%, and 20%, Burgers at 10% and 20%, and KdV–Burgers at 0% and 5%. There are no statistically meaningful WF-LASSO wins, and the remaining 25 cells are within statistical noise of a tie. The Stage 4 residual fallback is triggered for KdV–Burgers at 10% and 20% noise, which is exactly the regime where the stability path would otherwise fail catastrophically. The strict criterion used here treats both methods as random variables. Under a less conservative criterion using a mean difference greater than half the larger standard deviation, EqOD would additionally win Burgers 5% and KS 20%, while retaining the KdV–Burgers 0% win with additional margin, but we report the conservative count. The seed-plumbing note for the patched benchmark is reported in Appendix G.4. Clean-data identified equations and coefficient-error details are reported in Appendix H.1. Detailed PySINDy and weak-form SINDy (WSINDy) comparisons, ablations and sensitivity analyses, external validation and extensions, and success and failure analysis, including limitations and explicit failure cases, are reported in Appendices I, J, and K. 
+
+## 4 Conclusion 
+
+We have introduced EqOD, a fully automatic PDE identification pipeline that combines Lie symmetry detection, stability selection, and residual fallback. On the 1D benchmark with 8 PDEs, 32 noise conditions, and 10 seeds, EqOD records 23/5/4 wins/losses/ties against PySINDy 2.0.0, 16/12/4 against the WSINDy reimplementation, and 10/4/18 against WF-LASSO by mean F1 (Table 23). Under the stricter criterion that the mean gap exceeds the larger of the two standard deviations, EqOD has 7 wins against WF-LASSO, WF-LASSO has none, and 25 cells are ties (Table 3). On Heat at 20% noise, EqOD reaches F1 = 1 .000 ± 0.000 , while PySINDy obtains 0.000 and WF-LASSO obtains 0.475 ± 0.181 (Tables 3 and 8). EqOD also reaches F1 = 1.000 on all 5 external clean-data benchmarks (Table 18). Beyond scalar 1D PDEs, the NLS extension reaches F1 = 1.000 at all noise levels up to 10%, while WF-LASSO drops to 0.893, and PySINDy fails with an F1 = 0.571 (Table 19). For 2D and coupled systems, EqOD matches WF-LASSO through residual fallback in most cases, and neither method is clearly superior in these regimes (Tables 20 and 21). On real cylinder wake data, the weak-form R2
+
+values are comparable: 0.747 for EqOD and 0.771 for WF-LASSO (Table 22). 
+
+Honest assessment. EqOD’s gains are concentrated in the setting it was designed for: 1D scalar PDEs with low support ratios. Stability selection does not consistently improve over the full-library 9baseline on coupled and 2D systems, and the residual fallback can prevent large degradations but cannot create a reliable signal where the reduced library is statistically ambiguous. The Fisher-KPP remains unsolved by all methods because of the small-coefficient blind spot, and WSINDy remains stronger on the KdV at high noise. Detailed limitations and failure cases are provided in Appendix K.7. Future work should tune stability selection for coupled and 2D systems, replacing the 5-test catalog with learned Lie generators [ 21 ], and extend to nonperiodic domains and nonlocal or fractional operators. 10 References 
+
+[1] Gi Siv Ashinsky. Nonlinear analysis of hydrodynamic instability in laminar flames—I. Deriva-tion of basic equations. pages 459–488, 1988. [2] Markus Bär, Rainer Hegger, and Holger Kantz. Fitting partial differential equations to space-time dynamics. Physical Review E , 59(1):337, 1999. [3] Jens Berg and Kaj Nyström. Data-driven discovery of PDEs in complex datasets. J. Comput. Phys. , 384:239–252, 2019. [4] George W Bluman, Sukeyuki Kumei, and GW Bluman. Symmetries and differential equations ,volume 81. 1989. [5] Gert-Jan Both, Subham Choudhury, Pierre Sens, and Remy Kusters. DeepMoD: Deep learning for model discovery in noisy data. J. Comput. Phys. , 428:109985, 2021. [6] Steven L Brunton, Joshua L Proctor, and J Nathan Kutz. Discovering governing equations from data by sparse identification of nonlinear dynamical systems. Proceedings of the national academy of sciences , 113(15):3932–3937, 2016. [7] Peter Bühlmann and Sara Van De Geer. Statistics for high-dimensional data: methods, theory and applications . 2011. [8] Johannes Martinus Burgers. A mathematical model illustrating the theory of turbulence. 
+
+Advances in applied mechanics , 1:171–199, 1948. [9] Kathleen Champion, Bethany Lusch, J Nathan Kutz, and Steven L Brunton. Data-driven discovery of coordinates and governing equations. Proceedings of the National Academy of Sciences , 116(45):22445–22451, 2019. [10] Kathleen P. Champion, Peng Zheng, Aleksandr Y. Aravkin, Steven L. Brunton, and J. Nathan Kutz. A Unified Sparse Optimization Framework to Learn Parsimonious Physics-Informed Models From Data. IEEE Access , 8:169259–169271, 2020. [11] Yuntian Chen, Yingtao Luo, Qiang Liu, Hao Xu, and Dongxiao Zhang. Symbolic genetic algorithm for discovering open-form partial differential equations (SGA-PDE). Physical Review Research , 4(2):023174, 2022. [12] Zhao Chen, Yang Liu, and Hao Sun. Physics-informed learning of governing equations from scarce data. Nature communications , 12(1):6136, 2021. [13] Brian de Silva, Kathleen P. Champion, Markus Quade, Jean-Christophe Loiseau, J. Nathan Kutz, and Steven L. Brunton. PySINDy: A Python package for the sparse identification of nonlinear dynamical systems from data. J. Open Source Softw. , 5(49):2104, 2020. [14] Urban Fasel, J Nathan Kutz, Bingni W Brunton, and Steven L Brunton. Ensemble-SINDy: Robust sparse model discovery in the low-data, high-noise limit, with active learning and control. 
+
+Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 478 (2260), 2022. [15] Mark Fels and Peter J Olver. Moving coframes: II. Regularization and theoretical foundations. 
+
+Acta Applicandae Mathematica , 55(2):127–208, 1999. [16] Ronald Aylmer Fisher. The wave of advance of advantageous genes. Annals of eugenics , 7(4): 355–369, 1937. [17] Daniel R Gurevich, Patrick AK Reinbold, and Roman O Grigoriev. Robust and optimal sparse regression for nonlinear PDE models. Chaos: An Interdisciplinary Journal of Nonlinear Science ,29(10), 2019. [18] Lexiang Hu, Yikang Li, and Zhouchen Lin. Governing Equation Discovery from Data Based on Differential Invariants. CoRR , abs/2505.18798, 2025. 11 [19] Kadierdan Kaheman, J Nathan Kutz, and Steven L Brunton. SINDy-PI: a robust algorithm for parallel implicit sparse identification of nonlinear dynamics. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 476(2242), 2020. [20] Alan A. Kaptanoglu, Brian de Silva, Urban Fasel, Kadierdan Kaheman, Andy Goldschmidt, Jared Callaham, Charles B. Delahunt, Zachary Nicolaou, Kathleen P. Champion, Jean-Christophe Loiseau, J. Nathan Kutz, and Steven L. Brunton. PySINDy: A comprehensive Python package for robust sparse system identification. J. Open Source Softw. , 7(69):3994, 2022. [21] Gyeonghoon Ko, Hyunsu Kim, and Juho Lee. Learning Infinitesimal Generators of Continuous Symmetries from Data. In NeurIPS , 2024. [22] Andrei Nikolaevitch Kolmogorov. A study of the equation of diffusion with increase in the quantity of matter, and its application to a biological problem. Moscow University Bulletin of Mathematics , 1:1–25, 1937. [23] Diederik Johannes Korteweg and Gustav De Vries. XLI. On the change of form of long waves advancing in a rectangular canal, and on a new type of long stationary waves. The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science , 39(240):422–443, 1895. [24] Yoshiki Kuramoto and Toshio Tsuzuki. Persistent propagation of concentration waves in dissipative media far from thermal equilibrium. Progress of theoretical physics , 55(2):356–369, 1976. [25] Ziming Liu and Max Tegmark. Machine learning conservation laws from trajectories. Physical Review Letters , 126(18):180604, 2021. [26] Zichao Long, Yiping Lu, Xianzhong Ma, and Bin Dong. PDE-Net: Learning PDEs from Data. In ICML , pages 3214–3222, 2018. [27] Zichao Long, Yiping Lu, and Bin Dong. PDE-Net 2.0: Learning PDEs from data with a numeric-symbolic hybrid deep network. J. Comput. Phys. , 399, 2019. [28] Suryanarayana Maddu, Bevan L Cheeseman, Ivo F Sbalzarini, and Christian L Müller. Stability selection enables robust learning of differential equations from limited noisy data. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 478(2262), 2022. [29] Niall M Mangan, J Nathan Kutz, Steven L Brunton, and Joshua L Proctor. Model selection for dynamical systems via sparse regression and information criteria. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 473(2204), 2017. [30] Nicolai Meinshausen and Peter Bühlmann. Stability selection. Journal of the Royal Statistical Society Series B: Statistical Methodology , 72(4):417–473, 2010. [31] Daniel A. Messenger and David M. Bortz. Weak SINDy for partial differential equations. J. Comput. Phys. , 443:110525, 2021. [32] Hadrien Montanelli and Yuji Nakatsukasa. Fourth-Order Time-Stepping For Stiff PDEs On The Sphere. SIAM J. Sci. Comput. , 40(1), 2018. [33] Peter J Olver. Applications of Lie groups to differential equations , volume 107. 1993. [34] Maziar Raissi and George E. Karniadakis. Hidden physics models: Machine learning of nonlinear partial differential equations. J. Comput. Phys. , 357:125–141, 2018. [35] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. , 378:686–707, 2019. [36] Patrick AK Reinbold, Daniel R Gurevich, and Roman O Grigoriev. Using noisy or incomplete data to discover models of spatiotemporal dynamics. Physical Review E , 101(1):010203, 2020. 12 [37] Samuel H Rudy, Steven L Brunton, Joshua L Proctor, and J Nathan Kutz. Data-driven discovery of partial differential equations. Science advances , 3(4):e1602614, 2017. [38] Hayden Schaeffer. Learning partial differential equations via data discovery and sparse optimiza-tion. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences ,473(2197), 2017. [39] Hayden Schaeffer and Scott G McCalla. Sparse model selection via integral terms. Physical Review E , 96(2):023302, 2017. [40] Michael Schmidt and Hod Lipson. Distilling free-form natural laws from experimental data. 
+
+science , 324(5923):81–85, 2009. [41] Rajen D Shah and Richard J Samworth. Variable selection with error control: another look at stability selection. Journal of the Royal Statistical Society Series B: Statistical Methodology , 75 (1):55–80, 2013. [42] Makoto Takamoto, Timothy Praditia, Raphael Leiteritz, Daniel MacKinlay, Francesco Alesiani, Dirk Pflüger, and Mathias Niepert. PDEBench: An Extensive Benchmark for Scientific Machine Learning. In NeurIPS , 2022. [43] Mengyi Tang, Wenjing Liao, Rachel Kuske, and Sung Ha Kang. WeakIdent: Weak formulation for identifying differential equation using narrow-fit and trimming. J. Comput. Phys. , 483: 112069, 2023. [44] Robert Tibshirani. Regression shrinkage and selection via the lasso. Journal of the Royal Statistical Society Series B: Statistical Methodology , 58(1):267–288, 1996. [45] Lloyd N Trefethen. Spectral methods in MATLAB . 2000. [46] Tycho F. A. van der Ouderaa, Mark van der Wilk, and Pim de Haan. Noether’s Razor: Learning Conserved Quantities. In NeurIPS , 2024. [47] H Voss, MJ Bünner, and Markus Abel. The identification of continuous, spatiotemporal systems. 
+
+arXiv preprint chao-dyn/9907010 , 1999. [48] Martin J. Wainwright. Sharp thresholds for high-dimensional and noisy sparsity recovery using l1-constrained quadratic programming (Lasso). IEEE Trans. Inf. Theory , 55(5):2183–2202, 2009. [49] Hao Xu, Haibin Chang, and Dongxiao Zhang. Dl-pde: Deep-learning based data-driven discovery of partial differential equations from discrete and noisy data. arXiv preprint arXiv:1908.04463 , 2019. [50] Hao Xu, Haibin Chang, and Dongxiao Zhang. DLGA-PDE: Discovery of PDEs with incomplete candidate library via combination of deep learning and genetic algorithm. J. Comput. Phys. ,418:109584, 2020. [51] Hao Xu, Dongxiao Zhang, and Nanzhe Wang. Deep-learning based discovery of partial differential equations in integral form from sparse and noisy data. J. Comput. Phys. , 445: 110592, 2021. [52] Hao Xu, Junsheng Zeng, and Dongxiao Zhang. Discovery of partial differential equations from highly noisy and sparse data with physics-informed information criterion. Research , 6:0147, 2023. [53] Jianke Yang, Robin Walters, Nima Dehmamy, and Rose Yu. Generative Adversarial Symmetry Discovery. In ICML , pages 39488–39508, 2023. [54] Jianke Yang, Wang Rao, Nima Dehmamy, Robin Walters, and Rose Yu. Symmetry-Informed Governing Equation Discovery. In NeurIPS , 2024. [55] Jianke Yang, Manu Bhat, Bryan Hu, Yadi Cao, Nima Dehmamy, Robin Walters, and Rose Yu. Discovering Symbolic Differential Equations with Symmetry Invariants. Trans. Mach. Learn. Res. , 2026, 2026. 13 [56] Sheng Zhang and Guang Lin. Robust data-driven discovery of governing physical laws with error bars. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences , 474(2217), 2018. [57] Peng Zhao and Bin Yu. On Model Selection Consistency of Lasso. J. Mach. Learn. Res. , 7: 2541–2563, 2006. [58] Hui Zou and Trevor Hastie. Regularization and variable selection via the elastic net. Journal of the Royal Statistical Society Series B: Statistical Methodology , 67(2):301–320, 2005. 14 Appendix Table of Contents 
+
+A List of Notation 16 B Related work 16 C Mathematical Background 18 
+
+C.1 Lie point symmetries of evolution PDEs . . . . . . . . . . . . . . . . . . . . . . . 18 C.2 Galilean invariance: the key structural property . . . . . . . . . . . . . . . . . . . 19 C.3 Differential invariants and the Cartan–Kuranishi theorem . . . . . . . . . . . . . . 19 C.4 Weak-form sparse identification . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 
+
+D Theoretical Analysis 20 
+
+D.1 Determining equations and library reduction . . . . . . . . . . . . . . . . . . . . . 20 D.2 Deterministic false-positive reduction . . . . . . . . . . . . . . . . . . . . . . . . 21 D.3 Stability selection bound and scope . . . . . . . . . . . . . . . . . . . . . . . . . . 21 D.4 Consistency of the Galilean detector . . . . . . . . . . . . . . . . . . . . . . . . . 21 D.5 Completeness of the physics-based path . . . . . . . . . . . . . . . . . . . . . . . 22 
+
+E Proofs of stated results 22 
+
+E.1 Proof of Lemma 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 E.2 Proof of Proposition 3 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 E.3 Proof of Theorem 4 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 E.4 Proof of Corollary 5 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 E.5 Proof of Corollary 6 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 E.6 Proof of Corollary 7 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+F Implementation Details 24 
+
+F.1 Data generation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 F.2 PDE generators and numerical methods . . . . . . . . . . . . . . . . . . . . . . . 24 F.3 Weak-form system construction details . . . . . . . . . . . . . . . . . . . . . . . . 24 F.4 Sparse identification and fallback details . . . . . . . . . . . . . . . . . . . . . . . 25 F.5 Stability selection: implementation details . . . . . . . . . . . . . . . . . . . . . . 26 F.6 Symmetry detection: implementation details . . . . . . . . . . . . . . . . . . . . . 26 
+
+G Reproducibility 27 
+
+G.1 Code and data . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 G.2 Run commands . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 G.3 Hardware . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 G.4 Seed plumbing . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 
+
+H Additional empirical results 28 
+
+H.1 Identified equations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 15 H.2 Complete benchmark results with standard deviations . . . . . . . . . . . . . . . . 29 
+
+I Additional baseline comparisons and ablations 30 
+
+I.1 Baselines . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 I.2 Official PySINDy 2.0 comparison . . . . . . . . . . . . . . . . . . . . . . . . . . 30 I.3 Official WSINDy validation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 I.4 WSINDy reimplementation comparison . . . . . . . . . . . . . . . . . . . . . . . 33 I.5 Why weak-form + LASSO outperforms STLSQ . . . . . . . . . . . . . . . . . . . 34 I.6 Ablations and sensitivity analyses . . . . . . . . . . . . . . . . . . . . . . . . . . 34 
+
+J Extensions Beyond 1D Scalar PDEs 37 
+
+J.1 External benchmark validation . . . . . . . . . . . . . . . . . . . . . . . . . . . . 37 J.2 Nonlinear Schrödinger equation . . . . . . . . . . . . . . . . . . . . . . . . . . . 37 J.3 Systematic 2D benchmark . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38 J.4 Coupled systems including FitzHugh–Nagumo (FHN) and Lotka–Volterra (LV) . . 38 J.5 Real experimental data: cylinder wake . . . . . . . . . . . . . . . . . . . . . . . . 39 
+
+K Success, Failure, and Limitations 39 
+
+K.1 Why two mechanisms are better than one . . . . . . . . . . . . . . . . . . . . . . 39 K.2 Why stability selection is critical for Heat . . . . . . . . . . . . . . . . . . . . . . 40 K.3 Why EqOD dominates Burgers at all noise levels . . . . . . . . . . . . . . . . . . 40 K.4 The KdV–Burgers challenge . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41 K.5 The Fisher-KPP failure . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41 K.6 Win and loss summary . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41 K.7 Limitations and honest assessment . . . . . . . . . . . . . . . . . . . . . . . . . . 41 
+
+L Supplementary Figures 42 
+
+## A List of Notation B Related work 
+
+Sparse identification of PDEs Automated equation discovery predates SINDy, including symbolic-regression searches for free-form physical laws [ 40 ]. Earlier spatiotemporal system-identification work also fitted PDE structure or parameters directly from space-time data [ 2, 47 ]. Brunton et al. [6] introduced the SINDy framework for ordinary differential equation discovery, using STLSQ. Schaeffer [38] and Rudy et al. [37] extended sparse-regression ideas to PDEs, computing spatial derivatives and applying sparse optimization over candidate libraries. These methods are effective on clean data but degrade under noise because pointwise derivatives amplify high-frequency noise content. Schaeffer and McCalla [39] introduced weak-form sparse identification, transferring derivatives from the noisy data to smooth, known test functions. Gurevich et al. [17] optimized weak sparse regression for nonlinear PDEs under noise, and Reinbold et al. [36] extended weak-form recovery to noisy, incomplete, and latent-variable spatiotemporal systems. Messenger and Bortz [31] developed this idea systematically using compactly supported test functions and STLSQ thresholding. 16 Table 4: Notation used throughout the paper. Symbol Meaning 
+
+u(x, t ) scalar PDE state 
+
+ut, u x, u (k) temporal and spatial derivatives 
+
+x, t space and time variables 
+
+R, N, Z common number sets 
+
+Nx, N t spatial and temporal grid sizes 
+
+∆x, ∆t grid spacings 
+
+M number of trajectories 
+
+U (m), ˜U clean and noisy trajectory data 
+
+σnoise , σ noise level 
+
+F, N [u] PDE right-hand side 
+
+θj (u) candidate library term 
+
+Θ, b weak-form design and response 
+
+ξ, ξ ∗ 
+
+> j
+
+, ˆξ coefficient vectors 
+
+S∗, ˆS, s true support, estimate, and size 
+
+p (library) number of library terms 
+
+Lstd standard candidate library 
+
+Lred selected reduced library 
+
+LG Galilean-reduced implementation library used by EqOD 
+
+Gdet detected symmetry generators 
+
+Gϵ one-parameter symmetry group 
+
+v, pr (n)v Lie generator and prolongation 
+
+ξ, τ, ϕ generator components 
+
+J(n) n-th jet space 
+
+L[u] linear spatial operator 
+
+cj theoretical library coefficient 
+
+ϕm, ψ test function and bump profile 
+
+rt, r x test-function radii 
+
+B, I b, w j bootstrap count, subsample, weights 
+
+ˆπj , ˆπthr selection probability and threshold 
+
+λ, λ ∗ LASSO regularization values 
+
+η adaptive coefficient threshold 
+
+rEqOD , r std , γ fallback residuals and threshold 
+
+ˆσ(k), k n Fourier symbol and wavenumber 
+
+fuu x , τ (test) Galilean energy fraction and threshold 
+
+FP , E[ ·], q false-positive count, expectation, budget 
+
+ν, D diffusion or viscosity coefficients 
+
+p, q for NLS, v auxiliary extension fields Several SINDy variants address model selection or robustness from different angles. Mangan et al. [29] use sparse regression Pareto fronts with information criteria for principled model choice, Kaheman et al. [19] extend SINDy to implicit and rational dynamics, Champion et al. [9] combine autoencoders with SINDy to discover coordinates and governing equations jointly, and Fasel et al. [14] use ensemble bagging to estimate inclusion probabilities under low-data and high-noise regimes. Unified sparse-optimization frameworks broaden the optimizer family available for parsimonious model discovery [ 10 ]. de Silva et al. [13] provide the PySINDy library, and the later comprehensive PySINDy release adds PDE, implicit, integral, constrained, and ensemble functionality [ 20 ]. PySINDy is the most widely used tool for data-driven PDE identification. Probabilistic, Bayesian, neural, and evolutionary alternatives include hidden physics models based on Gaussian processes [ 34 ], threshold sparse Bayesian regression with error bars [ 56 ], PDE-Net and PDE-Net 2.0 for learning differential operators and symbolic response functions from data [ 26 , 27 ], physics-informed neural networks for forward and inverse PDE problems [ 35 ], neural-surrogate PDE discovery in complex datasets or noisy, sparse settings [ 3 , 49 ], a deep-learning genetic-algorithm PDE method combining neural surrogates with genetic search over incomplete libraries [ 50 ], symbolic 17 genetic open-form PDE discovery [ 11 ], integral-form deep-learning discovery for sparse and noisy data [ 51 ], physics-informed information criteria for noisy and sparse PDE model selection [ 52 ], and DeepMoD, which combines neural function approximation with sparse model discovery [ 5]. These methods address representation, uncertainty, derivative estimation, model selection, or open-library challenges, but they do not automatically detect symmetries and use them to prune the sparse library. Across this literature, library handling is usually either fixed, open-form search, or model-complexity selection. EqOD addresses the narrower gap of data-adaptive pruning of a sparse PDE library using detected symmetry when available and stability profiles otherwise. 
+
+Symmetry-informed identification Yang et al. [54] constrain the SINDy library to a pre-specified symmetry group, but their EquivSINDy method is restricted to ordinary differential equations and requires the symmetry to be known a priori. Two recent differential-invariant approaches are closest in spirit to our method: symbolic equation discovery with symmetry invariants by Yang et al. [55] and differential-invariant SINDy by Hu et al. [18] . However, both assume the symmetry group is known a priori. The symmetry-invariant approach states that the symmetry group must already be supplied and that the current framework cannot be applied when symmetry is unknown. EqOD closes this gap by detecting symmetries from data automatically. Ko et al. [21] learn Lie generators from data but do not use them for equation discovery. Their method can discover arbitrary continuous symmetries but is not connected to the PDE identification pipeline. Yang et al. [53] train generative adversarial networks to discover symmetry generators but again do not apply this to equation discovery. Liu and Tegmark [25] and van der Ouderaa et al. [46] learn conserved quantities from trajectories. Conservation laws are related to symmetries via Noether’s theorem, but the connection to sparse identification of the PDE itself is not made. 
+
+Stability selection for regression Meinshausen and Bühlmann [30] introduced stability selection for high-dimensional regression. The method runs LASSO on many random subsamples and retains only terms selected in more than a fraction ˆπthr of runs. It provides a finite-sample bound on the expected number of false positives. The approach of Maddu et al. [28] applies stability-based model selection to differential-equation learning from limited noisy data, and Ensemble SINDy also uses resampling to produce candidate-term inclusion probabilities [ 14 ]. EqOD differs by using stability selection only as the non-Galilean branch of an automatic library-pruning stage, paired with a separate symmetry-detection path and a residual fallback. 
+
+Gap addressed by EqOD No existing method closes the full loop: data → detect symmetries automatically → reduce library → identify PDE. EqOD is the first to do so. The automatic detection capability is not a minor distinction: in practice, the user rarely knows the symmetry group of the PDE they are trying to discover, so automatic detection from data closes this practical gap. 
+
+## C Mathematical Background 
+
+Status note. All definitions, lemmas, and theorems in this section are imported from the classical Lie symmetry literature [ 4, 15 , 33 ] and are verified facts . We restate them for self-containedness. No new results are claimed until Appendix D. 
+
+C.1 Lie point symmetries of evolution PDEs 
+
+We consider evolution PDEs of the form 
+
+ut = F (x, t, u, u x, u xx , . . . , u (n)), (6) where u = u(x, t ) is a scalar field on a 1D spatial domain, u(k) = ∂ku/∂x k denotes the k-th spatial derivative, and F is a smooth function on the jet space J(n).
+
+Definition 1 (Lie point symmetry) . A one-parameter Lie group Gϵ acting on the space of independent and dependent variables (x, t, u ) via 
+
+(x, t, u ) 7 → (˜ x(x, t, u ; ϵ), ˜t(x, t, u ; ϵ), ˜u(x, t, u ; ϵ)) (7) is a symmetry of the PDE in Eq. 6 if it maps every solution u(x, t ) to another solution ˜u(˜ x, ˜t).18 The infinitesimal generator of Gϵ is the vector field 
+
+v = ξ(x, t, u )∂x + τ (x, t, u )∂t + ϕ(x, t, u )∂u, (8) where ξ = d˜x/dϵ |ϵ=0 , τ = d˜t/dϵ |ϵ=0 , and ϕ = d˜u/dϵ |ϵ=0 .
+
+Definition 2 (n-th prolongation) . The n-th prolongation of v to the jet space J(n) is 
+
+pr (n)v = v + ϕx∂ux + ϕxx ∂uxx + · · · + ϕ(n)∂u(n) , (9) where ϕx = Dxϕ − uxDxξ − utDxτ , and higher-order terms follow the recursive prolongation formula [33]. 
+
+Theorem 1 (Lie’s infinitesimal criterion [ 33 , Theorem 2.31]) . Gϵ is a symmetry of Eq. 6 if and only if 
+
+pr (n)v [ut − F ] = 0 whenever ut = F. (10) For 1+1D evolution PDEs, the relevant point symmetries are spatial translation v1 = ∂x, where the PDE has no explicit dependence on x, temporal translation v2 = ∂t, where the PDE is autonomous, Galilean boost v3 = t∂ x + ∂u, the key symmetry for library reduction, scaling v4 = au∂ u +
+
+bx∂ x + ct∂ t, which characterizes monomial operators, and reflection v5 = −x∂ x for even parity or 
+
+v5 = −x∂ x − u∂ u for odd parity. 
+
+C.2 Galilean invariance: the key structural property Lemma 2 (Galilean invariance of convective PDEs) . Any PDE of the form 
+
+ut + u · ux = L[u], L[u] = X
+
+> k≥1
+
+ck
+
+∂ku∂x k , (11) 
+
+where L is a linear spatial operator with constant coefficients, is invariant under the Galilean boost 
+
+(x, t, u ) 7 → (x + ct, t, u + c) for all c ∈ R.
+
+Example 1 (Galilean-invariant PDEs in our benchmark) . The following PDEs have the form in Eq. 11. Burgers uses ut = −u · ux + νu xx with L = ν∂ xx . KdV uses ut = −u · ux − uxxx with 
+
+L = −∂xxx . KS uses ut = −u · ux − uxx − uxxxx with L = −∂xx − ∂xxxx . KdV–Burgers uses 
+
+ut = −u · ux + νu xx − uxxx with L = ν∂ xx − ∂xxx .
+
+Example 2 (Non-Galilean PDEs) . The following PDEs in our benchmark are not Galilean invariant. Heat, ut = νu xx , lacks the u · ux term. Fisher-KPP, ut = Du xx + u − u2, has reaction terms u and 
+
+u2 that break Galilean symmetry. Advection-diffusion, ut = −ux + Du xx , has linear advection ux,which is not equivalent to u · ux. Reaction-diffusion, ut = Du xx + u − u3, has reaction terms u and 
+
+u3 that break Galilean symmetry. 
+
+C.3 Differential invariants and the Cartan–Kuranishi theorem Definition 3 (Differential invariant) . A smooth function I : J(n) → R on the jet space is a differential invariant of the group G if pr (n)v[I] = 0 for all generators v of G.The Cartan–Kuranishi theorem [ 15 , 33 ] guarantees that any G-invariant PDE can be written purely in terms of differential invariants. Thus, terms that are not differential invariants and do not appear in invariant combinations cannot appear in a G-invariant PDE. 
+
+Proposition 3 (Galilean-invariant terms) . For the Galilean generator v = t∂ x + ∂u, pure spatial derivatives u(k) = ∂ku/∂x k for k ≥ 1 are differential invariants because pr (k)v[u(k)] = 0 . Pure powers of u are not invariants, since v[u] = 1 ̸ = 0 , v[u2] = 2 u̸ = 0 , and v[u3] = 3 u2̸ = 0 . The product u · ux is not a differential invariant because pr (1) v[u · ux] = ux̸ = 0 , but it appears in Galilean-invariant PDEs as part of the jointly invariant expression ut + u · ux (Lemma 2). 
+
+C.4 Weak-form sparse identification 
+
+The weak-form approach [ 17 , 31 , 36 , 39 ] addresses noise sensitivity by replacing pointwise evaluation with integration against test functions. Given a compactly supported test function ϕ ∈ C∞ 
+
+> c
+
+(R2),multiply both sides of ut = P 
+
+> j
+
+ξj θj by ϕ and integrate: 
+
+Z Z
+
+utϕdxdt =
+
+> p
+
+X
+
+> j=1
+
+ξj
+
+Z Z
+
+θj (u)ϕdxdt. (12) 19 Using the compact support of ϕ, integration by parts in time gives: 
+
+−
+
+Z Z
+
+uϕ tdxdt =
+
+> p
+
+X
+
+> j=1
+
+ξj
+
+Z Z
+
+θj (u)ϕdxdt. (13) The time derivative has been transferred from the noisy data u to the smooth, known test function ϕt.This transfer acts as a natural low-pass filter: integration suppresses high-frequency noise. 
+
+Bump test functions. We use compactly supported bump functions of the form 
+
+ψ(r) = 
+
+(
+
+exp 
+
+ −11−r2
+
+
+
+, |r| < 1,
+
+0, |r| ≥ 1, (14) centered at grid points (tc, x c) with radii (rt, r x). The 2D test function is the tensor product 
+
+ϕm(t, x ) = ψ(( t − tc)/r t) · ψ(( x − xc)/r x).Using a grid of nt × nx test function centers yields Nϕ = nt · nx weak-form equations, indexed by 
+
+m = 1 , . . . , N ϕ:
+
+bm = −
+
+Z
+
+u(ϕm)tdxdt, Θmj =
+
+Z
+
+θj (u)ϕmdxdt. (15) The resulting linear system b = Θ ξ is solved via sparse regression. 
+
+Spatial derivatives via Fourier spectral method. On periodic domains, spatial derivatives are computed via the Fourier pseudospectral method: 
+
+du(k)(n) = ( ik n)k ˆu(n), kn = 2πn L , (16) where ˆu is the discrete Fourier transform and L is the domain length. The Fourier pseudospectral method is spectrally accurate for smooth solutions and avoids the noise amplification of finite-difference derivatives. 
+
+## D Theoretical Analysis 
+
+D.1 Determining equations and library reduction 
+
+The central theoretical result is that Galilean symmetry provably excludes specific library terms. We derive the exclusion result from the determining equations of the symmetry, not merely from the differential invariant criterion. 
+
+Assumption 1 (Autonomy) . The right-hand side F has no explicit dependence on x or t: F =
+
+F (u, u x, u xx , u xxx , u xxxx ). This autonomy property holds for every term in Lstd . Additionally, the functions {1, u, u 2, u x, u xx , u · ux} are linearly independent on the jet space J(2) .
+
+Theorem 4 (Galilean exclusion) . Under Assumption 1, let ut = F (u, u x, u xx , u xxx , u xxxx ) be a 1+1D evolution PDE admitting the Galilean generator v = t∂ x + ∂u. Write F as a linear combination of the standard library in Eq. 3: 
+
+F = c1u+c2u2 +c3u3 +c4ux +c5uxx +c6uxxx +c7uxxxx +c8u·ux +c9u·uxx +c10 u2 ·ux. (17) 
+
+Then c1 = c2 = c3 = c9 = c10 = 0 and c8 = −1. The Galilean-admissible sublibrary is: 
+
+Ltheory  
+
+> G
+
+= {ux, u xx , u xxx , u xxxx , u · ux}, |L theory  
+
+> G
+
+| = 5 , (18) 
+
+with the convective term u · ux having fixed coefficient −1. The effective number of free parameters is 4. Remark 1 (Implementation note) . EqOD uses a conservative 7-term implementation library Limpl  
+
+> G
+
+=
+
+Lstd \ { u, u 2, u 3} that does not enforce c8 = −1 or exclude u · uxx and u2 · ux. The LASSO in Stage 3 handles these: the fixed c8 and the zero c9, c 10 emerge from the sparse regression. This conservative choice avoids relying on exact coefficient constraints that could be violated by numerical errors or model misspecification. 
+
+Corollary 5 (Optimality of Galilean reduction) . The theoretical Galilean-reduced library Ltheory  
+
+> G
+
+is the unique maximal sublibrary of Lstd containing all terms that can appear with a free coefficient, or with the fixed Galilean convective coefficient, in some Galilean-invariant PDE. No term in 
+
+Lstd \ L theory  
+
+> G
+
+can appear with a nonzero coefficient in any Galilean-invariant PDE in the standard library family. 
+
+20 D.2 Deterministic false-positive reduction Corollary 6 (Deterministic false-positive reduction) . Let ˆS be the support identified by any sparse regression procedure on library L, and let S∗ be the true support with |S∗| = s. Define the false-positive count FP( L) = | ˆS \ S∗|. If Theorem 4 removes k terms from L that are provably not in S∗,then: 
+
+FP( Ltheory  
+
+> G
+
+) ≤ FP( Lstd ) and max 
+
+> ˆS
+
+FP( Ltheory  
+
+> G
+
+) = |L theory  
+
+> G
+
+| − s = ( |L std | − k) − s. (19) 
+
+For the Galilean case with the full determining equation result, k = 5 because {u, u 2, u 3, u · uxx , u 2 ·
+
+ux} are excluded. The maximum possible false-positive count drops from |L std | − s to |L std | − k − s.For Burgers, where s = 2 , this drops from 8 to 3, a 62.5% reduction in the worst-case false-positive count. Remark 2 (Probabilistic interpretation) . Under any model, including LASSO, STLSQ, and stability selection under mild regularity, where false-positive probability is monotone in the number of inactive candidates, reducing the candidate count from p − s to p − s − k reduces the false-positive probability. The exact reduction factor depends on the correlation structure and regularization path and is not captured by a simple binomial model. Corollary 6 avoids this issue by providing a deterministic worst-case guarantee. 
+
+D.3 Stability selection bound and scope 
+
+Remark 3 (Classical stability-selection false-positive bound) . Under the standard stability-selection assumptions of Meinshausen and Bühlmann [30 , Theorem 1 ], Algorithm 2 with a threshold ˆπthr ∈
+
+(0 .5, 1] and a regularization level λ such that the expected number of selected terms satisfies E[ |Sλ|] ≤
+
+q obeys: 
+
+E[FP] ≤ q2
+
+(2ˆ πthr − 1) · p , (20) where p = |L| is the library size. EqOD uses this classical bound as motivation rather than as a formal guarantee for the weak-form PDE design matrices used here. The assumptions in Meinshausen and Bühlmann [30] require exchangeability of the inactive feature columns, while the complementary-pairs refinement of Shah and Samworth [41] gives bounds under shape restrictions such as unimodality. In our weak-form PDE setting, columns such as uxx and uxxxx are structurally correlated through the spectral truncation, and LASSO support recovery is known to depend on covariance conditions such as irrepresentability and sample-size thresholds [ 48 , 57 ]. Elastic-net penalties can be preferable for grouped correlated predictors [ 58 ], but EqOD uses LASSO because its sparsity path and stability-selection bounds are simpler to interpret. The empirical selection profiles in Table 17 provide the actual evidence of separation between true and false terms. A rigorous bound for correlated PDE design matrices is an open problem. 
+
+Remark 4 (Practical bound evaluation) . Empirically, true PDE terms achieve selection probabilities 
+
+ˆπ > 0.9 while false terms have ˆπ < 0.3 (Table 17). Evaluating the bound at ˆπthr = 0 .9, which all true terms exceed, with q = 3 gives: 
+
+E[FP] ≤ 9(2 · 0.9 − 1) · 10 = 98 = 1 .125 . (21) Under the classical assumptions, the bound says that on average, at most 1.1 false positives are expected when using the empirically observed threshold. The operational threshold ˆπthr = 0 .5 used in Algorithm 2 is conservative: it retains all terms with majority support, including those near the boundary. The adaptive thresholding in Stage 3 then removes terms with small coefficients. 
+
+D.4 Consistency of the Galilean detector 
+
+Remark 5 (Heuristic consistency argument for the Galilean test) . Consider the weak-form Galilean test in Algorithm 3 applied to trajectories of a PDE ut = F (u, u x, . . . ) on a periodic domain with grid spacing ∆x = L/N x and ∆t = T /N t. Let f (N ) 
+
+> uu x
+
+denote the energy fraction computed on the 
+
+Nx × Nt grid. The expected asymptotic behavior has three regimes. If F contains u · ux with a 21 nonzero coefficient in a Galilean PDE, then f (N ) 
+
+> uu x
+
+→ f ∗ 
+
+> uu x
+
+> 0 as Nx, N t → ∞ . If F does not contain u · ux in a non-Galilean PDE, then f (N ) 
+
+> uu x
+
+→ 0 as Nx, N t → ∞ . Under additive noise 
+
+˜U = U + σ · std( U ) · Z with independent standard normal entries Zij , these convergence statements are expected to hold for fixed σ < σ max , where σmax depends on the signal-to-noise ratio in the weak-form integrals. The Galilean and non-Galilean asymptotic claims are supported by the spectral accuracy of trapezoidal quadrature on periodic domains. The noisy-data claim is heuristic. The procedure is hybrid, using spectral derivatives of noisy data followed by weak averaging against bump test functions, rather than a pure weak form that transfers all derivatives to the test function via integration by parts. Spectral derivatives amplify high-frequency noise, with Var[ du(k)] ∝ k2kσ2, but the subsequent integration against compactly supported ϕ suppresses this contribution. The O(1 /√NxNt) rate stated above is a heuristic based on the law of large numbers. A rigorous central limit theorem for spectrally differentiated noisy data integrated against bump functions is an open technical question. Adopting full weak-form integration by parts for the library columns, as in WSINDy [ 31 ], would yield a cleaner convergence argument and is a natural improvement. Empirically, the test achieves F1 = 1.000 across 75 test cases generated from 5 PDEs, 3 noise levels, and 5 seeds at threshold τ = 0 .05 . This result does not constitute a proof of consistency. It provides evidence that the heuristic works on the tested PDEs. 
+
+D.5 Completeness of the physics-based path Corollary 7 (Completeness) . If the Galilean detector correctly identifies a PDE as Galilean-invariant, the implementation-reduced library LG contains all true terms: S∗ ⊆ L G.
+
+## E Proofs of stated results 
+
+E.1 Proof of Lemma 2 
+
+Proof. Define ˜u(˜ x, ˜t) = u(˜ x − c˜t, ˜t) + c. Compute the partial derivatives: 
+
+˜u˜t = ut(˜ x − c˜t, ˜t) − cu x(˜ x − c˜t, ˜t), (22) 
+
+˜u˜x = ux(˜ x − c˜t, ˜t), (23) 
+
+˜u˜x˜x = uxx (˜ x − c˜t, ˜t), etc. (24) The convective term transforms as: 
+
+˜u · ˜u˜x = ( u + c) · ux = u · ux + cu x. (25) The linear operator transforms as L[˜ u] = L[u + c] = L[u] since L has constant coefficients and c is constant. Substituting: 
+
+˜u˜t + ˜ u · ˜u˜x = ( ut − cu x) + ( u · ux + cu x) = ut + u · ux = L[u] = L[˜ u]. (26) The transformed function satisfies the same PDE. 
+
+E.2 Proof of Proposition 3 
+
+Proof. The prolonged generator has ϕx = Dx(1) − ux · Dx(t) − ut · Dx(0) = 0 , and similarly 
+
+ϕ(k) = 0 for all k ≥ 1 by the recursive prolongation formula. For pure powers, v[u] = ϕ = 1 . By the chain rule, v[un] = nu n−1 · v[u] = nu n−1̸ = 0 . For the convective product, pr (1) v[u · ux] = 
+
+v[u] · ux + u · ϕx = 1 · ux + u · 0 = ux̸ = 0 .
+
+E.3 Proof of Theorem 4 
+
+Proof. The Galilean generator has ξ = t, τ = 0 , ϕ = 1 . The prolongation formula [ 33 , Theorem 2.36] gives ϕx = Dxϕ − uxDxξ − utDxτ = 0 − 0 − 0 = 0 . Similarly ϕxx = ϕxxx = ϕxxxx = 0 
+
+because all higher prolongation coefficients vanish when ϕ is constant and ξ depends only on t.22 The symmetry condition [33, Theorem 2.31] is pr (4) v[ut − F ] = 0 whenever ut = F . Computing: 
+
+pr (4) v[ut − F ] = ϕt − ∂F ∂u ϕ − ∂F ∂u x
+
+ϕx − · · · − ∂F ∂u xxxx 
+
+ϕxxxx , (27) where ϕt = Dtϕ − uxDtξ − utDtτ = 0 − ux − 0 = −ux. Since ϕx = ϕxx = · · · = 0 , only the first two terms survive: 
+
+−ux − ∂F ∂u · 1 = 0 whenever ut = F. (28) Now compute ∂F/∂u from the library expansion: 
+
+∂F ∂u = c1 + 2 c2u + 3 c3u2 + c8ux + c9uxx + 2 c10 u · ux. (29) Substituting into Eq. 28: 
+
+−ux − c1 − 2c2u − 3c3u2 − c8ux − c9uxx − 2c10 u · ux = 0 . (30) The identity must hold for all solutions u(x, t ); hence the coefficients of linearly independent functions of (u, u x, u xx ) must vanish separately: constant: − c1 = 0 , (31) coeff. of u : − 2c2 = 0 , (32) coeff. of u2 : − 3c3 = 0 , (33) coeff. of ux : − 1 − c8 = 0 = ⇒ c8 = −1, (34) coeff. of uxx : − c9 = 0 , (35) coeff. of u · ux : − 2c10 = 0 . (36) Equations 31 through 33 give c1 = c2 = c3 = 0 . Eq. 34 gives c8 = −1, so the convective term u · ux
+
+must appear with coefficient exactly −1. Eq. 35 gives c9 = 0 , so Galilean symmetry alone already excludes u · uxx . Eq. 36 gives c10 = 0 , so u2 · ux is also excluded. The remaining terms c4ux, c5uxx , c6uxxx , c7uxxxx do not appear in ∂F/∂u and are unconstrained. Hence, the theoretical reduced library is: 
+
+Ltheory  
+
+> G
+
+= {ux, u xx , u xxx , u xxxx , u · ux}, |L theory  
+
+> G
+
+| = 5 , (37) with u · ux having fixed coefficient c8 = −1.
+
+Remark 6 (Strength of the determining equations) . The determining equations are stronger than the implementation-level reduction used by EqOD. They exclude not only {u, u 2, u 3} but also 
+
+{u · uxx , u 2 · ux} and fix c8 = −1. The effective free library is {ux, u xx , u xxx , u xxxx } with 4 free parameters plus the fixed convective term. In the implementation, EqOD uses the weaker 7-term reduction rather than enforcing the full 5-term theoretical reduction because it does not enforce 
+
+c8 = −1 or exclude u · uxx and u2 · ux. These are handled by the downstream LASSO. For odd reflection with v′ = −x∂ x − u∂ u, we have ξ′ = −x and ϕ′ = −u. The prolongation gives 
+
+ϕ′x = −ux + ux = 0 . The computation is omitted for brevity but follows the same pattern. The determining equations for v′ give c2 = 0 and c9 = 0 . Combined with Galilean symmetry, this gives 
+
+|L G, odd | = 6 .
+
+E.4 Proof of Corollary 5 
+
+Proof. The determining equations in Eqs. 31 through 36 show that c1 = c2 = c3 = c9 = c10 = 0 
+
+for any Galilean-invariant PDE in the standard library. Conversely, the terms in Ltheory  
+
+> G
+
+do appear. Burgers uses {u · ux, u xx }, KdV uses {u · ux, u xxx }, and KS uses {u · ux, u xx , u xxxx }. The term ux
+
+can appear in conjunction with u · ux. For example, ut + u · ux = −ux + νu xx is Galilean-invariant by Lemma 2 since −ux + νu xx is a linear spatial operator. Hence every term in Ltheory  
+
+> G
+
+is realized by at least one Galilean-invariant PDE, and no excluded term can be reinstated. 
+
+E.5 Proof of Corollary 6 
+
+Proof. A false positive is an element of ˆS \ S∗, which must be in L \ S∗. Since the PDE is Galilean-invariant, Theorem 4 guarantees S∗ ⊆ L theory  
+
+> G
+
+, so the removed terms are not in S∗. Hence 
+
+|L theory  
+
+> G
+
+\ S∗| = |L std \ S∗| − k. The maximum FP count is |L \ S∗|, achieved when all non-true terms are selected. 23 Table 5: Initial conditions for benchmark PDEs. 
+
+PDE u0(x) Domain Heat P5
+
+> k=1
+
+(ak sin kx + bk cos kx ), ak , b k ∼ N (0 , 0.25) [0 , 2π]
+
+Burgers − sin( x) + 0 .03 ϵ, ϵ ∼ N (0 , I ) [0 , 2π]
+
+KdV 12sech 2(x − π) + 0 .1ϵ [0 , 2π]
+
+Fisher-KPP 0.5(1 + tanh(2( x − π))) [0 , 2π]
+
+Adv-Diff Same as Heat [0 , 2π]
+
+KS cos( x/ 16)(1 + sin( x/ 16)) + 0 .1ϵ [0 , 32 π]
+
+KdV–Burgers Same as Burgers [0 , 2π]
+
+React-Diff 0.5 sin( x) + 0 .3 cos(2 x) + 0 .1ϵ [0 , 2π]
+
+E.6 Proof of Corollary 7 
+
+Proof. By Theorem 4, the determining equations force c1 = c2 = c3 = c9 = c10 = 0 for any Galilean-invariant PDE. Hence S∗ ⊆ L theory  
+
+> G
+
+⊆ L impl  
+
+> G
+
+.
+
+## F Implementation Details 
+
+F.1 Data generation 
+
+Each PDE is solved using Fourier pseudospectral spatial derivatives [ 45 ] with Runge–Kutta 4(5) (RK45) time integration, except that fourth-order exponential time-differencing Runge–Kutta (ET-DRK4) is used for the stiff KS equation [ 32 ]. Spatial resolution is Nx = 128 , and temporal resolution is Nt = 128 . For each PDE and seed, we generate M = 3 trajectories from the initial-condition families listed in Table 5. Noise is added as ˜U = U + σnoise · std( U ) · N (0 , 1) , where 
+
+σnoise ∈ { 0, 0.05 , 0.10 , 0.20 }.
+
+F.2 PDE generators and numerical methods Spatial discretization. All 8 benchmark PDEs are solved on periodic spatial domains using the Fourier pseudospectral method [ 45 ]. For a spatial grid xj = jL/N x with j = 0 , . . . , N x − 1 and a domain length L:
+
+ˆuk =
+
+> Nx−1
+
+X
+
+> j=0
+
+uj e−2πikj/N x , uj = 1
+
+NxNx−1X
+
+> k=0
+
+ˆuke2πikj/N x . (38) Spatial derivatives in Fourier space: cux = ik n ˆun, duxx = −k2 
+
+> n
+
+ˆun, where kn = 2 πn/L . Nonlinear terms, for example u · ux, are computed in physical space and transformed. 
+
+Time integration. Heat, Burgers, KdV, Fisher-KPP, Adv-Diff, React-Diff, and KdV–Burgers use explicit RK45 via scipy.integrate.solve_ivp , evolving the Fourier coefficients ˆuk(t). The KS equation uses ETDRK4, an exponential time-differencing method of fourth order, to handle the stiff 
+
+uxx + uxxxx terms via the integrating factor [32]. 
+
+F.3 Weak-form system construction details Test function grid. We use nt × nx bump test function centers, placed with margins to avoid boundary effects: 
+
+rt = max(0 .18 · Trange , 8∆ t), rx = max(0 .20 · Xrange , 8∆ x), (39) 
+
+tcenters ∈ [tmin + 1 .05 rt
+
+| {z }
+
+> tlo
+
+, t max − 1.05 rt
+
+| {z }
+
+> thi
+
+], xcenters ∈ [xmin + 1 .05 rx, x max − 1.05 rx]. (40) For Stage 3 sparse identification, nt = 5 and nx = 7 , giving 35 equations per trajectory. For the Stage 2 stability selection pipeline on the statistics path, nt = 8 and nx = 10 , giving 80 equations per trajectory and enough equations for subsampling. 24 Numerical integration. All weak-form integrals are computed via the trapezoidal rule. For a representative integrand, Z
+
+> t
+
+Z
+
+> x
+
+f (x, t ) ≈ ∆t · ∆x X
+
+> i,j
+
+f (xj , t i). (41) On periodic domains with uniform grids, the trapezoidal rule achieves spectral accuracy for smooth integrands. 
+
+F.4 Sparse identification and fallback details F.4.1 Stage 3 Sparse identification in the selected library Weak-form system construction. Given the selected library Lred from either path, we perform WF-LASSO with careful regularization. We compute (Θ red , b) using 5 × 7 = 35 bump test functions per trajectory, with bump radii rt = max(0 .18 · Trange , 8∆ t) and rx = max(0 .20 · Xrange , 8∆ x).
+
+Normalization, CV selection, and rescaling. The columns of Θred and the vector b are normalized to unit norm so that regularization penalizes all terms equally regardless of physical scale. We sweep 
+
+λ over {10 −6, . . . , 10 −1} using 60 log-spaced values. For each λ, we compute the 5-fold CV score 
+
+R2 and select λ∗ that maximizes the mean CV score. The normalized LASSO solution ˆξLASSO is rescaled to physical units as ˆξj ← ˆξnorm  
+
+> j
+
+/∥Θ·,j ∥ · ∥ b∥.
+
+Adaptive thresholding and OLS debiasing. We set η = max(10 −3, 0.03 · max j | ˆξj |) and zero out terms with | ˆξj | < η . On the remaining support, OLS debiases the coefficients using ˆξOLS =(Θ ⊤ 
+
+> S
+
+ΘS )−1Θ⊤ 
+
+> S
+
+b. This thresholding and debiasing cycle is repeated twice. The two rounds of adaptive thresholding are important: the first round removes clearly spurious terms, allowing OLS to better estimate the true terms, which may shift the threshold and reveal additional spurious terms in the second round. 
+
+F.4.2 Stage 4 Residual-based fallback 
+
+For both paths, we add a safety mechanism: compare the EqOD residual against the full-library WF-LASSO baseline. On the stability path, the fallback catches cases where stability selection is too aggressive and removes a true term or too permissive and retains too many correlated terms. On the symmetry path, it provides a safety net against downstream LASSO failures or detector errors at extreme noise. If the reduced-library equation has a substantially worse fit than the WF-LASSO approach, the fallback detects this and reverts to WF-LASSO. 
+
+Formal criterion. Let ˆξEqOD and ˆξstd be the identified coefficient vectors from the stability-selected and full libraries, respectively. Define the residuals: 
+
+rEqOD = b − Θred ˆξEqOD , rstd = b − Θstd ˆξstd . (42) The fallback triggers when ∥rEqOD ∥22/∥rstd ∥22 > γ .
+
+Path-dependent threshold gamma. The threshold γ is set differently for the two paths. For the symmetry path, γ = 1 .5 because the symmetry-reduced library has strong theoretical backing from Theorem 4. A higher threshold tolerates moderate numerical variation without triggering unnecessary fallbacks. For the stability path, γ = 1 .2 because the stability-selected library is statistically determined and more prone to error at high noise. A tighter threshold catches cases where stability selection removes a true term or retains correlated noise terms. This design ensures that the fallback does not negate the benefit of library reduction on clean and moderate-noise data, where the reduced library is correct and the residual ratio is close to 1.0, while catching failures at extreme noise. On KdV–Burgers at 20% noise, the stability path residual ratio can exceed γ = 1 .2 and trigger the fallback, preventing catastrophic no-fallback cases with F1 as low as 0.033. Under the patched-seed plumbing, the aggregate EqOD result is 0.383 ± 0.173 (Table 3). 25 Empirically, across the 32 benchmark conditions, the tabled fallback cases are KdV–Burgers at 10% 
+
+and 20% noise. React-Diff at 0% noise, with a ratio ≈ 1.2, correctly did not trigger under the strict 
+
+> rule. The sensitivity to γ is low because values in [1 .2, 2.0] produce the same outcomes on our benchmark. We report this as a design parameter, not a tuned hyperparameter. 
+
+The physics-based path and the fallback. On the benchmark PDEs, Galilean detection has 100% accuracy at τ = 0 .05 (Table 1). When Galilean symmetry is correctly detected, the reduced library 
+
+Limpl  
+
+> G
+
+is guaranteed to contain all true terms by Corollary 7. The Stage 4 residual fallback still applies to the symmetry path with γ = 1 .5, providing a safety net against downstream LASSO failures at extreme noise. In general, any threshold-based detector has a nonzero error probability at sufficiently high noise. The fallback ensures graceful degradation. 
+
+F.5 Stability selection: implementation details Regularization parameter. For each randomized LASSO run, we use the median regularization strength λ = 10 −3 from the grid {10 −5, . . . , 10 −1}. Using a single fixed λ instead of a CV-selected value in the stability selection loop is standard practice [ 7, 30 ]: the goal is not to find the best λ but to assess which terms are stably selected across perturbations. 
+
+Convergence of selection probabilities. Selection probabilities ˆπj converge as O(B−1/2), where 
+
+B is the number of bootstrap iterations. With B = 50 , the standard error on ˆπj is at most 1/(2 √50) ≈
+
+0.07 , which is sufficient to distinguish terms with ˆπ > 0.5 from those with ˆπ < 0.3.
+
+F.6 Symmetry detection: implementation details F.6.1 Galilean detector: motivation and algorithm 
+
+The central detection challenge is Galilean invariance. The Galilean generator v = t∂ x + ∂u implies that the PDE contains the nonlinear convective term u · ux. Detecting Galilean symmetry is therefore equivalent to detecting the presence and significance of u · ux in the PDE. 
+
+Fourier symbols are unreliable for nonlinear PDEs. For linear PDEs, the Fourier symbol 
+
+ˆσ(k) = ˆ ut/ˆu is a characteristic fingerprint. For nonlinear PDEs, the symbol estimated from ˆu mixes linear and nonlinear effects and is state-dependent, making direct comparison unreliable. 
+
+Pointwise regression is noise-sensitive. A naive approach computes ut, u · ux, uxx , and related pointwise quantities before regression. This pointwise approach fails because computing ut from noisy data amplifies noise: ∂u/∂t ≈ (u(t + ∆ t) − u(t − ∆t)) /2∆ t has error O(σ/ ∆t). Even at 1% noise, the signal-to-noise ratio in ut is catastrophically low. For this reason, EqOD uses the weak form to test whether u · ux contributes significantly to the PDE dynamics. 
+
+Six-term basis. The basis {u · ux, u xx , u xxx , u, u 2, u 3} is chosen to disambiguate u · ux from reaction terms. Without u, u2, and u3 in the basis, the Fisher-KPP equation ut = Du xx + u − u2
+
+can produce a false positive because the regression attributes energy from the reaction terms to u · ux
+
+through correlation. Including reaction terms in the basis absorbs this correlation and produces 
+
+fuu x ≈ 0 for non-Galilean PDEs. 
+
+Threshold selection. We set τ = 0 .05 . Table 1 in Section 2.1 shows that τ = 0 .05 is an optimal threshold on the tested grid, with F1 = 1.000, zero false positives, and zero false negatives across 75 test cases. 
+
+Fourier symbol estimation and reliable modes. The Fourier symbol is estimated via weighted least squares: 
+
+ˆσ(k) = 
+
+PNt−2 
+
+> i=2
+
+ˆu(k, t i) · ˆut(k, t i)
+
+PNt−2 
+
+> i=2
+
+|ˆu(k, t i)|2 , (43) where ˆut(k, t i) ≈ (ˆ u(k, t i+1 ) − ˆu(k, t i−1)) /(2∆ t). We skip the first 2 and last 2 time steps to avoid centered-difference boundary artifacts. A wavenumber k is considered reliable when |k| > 0.5,26 Algorithm 3 Weak-form Galilean detection 
+
+Require: Trajectories {U (m)}Mm=1 , grid (x, t ), threshold τ = 0 .05 
+
+Ensure: Boolean detection result for Galilean symmetry  
+
+> 1:
+
+Compute spectral derivatives: ux, u xx , u xxx via fast Fourier transforms for each trajectory  
+
+> 2:
+
+Set up test function grid: nt = 5 , nx = 7 bump functions, giving 35 equations per trajectory  
+
+> 3:
+
+Build a 6-term weak-form regression system:  
+
+> 4:
+
+Left side: bm = − R u(ϕm)tdxdt  
+
+> 5:
+
+Right side: Θ = [ u · ux | uxx | uxxx | u | u2 | u3] with 6 columns  
+
+> 6:
+
+Normalize columns: ˜Θ = Θ · diag( ∥Θ·,j ∥−1) 
+
+> 7:
+
+Solve OLS: ˆc = ( ˜Θ⊤ ˜Θ) −1 ˜Θ⊤b 
+
+> 8:
+
+Recover physical coefficients: ˆcj ← ˆcj /∥Θ·,j ∥ 
+
+> 9:
+
+Compute energy fraction: fuu x ← ∥ ˆc1 · Θ·,1∥2/∥b∥2 
+
+> 10:
+
+if fuu x > τ and |ˆc1| > τ then  
+
+> 11:
+
+return True  
+
+> 12:
+
+end if  
+
+> 13:
+
+return False which excludes the zero-frequency mode and very low frequencies, and when the power |ˆu(k)|2 >
+
+0.01 · max k′ |ˆu(k′)|2, which excludes high-frequency modes with negligible energy. 
+
+Full derivation. The 6-term weak-form Galilean test solves: 
+
+−
+
+Z
+
+uϕ tdxdt 
+
+| {z }
+
+> bm
+
+= c1
+
+Z
+
+u · uxϕdxdt 
+
+| {z }
+
+> Θm, 1
+
++c2
+
+Z
+
+uxx ϕdxdt 
+
+| {z }
+
+> Θm, 2
+
++ c3
+
+Z
+
+uxxx ϕdxdt + c4
+
+Z
+
+uϕdxdt + c5
+
+Z
+
+u2ϕdxdt + c6
+
+Z
+
+u3ϕdxdt. (44) The energy fraction fuu x = ∥c1Θ·,1∥2/∥b∥2 measures the relative contribution of u · ux to the total PDE dynamics. For Galilean PDEs, including Burgers, KdV, and KS, fuu x ≫ 0.05 . For non-Galilean PDEs, including Heat, Fisher-KPP, Adv-Diff, and React-Diff, fuu x < 0.03 .
+
+## G Reproducibility 
+
+G.1 Code and data 
+
+The code and data-generation artifacts are included in the supplementary material submitted with the paper. The supplementary material includes the experiment scripts, plotting scripts, generated bench-mark metadata, run commands, and third-party asset provenance and license notes. Dependencies are NumPy, SciPy, scikit-learn, matplotlib, PySINDy for baseline comparison, and h5py for PDEBench data. 
+
+G.2 Run commands 
+
+pip install numpy scipy scikit-learn matplotlib pysindy h5py # Main benchmark: 8 PDEs x 4 noise x 10 seeds python run_benchmark.py # Official PySINDy 2.0 comparison python run_official_pysindy.py # WSINDy Octave comparison, requires Octave python run_wsindy_octave.py # External benchmarks, requires WeakIdent and PINN-SR data python run_external_benchmarks_full.py 
+
+27 Table 6: Identified equations for EqOD on clean data with M = 3 trajectories and seed 42. The coefficient-error (CE) column reports the mean absolute coefficient error.                                                                                            
+
+> PDE True Identified CE Heat 0.100 uxx 0.1000 uxx 6.3×10 −5
+> Burgers −1.000 u·ux+ 0 .100 uxx −1.0001 u·ux+ 0 .1000 uxx 5.0×10 −5
+> KdV −1.000 u·ux−1.000 uxxx −1.0001 u·ux−1.0001 uxxx 1.0×10 −4
+> Fisher-KPP 0.010 uxx + 1 .000 u−1.000 u20.57 u−0.58 u3+. . . fails Adv-Diff −1.000 ux+ 0 .050 uxx −1.0000 ux+ 0 .0500 uxx <10 −4
+> KS −1.000 u·ux−1.000 uxx −1.000 uxxxx −0.996 u·ux−0.996 uxx −0.996 uxxxx 4×10 −3
+> KdV–Burgers −1.000 u·ux+ 0 .050 uxx −1.000 uxxx −1.014 u·ux+ 0 .045 uxx −0.999 uxxx 1×10 −2
+> React-Diff 0.100 uxx + 1 .000 u−1.000 u30.1000 uxx + 1 .000 u−1.001 u33×10 −4
+
+# 2D and coupled system experiments python run_2d_benchmark.py python run_real_data.py # Generate publication figures python generate_figures.py 
+
+G.3 Hardware 
+
+All experiments were run on a single Intel i7-11700 processor with 32 GB of memory. No graphics processing unit was required. Total wall time for all experiments: approximately 4 hours. 
+
+G.4 Seed plumbing 
+
+Compared with an earlier benchmark run that reused fixed internal RNG streams, the means moved by less than 0.01 in 24 of 32 cells. The largest shifts, with a mean change > 0.05 , appear on the WF-LASSO baseline at high noise on KdV: 0.850 → 0.960 at 5%, 0.884 → 0.960 at 10%, and 
+
+0.774 → 0.887 at 20%. These shifts reflect the CV fold permutation fix. The previous CV partition split rows along the Cartesian (tc, x c) grid of bump centers, so contiguous folds were spatially correlated and the selected λ was systematically biased. All randomized experiments use seeds 42 through 51, giving 10 seeds. The per-trial seed is threaded through three independent sources of stochasticity so that the 10-seed mean and standard deviation reflect genuine ensemble variation rather than a single fixed-RNG draw repeated 10 times. For data generation, seed= s controls the PDE solver and seed= s + 1000 controls the additive Gaussian noise. For bootstrap subsampling in stability selection, the seed parameter on EqODPipeline is forwarded to stability_selected_identification , which seeds the numpy.random.RandomState that drives the bootstrap subsamples and the randomized LASSO penalty weights (Section 2.2.2). For CV-fold permutation in WF-LASSO, the same seed controls a row permutation applied before 
+
+k-fold partitioning. The weak-form rows are arranged on a Cartesian (tc, x c) grid of bump centers. Without shuffling, contiguous folds correspond to spatially correlated row blocks, and the CV-selected λ would be biased. When no seed is supplied to EqODPipeline , internal RNGs fall back to 
+
+RandomState(42) . This default is exposed only for interactive use, and all benchmark scripts pass an explicit per-trial seed. 
+
+## H Additional empirical results 
+
+H.1 Identified equations 
+
+Seven of eight PDEs are recovered with coefficients accurate to 3 or more significant digits (Table 6 and Figure 5). Fisher-KPP fails because the diffusion coefficient D = 0 .01 is an order of magnitude smaller than the reaction coefficients. PySINDy achieves F1 = 0.80 on Fisher-KPP by correctly identifying the reaction terms u and u2 while missing uxx , outperforming EqOD, which obtains F1 = 0.44, on this specific PDE (Table 8). No method recovers the full 3-term equation. 28 uxx                         
+
+> 0.00
+> 0.05
+> 0.10
+> CE 6:3£10 ¡5
+> Heat
+> u u xuxx
+> -1.0
+> -0.5
+> 0.0
+> CE 5:0£10 ¡5
+> Burgers
+> u u xuxxx
+> -1.0
+> -0.5
+> 0.0
+> CE 1:0£10 ¡4
+> KdV
+> u u xuxx uxxxx
+> -1.0
+> -0.5
+> 0.0
+> CE 4:0£10 ¡3
+> KS
+> uxuxx
+> -1.0
+> -0.5
+> 0.0
+> CE <10 ¡4
+> AdvDiff
+> uu3uxx
+> -1.0
+> -0.5
+> 0.0
+> 0.5
+> 1.0
+> CE 3:0£10 ¡4
+> React-Diff
+> Signed coefficient
+
+Figure 5: Identified and true coefficients for 6 representative PDEs on clean data. Hatched gray bars show true coefficients, blue bars show EqOD estimates, and in-figure badges report CE. Fisher-KPP is the omitted clean-data failure case. 
+
+H.2 Complete benchmark results with standard deviations 
+
+For completeness, we report the full benchmark results with standard deviations over 10 seeds, under the patched seed plumbing in Section G. The EqOD lib column shows the mean library size selected by EqOD. Table 7: Full benchmark F1 results, reported as mean ± std over 10 seeds. The selected-library-size column, Lib, reports the mean library size selected by EqOD. PDE Noise WF-LASSO EqOD ∆ Mode Lib Heat 0% 1.000 ± 0.000 1.000 ± 0.000 0 SS 1.0 Heat 5% 0.733 ± 0.251 1.000 ± 0.000 +0 .267 SS 1.0 Heat 10% 0.554 ± 0.222 1.000 ± 0.000 +0 .446 SS 1.0 Heat 20% 0.475 ± 0.181 1.000 ± 0.000 +0 .525 SS 1.0 Burgers 0% 1.000 ± 0.000 1.000 ± 0.000 0 S 6.0 Burgers 5% 0.944 ± 0.176 1.000 ± 0.000 +0 .056 S 6.0 Burgers 10% 0.700 ± 0.258 1.000 ± 0.000 +0 .300 S 6.0 Burgers 20% 0.600 ± 0.194 0.920 ± 0.103 +0 .320 S 6.0 KdV 0% 1.000 ± 0.000 1.000 ± 0.000 0 S 7.0 KdV 5% 0.960 ± 0.084 0.967 ± 0.105 +0 .007 S 7.0 KdV 10% 0.960 ± 0.084 0.920 ± 0.103 −0.040 S 7.0 KdV 20% 0.887 ± 0.126 0.787 ± 0.129 −0.100 S 6.0 Fisher-KPP 0% 0.444 ± 0.000 0.444 ± 0.000 0 SS 6.0 Fisher-KPP 5% 0.500 ± 0.000 0.500 ± 0.000 0 SS 5.0 Fisher-KPP 10% 0.494 ± 0.018 0.494 ± 0.018 0 SS 5.1 Fisher-KPP 20% 0.467 ± 0.068 0.467 ± 0.068 0 SS 5.1 Adv-Diff 0% 1.000 ± 0.000 1.000 ± 0.000 0 SS 2.0 Adv-Diff 5% 1.000 ± 0.000 1.000 ± 0.000 0 SS 2.0 Adv-Diff 10% 1.000 ± 0.000 1.000 ± 0.000 0 SS 2.0 29 PDE Noise WF-LASSO EqOD ∆ Mode Lib Adv-Diff 20% 0.980 ± 0.063 0.980 ± 0.063 0 SS 2.1 KS 0% 1.000 ± 0.000 1.000 ± 0.000 0 S 3.0 KS 5% 0.957 ± 0.069 0.957 ± 0.069 0 S 3.1 KS 10% 0.914 ± 0.074 0.914 ± 0.074 0 S 2.2 KS 20% 0.857 ± 0.080 0.914 ± 0.074 +0 .057 S 2.0 KdV–Burgers 0% 0.779 ± 0.137 0.957 ± 0.069 +0 .178 S 7.0 KdV–Burgers 5% 0.464 ± 0.065 0.613 ± 0.107 +0 .149 S 7.0 KdV–Burgers 10% 0.440 ± 0.075 0.440 ± 0.075 0 SS † 8.0 KdV–Burgers 20% 0.427 ± 0.109 0.383 ± 0.173 −0.044 SS † 6.0 React-Diff 0% 0.900 ± 0.161 0.900 ± 0.161 0 SS 3.0 React-Diff 5% 1.000 ± 0.000 1.000 ± 0.000 0 SS 3.0 React-Diff 10% 0.986 ± 0.045 0.986 ± 0.045 0 SS 3.1 React-Diff 20% 0.914 ± 0.074 0.904 ± 0.089 −0.010 SS 3.6 
+
+## I Additional baseline comparisons and ablations 
+
+I.1 Baselines WF-LASSO baseline. The ablation baseline applies WF-LASSO on the full 10-term library Lstd ,with the same CV-selected regularization, adaptive thresholding, and OLS debiasing as EqOD Stage 3. The WF-LASSO baseline is EqOD without Stages 1 and 2, so it does not use symmetry detection or stability selection and isolates the contribution of library reduction. 
+
+PySINDy 2.0.0 baseline. We use the official pip package pysindy==2.0.0 , installed via pip install pysindy==2.0.0 . The setup uses the STLSQ optimizer with the best threshold from a grid search {0.01 , 0.03 , 0.1, 0.3}, a polynomial library up to degree 3, and a derivative library up to order 4. The pip package is the official implementation maintained by the SINDy team [20]. 
+
+WSINDy reimplementation baseline. We compare against the official MATLAB implementation accompanying Messenger and Bortz [31] . This code requires MATLAB’s Symbolic Math Toolbox and is not compatible with GNU Octave 6.2 because of dimension mismatches in build_str_tags.m 
+
+due to symbolic type handling differences. We therefore use our own Octave reimplementa-tion of Algorithm 1 from Messenger and Bortz [31] , with compactly supported bump test func-tions on a 5 × 7 grid, the library Lstd , and STLSQ with iterative thresholding. The thresh-old is selected from {0.01 , 0.05 , 0.1, 0.2, 0.5}, with a maximum of 20 iterations and a ridge pa-rameter 10 −5. The reimplementation source is included in the supplementary material under 
+
+wsindy_official/wsindy_pde.m . As a provenance limitation, differences in test function radii, threshold search strategy, or convergence criteria may exist relative to the official code. WSINDy results should be interpreted as comparisons against our reimplementation of the published algorithm, not against the official software. 
+
+I.2 Official PySINDy 2.0 comparison 
+
+We compare EqOD against the official PySINDy 2.0.0 package with the STLSQ optimizer on all 8 PDEs at 4 noise levels, covering 32 comparisons. This comparison is the most comprehensive one: every PDE, every noise level, 10 seeds each. Table 8 shows that EqOD wins 23 of 32 conditions, PySINDy wins 5, and 4 conditions are ties. The most striking EqOD advantage occurs on Heat at 5%, 10%, and 20% noise, where PySINDy identifies zero terms with F1 = 0.000 and EqOD achieves F1 = 1.000. PySINDy’s 5 wins are all on reaction PDEs, namely Fisher-KPP at all 4 noise levels and React-Diff at clean data. 
+
+PySINDy’s Fisher-KPP advantage. PySINDy uses pointwise derivatives and STLSQ thresholding. On Fisher-KPP with D = 0 .01 , the reaction terms u and u2 dominate the dynamics. As shown in Table 8, PySINDy’s STLSQ correctly identifies the 2 reaction terms, with F1 ≈ 0.8 while missing 30 Table 8: Official PySINDy 2.0.0 using STLSQ and the best threshold, compared with EqOD across all 8 PDEs, 4 noise levels, and 10 seeds. PDE Noise PySINDy EqOD Winner Heat 0% 1.000 1.000 Tie Heat 5% 0.000 1.000 EqOD Heat 10% 0.000 1.000 EqOD Heat 20% 0.000 1.000 EqOD Burgers 0% 0.667 1.000 EqOD Burgers 5% 0.537 1.000 EqOD Burgers 10% 0.331 1.000 EqOD Burgers 20% 0.328 0.920 EqOD KdV 0% 1.000 1.000 Tie KdV 5% 0.268 0.967 EqOD KdV 10% 0.239 0.920 EqOD KdV 20% 0.224 0.787 EqOD Fisher-KPP 0% 0.800 0.444 PySINDy Fisher-KPP 5% 0.800 0.500 PySINDy Fisher-KPP 10% 0.760 0.494 PySINDy Fisher-KPP 20% 0.720 0.467 PySINDy Adv-Diff 0% 1.000 1.000 Tie Adv-Diff 5% 0.633 1.000 EqOD Adv-Diff 10% 0.567 1.000 EqOD Adv-Diff 20% 0.507 0.980 EqOD KS 0% 1.000 1.000 Tie KS 5% 0.500 0.957 EqOD KS 10% 0.330 0.914 EqOD KS 20% 0.245 0.914 EqOD KdV–Burgers 0% 0.271 0.957 EqOD KdV–Burgers 5% 0.222 0.613 EqOD KdV–Burgers 10% 0.207 0.440 EqOD KdV–Burgers 20% 0.230 0.383 EqOD React-Diff 0% 1.000 0.900 PySINDy React-Diff 5% 0.800 1.000 EqOD React-Diff 10% 0.800 0.986 EqOD React-Diff 20% 0.743 0.904 EqOD 
+
+Summary, 32 conditions EqOD: 23W, 5L, 4T 
+
+only the small uxx term. EqOD’s WF-LASSO stage, with its different regularization path, struggles more on this specific PDE structure, achieving only F1 ≈ 0.44 to 0.50 .
+
+PySINDy’s Heat failure under noise. PySINDy uses pointwise ut via finite differences, which amplifies noise catastrophically. The STLSQ optimizer then either selects no terms at a high threshold or too many at a low threshold. EqOD’s weak-form approach transfers the derivative to the smooth test function, and stability selection isolates uxx as the only stably selected term. 
+
+I.3 Official WSINDy validation 
+
+We validated the official WSINDy implementation accompanying Messenger and Bortz [31] via an Octave compatibility bridge with three minimal changes. The bridge details are listed below. On the official WSINDy datasets, the bridge reproduces the published numbers: 
+
+External data behavior. On WeakIdent and EqOD benchmark data, the official WSINDy code with discovery-mode parameters and no prior knowledge of the true equation identifies 0 terms on all tested datasets, including WeakIdent KdV, KS, Heat, and EqOD benchmark Heat, Burgers, KdV, and KS. The auto-parameter selection findcorners produces test function supports that span nearly the full spatial domain on 128-point grids, for example, mx = 63 out of 128, yielding too few 31 Heat Burg. KdV F-KPP AdvD. KS KdV-B. R-Diff 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Support F1
+> F1 at 10% Noise: All Methods, All 8 PDEs
+> WF-LASSO
+> PySINDy 2.0
+> WSINDy reimpl.
+> EqOD
+
+Figure 6: F1 at 10% noise for all 4 methods across all 8 PDEs. EqOD in blue matches or exceeds all baselines on 6 of 8 PDEs. PySINDy wins on Fisher-KPP, while the WSINDy reimplementation wins on KdV and KS. Table 9: Official MathBioCU WSINDy code on its own datasets. Coefficients match 4+ digits. 
+
+Dataset True equation WSINDy identified F1 Burgers, 256 ×256 ut + u · ux = 0 .1uxx (u2)x = −0.4999 0.667 KdV, 400 ×601 ut + u · ux + uxxx = 0 (u2)x = −0.5000 , uxxx = −1.000 1.000 KS, 256 ×301 ut + u · ux + uxx + uxxxx = 0 (u2)x = −0.5000 , uxx = −1.000 , uxxxx = −1.000 1.000 
+
+independent equations for the regression step. On the official WSINDy datasets with at least 256 points, larger domains, and true_nz_weights provided, the method works perfectly. 
+
+Interpretation. This behavior reflects a mismatch in data format and hyperparameters, not an algorithmic deficiency of WSINDy. The WSINDy algorithm of Messenger and Bortz [31] is mathe-matically sound. The official implementation is optimized for its own dataset format. Applying it to different data requires hyperparameter retuning that falls outside the scope of this comparison. 
+
+Library convention note. WSINDy uses the conservative form (up)(k), for example, (u2)x =2u · ux with coefficient −0.5, while EqOD uses the product form u · ux with coefficient −1.0. Both represent the same physics. The F1 scores in Table 9 account for this convention by mapping (u2)x
+
+to u · ux.
+
+Official WSINDy Octave bridge. The official WSINDy implementation accompanying Messenger and Bortz [31] is written in MATLAB. Two MATLAB and Octave incompatibilities prevent it from running in GNU Octave 6.2 without modification. 
+
+build_str_tags.m , line 13. for j=1:size(lib_list) uses the MATLAB convention that 
+
+size(M) in a for-loop takes the first dimension. In Octave, 1:size(M) evaluates size(M) as a vector 
+
+[nr , n c] and uses the last element, producing 1:n_c instead of 1:n_r . The fix is size(lib_list) 
+
+→ size(lib_list,1) .
+
+build_str_tags.m , lines 16, 18, and 20. [repelem(’x’,0), repelem(’t’,0)] produces a 
+
+[0 ×2] char in Octave instead of an empty string, causing dimension mismatches in subsequent string concatenation. The fix is to replace repelem(’x’,n) with char(repmat(’x’,1,n)) .Additionally, wsindy_pde_RGLS_seq.m line 21 computes GW_ls = norm(G*W_ls) , which can be zero when the OLS baseline returns near-zero coefficients in ill-conditioned systems. The compatibility guard sets GW_ls = eps whenever GW_ls < eps , preventing division by zero. These three changes, totaling 4 lines, are the only modifications to the official code. They are stored in 
+
+wsindy_official/octave_compat/ within the supplementary material and shadow the originals 32 Table 10: WSINDy reimplementation using STLSQ, compared with EqOD on all 8 PDEs, 4 noise levels, and 10 seeds. PDE Noise WSINDy EqOD Winner Heat 0% 1.000 1.000 Tie Heat 5% 1.000 1.000 Tie Heat 10% 0.933 1.000 EqOD Heat 20% 0.789 1.000 EqOD Burgers 0% 0.700 1.000 EqOD Burgers 5% 0.680 1.000 EqOD Burgers 10% 0.760 1.000 EqOD Burgers 20% 0.733 0.920 EqOD KdV 0% 1.000 1.000 Tie KdV 5% 1.000 0.967 WSINDy KdV 10% 0.980 0.920 WSINDy KdV 20% 0.887 0.787 WSINDy Fisher-KPP 0% 0.545 0.444 WSINDy Fisher-KPP 5% 0.541 0.500 WSINDy Fisher-KPP 10% 0.580 0.494 WSINDy Fisher-KPP 20% 0.598 0.467 WSINDy Adv-Diff 0% 0.980 1.000 EqOD Adv-Diff 5% 0.860 1.000 EqOD Adv-Diff 10% 0.813 1.000 EqOD Adv-Diff 20% 0.773 0.980 EqOD KS 0% 1.000 1.000 Tie KS 5% 1.000 0.957 WSINDy KS 10% 0.986 0.914 WSINDy KS 20% 0.903 0.914 EqOD KdV–Burgers 0% 0.800 0.957 EqOD KdV–Burgers 5% 0.787 0.613 WSINDy KdV–Burgers 10% 0.638 0.440 WSINDy KdV–Burgers 20% 0.522 0.383 WSINDy React-Diff 0% 0.800 0.900 EqOD React-Diff 5% 0.914 1.000 EqOD React-Diff 10% 0.914 0.986 EqOD React-Diff 20% 0.892 0.904 EqOD 
+
+Summary, 32 conditions EqOD: 16W, 12L, 4T 
+
+via Octave’s addpath mechanism. The bridge is validated by reproducing the official results on the Burgers, KdV, and KS datasets included with the official implementation (Table 9). 
+
+I.4 WSINDy reimplementation comparison 
+
+Since the official WSINDy code does not produce results on our benchmark data, as discussed in Section I.3, we compare against our Octave reimplementation of the WSINDy STLSQ algo-rithm. Appendix I.1 gives provenance details. This reimplementation uses the same weak-form test functions as EqOD and applies STLSQ thresholding with the best threshold selected from 
+
+{0.01 , 0.05 , 0.1, 0.2, 0.5}.Table 10 shows that EqOD wins 16 conditions, WSINDy wins 12, and 4 conditions are ties. EqOD dominates on Heat through stability selection, Burgers through symmetry, Adv-Diff, and React-Diff. WSINDy wins on Fisher-KPP at all 4 noise levels, KdV at 3 noisy settings, KS at 2 moderate-noise settings, and KdV–Burgers at 3 noisy settings. The WSINDy wins are concentrated on two PDE families: reaction PDEs, where STLSQ’s pointwise thresholding captures reaction terms better, and dispersive PDEs at high noise, where STLSQ’s aggressive thresholding is more effective than LASSO with CV. 33 Table 11: Ablation: number of trajectories M on Burgers at 10% noise with 10 seeds.                                     
+
+> MF1, mean ±std CE, mean ±std 11.000 ±0.000 0.024 ±0.010
+> 21.000 ±0.000 0.019 ±0.010
+> 3, default 1.000 ±0.000 0.016 ±0.007
+> 51.000 ±0.000 0.010 ±0.006
+> 10 1.000 ±0.000 0.006 ±0.005
+
+Table 12: Ablation: grid resolution Nx on Burgers with clean data and 5 seeds.                                     
+
+> NxF1 CE, mean ±std 32 1.000 2.16 ×10 −2±3.4×10 −4
+> 64 1.000 6.44 ×10 −3±1.1×10 −4
+> 128, default 1.000 6.27 ×10 −5±1.6×10 −5
+> 256 1.000 5.12 ×10 −6±4.3×10 −6
+
+Table 13: Timing comparison on a single 128 × 128 trajectory.                
+
+> Method Wall time, seconds, 128 ×128 ,M= 1 Overhead WF-LASSO 0.56 baseline EqOD symmetry path 1.09 1.9 ×
+> EqOD stability path, B= 50 1.17 2.1 ×
+
+I.5 Why weak-form + LASSO outperforms STLSQ 
+
+The STLSQ optimizers used by PySINDy and WSINDy iteratively threshold and refit. The threshold is a hyperparameter that must be tuned per PDE and noise level. LASSO with CV [ 44 ] automatically selects the regularization strength. Combined with OLS debiasing, this LASSO with CV pipeline provides a more principled approach to sparse identification. The record of 23 wins, 5 losses, and 4 ties against PySINDy and 16 wins, 12 losses, and 4 ties against the WSINDy reimplementation suggests that WF-LASSO + CV + debiasing is generally competitive with STLSQ. EqOD is strongest on Heat, Burgers, and Adv-Diff, while STLSQ is strongest on KdV soliton dynamics and Fisher-KPP reaction terms. 
+
+I.6 Ablations and sensitivity analyses Number of trajectories. Table 11 shows F1 = 1.000 even with a single trajectory, M = 1 .Coefficient error decreases as O(M −1/2), consistent with independent averaging. 
+
+Grid resolution. Table 12 shows F1 = 1.000 at all resolutions. Coefficient error exhibits spectral convergence, with approximately exponential decrease from Nx = 32 to Nx = 256 , consistent with the Fourier pseudospectral discretization. 
+
+I.6.1 Computational cost and scaling 
+
+Table 13 shows that the symmetry path adds ∼2× overhead, mainly from the Galilean test and spectral derivatives. The stability path has similar overhead because the 50 randomized LASSO runs use the median regularization strength without CV per run. Although stability selection uses 50 randomized LASSO fits, the measured overhead is about 2 to 4 times WF-LASSO in our implementation. For the symmetry path, the overhead is about 1.9 × at the default grid size. In practice, most physically interesting PDEs in fluid dynamics have Galilean or related symmetries, so the fast symmetry path is used more often than the stability path. For 2D extensions, the weak-form integration cost scales as O(Nt · Nx · Ny · Mtest ), which is manageable for moderate grids but prohibitive for very large datasets. Subsampling the test function grid or using sparse quadrature would be necessary. 34 Table 14: Wall time in seconds as a function of grid size Nx = Nt, reported as the mean over 3 runs. 
+
+Grid 32 64 128 256 512 WF-LASSO 1.14 0.79 0.56 0.71 1.13 EqOD symmetry path 1.55 1.20 1.09 1.79 4.72 EqOD stability path 1.52 1.06 1.17 1.92 4.96 Symmetry overhead 1.4 × 1.5 × 1.9 × 2.5 × 4.2 ×
+
+Stability overhead 1.3 × 1.3 × 2.1 × 2.7 × 4.4 ×32 64 128 256 512    
+
+> Grid size Nx=Nt
+> 10 0
+> Wall time (seconds)
+> Computational Scaling
+> WF-LASSO
+> EqOD (symmetry)
+> EqOD (stability)
+
+Figure 7: Computational scaling: wall time as a function of grid size on log-log axes. Both EqOD paths scale similarly. Overhead grows from ∼1.5 × at 64 to ∼4× at 512. Table 15: Effect of library size on WF-LASSO for Burgers at 5% noise with 5 seeds. 
+
+|L| WF-LASSO F1, mean ± std EqOD F1 10 0.690 ± 0.255 1.000 15 0.473 ± 0.165 1.000 20 0.473 ± 0.165 1.000 25 0.480 ± 0.160 1.000 30 0.480 ± 0.160 1.000 
+
+Table 14 and Figure 7 show that at the default 128 × 128 grid, EqOD adds ∼2× overhead. At 
+
+512 × 512 , overhead grows to ∼4× due to the 50 LASSO runs in stability selection and the symmetry detection tests. All experiments in this paper complete in under 5 seconds per identification at 
+
+128 × 128 .
+
+I.6.2 Library scaling experiment 
+
+To test sensitivity to library size, we run WF-LASSO on expanded libraries of size p ∈{10 , 15 , 20 , 25 , 30 } on Burgers at 5% noise with 5 seeds, adding cross-terms and higher-order products. Table 15 and Figure 8 show that WF-LASSO degrades from F1 = 0.690 to 0.480 as the library grows from 10 to 30 terms. EqOD remains at F1 = 1.000 throughout, since the symmetry-based reduction always yields a 7-term library regardless of how large the original library is. The Burgers sweep tests the symmetry path, where Galilean symmetry is detected and the library is reduced by Theorem 4. The complementary case is a non-Galilean PDE for which EqOD must rely on stability selection rather than symmetry reduction. Heat is the natural test: ut = Du xx does not admit the standard Galilean generator v = t∂ x + ∂u, since the determining equations force D = 0 .Thus EqOD takes the stability path, allowing us to assess whether stability selection alone suppresses spurious terms as the library grows. 35 10 15 20 25 30  
+
+> Candidate library size p
+> 0.3
+> 0.5
+> 0.7
+> 0.9
+> 1.0
+> Identification F1
+> Burgers, 5% noise, 5 seeds
+> 0.69
+> 0.48
+> WF-LASSO (mean +/- SD)
+> EqOD
+> F1 = 1.000
+
+Figure 8: Effect of library size on identification accuracy for Burgers at 5% noise. WF-LASSO degrades as the library grows, and EqOD is invariant because symmetry reduction always produces a fixed-size library. Table 16: Effect of library size on WF-LASSO and EqOD for Heat at 10% noise, using 5 seeds and 50 bootstrap iterations. EqOD selects the stability path on every trial. 
+
+|L| WF-LASSO F1, mean ± std EqOD F1, mean ± std 10 0.660 ± 0.313 1.000 ± 0.000 
+
+15 0.747 ± 0.256 1.000 ± 0.000 
+
+20 0.800 ± 0.183 1.000 ± 0.000 
+
+25 0.867 ± 0.183 1.000 ± 0.000 
+
+30 0.833 ± 0.236 1.000 ± 0.000 
+
+Table 17: Stability selection profiles for representative seeds. The gap between stable terms with 
+
+ˆπ > 0.5 and unstable terms with ˆπ < 0.3 is clear. Heat, 10% noise React-Diff, 5% noise Term ˆπ Term ˆπuxx 1.00 u 1.00 
+
+ux 0.22 u3 1.00 
+
+uxxx 0.18 uxx 1.00 
+
+u · ux 0.12 u2 0.14 
+
+u 0.08 ux 0.06 others < 0.05 others < 0.05 
+
+We rerun the same sweep on Heat at 10% noise with 5 seeds. WF-LASSO is run with the per-trial seed controlling the CV-fold permutation. EqOD passes the same seed through to the bootstrap RNG inside stability selection. Section G gives the seed details. Table 16 shows that EqOD’s stability path achieves F1 = 1 across all five library sizes with zero variance across the 5 seeds, despite the candidate library tripling in size. WF-LASSO is highly variable, with a standard deviation between 0.18 and 0.31, and never matches EqOD on this PDE. This Heat scaling result complements the Burgers sweep. The symmetry path is invariant by construction through Theorem 4, and the stability path is empirically invariant on Heat at this library size and noise level. We do not claim invariance for arbitrary stability-path PDEs at arbitrary library sizes. That is a question for future empirical work on coupled and 2D systems where the support ratio is higher, as discussed in Appendix K.7. The representative selection probability profiles in Table 17 show the separation between stable true terms and unstable false candidates. 36 Table 18: External benchmark validation comparing EqOD with WF-LASSO and PySINDy on official datasets. All comparisons use clean data.                                          
+
+> Source PDE WF-LASSO PySINDy EqOD CE WeakIdent KdV 1.000 0.800 1.000 <10 −5
+> WeakIdent KS 1.000 1.000 1.000 <10 −5
+> WeakIdent Heat, ν= 0 .159 1.000 0.000 1.000 2×10 −5
+> PINN-SR Burgers 1.000 1.000 1.000 <10 −4
+> PINN-SR KS 1.000 1.000 1.000 <10 −5
+> Summary 5/5 3/5 5/5
+
+Table 19: NLS identification comparing EqOD, WF-LASSO, and PySINDy across 5 seeds, reporting F1 on p and q equations.                           
+
+> EqOD WF-LASSO PySINDy Noise pqpqpq
+> 0% 1.000 1.000 1.000 1.000 0.571 0.571 5% 1.000 1.000 1.000 1.000 0.571 0.571 10% 1.000 1.000 0.893 1.000 0.571 0.571
+
+## J Extensions Beyond 1D Scalar PDEs 
+
+The experiments in Section 3 establish EqOD’s advantage on 1D scalar PDEs. This appendix reports validation beyond that primary benchmark: official external datasets, complex-valued NLS, 2D PDEs, coupled systems, and real experimental data. All extension experiments include the WF-LASSO and PySINDy baselines for fair comparison. 
+
+Scope. EqOD’s symmetry detection and stability selection were designed for 1D scalar PDEs with a 10-term library. The extensions below use stability selection with the residual fallback from Section F.4.2, designed to prevent large degradations relative to WF-LASSO in many cases. Adapting the stability selection parameters to higher-dimensional and coupled settings is future work. 
+
+J.1 External benchmark validation 
+
+Table 18 reports validation on official datasets from two external benchmarks. EqOD achieves F1 = 1.000 on all 5 clean external datasets with coefficient errors below 10 −4. PySINDy fails on WeakIdent Heat, producing empty output, likely due to the specific data format and small coefficient ν = 0 .159 .
+
+External data formats. Tang et al. [43] store WeakIdent data as (u, [x, t ]) with the convention 
+
+u(x, t ), where the first axis is spatial. We transpose to (Nt, N x) for EqOD. Chen et al. [12] store PINN-SR data as usol in (Nx, N t) format. We transpose similarly. 
+
+J.2 Nonlinear Schrödinger equation 
+
+The NLS equation iu t + uxx + |u|2u = 0 is complex-valued. Writing u = p + iq yields a coupled real system: 
+
+pt = −qxx − (p2 + q2)q, (45) 
+
+qt = pxx + ( p2 + q2)p. (46) We generate soliton solutions via split-step Fourier integration with Nx = 256 , Nt = 256 , and 
+
+L = 40 , and identify each equation using a 6-term library {p, q, p xx , q xx , |u|2p, |u|2q}. We evaluate using 5 seeds and 3 noise levels. EqOD achieves F1 = 1.000 on both equations at all noise levels (Table 19 and Figure 9). At 10% noise, WF-LASSO drops to 0.893 on the p-equation because noise activates a false positive. PySINDy fails completely, with F1 = 0.571, because pointwise derivatives on the oscillatory NLS solution amplify noise catastrophically. This NLS result is EqOD’s strongest extension result. 37 20 15 10 5 0 5 10 15            
+
+> x
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> t
+> |u(x,t)| (NLS soliton)
+> 20 15 10 50510 15 20
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Amplitude
+> Initial condition
+> p(x, 0) (real)
+> q(x, 0) (imag)
+> |u(x, 0)|
+> EqOD WF-LASSO PySINDy
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> F1
+> NLS at 10% noise
+> p-equation
+> q-equation
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+Figure 9: NLS identification. The left plot shows soliton modulus |u(x, t )|. The center plot shows the initial condition for the real part, the imaginary part, and the modulus. The right plot shows F1 at 10% noise for all 3 methods. EqOD achieves F1 = 1.000 on both equations, while PySINDy fails with F1 = 0.571. Table 20: 2D PDE identification with 5 seeds. EqOD and WF-LASSO use weak-form regression, and PySINDy is included as a baseline. EqOD values are the mean over 5 seeds, with std shown for cells with non-zero variation. 
+
+PDE Noise EqOD WF-LASSO PySINDy 2D Heat 0% 0.700 ± 0.400 1.000 1.000 2D Heat 5% 0.700 ± 0.400 1.000 1.000 2D Heat 10% 0.400 ± 0.490 0.833 0.833 2D Adv-Diff 0%, 5%, 10% 0.695 0.686 0.686 2D NS vorticity 0%, 5%, 10% 0.667 0.667 0.667 
+
+J.3 Systematic 2D benchmark 
+
+We extend to 2D using 3D bump test functions: 
+
+−
+
+Z Z Z 
+
+uϕ tdxdydt = X
+
+> j
+
+ξj
+
+Z Z Z 
+
+θj (u)ϕdxdydt. (47) We evaluate three 2D PDEs on 64 × 64 × 64 grids, using 5 seeds and 3 noise levels: Table 20 shows that on 2D Heat, the seed-dependent stability path produces high-variance results. In some seeds, the residual fallback fires and EqOD recovers F1 = 1 .000 , matching WF-LASSO. In others, stability selection retains a spurious term, and the fallback’s 1.2× residual threshold is not met, leaving EqOD at F1 = 0 . The mean of 0.700 at 0% and 5% noise reflects roughly 70% of runs triggering the fallback. This 2D Heat behavior is the most striking sensitivity to the seed plumbing fix in the entire benchmark, and it is a real limitation. The fallback threshold γ is not robust on small 2D problems with 5 seeds and a 64 3 grid. On 2D Adv-Diff and NS, all three methods produce nearly identical results, F1 ≈ 0.69 and 0.67 , limited by the small-coefficient problem. EqOD does not improve over WF-LASSO in 2D in any cell of this table. We list the 2D gap as a limitation in Appendix K.7. 
+
+J.4 Coupled systems including FitzHugh–Nagumo (FHN) and Lotka–Volterra (LV) 
+
+We identify two 2-species reaction-diffusion systems using a 10-term coupled library: 
+
+{u, u 2, u 3, v, v 2, u · v, u xx , v xx , u · ux, v · vx}. (48) Each species equation is identified independently with stability selection and residual fallback. The evaluation uses 5 seeds and 3 noise levels. Table 21 shows that WF-LASSO outperforms EqOD on clean data for both systems, particularly on the v-equation, where small cross-coupling coefficients, ϵ = 0 .1 and Dv = 0 .01 , make stability selection too aggressive. The gap narrows under noise. At 10%, EqOD matches or exceeds WF-LASSO on the u-equation for both systems. PySINDy degrades faster than both weak-form methods under noise. 38 Table 21: Coupled systems across 5 seeds, reporting F1 on u and v equations.                                                    
+
+> EqOD WF-LASSO PySINDy System Noise uvuvuv
+> FHN 0% 0.683 0.500 0.857 1.000 0.857 1.000 FHN 5% 0.683 0.500 0.717 0.810 0.730 0.551 FHN 10% 0.700 0.500 0.673 0.781 0.730 0.514 LV 0% 0.800 0.333 0.800 0.800 0.800 0.800 LV 5% 0.800 0.333 0.800 0.800 0.800 0.773 LV 10% 0.800 0.333 0.800 0.800 0.709 0.590
+
+Table 22: Cylinder wake: weak-form R2 on three vorticity slices.                  
+
+> Slice yposition EqOD R2WF-LASSO R2
+> 0 (lower) −0.97 0.564 0.632 1 (center) 0.06 0.982 0.988
+> 2 (upper) 1.10 0.694 0.694 Mean 0.747 0.771
+
+Coupled-system underperformance. The coupled library has 10 terms with 3 to 4 active per equation, giving a support ratio of 0.3 to 0.4. In the 1D benchmark, the support ratio is 0.1 to 0.3, with 1 to 3 active terms out of 10. Stability selection’s advantage is strongest at low support ratios, where it distinguishes a few true terms from many false candidates. At higher support ratios, the distinction weakens. 
+
+J.5 Real experimental data: cylinder wake 
+
+We apply EqOD and WF-LASSO to the cylinder wake dataset from PINN-SR [ 12 ], which contains 5000 scattered points and 200 timesteps. After computing vorticity and interpolating to a uniform 
+
+64 × 32 grid, we identify 1D vorticity slices at three y-positions. Table 22 shows that both methods achieve comparable weak-form R2 values. EqOD obtains 0.747, and WF-LASSO obtains 0.771. The center slice with R2 > 0.98 captures the wake dynamics well. The upper and lower slices are noisier due to boundary effects. On slice 2, the residual fallback triggers and EqOD reverts to WF-LASSO with R2 = 0 .694 .
+
+## K Success, Failure, and Limitations 
+
+K.1 Why two mechanisms are better than one Design principle. The central insight of EqOD is that physics and statistics provide complementary information about the PDE. Symmetry provides deterministic constraints that hold at any noise level. Stability selection provides probabilistic constraints that degrade gracefully with noise but work for any PDE. A tempting alternative is to apply stability selection in all cases, including when symmetry is detected. We tested this alternative and found that it harms performance on Galilean PDEs. Stability selection on the 7-term symmetry-reduced library sometimes removes true terms at high noise, including uxxx 
+
+for KdV and uxxxx for KS, because these terms have moderate coefficients. The physics-based path avoids this failure mode by not applying any further statistical pruning. The symmetry reduction is sufficient. Conversely, using only the physics-based path gains nothing on non-Galilean PDEs. The Heat equation improvement, from F1 = 0 .475 ± 0.181 to 1.000 ± 0.000 at 20% noise, comes entirely from stability selection. The physics-based symmetry-reduction path and the statistics-based stability-selection path have complementary strengths. Symmetry reduction is more robust at high noise on Galilean PDEs because 39 0% 5% 10% 20%                         
+
+> Heat
+> Burg.
+> KdV
+> F-KPP
+> AdvD.
+> KS
+> KdV-B.
+> R-Diff
+> 1.00 0.69 0.53 0.47
+> 1.00 0.92 0.69 0.57
+> 1.00 0.85 0.88 0.77
+> 0.44 0.50 0.49 0.47
+> 1.00 1.00 1.00 0.98
+> 1.00 0.99 0.91 0.88
+> 0.85 0.46 0.44 0.42
+> 0.90 1.00 0.99 0.91
+
+WF-LASSO                            
+
+> 0% 5% 10% 20%
+> 1.00 0.00 0.00 0.00
+> 0.67 0.54 0.33 0.33
+> 1.00 0.27 0.24 0.22
+> 0.80 0.80 0.76 0.72
+> 1.00 0.63 0.57 0.51
+> 1.00 0.50 0.33 0.25
+> 0.27 0.22 0.21 0.23
+> 1.00 0.80 0.80 0.74
+
+PySINDy 2.0                            
+
+> 0% 5% 10% 20%
+> Heat
+> Burg.
+> KdV
+> F-KPP
+> AdvD.
+> KS
+> KdV-B.
+> R-Diff
+> 1.00 1.00 0.93 0.79
+> 0.70 0.68 0.76 0.73
+> 1.00 1.00 0.98 0.90
+> 0.55 0.54 0.58 0.60
+> 0.98 0.86 0.81 0.77
+> 1.00 1.00 0.99 0.90
+> 0.80 0.79 0.64 0.52
+> 0.80 0.91 0.91 0.89
+
+WSINDy                            
+
+> 0% 5% 10% 20%
+> 1.00 1.00 1.00 1.00
+> 1.00 1.00 1.00 0.96
+> 1.00 0.95 0.87 0.79
+> 0.44 0.50 0.49 0.47
+> 1.00 1.00 1.00 0.98
+> 1.00 0.99 0.91 0.91
+> 0.99 0.62 0.44 0.42
+> 0.90 1.00 0.99 0.91
+
+EqOD 
+
+> 0
+> 0.5
+> 1.0
+
+Figure 10: F1 heatmap across all 8 PDEs and 4 noise levels for WF-LASSO, PySINDy, WSINDy, and EqOD. Darker cells indicate higher F1. EqOD shows the most consistent performance across conditions. it removes terms based on mathematical structure, not statistical estimation. No amount of noise can make u2 behave as a true term when the underlying PDE is Galilean-invariant. The removal is provable. Stability selection is more general because it works on any PDE regardless of symmetry. For non-Galilean PDEs such as Heat, Fisher-KPP, Adv-Diff, and React-Diff, stability selection is the only available reduction mechanism. Neither mechanism suffices alone. Using only symmetry reduction gains nothing on non-Galilean PDEs because no reduction is available, while using only stability selection loses on Galilean PDEs at high noise because stability selection on the 10-term library sometimes selects spurious terms that the symmetry-reduced library would have excluded. 
+
+K.2 Why stability selection is critical for Heat 
+
+The heat equation ut = 0 .1uxx has the smallest support, |S∗| = 1 , and no Galilean symmetry. At 10% noise, where Table 3 shows WF-LASSO dropping to 0.554 ± 0.222 , WF-LASSO on the full 10-term library activates 2 to 4 spurious terms. The signal-to-noise ratio of uxx is large, but terms like ux, uxxx , and u · ux have nonzero correlation with uxx under noise. Stability selection resolves this false-positive problem, as illustrated by Table 17. Across 50 random-ized LASSO runs, uxx has ˆπ ≈ 1.00 and is selected in 50/50 runs, while all other terms have ˆπ < 0.3
+
+and are selected in fewer than 15/50 runs. The randomized penalty weights expose the instability of spurious selections. The term ux is selected when its penalty wj is low, but not when it is high. The term uxx is selected regardless of penalty because its true coefficient is large. 
+
+K.3 Why EqOD dominates Burgers at all noise levels 
+
+Burgers, with ut = −u · ux + 0 .1uxx , is Galilean-invariant. The symmetry-based path removes 
+
+{u, u 2, u 3}, reducing the library from 10 to 7 terms. The remaining library has only 5 inactive terms instead of 8, reducing the inactive-candidate count by 37.5%. Combined with WF-LASSO, this reduced-library fit is sufficient for robust identification, with F1 = 0 .920 ± 0.103 at 20% noise compared with WF-LASSO F1 = 0 .600 ± 0.194 (Table 3). 40 Table 23: Head-to-head comparison between EqOD and each baseline.                       
+
+> Baseline EqOD wins Baseline wins Ties Cases WF-LASSO, 32 conditions 10 418 8 PDEs ×4 noise PySINDy 2.0.0, 32 conditions 23 548 PDEs ×4 noise WSINDy reimplementation, 32 conditions 16 12 48 PDEs ×4 noise
+
+K.4 The KdV–Burgers challenge 
+
+KdV–Burgers, with ut = −u · ux + 0 .05 uxx − uxxx , is the most challenging PDE in the benchmark. Even on clean data, WF-LASSO achieves only F1 = 0 .779 ± 0.137 (Table 3). The difficulty is the small uxx coefficient ν = 0 .05 . The energy contributed by νu xx is small relative to u · ux and uxxx ,making it hard to distinguish from noise. EqOD improves to F1 = 0 .957 ± 0.069 on clean data and 0.613 ± 0.107 at 5% noise via symmetry reduction, which removes 3 of the 8 inactive competitors. At 10% noise, the residual fallback matches WF-LASSO at F1 = 0 .440 ± 0.075 . At 20% noise, the fallback prevents collapse but EqOD’s mean remains below WF-LASSO, 0.383 ± 0.173 compared with 0.427 ± 0.109 (Table 3). At 20% noise, the Galilean detector can fail because the energy fraction drops below τ = 0 .05 , so EqOD uses the stability selection path. Stability selection identifies 3 terms, but the LASSO on this reduced library can select the wrong support. The residual-based fallback in Stage 4, with γ = 1 .2
+
+for the stability path, catches the most severe failures. Without the fallback, representative failures reach F1 = 0 .033 .
+
+K.5 The Fisher-KPP failure 
+
+Fisher-KPP, with ut = 0 .01 uxx + u − u2, exposes the small-coefficient limit across Tables 3, 8, and 10. EqOD and WF-LASSO remain at F1 ≈ 0.44 to 0.50, while PySINDy and WSINDy obtain higher partial-support F1 by recovering reaction terms but still miss the diffusion term. The Fisher-KPP outcome is not a failure of EqOD specifically but a fundamental limitation. The diffusion coefficient D = 0 .01 contributes < 1% of the total PDE energy. At this scale, the uxx term is below the detection threshold of any method based on coefficient magnitude. None of the tested methods, WF-LASSO, PySINDy, WSINDy, or EqOD, can recover the full 3-term equation. 
+
+Fisher-KPP lesson. Sparse PDE identification has an intrinsic signal-to-noise limit. When a coefficient is much smaller than the others and the measurement noise, it cannot be identified. The small-coefficient limit is a physical limitation, not an algorithmic one. 
+
+K.6 Win and loss summary 
+
+Table 23 summarizes the head-to-head counts. Against PySINDy, EqOD wins 23 of 32 conditions, while PySINDy wins 5. The PySINDy wins are Fisher-KPP at all noise levels and React-Diff on clean data. Against WF-LASSO, EqOD has 10 mean-F1 wins, WF-LASSO has 4 mean-F1 wins, and 18 cells are ties. None of the WF-LASSO mean wins exceeds the larger of the two standard deviations, while 7 EqOD wins do, as reported in Section 3.2. Against WSINDy, the losses are concentrated on KdV at moderate-to-high noise, where STLSQ thresholding is well-suited to the soliton dynamics, and on reaction PDEs. 
+
+K.7 Limitations and honest assessment 
+
+We identify seven concrete limitations of EqOD, ordered by severity. 
+
+Stability selection does not help on coupled and 2D systems. On coupled systems such as FHN and LV, and on 2D PDEs, stability selection does not consistently improve over WF-LASSO (Tables 21 and 20). The support ratio, defined as active terms divided by library size, is 0.3 to 0.4 in coupled systems, compared with 0.1 to 0.3 in 1D, reducing the statistical separation between true and false terms. The residual fallback prevents degradation in most cases, but adapting stability selection to higher support ratios is the most important algorithmic direction. 41 Catalog-based symmetry detection. EqOD tests 5 fixed Lie symmetries. Unlike the neural Lie-generator discovery method of Ko et al. [21] , it cannot discover arbitrary symmetries. Extending to a learnable symmetry detector is an important future direction. 
+
+Small-coefficient blind spot. All methods fail when |ξ∗ 
+
+> j
+
+| ≲ 0.05 · max k |ξ∗ 
+
+> k
+
+|. Fisher-KPP with 
+
+D = 0 .01 , 2D NS with ν = 0 .01 , and PDEBench Burgers with ν = 0 .01 [ 42 ] are examples. This blind spot is shared by SINDy, PDE-FIND, WSINDy, and EqOD. 
+
+KdV and KS at high noise. EqOD loses to the WSINDy reimplementation on KdV at σ ≥ 5% 
+
+and KS at 5% to 10% (Table 10). After the CV fold permutation fix to the WF-LASSO baseline in Section G, our patched WF-LASSO also has a higher mean than EqOD on KdV at 20% noise, with 
+
+0.887 ± 0.126 compared with 0.787 ± 0.129 (Table 3). The gap is 0.10 , below the larger standard deviation, so the KdV gap is a directional WF-LASSO advantage rather than a statistically meaningful win under the strict criterion in Section 3.2. STLSQ’s aggressive thresholding and the now correctly randomized CV are both more effective than LASSO with shuffled CV plus stability selection on KdV at high noise. 
+
+KdV–Burgers at extreme noise. At 20% , the Stage 4 residual fallback is triggered and EqOD reverts toward the WF-LASSO baseline. Under the patched pipeline, EqOD obtains F1 = 0 .383 ±
+
+0.173 , compared with WF-LASSO’s 0.427 ± 0.109 (Table 3). The gap is within statistical noise, but EqOD is no longer beating WF-LASSO here. Without the residual fallback, F1 collapses to 0.033 .
+
+Computational cost. The stability path adds 2 × to 4 × overhead (Table 14). Parallelization of the 50 LASSO runs would reduce the overhead. 
+
+Periodic boundary conditions. Spectral derivatives require periodic domains. 
+
+Explicit failure cases. Summarizing Tables 3, 8, 10, 21, and 20, Fisher-KPP obtains F1 ≈ 0.44 
+
+to 0.50 for EqOD and WF-LASSO at all noise levels, while PySINDy and WSINDy recover only partial support. KdV–Burgers at 20% noise falls back to WF-LASSO, with patched EqOD F1 
+
+= 0 .383 ± 0.173 and WF-LASSO F1 = 0 .427 ± 0.109 . KdV at 10% noise gives EqOD F1 
+
+= 0 .920 ± 0.103 and WF-LASSO F1 = 0 .960 ± 0.084 , within statistical noise. KdV at 20% noise gives EqOD F1 = 0 .787 ± 0.129 and WF-LASSO F1 = 0 .887 ± 0.126 , a directional WF-LASSO advantage after the CV fold permutation fix but still below the strict significance threshold used in Section 3.2. The FHN v-equation gives EqOD F1 = 0.500 and WF-LASSO F1 = 1.000 because stability selection removes true terms. The LV v-equation gives EqOD F1 = 0.333 and WF-LASSO F1 = 0.800 for the same reason. 2D Heat at 10% gives EqOD F1 = 0 .400 ± 0.490 and WF-LASSO F1 = 0.833 because the fallback threshold is not tight enough. 
+
+## L Supplementary Figures 
+
+This appendix collects visual diagnostics that support the quantitative tables and discussion in the main text. The figures are grouped by their role in the EqOD argument, namely stability-selection evidence, full benchmark behavior, extension datasets, pointwise reconstruction diagnostics, and selected-library sizes. 
+
+Stability-selection evidence. Figure 11 shows the empirical selection probabilities that drive the non-Galilean path. The Heat example illustrates the clean separation that makes stability selection effective under noise, while the React-Diff example shows that multi-term reaction-diffusion supports can still remain above the majority threshold. 
+
+Noise robustness across the full benchmark. Figure 12 extends the main-text noise curves from the representative Heat, Burgers, and KdV cases to all 8 scalar PDEs. It also shows that EqOD’s largest gains occur when library reduction removes unstable false positives, while the hard cases are small-coefficient or high-noise regimes discussed in Appendix K.7. 42 0 0.25 0.50 0.75 1.00 
+
+uxx 
+
+ux
+
+uxxx 
+
+u ⋅ ux
+
+u
+
+0 0.25 0.50 0.75 1.00 
+
+u
+
+u3
+
+uxx 
+
+u2
+
+uxFigure 11: Stability selection probability profiles. The left plot shows Heat at 10% noise, and the right plot shows React-Diff at 5% noise. Blue bars show terms retained by the majority threshold 
+
+ˆπ > 0.5, red bars show pruned terms, and the dashed red line marks ˆπthr = 0 .5.0
+
+0.5 
+
+1.0 
+
+Heat Burgers KdV Fisher-KPP 
+
+0 5 10 20 
+
+0
+
+0.5 
+
+1.0 
+
+Adv-Diff 
+
+0 5 10 20 
+
+KS 
+
+0 5 10 20 
+
+KdV-Burgers 
+
+0 5 10 20 
+
+React-Diff 
+
+Figure 12: F1 as a function of noise for all 8 PDEs with EqOD and three baselines. Curves show mean F1 over seeds. EqOD uses blue circles, WF-LASSO red squares, PySINDy 2.0 orange diamonds, and the WSINDy reimplementation green triangles. 0 1 2 3 4 5 6             
+
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> y
+> 2D Heat ( t= 0)
+> 0123456
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> y
+> 2D Adv-Diff ( tmid )
+> 0123456
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> y
+> 2D NS Vorticity ( tmid )
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 2
+> 1
+> 0
+> 1
+> 2
+
+Figure 13: 2D PDE solution fields for 2D Heat at t = 0 , 2D advection-diffusion at tmid , and 2D NS vorticity at tmid .
+
+Two-dimensional extension data. Figure 13 visualizes the fields used in the 2D extension experi-ments. These examples are included to clarify that the 2D tests involve qualitatively different spatial structure from the 1D benchmark, which helps explain why stability selection is less decisive in Table 20. 43 0 1 2 3 4 5 6                        
+
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> t
+> FitzHugh-Nagumo: u
+> 0123456
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> t
+> FitzHugh-Nagumo: v
+> 0123456
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> t
+> Lotka-Volterra: u(prey)
+> 0123456
+> x
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> t
+> Lotka-Volterra: v(predator)
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 1
+> 2
+> 3
+> 4
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+
+Figure 14: Coupled system solutions. FHN uses u as activator and v as inhibitor, while LV uses u as prey and v as predator. Spatiotemporal patterns show the reaction-diffusion dynamics. 0 1 2 3 4 5 6               
+
+> x
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> t
+> Observed ut
+> 0123456
+> x
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> t
+> Predicted ut(EqOD)
+> 0123456
+> x
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> t
+> Residual
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> Reconstruction: Burgers (clean data, EqOD coefficients)
+
+Figure 15: Reconstruction comparison for Burgers on clean data. The finite-difference estimate of ut
+
+is noisy near the shock, while the identified equation predicts ut = −u · ux + 0 .1uxx using spectral derivatives. The pointwise residual near the shock is dominated by finite-difference estimation error, not by the identified equation. This reconstruction illustrates why EqOD uses the weak form, which avoids pointwise ut estimation, rather than pointwise fitting. 
+
+Coupled reaction-diffusion data. Figure 14 shows the spatiotemporal patterns behind the FHN and LV coupled-system results. The richer multi-species dynamics lead to higher support ratios than the 1D scalar benchmark, matching the coupled-system limitation described in Appendix K.7. 
+
+Pointwise reconstruction diagnostic. Figure 15 contrasts the identified Burgers right-hand side with a finite-difference estimate of ut. The visible pointwise residual near the shock is a diagnostic for derivative-estimation noise, not evidence of an incorrect support, and motivates the weak-form regression used throughout EqOD. 44 0 5 10 20 
+
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> Selected size
+> Heat
+> Burgers
+> KdV
+> Fisher-KPP
+> Adv-Diff
+> KS
+> KdV-Burgers
+> React-Diff
+
+Figure 16: Library size selected by EqOD across noise levels. Galilean PDEs, namely Burgers, KdV, KS, and KdV–Burgers, use the symmetry-reduced library with 6 to 7 terms. Non-Galilean PDEs use stability-selected libraries that shrink under noise. For example, Heat uses 1 term at 5% noise and above. 
+
+Selected-library sizes. Figure 16 summarizes which reduction mechanism is active across noise levels. The fixed 6- to 7-term libraries indicate the symmetry path, while the smaller noise-dependent libraries show stability selection adapting to non-Galilean PDEs such as Heat. 45

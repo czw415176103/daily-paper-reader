@@ -149,6 +149,18 @@ https://<你的用户名>.github.io/daily-paper-reader
 如果你在本机开发，不想点击按钮后触发 GitHub Actions，可以启动本地调试后端：
 
 ```bash
+scripts/bootstrap_local.sh
+```
+
+这个脚本会自动创建 `.venv`、安装 `requirements.txt`、按需从 `.env.example` 生成 `.env`，然后启动本地后端。启动完成后访问：
+
+```text
+http://127.0.0.1:8000
+```
+
+如果你已经准备好了 Python 环境，也可以只启动后端：
+
+```bash
 scripts/local_debug.sh
 ```
 
@@ -158,10 +170,10 @@ scripts/local_debug.sh
 python src/local_debug_server.py --host 127.0.0.1 --port 8000
 ```
 
-然后访问：
+如果需要跳过依赖安装，可以使用：
 
-```text
-http://127.0.0.1:8000
+```bash
+DPR_SKIP_INSTALL=1 scripts/bootstrap_local.sh
 ```
 
 在 `localhost / 127.0.0.1` 页面里点击“触发工作流”时，前端会自动调用本地后端 `/api/local/workflows/dispatch`，把 `daily-paper-reader.yml`、`conference-paper-retrieval.yml` 等映射为本地 Python 子进程执行，不会上 GitHub，也不会要求启用 Actions。运行日志会显示在工作流面板里，并保存在 `.local-runs/`。

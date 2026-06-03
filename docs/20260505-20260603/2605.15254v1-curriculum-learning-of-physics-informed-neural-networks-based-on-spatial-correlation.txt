@@ -1,0 +1,647 @@
+Title: Curriculum Learning of Physics-Informed Neural Networks based on Spatial Correlation
+
+URL Source: https://arxiv.org/pdf/2605.15254v1
+
+Published Time: Mon, 18 May 2026 00:06:19 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Curriculum Learning of Physics-Informed Neural Net-works based on Spatial Correlation 
+
+Xujia Chen *, Xinyue Hu, Letian Chen, Daming Shi and Wenhui Fan 
+
+Department of Automation, Tsinghua University, Beijing 100084, P.R. China 
+
+Abstract. Physics-Informed Neural Networks (PINNs) combine deep learning with physical constraints for solving partial differential equations (PDEs), and are widely applied in fluid mechanics, heat transfer, and solid mechanics. However, PINN train-ing still suffers from high-dimensional non-convex loss landscapes, imbalanced multi-objective constraints, and ineffective information propagation. Existing curriculum learning and causality-guided strategies improve training stability, but mainly focus on temporal or parametric progression, lacking explicit treatment of spatial informa-tion propagation and inter-region consistency. Moreover, they are not directly applica-ble to boundary value problems (BVPs) with strong spatial coupling. To address this issue, we propose a spatially correlated curriculum learning framework for PINNs. To the best of our knowledge, this is the first work to address PINN training difficul-ties from the perspective of spatial coupling among subregions. First, spatial causal weights guide information from near-boundary regions inward, reducing optimiza-tion failures and spurious convergence. Second, a low-frequency information bridge enforces pseudo-label-based consistency across spatially separated regions, suppress-ing global low-frequency drift. Third, a region-adaptive reweighting strategy adjusts subregion losses to reduce local residuals and recover high-frequency details. Experi-ments on PDE benchmarks show that, under comparable computational cost, the pro-posed method alleviates training failures and improves solution accuracy. The code is available at https://github.com/pigofmomo/CurriculumLearningPINN .
+
+AMS subject classifications : 35Q68, 68T07, 65M99, 65N99 
+
+Key words : physics-informed neural networks (PINNs); curriculum learning; partial differential equations (PDEs); spatial correlation. 
+
+# 1 Introduction 
+
+The evolution of many physical systems in nature is typically described by partial differ-ential equations (PDEs). However, in practical engineering and scientific computations, 
+
+> ∗
+
+Corresponding author. Email addresses: chenxj20@mails.tsinghua.edu.cn (X. Chen) http://www.global-sci.com/ Global Science Preprint 
+
+> arXiv:2605.15254v1 [cs.LG] 14 May 2026 2
+
+PDEs often exhibit characteristics such as strong nonlinearity, multi-scale phenomena, and complex geometries, making the efficient and accurate solution of these equations one of the central challenges in simulations. Traditional numerical methods (such as fi-nite differences, finite elements, and finite volumes) typically require fine grid discretiza-tion and complex preprocessing steps when solving PDEs [1] . This becomes especially problematic when dealing with high-dimensional problems, performing real-time pre-dictions, or solving inverse problems, where traditional methods often encounter severe computational and storage bottlenecks, leading to inefficiency. In recent years, AI-based PDE solving research has developed rapidly [2] . Physics-Informed Neural Networks (PINNs) [3] , as a PDE solving method that integrates deep learning with physical constraints, enable end-to-end fitting of the solution function. This approach avoids complex procedures such as explicit grid generation, and has the poten-tial to simultaneously address forward and inverse problems, perform parameter identi-fication, and facilitate scientific discovery [4] . As a result, PINNs have gained widespread attention and application in engineering fields such as fluid mechanics, heat transfer, solid mechanics, and electromagnetics [5] .The basic idea of PINNs is to use neural networks as a parametric representation of continuous functions. Specifically, PINNs typically use architectures such as multi-layer perceptrons (MLP) as the backbone network, mapping spatial-temporal coordinates and physical parameters to state variables. During the training phase, the PDE residual term is explicitly incorporated into the loss function, and the solution’s partial derivatives with respect to the inputs are computed using automatic differentiation, thus transforming the constraints imposed by the differential operators into an optimizable cost function. Sub-sequently, first- or second-order optimizers (such as Adam, L-BFGS, etc.) are employed to perform gradient descent on the network weights, enabling the network output to simultaneously satisfy the equation constraints and initial/boundary conditions. Despite the simplicity of this framework, its training process often faces significant difficulties [6–8] : in the absence of sufficient supervised data, the PDE operator tends to dominate the optimization direction of the solution within the domain. The PDE opera-tor terms often exhibit ”stiffness” characteristics, such as strong nonlinearity, multi-scale variations, and potential instability, leading to slow loss function convergence. At the same time, conflicts can arise between the PDE residual, boundary/initial value con-straints, and possibly data terms, making PINN training inherently a multi-objective optimization problem, further exacerbating optimization difficulties. Additionally, the overall loss landscape is highly non-convex, causing the model to easily get trapped in poor local minima or plateau regions, resulting in a long-term failure of error conver-gence. To address the aforementioned training failure issues, various improvement strate-gies have been proposed in recent years, with the core goal of reducing optimization dif-ficulties and improving the efficiency and accuracy of PINN solutions. One such strategy is curriculum learning [9] , which first trains the model on relatively simple tasks, such as smooth solutions, weak nonlinearity, or localized regions, and then gradually increases 3
+
+the difficulty by introducing high-frequency components, stronger advection/reaction effects, more complex boundary conditions, or denser sampling. This progressive train-ing process provides a clearer optimization path and reduces the likelihood of conver-gence to poor local minima. Another important approach is causality-guided training [10] :for PDEs with explicit temporal causality (such as transient problems where information propagates over time), sequential constraints or staged progression are applied in the time dimension, making the model prioritize fitting the solution at earlier time steps and gradually extend to later time steps, avoiding ”incorrect propagation” caused by violat-ing causality. In addition, existing studies have improved PINNs from multiple perspectives. Weight adjustment dynamically balances different loss terms to mitigate multi-objective conflicts [8] ,adaptive sampling refines collocation points in high-residual regions to better capture lo-cal details [11] , and improved optimizers and training strategies enhance optimization stability and convergence [12] . Structural priors further strengthen the representation of multi-scale features [13] . Moreover, domain decomposition splits a complex PDE into lo-cal subproblems for collaborative learning [14] ; related efforts also combine temporal de-composition with numerical solvers to accelerate subdomain convergence [15] , incorpo-rate finite-volume-style local conservation residuals to improve fine-scale accuracy [16] ,and introduce extra correlation or penalty terms to better coordinate competing objectives [17] .However, existing PINN improvement strategies, including curriculum learning and causality-guided training, still suffer from notable limitations. First, time-causality-guided methods rely on a unidirectional propagation structure along the temporal dimension. For many coupled PDE boundary value problems (BVPs), however, no such one-way causality exists; instead, the solution is primarily governed by spatial coupling and bound-ary constraints. As a result, time-stepping-based causal training paradigms are not di-rectly applicable. Second, existing curriculum learning methods usually organize train-ing according to task difficulty, such as from low to high frequency, from coarse to fine, or from local to global. Yet they generally do not explicitly account for spatial hetero-geneity of the solution, inter-region dependency, or information propagation pathways across the domain. Consequently, under strongly coupled spatial settings, they may still yield locally converged solutions that remain globally inconsistent. To address these limitations, this paper proposes a spatially correlated curriculum framework for PINNs, which guides the training process by explicitly considering spatial information propagation and inter-region consistency. Specifically: • We propose a spatially correlated curriculum learning framework that uses spatial causal weights to guide solution information from near-boundary regions toward the interior, promoting effective spatial information propagation while suppressing erroneous propagation. • We design an information bridge mechanism to enhance communication between mutually coupled or long-range correlated regions, encouraging consistent solution patterns in intermediate areas and reducing cross-region low-frequency drift. 4
+
+• We introduce a region-adaptive reweighting strategy based on regional PDE resid-uals and gradient contributions, which reduces local residuals and improves the recovery of high-frequency details. Extensive experiments demonstrate that the proposed framework improves both global consistency and local detail recovery, providing an effective new perspective for training PINNs on strongly coupled spatial PDE problems. 
+
+# 2 Related Works 
+
+2.1 Information Propagation Hypothesis 
+
+Beyond non-convex loss landscapes and loss-term imbalance, a growing line of work in-terprets PINN training through the information propagation hypothesis : correct solutions must effectively transmit constraint information from initial/boundary conditions into the interior to form a globally consistent field, yet this transmission can break down even when the overall loss decreases. Penwarden et al. systematically analyze this phe-nomenon and categorize propagation failure into three representative modes: zero solu-tion , where large interior regions collapse to near-trivial states and boundary information is not injected; no propagation , where inadequate constraints or poor sampling prevent boundary information from reaching the interior; and incorrect propagation , where local structures, strong coupling, or multi-scale stiffness block transmission and induce wrong solution forms in subregions, ultimately destroying global consistency. [18] Building on this view, Daw et al. show that propagation failure may manifest as interior residual bar-riers and can be diagnosed via highly imbalanced residual distributions (e.g., skewness and kurtosis), and they propose a 3R (retain–resample–release) strategy to mitigate it. [11] 
+
+Relatedly, Wang et al. frame time-domain extrapolation as sequential information prop-agation and introduce a gated parameter-space correction term to extend a pretrained solution from a short interval to a larger one. [19] 
+
+2.2 Curriculum Learning 
+
+Curriculum learning trains PINNs from easy to hard, letting the network fit simpler structures first and then progressively handle more complex ones, which stabilizes early optimization and reduces poor local minima. Some studies analyze failure mechanisms and show that PINNs are vulnerable to blocked information propagation and multi-objective conflicts, motivating curriculum or progressive training to improve conver-gence stability [6] . In terms of concrete designs, curricula have been constructed from a spatial-subdomain perspective by partitioning the domain into subregions, grouping PDE losses, and adaptively reweighting them based on residual magnitudes to ease si-multaneous global optimization [20] . Other works adopt a constraint-first and refinement-later strategy: the network is initialized with partial boundary conditions or easier PDE 5
+
+constraints, and then stricter constraints are gradually introduced to refine the solution [21] .Curricula can also be designed via data or sampling resolution (e.g., switching among multi-density point sets to learn low- and high-frequency components) [22] , or along the parameter dimension by progressively increasing parameter complexity with adaptive step control [23] . Finally, dynamic sampling strategies gradually expand the sampling distribution to improve global coverage and promote information propagation [24] . Asystematic comparison and analysis of curriculum learning, causality-guided training, and Fourier-feature-based methods has been provided in the literature [25] .
+
+2.3 Causality-guided Training 
+
+For transient PDEs with explicit time-causality structures, causality-guided methods use ”early-to-late” stepwise training to transform the global problem into a series of subprob-lems on time slices/windows, thus avoiding erroneous propagation due to causality vi-olations. PT-PINN performs time-local pretraining on a short window and then extends to the full horizon by parameter continuation with pseudo-supervision [26] . TsoNN mit-igates ill-conditioning via time stepping over successive time intervals [27] . Mattey et al. 
+
+progressively enlarge the time window, generate pseudo-labels on previously trained regions, and use transfer learning to adapt the model to newly added intervals [28] . Pen-warden et al. provide a unified view of causality-guided paradigms and propose an integrated framework to improve stability and applicability [18] . Related strategies fur-ther organize training by categorizing subregions as trained/being-trained/to-be-trained based on PDE loss and weighting profiles [29] . For long-time integration, dual-network or implicit-propagation ideas and sliding-window continuation have been explored to en-hance stability [30, 31] . In stiff or singularly perturbed settings, improving the accuracy of initial constraints and applying time-dependent reweighting (e.g., negative-exponential weights driven by accumulated error) can help suppress error growth [10, 32] .
+
+# 3 Method 
+
+In this section, we present the overall framework of the proposed method. As illustrated in Fig. 1, our approach extends the classical PINN paradigm by introducing a spatially correlated curriculum strategy for training over the computational domain. The whole framework is organized into a preparation step and two successive stages: distance-based domain layering, spatially correlated curriculum learning with an information bridge, and region-adaptive local reweighting. These components work together to guide the network from learning a globally consistent low-frequency structure to progressively recovering accurate local high-frequency details. 6Phase 2   
+
+> Distance based Layering
+> Phase 1 Preparation
+> Spatial Curriculum Learning Region-adaptive Reweighting
+> PDE Solution
+> PINN Model Curriculum Learning
+> causal weights
+> adaptive weights information bridge
+> pde loss distribution subdomains
+> distance from boundary
+
+Figure 1: Overview of the proposed method. The upper-left panel shows the classical PINN model. The proposed curriculum learning framework consists of three main parts. As a preparation step, the computational domain is partitioned into multiple subregions and further organized into distance-based layers from the boundary toward the interior. In the first phase, a spatially correlated curriculum is implemented by assigning causal weights to the PDE losses of different layers. Meanwhile, an information bridge based on a low-order fitting function is introduced to capture the global low-frequency component. In the second phase, a region-adaptive reweighting strategy is introduced to dynamically rebalance the PDE loss weights across subregions, so that insufficiently optimized regions receive appropriate training emphasis and local accuracy is further improved. Through these stages, the network progressively recovers the solution from a globally consistent low-frequency structure to accurate local high-frequency details. 7
+
+3.1 Spatial curriculum learning 
+
+For boundary value problems (BVPs), the solution is determined by appropriate and suf-ficient boundary conditions rather than by a strict temporal causality structure. For more details, one may refer to Appendix A, which discusses the mathematical classification of PDEs, their analysis from the perspective of physical propagation, and the characteristics of BVPs. In the absence of additional supervised data, PINNs can only determine the global solution by combining boundary conditions and PDE constraints. However, in many strongly coupled or nonlinear, multi-scale PDEs, boundary information is not automati-cally and consistently propagated into the domain during training: on one hand, a single boundary is often insufficient to uniquely determine the solution near it; On the other hand, the global solution structure is governed by the coupling between boundary con-ditions and PDE operators. As discussed in the related work, such coupling may make simultaneous optimization over the entire domain prone to poor local minima and inef-fective information propagation. To address this, we propose a spatial weak-causality constraint curriculum training strategy: by using soft constraints to reinforce the PDE residual constraints near the boundaries, we guide the network’s training focus to gradually move from the bound-aries inward, thereby reducing the overall optimization difficulty. 
+
+Layered Progression from Boundaries Inward. We divide the solution domain Ω into multiple discrete subregions and organize them into several layers according to their dis-tances to the boundary, as shown in Fig. 2, which illustrates the layered structures for both 1D and 2D solution domains. Intuitively, the network should first capture the solu-tion near the boundary, and then the training focus gradually extends to deeper regions. Unlike time-causality-guided methods, this approach does not require strict unidirec-tional causality propagation in space. Instead, we impose a weak spatial causality bias: learning begins at the outer layers and progressively moves inward. If the outer layers are not learned correctly, the inner layers are also likely to be inaccurate. Let ∂Ω denote the boundary of the domain. We first partition Ω into N discrete subre-gions, denoted by {Ωi}Ni=1. For each subregion Ωi, we define its distance to the boundary as 
+
+di = dist (Ωi,∂Ω), (3.1) where the distance can be evaluated, for example, by the minimum distance between Ωi
+
+and ∂Ω. Based on these distances, the subregions are grouped into L layers from the outer region to the inner region. In the 1D case, the interval is partitioned into several discrete subregions and grouped into three layers from the boundary to the center, while in the 2D case, the square domain is partitioned into multiple discrete subregions and organized into concentric layers ac-cording to their distances to the boundary. 8       
+
+> (a) 1D domain
+> (b) 2D domain
+> Figure 2: Boundary distance based layering in 1D and 2D domains. Here, ddenotes the discrete distance to the boundary, and both examples can be partitioned into three layers with d=0,1,2 .
+
+Cumulative negative exponential weighting Inspired by existing causality-guided PINN methods for time-dependent problems, directional solution fitting can be encouraged by introducing negatively exponentially decayed weights [10] .Specifically, the time domain is divided into multiple intervals, and the cumulative PDE loss is evaluated sequentially to adaptively adjust the causal weights distribution. As a result, later intervals are emphasized only after earlier ones have been sufficiently optimized, which helps prevent premature convergence in later intervals from interfering with the training of earlier ones. Based on this, we divide the domain Ω into L layers from the outer region to the inner region, and let Λj denote the set of sampling points in the j-th layer. The PDE loss associated with the j-th layer is defined as 
+
+L(j) 
+
+> PDE
+
+= 1
+
+Nj ∑
+
+> x∈Λj
+
+|N (uθ (x)) |2 , (3.2) where Nj =|Λj| is the number of sampled points in the j-th layer, uθ is the PINN approxi-mation, and N (·) denotes the PDE differential operator, whose derivatives are computed via automatic differentiation. To reflect the boundary-to-interior curriculum progression, we assign a dynamic weight 
+
+wi to the PDE loss of the i-th layer, such that the outer layers are emphasized at the early 9
+
+stage of training. A simple and effective choice is an exponentially decayed weight based on the accumulated residuals of the preceding outer layers: 
+
+wi = exp −ϵ
+
+> i−1
+
+# ∑
+
+> j=0
+
+L(j)
+
+> PDE
+
+!
+
+, (3.3) where ϵ > 0 is the decay parameter. This design has a clear gating effect: when the resid-uals in the outer layers remain large, ∑i−1 
+
+> j=0
+
+L(j) 
+
+> PDE
+
+is also large, which significantly sup-presses the weights of the i-th layer. Only after the outer layers gradually converge do the weights of the inner layers increase, allowing the training focus to progressively shift toward the interior regions. In this way, the proposed mechanism numerically realizes a weak causality process in which the outer layers are fitted first and the inner layers are learned progressively afterward. Figure 3 illustrates the distributions of the causal weights and PDE losses for the 1D and 2D cases.    
+
+> (a) 1D domain (b) 2D domain
+> Figure 3: Causal-weight and subregional PDE-loss distributions in the 1D and 2D cases. The causal weights decrease from the boundary toward the interior and are adaptively adjusted according to the PDE-loss distribution across subregions.
+
+The final weighted PDE loss is written as 
+
+LPDE =
+
+> L−1
+
+# ∑
+
+> i=0
+
+wiL(i)
+
+> PDE
+
+, (3.4) and it is combined with the boundary condition loss LBC (and possibly data loss Ldata )to form the total objective: 
+
+L = λBC LBC +λdata Ldata +LPDE . (3.5) 
+
+3.2 Information Bridge 
+
+In boundary value problems (BVPs), the global solution structure is usually shaped by the joint effect of multiple boundary conditions rather than by any single boundary alone. 10 
+
+As a result, accurately fitting local boundary regions does not necessarily ensure global consistency. The solution patterns induced by different boundaries must be coordinated within the interior domain through the governing PDE. However, during PINN training, inaccurate approximations in the intermediate re-gions may weaken the effective coupling of boundary-induced solution structures, par-ticularly in regions with high-frequency oscillations or persistent local residuals. This can create an information barrier that prevents boundary constraints from being consis-tently reconciled across the domain. Consequently, the learned solution may suffer from inconsistent cross-region fitting and pronounced low-frequency drift, including shifts in the overall trend, baseline errors, and phase or amplitude deviations, even when local residuals are reduced. To mitigate this issue, we design a low-frequency information bridge mechanism: by using a few sparse anchor points to extract reliable low-frequency components from the current network prediction, we impose a consistency constraint between distant bound-aries through a ”soft” connection, thus stabilizing the global structure early in training and reducing the risk of low-frequency drift, as shown in Fig. 4(a). 
+
+Low-order fitting with anchors. Let the current PINN prediction be uθ (x). We select a set of anchor points A = {xi}Ni=1, which are typically placed in the intermediate region or other key locations that connect different subregions, and perform a weighted fitting of the predicted values at these anchor points using low-order functions to extract the low-frequency component. For example, in the 1D case with a second-order polynomial basis, we define 
+
+ϕ(x) = [ 1, x, x2]⊤, ˆuLF (x;β) = ϕ(x)⊤ β. (3.6) The corresponding weighted least-squares estimate is 
+
+β∗ = argmin 
+
+> β
+> N
+
+# ∑
+
+> i=1
+
+αi
+
+
+
+ϕ(xi)⊤ β− ˆui
+
+2
+
+, (3.7) where ˆ ui = uθ (xi) denotes the network prediction at the anchor point xi, and αi is the weight associated with that anchor point. For the 2D case, higher-order polynomials or other low-frequency bases, such as cubic polynomials or radial basis functions, can be adopted in the same manner by extending ϕ(·) to two-dimensional basis functions. This procedure extracts a globally smooth trend from the current network predic-tion and uses it as a shared low-frequency prior across different regions, as illustrated in Fig. 4(b). Intuitively, when high-frequency errors remain significant in the intermediate regions, directly enforcing cross-region consistency through the PDE residual can be in-effective. In contrast, low-frequency trends are more stable and easier to learn, and thus provide a suitable consistency bridge between boundary-induced solution structures. 11    
+
+> (a) Low frequency drift (b) Low order fitting
+> Figure 4: Low frequency drift and weighted low order fitting. (a) shows the 1D ODE example used in the later experiments. In this case, the training process is dominated by the PDE loss, so the high-frequency structure of the solution is captured reasonably well, while a significant low-frequency drift still remains, as the solutions near the two boundaries fail to converge consistently to a globally compatible solution. (b) illustrates the weighted low-order fitting performed on a set of selected anchor points, yielding a function that represents the low-frequency component of the solution.
+
+Information bridge regularization using pseudo labels. After obtaining the low-frequency fitting function ˆ uLF , we introduce a low-frequency consistency loss over the bridge an-chors as a regularization term: 
+
+LLF = Ex∼A [uθ (x)− ˆuLF (x)] 2 , (3.8) where ˆ uLF (x) serves as a pseudo-label generated by the low-frequency fitting, and A
+
+denotes the anchor set introduced above. The total loss is then written as 
+
+Ltotal = LPDE +LBC +λLF LLF , (3.9) where λLF controls the strength of the information bridge. The loss term in Eq. (3.8) acts as a soft regularization constraint. It does not replace the PDE and boundary constraints, but instead provides stable low-frequency guidance during training, encouraging the network to establish a globally consistent baseline and a coherent slowly varying struc-ture across different subregions. The information bridge is mainly applied to regions that have not yet been sufficiently optimized by the curriculum training. Since the layered PDE weights are smaller in these regions, the corresponding pseudo-label weights are set to be larger. This complementary weighting scheme allows the low-frequency prior to provide additional guidance where the PDE residual constraint is still relatively weak. As training proceeds, the PDE weights of these regions gradually increase, and the role of the bridge is correspondingly reduced, so that the final solution is still primarily governed by the PDE and boundary constraints rather than by the pseudo-labels. The reason for referring to this mechanism as an information bridge is that the ex-tracted low-frequency trend provides a shared reference across spatially separated re-gions. When the PDE residual alone cannot yet establish consistent coupling between 12 
+
+distant boundaries, this shared low-frequency prior helps connect boundary-induced so-lution structures through the interior domain. By constraining the global baseline and slowly varying components of the solution, the bridge reduces low-frequency drift and improves cross-region consistency. It complements the spatial curriculum training in Section 3.1: the curriculum controls the boundary-to-interior training order, whereas the information bridge maintains low-frequency coherence across regions during early train-ing. 
+
+3.3 Region-adaptive Reweighting 
+
+After applying the spatial curriculum learning and the information bridge constraint in-troduced above, the PINN is generally less prone to training failure and can obtain a reasonably accurate solution. However, the optimization states of different subregions may still be highly unbal-anced. Although the first phase can produce a reasonably good global approximation, some regions may remain insufficiently optimized, especially those with strong high-frequency variations, complex boundary influences, or insufficient information propaga-tion. These regions may still exhibit large local PDE residuals and noticeable local errors. 
+
+Gradient-aware region-adaptive residual reweighting. The difficulty of optimizing these regions is not determined solely by the magnitude of their residuals. In some sub-regions, the PDE loss may remain relatively large, while the corresponding loss term produces only weak gradients with respect to the network parameters during training. Consequently, these difficult regions may receive insufficient effective updates despite their large residuals. To alleviate this issue, we introduce a gradient-aware region-adaptive reweighting mechanism that recalibrates the PDE residual weights by jointly considering the mag-nitude of the regional PDE loss and its corresponding gradient norm. Similar local reweighting strategies adjust regional weights according to local PDE residuals [20] , but they do not explicitly account for the gradient norm. Suppose that the solution domain is partitioned into N subregions {Ωi}Ni=1, and let 
+
+L(i) 
+
+> PDE
+
+denote the PDE loss evaluated on the i-th subregion. For each subregion, we com-pute the gradient norm of its PDE loss with respect to the network parameters: 
+
+Gi = ∇θ L(i)  
+
+> PDE 2
+
+=
+
+∑
+
+> ℓ
+
+∂L(i)
+
+> PDE
+
+∂θ ℓ
+
+> 22
+
+
+
+> 1/2
+
+, i = 1,..., N. (3.10) where θ = {θℓ}ℓ denotes all trainable parameters of the neural network. The quantity Gi
+
+measures how strongly the PDE loss in the i-th subregion contributes to the parameter updates. Motivated by the neural tangent kernel (NTK) perspective [8] , we use this gradi-ent norm as a practical indicator to quantify the influence of each regional residual on the 13 
+
+training dynamics. A smaller Gi suggests that the corresponding regional residual has a weaker effect on parameter updates, even when its loss magnitude remains large. We then define a regional difficulty score by combining the PDE loss magnitude and the gradient norm: 
+
+si = log 
+
+
+
+L(i) 
+
+> PDE
+
++ε
+
+
+
+−λg log (Gi +ε), i = 1,..., N, (3.11) where ε > 0 is a small constant for numerical stability, and λg ≥ 0 controls the relative contribution of the gradient-norm term. When λg = 0, the score is determined only by the regional PDE loss, and the reweighting mechanism mainly emphasizes high-residual regions. As λg increases, the score assigns greater importance to regions with weaker gra-dient contributions. Therefore, regions with large PDE losses and small gradient norms receive larger difficulty scores, indicating that they are both poorly fitted and insuffi-ciently optimized. The regional coefficients are obtained by mapping the difficulty scores into a bounded interval: 
+
+ρi = Φ(si), Φ : R → [ρmin ,ρmax ], (3.12) where 0 < ρmin < ρmax are prescribed constants. The mapping Φ(·) is chosen to be mono-tone nondecreasing, so that larger difficulty scores lead to larger regional weights. In practice, Φ(·) can be implemented by min–max normalization followed by linear rescal-ing: ˜si = si −min j sj
+
+max j sj −min j sj +ε , ρi = ρmin +( ρmax −ρmin )˜si. (3.13) This bounded mapping prevents excessive disparities among regional weights and im-proves the stability of the adaptive reweighting process. For example, the interval [ρmin ,ρmax ]
+
+can be set to [1,5 ].Based on these regional coefficients, the adaptively weighted PDE loss is defined as 
+
+Ladapt PDE = 1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+ρi L(i)
+
+> PDE
+
+. (3.14) In this way, the proposed strategy does not merely emphasize regions with large residu-als. Instead, it dynamically rebalances the training process by assigning greater weights to regions that are both difficult to fit and insufficiently influential in the parameter-update dynamics. A representative example is shown in Fig. 5, where the PDE loss, gradient norm, and corresponding loss weight of each subregion are visualized. 
+
+# 4 Experiment 
+
+The experiments were conducted in a Linux environment equipped with an NVIDIA RTX 5090 GPU (32 GB) and an Intel Xeon Gold 6348 processor with 128 GB of memory, using Python libraries including PyTorch, NumPy, and DeepXDE. 14   
+
+> Figure 5: Illustration of the region-adaptive reweighting mechanism. Adaptive regional weights, PDE losses, and gradient magnitudes across subregions. The proposed strategy assigns larger weights to regions with large residuals but weak gradient effectiveness.
+
+In this study, we compared the proposed PINN with spatially correlated curriculum training (PINN-C) against the classical PINN model. We consider one ODE example as an introductory pedagogical case, together with three representative PDE problems. All models were trained using the same network architecture, the same number of sampling points, and the same optimizer settings (the detailed hyperparameters are provided in Appendix C). In the first phase, causal weights and a low-frequency information bridge were introduced to facilitate information propagation across the domain. In the second phase, region-adaptive reweighting was further incorporated to improve the accuracy of the final solution. Here, PINN-C1 denotes the Phase-I-only variants, with PINN-C1(with bridge) and PINN-C1(w/o bridge) indicating whether the information bridge is used. PINN-C2 denotes the full method using both Phase I and Phase II. Each experiment is repeated three times with different random seeds. The models are optimized sequentially using Adam and LBFGS. Intermediate results are recorded at fixed intervals, based on which the training weights are adjusted and the low-frequency fitting function is updated. The collocation points are uniformly distributed over the do-main. To evaluate the model performance, we analyzed both the training loss curves and the test error curves, using metrics including the mean squared error (MSE), L2 relative error, maximum absolute error, and average PDE residual. In addition, we visualized the absolute error and its spatial distribution over the domain. The test data used for valida-tion were either generated from analytical solutions or obtained from COMSOL solvers. Four types of PDE problems were considered in the experiments, and their detailed math-ematical formulations are provided in Appendix B. The code has been publicly released at https://github.com/pigofmomo/CurriculumLearningPINN .
+
+4.1 1D ODE 
+
+This problem serves as an introductory pedagogical example, from which the proposed spatial curriculum learning strategy was first motivated, analyzed, and validated. It con-siders a one-dimensional ODE with Dirichlet boundary conditions imposed at both end-15 
+
+points. The differential operator contains both an exponentially growing term and an oscillatory term. Through a careful construction, the problem admits an analytical so-lution. We consider two variants, corresponding to low-frequency and high-frequency settings. For the curriculum design, the domain is partitioned into five subregions, which are further organized into three layers from the boundary toward the interior. Due to the limitations of network capacity and sampling density, we do not further apply region-adaptive reweighting to improve local accuracy in this example. Under the current con-figuration, the obtained accuracy is already satisfactory and is close to the performance limit of the model setup. The quantitative results over multiple runs are reported in Ta-ble 1. 
+
+Table 1: Quantitative results for 1D ODE problems under low- and high-frequency settings.                               
+
+> Frequency Method PDE Residual L2Relative Error Max Abs Error MSE Low PINN (default BC weight) (9.22 ±5.83 )×10 0(1.52 ±0.09 )×10 0(1.06 ±0.06 )×10 0(3.76 ±0.44 )×10 −1
+> PINN (strong BC weight) (2.27 ±1.57 )×10 2(6.85 ±4.45 )×10 −1(5.77 ±3.74 )×10 −1(1.08 ±0.76 )×10 −1
+> PINN-C1 (w/o bridge) (7.05 ±3.22 )×10 0(5.70 ±0.58 )×10 −2(5.16 ±0.62 )×10 −2(5.34 ±0.01 )×10 −4
+> High PINN (strong BC weight) (1.60 ±1.13 )×10 3(6.78 ±4.56 )×10 −1(1.21 ±0.82 )×10 0(4.08 ±2.88 )×10 −1
+> PINN-C1 (w/o bridge) (6.45 ±6.70 )×10 1(1.47 ±1.01 )×10 0(1.82 ±1.31 )×10 0(1.94 ±2.06 )×10 0
+> PINN-C1 (with bridge) (1.75 ±0.45 )×10 0(3.50 ±0.08 )×10 −2(7.07 ±0.14 )×10 −2(7.49 ±0.03 )×10 −4
+
+Low frequency case. We first consider the classical PINN with the default PDE loss weight set to 1, and the result is shown in Fig. 6(a). Although the high-frequency struc-ture in the middle region is partially fitted, the overall solution is incorrect because the boundary conditions at both endpoints are not satisfied. This failure can be attributed to the dominance of the PDE loss during training, while the BC constraint receives in-sufficient emphasis because of its relatively small weight. As shown by the loss curves in Fig. 6(b), although the PDE loss decreases throughout training, the BC loss fails to converge. This observation further highlights that satisfying the boundary conditions is essential for recovering the correct solution. We then consider a PINN with a strong boundary constraint, where a large BC weight of 100 is applied, and the result is shown in Fig. 6(c). However, the model instead con-verges to a trivial zero solution, indicating a failure of information propagation. Al-though the boundary conditions are enforced, the PDE loss remains difficult to optimize because of its stiffness, preventing the boundary information from propagating into the interior, as reflected in Fig. 6(d). Next, we introduce the proposed spatial curriculum learning strategy using only the causal weights, without the information bridge at this stage. The result, shown in Fig. 6(e), successfully recovers the correct solution. The loss curves in Fig. 6(f) further show that all terms can gradually converge during training. This demonstrates that the introduction of causal weights can effectively guide information propagation, reduce the optimization difficulty, and alleviate the conflict between the boundary loss and the PDE 16 
+
+(a) (b) 
+
+(c) (d) 
+
+(e) (f) 
+
+Figure 6: Results for the low-frequency 1D ODE case. (a)(b) Classical PINN with the default loss weights, where the PDE loss dominates and the boundary conditions are not satisfied. (c)(d) PINN with a strong BC weight, which collapses to a trivial zero solution due to failed information propagation. (e)(f) PINN-C1 with causal weights only, which successfully guides boundary information into the interior and recovers the correct solution. 17 
+
+loss. As shown in Table 1, the quantitative accuracy of PINN-C1 (w/o bridge) is substan-tially better than that of the two preceding methods. 
+
+High frequency case. We increase the exponential growth rate and the sinusoidal oscil-lation frequency to construct a high-frequency case for further investigation. In this set-ting, the oscillatory behavior becomes more pronounced and the PDE operator exhibits stronger stiffness. We first consider the PINN with a strong BC weight of 1000. As shown in Fig. 7(a), the model again converges to a trivial zero solution, indicating a failure of information propagation. Although the BC loss is reduced to a very small value, the PDE loss remains difficult to optimize (see Fig. 7(b)). Next, we incorporate causal weights into the proposed spatial curriculum learning framework, assigning larger weights to regions near the boundaries and smaller weights to interior regions, as illustrated in Fig. 8(a). With this design, the high-frequency oscil-lation in the middle region can be partially recovered, as shown in Fig. 7(c). However, the solution near the two boundary regions is still not correctly fitted. Moreover, because the boundary information cannot effectively propagate across the intermediate region to reach a globally consistent solution, a large low-frequency drift is eventually produced. The loss curves in Fig. 7(d) show that, although all loss terms can be optimized to some extent, they still cannot decrease to sufficiently low levels, indicating that the training becomes trapped in a poor local minimum. Therefore, it is necessary to introduce the information bridge proposed in our method. Specifically, we use a second-order polynomial to fit the predicted values at a set of an-chor points during training, thereby constructing a low-frequency surrogate and gener-ating pseudo-labels (see Fig. 8(b)). This surrogate is then incorporated as a regularization term to pull back the low-frequency drift. The resulting solution, shown in Fig. 7(e), achieves high fitting accuracy. The loss curves in Fig. 7(f) further confirm that all loss components can be optimized to satisfactory levels. 
+
+4.2 2D Poisson Equation with High Frequency Centers 
+
+This case considers a standard two-dimensional Poisson equation, which is a represen-tative diffusion-dominated problem. Starting from an original globally smooth low-frequency source term, we further introduce four localized high-frequency components to increase the complexity of the solution structure. Each high-frequency component is confined to a limited spatial region through a Gaussian window function, so that the resulting source term exhibits both global low-frequency variation and local high-frequency perturbations. The solution near these local centers has a relatively large mag-nitude and varies rapidly, which makes the PDE operator locally stiff in these regions. Therefore, this case provides a suitable benchmark for testing the proposed method, par-ticularly its ability to handle locally stiff regions while preserving the overall solution structure. 18 
+
+(a) (b) 
+
+(c) (d) 
+
+(e) (f) 
+
+Figure 7: Results for the high-frequency 1D ODE case. (a)(b) PINN with a strong BC weight, which reduces the BC loss but collapses to a trivial zero solution due to failed information propagation. (c)(d) PINN-C1 without the information bridge, which recovers the main solution structure but still exhibits low-frequency drift. (e)(f) PINN-C1 with the information bridge, which suppresses low-frequency drift and improves global consistency, leading to a more accurate solution. 19     
+
+> (a) (b)
+> Figure 8: Illustration of the training process for the high-frequency 1D ODE case. (a) Boundary-to-interior causal weighting. (b) Sampled anchor points and the fitted second-order polynomial used in the information bridge.
+
+The computational domain is partitioned into a 5 ×5 grid of subregions, which are further grouped into three layers from the boundary toward the interior. The BC weight is set to 10,000. The quantitative results are reported in Table 2. The standard PINN exhibits large prediction errors, and its PDE loss remains difficult to optimize, resulting in convergence to an incorrect solution. In contrast, PINN-C1 effectively alleviates the training difficulty and captures the main solution structure. The information bridge fur-ther suppresses low-frequency drift and improves global consistency, leading to a clear improvement in prediction accuracy. With additional local region reweighting, PINN-C2 achieves a modest further improvement in convergence accuracy.                      
+
+> Table 2: Quantitative results for the 2D Poisson Equation with High Frequency Centers.
+> Method PDE Residual L2Relative Error Max Abs Error MSE PINN (1.071 ±0.0001 )×10 3(7.85 ±0.01 )×10 −1(4.89 ±0.01 )×10 0(3.98 ±0.01 )×10 −1
+> PINN-C1(w/o bridge) (9.49 ±3.65 )×10 0(1.40 ±1.84 )×10 −1(2.67 ±2.77 )×10 −1(3.43 ±4.84 )×10 −2
+> PINN-C1(with bridge) (7.70 ±0.99 )×10 0(1.78 ±0.87 )×10 −2(5.41 ±0.03 )×10 −2(2.53 ±2.25 )×10 −4
+> PINN-C2 (7.41 ±1.00 )×10 0(1.05 ±0.35 )×10 −2(5.16 ±0.27 )×10 −2(7.93 ±5.32 )×10 −5
+
+Figure 9 provides a visual comparison of the solution results. As shown in Fig. 9(a), the classical PINN mainly captures the low-frequency component of the solution, while the PDE loss associated with the localized high-frequency structures remains difficult to reduce. This behavior is also reflected in the loss curves in Fig. 9(b), where the second-stage L-BFGS optimization terminates early due to poor convergence. As a result, the predicted solution fails to recover the localized high-frequency details. In contrast, PINN-C1 without the information bridge can better fit the high-frequency structures. However, it may still suffer from low-frequency drift, leading to an inaccu-rate global solution profile, as shown in Fig. 9(c)(d). After incorporating the information bridge and region-adaptive reweighting, the proposed PINN-C2, shown in Fig. 9(e), not only recovers the global solution structure but also preserves the local high-frequency de-tails more accurately. Throughout the optimization process, except for the initial warm-up stage, both the PDE loss and the BC loss decrease steadily to low levels, as shown in 20 
+
+Fig. 9(f).       
+
+> (a) (b)
+> (c) (d)
+> (e) (f)
+> Figure 9: Results for the PoissonHF case. (a)(b) The classical PINN captures only the low-frequency com-ponent and fails to resolve localized high-frequency details. (c)(d) PINN-C1(w/o bridge) recovers the main solution structure but exhibits low-frequency drift. (e)(f) PINN-C2 accurately recovers both the global struc-ture and local details, with stable convergence of the PDE and BC losses.
+
+The intermediate training snapshots of the proposed method are shown in Fig. 10. In Phase I, the curriculum strategy guides information propagation from the boundary to-ward the interior. Accordingly, the outer-layer regions are assigned larger weights, even though some interior subregions may exhibit relatively large PDE losses, as illustrated in Fig. 10(a). Figure 10(b) shows the result of the information bridge, where a quadratic two-dimensional polynomial is fitted to the anchor points. In Phase II, the local weights are further adjusted according to the PDE loss levels and gradient norms in different re-gions, allowing the training process to focus more effectively on high-error regions that receive insufficient gradient updates, as shown in Fig. 10(c). 21    
+
+> (a) (b)
+> (c)
+> Figure 10: Intermediate training process for the PoissonHF case. (a) Phase-I causal weighting from the boundary toward the interior. (b) Information bridge constructed from anchor points using a two-dimensional quadratic polynomial. (c) Phase-II adaptive local reweighting based on regional PDE losses and gradient norms.
+
+4.3 2D Advection-Diffusion-Reaction Equation 
+
+This case considers a two-dimensional advection-diffusion-reaction (ADR) equation. Com-pared with purely diffusion-dominated problems, the ADR system exhibits richer phys-ical behavior and more challenging training dynamics, since the solution is jointly influ-enced by directional advection, local smoothing, and spatially varying reaction effects. From the training perspective, the coexistence of advection, diffusion, and reaction makes the PDE residual more difficult to optimize than in simpler elliptic cases. In particular, the advection term introduces a preferred transport direction for in-formation propagation, while the diffusion term tends to smooth the solution and the reaction term further modifies the local amplitude and stiffness of the operator. There-fore, this case serves as a useful benchmark for testing whether the proposed spatial curriculum learning framework can guide information propagation more effectively and improve the fitting of locally difficult regions. The computational domain is divided into a 5 ×5 array of subregions and further organized into three layers from the boundary toward the interior. The BC weight is fixed at 10,000, and the quantitative results are summarized in Table 3. Although this ADR case involves multiple coupled physical processes, the analytical solution is not particularly complex, as some terms are partially canceled by construction. As a result, this case does not exhibit the severe loss stagnation, training failure, or low-frequency drift observed in more challenging examples. Even in this relatively moderate setting, the quantitative results still demonstrate the overall effectiveness of the proposed 22 
+
+framework. Compared with the standard PINN, all proposed variants achieve a clear reduction in the PDE residual. Among them, PINN-C1(with bridge) obtains the lowest PDE residual, whereas PINN-C2 achieves the best performance across all prediction error metrics. These results suggest that the proposed framework can still provide beneficial effects for PDE problems involving multiple interacting physical mechanisms.                      
+
+> Table 3: Quantitative results for the 2D Advection-Diffusion-Reaction Equation.
+> Method PDE Residual L2Relative Error Max Abs Error MSE PINN (4.894 ±0.483 )×10 −1(7.82 ±0.73 )×10 −3(2.48 ±0.41 )×10 −2(1.53 ±0.29 )×10 −5
+> PINN-C1(w/o bridge) (3.480 ±0.521 )×10 −1(6.70 ±1.70 )×10 −3(2.22 ±1.01 )×10 −2(1.18 ±0.59 )×10 −5
+> PINN-C1(with bridge) (3.477 ±0.835 )×10 −1(6.32 ±2.35 )×10 −3(2.58 ±1.47 )×10 −2(1.12 ±0.83 )×10 −5
+> PINN-C2 (3.495 ±0.364 )×10 −1(5.71 ±0.27 )×10 −3(1.56 ±0.17 )×10 −2(8.08 ±0.75 )×10 −6
+
+Figure 11 shows the visual comparison of the solution results for the 2D advection-diffusion-reaction equation. Unlike the previous cases, this problem does not suffer from severe training failure; the main difference between the methods is instead reflected in their final prediction accuracy. As shown in Fig. 11(a), the classical PINN already cap-tures the overall solution structure, but its accuracy is still limited, especially in local regions. For ease of comparison, the quantitative metrics are included directly in the figure caption. Overall, PINN-C2 achieves better quantitative performance, including lower MSE, relative L2 error, maximum absolute error, and PDE residual. As shown in Fig. 11(c), PINN-C2 further improves the solution accuracy and local detail reconstruc-tion. As shown in Fig. 11(d), the proposed method achieves a lower final loss than the baseline PINN, indicating more effective optimization. Figure 12 shows several intermediate snapshots of the proposed training process. In Phase I, the curriculum strategy progressively propagates information from the bound-ary toward the interior. At the stage shown in Fig. 12(a), the outermost layer already has a relatively small PDE loss, allowing the middle layer to receive substantial emphasis with a weight of 0.97. By contrast, because some middle-layer subregions still have rel-atively large PDE losses, the innermost layer is assigned a smaller weight of 0.62 and is not yet strongly emphasized. Figure 12(b) illustrates the information bridge constructed by fitting a quadratic two-dimensional polynomial to the anchor points, which captures the low-frequency diffusion trend well. In Phase II, the local weights are further adapted according to the regional PDE losses and gradient norms. As shown in Fig. 12(c), the lower-left region exhibits a larger PDE loss but a smaller gradient norm, indicating insuf-ficient effective updates during training. It is therefore assigned a larger local weight, so that the optimization process can focus more effectively on this difficult region. 
+
+4.4 NS Equations for Lid-Driven Cavity Flow 
+
+This case considers the incompressible Navier–Stokes equations for the classical lid-driven cavity flow, a standard benchmark in computational fluid dynamics. The flow is defined in a closed square cavity, where the top boundary moves horizontally with a prescribed 23 
+
+(a) (b) 
+
+(c) (d) 
+
+Figure 11: Results for the 2D advection–diffusion–reaction equation. (a)(b) Classical PINN, which shows limited PDE-loss convergence and relatively large prediction errors: MSE = 1.9192 ×10 −5, L2 relative error 
+
+= 8.8126 ×10 −3, max absolute error = 2.1332 ×10 −2, and PDE residual = 5.2266 ×10 −1. (c)(d) PINN-C2, which improves both solution accuracy and convergence behavior: MSE = 7.0912 ×10 −6, L2 relative error 
+
+= 5.3567 ×10 −3, max absolute error = 1.3212 ×10 −2, and PDE residual = 2.9840 ×10 −1.
+
+(a) (b) 
+
+(c) 
+
+Figure 12: Intermediate training snapshots for the 2D advection–diffusion–reaction equation. (a) Phase-I curriculum weighting, with larger weights assigned to the outer and middle layers than to the inner layer. (b) Information bridge constructed from anchor points using a two-dimensional quadratic polynomial. (c) Phase-II region-adaptive reweighting, which assigns a larger local weight to the lower-left region with large PDE loss and weak gradient influence. 24 
+
+velocity profile depending on the horizontal coordinate, while the other three walls sat-isfy no-slip conditions. A pressure reference point is specified at the lower-left corner to fix the pressure. Driven by the moving lid, the fluid develops a recirculating flow pattern with a primary central vortex and possible secondary vortices near the corners. Physically, this problem reflects the interaction between advection and viscous dif-fusion in a confined domain. The Reynolds number is set to 100. The BC loss weights are set to 100. Therefore, this case provides a suitable benchmark for evaluating whether the proposed framework can capture both the global flow structure and the localized high-gradient regions in a coupled nonlinear PDE system. The quantitative results are reported in Tables 4 and 5. Compared with the standard PINN, PINN-C1 brings only limited improvement, and the use of causal weights alone even slightly degrades some metrics. However, PINN-C1(with bridge) performs better than PINN-C1(w/o bridge), showing that the information bridge helps improve solution consistency. With the Phase-II region-adaptive reweighting, PINN-C2 achieves the best perfor-mance in all metrics except the maximum absolute error of pressure. The improvement is especially evident for the velocity components, indicating that local adaptive reweight-ing plays a more important role in this case. This suggests that, even without severe train-ing stagnation or obvious optimization failure, the proposed framework can still improve the final converged accuracy by enhancing local detail reconstruction and global solution quality. 
+
+Table 4: Quantitative results for the NS equations: PDE residual and pressure-related metrics. 
+
+Method PDE Residual p L 2 Relative Error p Max Abs Error p MSE PINN (3.03 ±0.24 )×10 −2 (9.83 ±1.30 )×10 −2 (3.84 ±0.14 )×10 −1 (4.55 ±1.14 )×10 −4
+
+PINN-C1(w/o bridge) (3.18 ±0.44 )×10 −2 (1.13 ±0.25 )×10 −1 (3.81 ±0.19 )×10 −1 (6.20 ±2.55 )×10 −4
+
+PINN-C1(with bridge) (3.03 ±0.44 )×10 −2 (9.05 ±1.68 )×10 −2 (3.82 ±0.20 )×10 −1 (3.93 ±1.50 )×10 −4
+
+PINN-C2 (2.12 ±0.35 )×10 −2 (7.42 ±0.71 )×10 −2 (3.95 ±0.22 )×10 −1 (2.57 ±0.50 )×10 −4
+
+Table 5: Quantitative results for the NS equations: velocity-related metrics.                                     
+
+> Method u L 2Relative Error uMax Abs Error uMSE v L 2Relative Error vMax Abs Error vMSE PINN (7.09 ±1.41 )×10 −2(8.17 ±2.01 )×10 −2(7.45 ±2.85 )×10 −4(1.06 ±0.15 )×10 −1(1.02 ±0.15 )×10 −1(7.83 ±2.24 )×10 −4
+> PINN-C1(w/o bridge) (9.02 ±2.46 )×10 −2(1.02 ±0.29 )×10 −1(1.24 ±0.62 )×10 −3(1.33 ±0.35 )×10 −1(1.29 ±0.37 )×10 −1(1.30 ±0.62 )×10 −3
+> PINN-C1(with bridge) (6.44 ±1.61 )×10 −2(7.40 ±1.86 )×10 −2(6.28 ±3.21 )×10 −4(9.66 ±2.14 )×10 −2(9.38 ±2.10 )×10 −2(6.74 ±3.07 )×10 −4
+> PINN-C2 (4.55 ±0.47 )×10 −2(5.33 ±0.74 )×10 −2(2.98 ±0.63 )×10 −4(6.66 ±0.65 )×10 −2(5.92 ±0.85 )×10 −2(3.08 ±0.61 )×10 −4
+
+As can also be observed from the visualizations in Fig. 13, the prediction results of the baseline PINN and PINN-C2 are generally close at the global level. Nevertheless, PINN-C2 still shows noticeable improvements in both overall accuracy and local detail reconstruction, with the main error metrics reduced by approximately 40%. Fig. 14 illustrates the training process of the proposed curriculum framework. In Fig. 14(a), larger causal weights are assigned to the upper region and the upper-right cor-ner, where the PDE loss has not yet fully converged. Even when the PDE loss in some interior regions is already small, the training is still guided to focus first on the outer 25 
+
+(a) (b) (c) 
+
+Figure 13: Prediction results for the incompressible Navier–Stokes equations in the lid-driven cavity flow case. (a) Reference solution. (b) Prediction results and absolute error distribution of the baseline PINN, which gives a PDE residual of 3.1058 ×10 −2 and L2 relative errors of 1.0454 ×10 −1, 7.0820 ×10 −2, and 1.0492 ×10 −1
+
+for p, u, and v, respectively. (c) Prediction results and absolute error distribution of PINN-C2, which reduces the PDE residual to 1.9113 ×10 −2 and the corresponding L2 relative errors to 6.7516 ×10 −2, 4.2435 ×10 −2, and 
+
+6.2153 ×10 −2.26 
+
+layer, so as to establish a more reliable boundary-induced solution structure. Fig. 14(b) shows the adaptive local reweighting in the second phase. Although the upper-left and upper-right regions both exhibit relatively large PDE losses and gradient norms, the joint assessment assigns the largest adaptive weight to the region slightly below the upper-right corner. This indicates that the proposed strategy emphasizes the region requir-ing stronger optimization based on both residual magnitude and gradient information. Fig. 14(c) presents the information bridge fitted by a third-order polynomial, where the three channels ( ch =0,1,2) correspond to the low-frequency structures of u, v, and p, re-spectively. The first channel captures the relatively large horizontal velocity near the upper boundary. The second channel, limited by the low polynomial order, does not fully reproduce the asymmetric distribution of the v-component. The third channel re-flects the low-frequency trend of the pressure field, with relatively large values near the upper-right corner.          
+
+> (a) (b)
+> (c)
+> Figure 14: Visualization of the proposed training strategy for the incompressible Navier–Stokes equations in the lid-driven cavity flow case. (a) Phase-I curriculum weighting, emphasizing the upper region and the upper-right corner to guide boundary-to-interior learning. (b) Phase-II adaptive local reweighting based on regional PDE losses and gradient norms, assigning the largest weight to the region slightly below the upper-right corner after their joint assessment. (c) Information bridge fitted from anchor points using a third-order two-dimensional polynomial, where ch =0, 1, and 2 correspond to the low-frequency structures of u,v, and p,respectively.
+
+# 5 Conclusion 
+
+This paper proposes a curriculum learning framework for PINNs from the perspective of spatial correlation, with a particular focus on coupled PDE boundary value problems. Unlike existing approaches that mainly rely on temporal causality or simultaneous global optimization, the proposed method reformulates the curriculum mechanism of PINNs as 27 
+
+a spatially progressive optimization process, consisting of boundary information propa-gation, cross-region consistency regularization, and gradual refinement of local details. To this end, three key components are introduced. First, spatial causal weights are introduced to impose a weak-causality constraint, guiding boundary information from near-boundary regions toward the interior and thereby reducing the difficulty of noncon-vex optimization as well as the conflict between the boundary loss and the PDE residual loss. Second, an information bridge mechanism is proposed to suppress low-frequency drift during cross-region training, thus improving the global consistency and stability of the learned solution. Third, a region-adaptive weighting strategy is developed to further enhance the fitting of locally high-frequency structures and difficult regions while pre-serving the overall propagation pattern. Experimental results demonstrate that the pro-posed framework can effectively improve the training behavior of PINNs across multiple cases, yielding clear gains in training stability, the effectiveness of information propaga-tion, and final prediction accuracy. This work also suggests several directions for future research. Because different PDEs exhibit distinct physical characteristics and optimization challenges, more physically adap-tive spatial curriculum strategies are needed for different problem types. Moreover, in-formation propagation in complex systems is often richer than a simple boundary-to-interior process, especially under strong advection, closed-loop flows, or multi-path cou-pling, calling for more general formulations of spatial weak causality. Extending the framework to irregular geometries, multiple boundaries, more general boundary condi-tions such as Robin boundary conditions, and insufficient boundary information is also an important direction. Future work will focus on these aspects to develop a more gen-eral and robust spatial curriculum learning approach for PINNs. 
+
+# Appendix A: Analysis of PDE Problem Characteristics 
+
+To discuss phenomena such as ”information propagation” and ”global coupling” in PINN training more clearly, this appendix summarizes the characteristic types of common PDEs from both mathematical and physical perspectives, and briefly explains the decisive role of different initial/boundary conditions on the solution [33] .
+
+A.1 PDE Types 
+
+From a mathematical perspective, second-order linear PDEs are classified based on the principal symbol quadratic form. The principal part consists of second-order derivatives, and depending on the definiteness or degeneracy of the corresponding quadratic form, PDEs are classified as elliptic, hyperbolic, or parabolic types [34] .. These classifications influence the solution’s coupling range, propagation mechanism, and characteristic di-rection. • Elliptic: Elliptic equations lack a temporal causal structure and clear propagation 28 
+
+direction. Their solutions exhibit global spatial coupling, meaning local distur-bances can affect the entire domain. They are common in steady-state diffusion and potential field problems, reflecting ”global constraints without explicit propa-gation.” • Hyperbolic: Hyperbolic equations have strong causality, with solutions propa-gating along characteristic lines or surfaces. These equations are associated with wave propagation and strong convective transport, where information is transmit-ted along the characteristic direction, focusing on ”propagation along the charac-teristics.” • Parabolic: Parabolic equations are ”weakly causal,” with solutions evolving in one direction, typically time, while diffusion smooths and weakens the information. The heat conduction equation is a typical example, where the solution advances over time and becomes increasingly diffused. This classification reveals a key fact: the information propagation structure of differ-ent PDEs is not consistent. Therefore, training strategies centered on ”causal progression” are often more natural for hyperbolic/parabolic equations, but extending this to elliptic equations or strongly coupled BVPs requires more careful design. 
+
+A.2 Physical Perspective 
+
+From a physical perspective, many engineering PDEs can be represented within the Advection-Diffusion-Reaction (ADR) framework [35] , where each term corresponds to distinct ”information dynamics,” influencing both the spatial/temporal structure of the solution and the associated learning challenges. • Transient vs. Steady-State: Transient problems evolve over time, moving from an initial to a steady state. Steady-state problems, however, are not time-dependent, and their solutions are determined by spatial constraints and source terms. For PINNs, transient problems naturally introduce time propagation, while steady-state problems emphasize global consistency constraints. • Advection Term: This term represents the ”transport” effect, transferring informa-tion along the flow direction, typically showing clear directionality and asymme-try. In advection-dominated cases, such as with high Peclet numbers, the solution exhibits strong directional characteristics and boundary layers, leading to poten-tial issues with ”insufficient propagation along the characteristic direction” during training. • Diffusion Term: This term represents ”mixing” and ”smoothing,” weakening gra-dients and diffusing high-frequency structures. As diffusion increases, the solution smooths out, and local disturbances become less significant. 29 
+
+• Reaction Term: Describes the local generation/consumption mechanism, affecting the growth or decay rate of the solution. When reaction dominates, the solution may localize or show rapid growth/decay, causing scale inconsistencies and lead-ing to ”local rigidity.” The three physical mechanisms of ADR are closely related to the mathematical clas-sification of PDEs. In complex problems, such as the Navier-Stokes equations [36] , they determine the solution’s multi-scale nature, peak/boundary layer structures, and infor-mation propagation patterns. These mechanisms also serve as an essential physical foun-dation for understanding the challenges in PINN training. 
+
+A.3 Boundary Conditions and Problem Forms 
+
+In addition to the equation type, the form of initial and boundary conditions directly determines the uniqueness of the solution and the mode of information input [37] :• Initial Value Problem (IVP): A typical evolution problem, where the solution is typically uniquely determined by the initial conditions, provided the evolution di-rection aligns with the equation type (e.g., parabolic or hyperbolic equations ad-vancing in time). In this case, information propagates primarily from the initial time onward. • Boundary Value Problem (BVP) and Initial-Boundary Value Problem (IBVP): 
+
+Constraint problems that require sufficient boundary conditions on spatial bound-aries (and possibly initial surfaces) to ensure the problem is well-posed. For elliptic and strongly coupled systems, boundary conditions often define the global solution shape. In such cases, information does not simply ”propagate in one direction”; in-stead, it reflects global consistency and coupling across regions. 
+
+# Appendix B: Mathematical Formulation of the PDEs 
+
+B.1 1D ODE 
+
+We consider a second-order boundary value problem (BVP) for a 1D ordinary differential equation (ODE) with the following formulations: d2y
+
+dx2 = eαx [g2(x)sin (kx )+ 2kg 1(x)cos (kx )] , x ∈ (0,1 ), (5.1) where g1(x) and g2(x) are given by: 
+
+g1(x) = 1−x−x2 +α(x−x2), (5.2) 
+
+g2(x) = −2+2α(1−2x)+( α2 −k2)( x−x2), (5.3) 30 
+
+with the boundary conditions: 
+
+y(0) = 0, y(1) = 0. (5.4) 
+
+Parameter Settings To investigate the effect of spatial frequency and stiffness, two con-figurations are considered: Low-frequency case: k = 10 π, α = 2.0, High-frequency case: k = 20 π, α = 3.0. 
+
+Exact Solution The analytical exact solution to the ODE is given by: 
+
+yexact (x) = x(1−x)eαx sin (kx ) (5.5) where α and k are the parameters defined in the respective low-frequency and high-frequency cases. 
+
+# B.2 2D Poisson Equation with High Frequency Centers 
+
+Consider a 2D Poisson equation where the solution consists of a global low-frequency term and high-frequency components centered at four specific locations. The problem is defined as follows: 
+
+−∆u(x,y) = f (x,y), (x,y) ∈ Ω, (5.6) where the domain Ω is: 
+
+Ω = ( 0,1 )×(0,1 ), (5.7) This problem uses Dirichlet boundary conditions, where the boundary values are given by the analytical solution: 
+
+u(x,y) = uexact (x,y), ∀(x,y) ∈ ∂Ω. (5.8) where uexact (x,y) denotes the analytical solution and ∂Ω denotes the boundary of the domain Ω.31 
+
+Exact Solution This case is one we constructed, and we define its analytical solution 
+
+u(x,y) as the sum of the low-frequency and high-frequency components: 
+
+uexact (x,y) = u0(x,y)+ up(x,y), (5.9) where the low-frequency part u0(x,y) is: 
+
+u0(x,y) = sin (πx)sin (πy), (5.10) and the high-frequency part up(x,y) is: 
+
+up(x,y) = 
+
+> M
+
+# ∑
+
+> m=1
+
+am Gm(x,y)S(x,y), M = 4, (5.11) with the function S(x,y) defined as: 
+
+S(x,y) = sin (kπx)sin (kπy), (5.12) and Gm(x,y) representing a Gaussian function centered at (cx,m,cy,m):
+
+Gm(x,y) = exp − (x−cx,m)2 +( y−cy,m)2
+
+σ2
+
+!
+
+. (5.13) 
+
+Parameter Settings The parameters used in the 2D Poisson equation are as follows: The frequency parameter is k and the width of the Gaussian functions is σ, given by: 
+
+k = 14, σ = 0.1, The centers of the Gaussians are located at: 
+
+{(cx,m,cy,m)}4 
+
+> m=1
+
+= {(0.30,0.30 ),(0.70,0.35 ),(0.55,0.75 ),(0.80,0.80 )},The coefficients am are: 
+
+(am)4 
+
+> m=1
+
+= ( 5.0,5.0,5.0,5.0 ).
+
+# B.3 2D ADR Equation 
+
+Consider the steady-state advection-diffusion-reaction (ADR) equation, which includes advection, reaction, and diffusion terms. The equation is given by: 
+
+−ν∆u(x,y)+ b(x,y)·∇ u(x,y)+ c(x,y)u(x,y) = f (x,y), (x,y) ∈ Ω, (5.14) 32 
+
+where the domain Ω is: 
+
+Ω = ( 0,1 )×(0,1 ), (5.15) The advection term b(x,y) is defined as: 
+
+b(x,y) = bx(x,y)
+
+by(x,y)
+
+!
+
+= β
+
+−(y−0.5 )
+
+x−0.5 
+
+
+
+, (5.16) The reaction term c(x,y) is: 
+
+c(x,y) = cmin +cmax exp 
+
+
+
+− (x−xc)2 +( y−yc)2
+
+σ2
+
+> c
+
+
+
+, (5.17) Dirichlet boundary conditions are given by: 
+
+u(x,y) = uexact (x,y), ∀(x,y) ∈ ∂Ω. (5.18) where uexact (x,y) denotes the analytical solution and ∂Ω denotes the boundary of the domain Ω.
+
+Exact Solution The solution u(x,y) we constructed is expressed as the sum of the low-frequency part ulow (x,y) and a perturbation term δ·upacket (x,y):
+
+uexact (x,y) = ulow (x,y)+ δ·,upacket (x,y), (5.19) The low-frequency part ulow (x,y) is: 
+
+ulow (x,y) = sin (πx)sin (πy), (5.20) The perturbation term upacket (x,y) is: 
+
+upacket (x,y) = exp 
+
+
+
+− (x−x0)2 +( y−y0)2
+
+σ2
+
+> u
+
+
+
+cos (kπx), (5.21) 
+
+Parameter Settings The parameters used in the 2D ADR equation are as follows: 
+
+ν = 10 −4, β = 100, k = 8, δ = 0.35, 
+
+(x0,y0) = ( 0.60,0.40 ), (xc,yc) = ( 0.65,0.35 ),
+
+σu = 0.12, σc = 0.10, cmin = 1, cmax = 10 4.33 
+
+# B.4 2D NS Equations for Lid-Driven Cavity Flow 
+
+Consider the steady-state Navier-Stokes (NS) equations for the 2D lid-driven cavity flow problem. There is no analytical solution for this problem, and the reference solution is obtained using COMSOL software. The problem is defined on the domain Ω as: 
+
+Ω = [ 0,1 ]×[0,1 ] (5.22) The steady-state Navier-Stokes equations are given by: 
+
+uu x +vu y + px − 1Re (uxx +uyy ) = 0, (x,y) ∈ Ω, (5.23) 
+
+uv x +vv y + py − 1Re (vxx +vyy ) = 0, (x,y) ∈ Ω, (5.24) 
+
+ux +vy = 0, (x,y) ∈ Ω. (5.25) The velocity boundary conditions are as follows: 
+
+u(x,1 ) = ax (1−x), v(x,1 ) = 0, x ∈ [0,1 ], (5.26) 
+
+u(x,y) = 0, v(x,y) = 0, (x,y) ∈ ∂Ω\{ y = 1}. (5.27) The pressure boundary condition is: 
+
+p(0,0 ) = 0. (5.28) 
+
+Parameter Settings The Reynolds number and lid velocity coefficient are solved set as: Re = 100, a = 8. 
+
+# Appendix C: Experimental Parameter Settings and Details 
+
+This section provides the detailed experimental parameters and configuration used through-out the experiments, including the setup for different cases, training parameters, and configurations for the reweighting strategy. 34 
+
+> Table 6: Parameter settings for Case B.1 under different frequency settings
+
+Parameter B.1 (low frequency) B.1 (high frequency) 
+
+Number of domain points 250 1000 Number of boundary points 2 2Learning rate 1×10 −3 1×10 −3
+
+Adam iterations 10000 10000 L-BFGS iterations 0 6000 Optimizer decay 2000, 0.9 2000, 0.9 Network width 100 100 Network depth 6 6
+
+> Table 7: Reweighting configuration for Case B.1 under different frequency settings
+
+Parameter B.1 (low frequency) B.1 (high frequency) 
+
+Decay epsilon 1.0 1.0 Number of subregions 5 5Reweight every 500 500 Reweight causal steps 1000 - 5000 1000 - 8000 Low frequency data weight 0.0 10.0 
+
+> Table 8: Parameter settings for Cases B.2–B.4
+
+Parameter Case B.2 Case B.3 Case B.4 
+
+Number of domain points 10000 10000 2500 Number of boundary points 400 400 400 Learning rate 1×10 −3 5×10 −4 1×10 −3
+
+Adam iterations 5000 5000 5000 L-BFGS iterations 15000 5000 3000 Optimizer decay 1000, 0.9 1000, 0.9 1000, 0.9 Network width 50 50 60 Network depth 6 5 6
+
+> Table 9: Reweighting configuration for Cases B.2–B.4
+
+Parameter Case B.2 Case B.3 Case B.4 
+
+Decay epsilon 1.0 0.5 0.5 Number of subregions [5, 5] [5, 5] [5, 5] Reweight every 1000 500 500 Reweight causal steps 1000 - 9000 1000 - 5000 1000 - 3000 Reweight adaptive steps 10000 - 15000 5000 - 8000 6000 - 8000 Low frequency data weight 10.0 10.0 10.0 Reweight adaptive scale 3.0 3.0 3.0 Grad norms scale λg 0.5 2.0 0.5 35 
+
+References 
+
+[1] William F Ames. Numerical methods for partial differential equations . Academic press, 2014. [2] Steven L Brunton and J Nathan Kutz. Promising directions of machine learning for partial differential equations. Nature Computational Science , 4(7):483–494, 2024. [3] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural net-works: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [4] Weiwei Zhang, Wei Suo, Jiahao Song, and Wenbo Cao. Physics-informed neural networks (pinns) as intelligent computing technique for solving partial differential equations: Limita-tion and future prospects. SCIENCE CHINA Physics, Mechanics & Astronomy , 69(1):214602, 2026. [5] Wenhui Fan and Xujia Chen. Embedding physics into machine learning: A review of physics informed neural networks as partial differential equation forward solvers. Tsinghua Science and Technology , 31(3):1326–1364, 2026. [6] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems , 34:26548–26560, 2021. [7] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in training pinns: A loss landscape perspective. arXiv preprint arXiv:2402.01868 , 2024. [8] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why pinns fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. [9] Xin Wang, Yudong Chen, and Wenwu Zhu. A survey on curriculum learning. IEEE transac-tions on pattern analysis and machine intelligence , 44(9):4555–4576, 2021. [10] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality for training physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering ,421:116813, 2024. [11] Arka Daw, Jie Bu, Sifan Wang, Paris Perdikaris, and Anuj Karpatne. Mitigating propagation failures in physics-informed neural networks using retain-resample-release (r3) sampling. 
+
+arXiv preprint arXiv:2207.02338 , 2022. [12] Qiang Liu, Mengyu Chu, and Nils Thuerey. ConFIG: Towards conflict-free training of physics informed neural networks. In The Thirteenth International Conference on Learning Rep-resentations , 2025. [13] Jizu Huang, Rukang You, and Tao Zhou. Frequency-adaptive multi-scale deep neural net-works. Computer Methods in Applied Mechanics and Engineering , 437:117751, 2025. [14] Victorita Dolean, Alexander Heinlein, Siddhartha Mishra, and Ben Moseley. Multilevel do-main decomposition-based architectures for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 429:117116, 2024. [15] Xuhui Meng, Zhen Li, Dongkun Zhang, and George Em Karniadakis. Ppinn: Parareal physics-informed neural network for time-dependent pdes. Computer Methods in Applied Mechanics and Engineering , 370:113250, 2020. [16] Tengmao Yang, Zhihao Qian, Nianzhi Hang, and Moubin Liu. S-pinn: Stabilized physics-informed neural networks for alleviating barriers between multi-level co-optimization. Com-puter Methods in Applied Mechanics and Engineering , 447:118348, 2025. [17] Fujun Cao, Xiaobin Guo, Xinzheng Dong, and Dongfang Yuan. wbpinn: Weight balanced physics-informed neural networks for multi-objective learning. Applied Soft Computing ,170:112632, 2025. 36 
+
+[18] Michael Penwarden, Ameya D Jagtap, Shandian Zhe, George Em Karniadakis, and Robert M Kirby. A unified scalable framework for causal sweeping strategies for physics-informed neural networks (pinns) and their temporal decompositions. Journal of Computational Physics ,493:112464, 2023. [19] Yong Wang, Yanzhong Yao, and Zhiming Gao. An extrapolation-driven network architec-ture for physics-informed deep learning. Neural Networks , 183:106998, 2025. [20] Fujun Cao, Kunkun Fan, Haoran Zhang, Dongfang Yuan, and Junmin Liu. Adaptive resid-ual splitting in pinns for solving complex pdes. Journal of Computational Physics , page 114297, 2025. [21] Mahyar Jahani-Nasab and Mohamad Ali Bijarchi. Enhancing convergence speed with feature enforcing physics-informed neural networks using boundary conditions as prior knowledge. Scientific Reports , 14(1):23836, 2024. [22] Yao-Hsuan Tsai, Hsiao-Tung Juan, Pao-Hsiung Chiu, and Chao-An Lin. Mld-pinn: A multi-level datasets training method in physics-informed neural networks. Computers & Fluids ,page 106849, 2025. [23] Callum Duffy and Gergana V. Velikova. Dynamic curriculum regularization for enhanced training of physics-informed neural networks. In NeurIPS 2024 Workshop on Machine Learning and the Physical Sciences (ML4PS) , 2024. [24] Marcus M ¨ unzer and Chris Bard. A curriculum-training-based strategy for distribut-ing collocation points during physics-informed neural network training. arXiv preprint arXiv:2211.11396 , 2022. [25] Simone Monaco and Daniele Apiletti. Training physics-informed neural networks: One learning to rule them all? Results in Engineering , 18:101023, 2023. [26] Jiawei Guo, Yanzhong Yao, Han Wang, and Tongxiang Gu. Pre-training strategy for solving evolution equations based on physics-informed neural networks. Journal of Computational Physics , 489:112258, 2023. [27] Wenbo Cao and Weiwei Zhang. Tsonn: Time-stepping-oriented neural network for solving partial differential equations. arXiv preprint arXiv:2310.16491 , 2023. [28] Revanth Mattey and Susanta Ghosh. A novel sequential method to train physics informed neural networks for allen cahn and cahn hilliard equations. Computer Methods in Applied Mechanics and Engineering , 390:114474, 2022. [29] Shuning Lin and Yong Chen. Causality-guided adaptive sampling method for physics-informed neural networks solving forward problems of partial differential equations. Phys-ica D: Nonlinear Phenomena , page 134878, 2025. [30] Jia Guo, Ziyuan Liu, Haifeng Wang, and Chenping Hou. Dual-level time-marching neural network for solving time-dependent partial differential equations: J. guo et al. Nonlinear Dynamics , 113(20):27915–27939, 2025. [31] Yuan Guo, Zhuojia Fu, Jian Min, Shiyu Lin, Xiaoting Liu, Youssef F Rashed, and Xiaoying Zhuang. Long-term simulation of physical and mechanical behaviors using curriculum-transfer-learning based physics-informed neural networks. arXiv preprint arXiv:2502.07325 ,2025. [32] Fujun Cao, Fei Gao, Dongfang Yuan, and Junmin Liu. Multistep asymptotic pre-training strategy based on pinns for solving steep boundary singular perturbation problems. Com-puter Methods in Applied Mechanics and Engineering , 431:117222, 2024. [33] Lawrence C Evans. Partial differential equations , volume 19. American mathematical society, 2022. [34] Classification of Partial Differential Equations , chapter Chapter 2, pages 27–47. 37 
+
+[35] Muhammad Moneeb Tariq, Muhammad Bilal Riaz, Syeda Sarwat Kazmi, and Muhammad Aziz-ur Rehman. Unveiling chaos and stability in advection diffusion reaction systems via advanced dynamical and sensitivity analysis. Scientific Reports , 15(1):5513, 2025. [36] Charles R. Doering and J. D. Gibbon. Applied Analysis of the Navier-Stokes Equations . Cam-bridge Texts in Applied Mathematics. Cambridge University Press, 1995. [37] David Gilbarg, Neil S Trudinger, David Gilbarg, and NS Trudinger. Elliptic partial differential equations of second order , volume 2. Springer, 1998.

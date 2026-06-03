@@ -1,0 +1,3376 @@
+Title: Per-Loss Adapters for Gradient Conflict in Physics-Informed Neural Networks
+
+URL Source: https://arxiv.org/pdf/2605.10136v1
+
+Published Time: Tue, 12 May 2026 02:55:20 GMT
+
+Number of Pages: 49
+
+Markdown Content:
+# Per-Loss Adapters for Gradient Conflict in Physics-Informed Neural Networks 
+
+Bum Jun Kim 1,* Gnankan Landry Regis N’guessan 2,3,4 1 The University of Tokyo, Japan  
+
+> 2
+
+Axiom Research Group  
+
+> 3
+
+Department of Applied Mathematics and Computational Science, NM-AIST, Tanzania  
+
+> 4
+
+African Institute for Mathematical Sciences (AIMS), Research and Innovation Centre, Rwanda  
+
+> *
+
+Corresponding author: bumjun.kim@weblab.t.u-tokyo.ac.jp 
+
+## Abstract 
+
+Physics-informed neural networks (PINNs) train a single neural approximation by minimizing multiple physics- and data-derived losses, but the gradients of these losses often interfere and can stall optimization. Existing remedies typically treat this pathology either through scalar loss balancing or full-parameter-space gradient surgery, leaving it unclear which intervention is most appropriate. We show that PINN gradient conflict is not a uniform failure mode with one universal remedy. Instead, we identify distinct PINN gradient-conflict regimes, each associated with a different intervention class. Persistent directional conflict may require separate loss-indexed parameter subspaces, magnitude imbalance often favors scalar reweighting, and low or transient conflict may require no extra mitigation. To select between scalar reweighting and a lightweight architectural intervention, we propose a diagnostic-first framework. It profiles a 1000-step unmodified PINN run and, when intervention is warranted, uses one low-rank adapter per loss to create explicit loss-indexed parameter subspaces attached to a shared PINN trunk, providing each loss with a direct gradient pathway. Across more than 60 PDE configurations, including forward, inverse, multi-physics, parameter-varying, and high-dimensional problems up to 50D, persistent directional conflict dominates standard forward 
+
+K = 3 benchmarks and a natural K = 4 thermoelastic system, where adapters combined with reweighting yield significant improvements. In contrast, K = 3 
+
+inverse problems and natural K = 5 and K = 6 multi-physics systems are largely magnitude-dominated and often favor reweighting alone, while full-parameter-space gradient surgery can fail on heterogeneous parameter spaces. A regime-transition theorem and a blockwise neural tangent kernel analysis explain why gains from these separate adapter parameter subspaces arise selectively in persistent-conflict regimes. 
+
+## 1 Introduction 
+
+Physics-informed neural networks (PINNs) [ 34 , 15 ] embed physical laws directly into neural network training by minimizing a composite loss: 
+
+L(θ) = 
+
+> K
+
+X
+
+> k=1
+
+Lk(θ), (1) where Lk includes partial differential equation (PDE) residuals LPDE (θ), boundary-condition (BC) terms LBC (θ), initial-condition (IC) terms LIC (θ), and data-fidelity terms for inverse problems. Despite their elegance, PINNs suffer from well-documented training difficulties [ 41 , 43 , 19 , 20 , 3 , 44 ]. The gradients gk = ∇θ Lk frequently point in conflicting directions, causing destructive interference that impedes convergence; see Figure 1. 
+
+> Preprint.
+> arXiv:2605.10136v1 [cs.LG] 11 May 2026
+
+# θ    
+
+> 𝛁 ℒ𝑷𝑫𝑬
+> PDE loss
+> 𝛁 ℒ𝑩𝑪
+> BC loss
+> 𝛁 ℒ𝑰𝑪
+> IC loss
+> ≈ 0
+> net update
+> PINN 𝒖 𝜽
+> ℒ₁ℒ₂ℒ₃
+> θ>90 °
+> stalled!
+> Loss
+> epoch
+> conflict ideal
+> θ stuck
+
+Figure 1: Gradient conflict in PINNs. A PINN 
+
+uθ is trained with multiple loss terms, whose gradients ∇θ Lk may point in opposing direc-tions, which causes the training to stall. Existing approaches to addressing gradient con-flicts in PINNs fall into two categories: scalar loss-balancing methods and full-parameter-space gradient-surgery methods. The first category in-cludes loss reweighting methods such as learning rate annealing, gradient normalization (GradNorm), SoftAdapt, and Fast Adaptive Multitask Optimiza-tion (FAMO) [ 41 , 2, 6 , 24 ], which adjust the scalar weights λk in P 
+
+> k
+
+λkLk to balance loss magni-tudes but do not modify gradient directions. The second category includes gradient-surgery methods such as projected conflicting gradient (PCGrad), conflict-averse gradient descent (CAGrad), Gradi-ent Vaccine, RotoGrad, and Nash multi-task learning (NashMTL) [ 49 , 23 , 46 , 14 , 32 ], which project, ro-tate, or otherwise transform conflicting gradients to remove negative interference but operate on the full parameter space, are computationally expensive, and can fail catastrophically in heterogeneous PINN settings, especially inverse problems that combine network weights with learnable physical constants. Tables 3 and 25 isolate this failure mode through inverse-problem results and grouped-surgery mitiga-tion. Recent PINN-specific analyses and optimizers likewise make gradient conflict explicit [ 10 , 45 ], but they still do not provide a regime-level rule for when architectural separation is preferable to scalar reweighting. Rather than advocating a single method, our work argues that PINN gradient conflict should be treated as a regime-dependent optimization pathology. Different PDE-loss systems may require different classes of interventions, even when all exhibit multi-loss interference. We characterize the full landscape of gradient conflict in PINNs across directional conflict, magnitude imbalance, and their K-dependent interaction, providing a principled framework for regime-dependent method selection. Here, a conflict regime refers to the dominant obstruction observed in a short profile, namely persistent directional misalignment, gradient-norm imbalance, low conflict, or transient conflict. This regime determines whether scalar reweighting, architectural separation, or no additional intervention is appropriate. The central distinction is that PINN losses are not independent tasks in the usual multi-task learning (MTL) sense, because the PDE residual, BC, IC, and data terms all constrain the same physical field u(x). Their gradient geometry is therefore tied to the PDE operator and the physics-loss decomposition, with all losses acting through a shared physical output instead of distinct task heads. This distinction motivates the guiding question of our study: 
+
+When can PINN gradient conflicts be resolved through scalar reweighting, and when do PDE-induced persistent directional conflicts require explicit separate parameter subspaces? 
+
+No prior work provides a theory-guided answer to determine when each algorithm class is appropriate, validated across different operator families, dimensions, and architectures. We fill this gap with a diagnostic framework that determines whether a conflict warrants intervention. This framework is supported by regime-transition theory and a kernel-level interpretation of per-loss adapters, and it adopts per-loss low-rank adapters [ 8] as lightweight architectural probes that explicitly instantiate separate loss-indexed parameter subspaces with a 15% parameter overhead. Their gains precisely track the predicted conflict regime. Our contributions are as follows. First, we show that PINN gradient conflict forms regimes tied to loss count and the problem class. Standard forward K = 3 PDEs and natural K = 4 thermoelasticity are dominated by directional conflict, whereas K = 3 inverse problems and natural K = 5 and 
+
+K = 6 multi-physics problems are mostly magnitude-dominated. Second, we explain this transition with Theorem 1, operator-type guidance in Remark 3, and a blockwise neural tangent kernel (NTK) view showing how loss-indexed low-rank adapters create separate parameter subspaces without requiring separate physical outputs. Third, we validate a 1000-step diagnostic workflow across 60+ PDE configurations, architecture variants, MTL benchmarks, and NTK-weighting comparisons, identifying when scalar reweighting, per-loss adapters, or no additional intervention is appropriate. 22 Method 
+
+2.1 Problem Setup 
+
+Consider a PDE-constrained problem defined on a domain Ω ⊂ Rd with boundary ∂Ω, written at the residual level as 
+
+RPDE [u]( x) := F[u]( x) − f (x) = 0 for x ∈ Ω,
+
+Rm[u]( x) = 0 for x ∈ Γm, m = 1 , . . . , M. 
+
+Here F is the differential operator, f is a forcing or source term, and the residuals Rm on the sets Γm encode BC, IC, interface, or observation constraints. A PINN approximates the unknown physical field u, the state variable or physical quantity constrained by the governing equations, using a neural network uθ trained by minimizing the composite objective in Eq. 1. In the PDE setting, its components typically include LPDE (θ), LBC (θ), LIC (θ), . . . .We formalize the resulting multi-loss training pathology as follows. 
+
+Definition 1 (Gradient conflict) . Two loss terms Li, Lj exhibit gradient conflict at parameters θ if their nonzero gradients have a negative cosine similarity: 
+
+cos( gi, g j ) = g⊤ 
+
+> i
+
+gj
+
+∥gi∥∥ gj ∥ < 0, (2) 
+
+where gk = ∇θ Lk(θ). We further define the regularized, magnitude-aware conflict score used in profiling and reporting as: 
+
+Cij =
+
+ g⊤ 
+
+> i
+
+gj
+
+(∥gi∥ + εg )( ∥gj ∥ + εg )
+
+
+
+> −
+
+·
+
+
+
+1 + log ∥gi∥ + εg
+
+∥gj ∥ + εg
+
+
+
+, (3) 
+
+where [·]− = max(0 , −· ) retains only the negative cosine similarity, and εg > 0 is a fixed numer-ical floor. The magnitude ratio term accounts for gradient norm imbalance, which is a critical factor in PINNs because PDE residual gradients can be orders of magnitude larger than boundary gradients [41]. 
+
+In all experiments, we use εg = 10 −12 only to avoid division by zero or log 0 in degenerate cases. When both gradient norms are strictly positive and much larger than εg , Eq. 3 reduces to the usual cosine and log-ratio expression. Definition 1 is used as a diagnostic tool for identifying a pathology observed during PINN training. Remark 3 and Appendix F explain how PDE residuals, BC errors, operator coupling, and network-Jacobian correlations can induce negative alignment between loss gradients. Empirical evidence in the appendix connects persistent conflict to structured errors, adapter specialization, thermoelastic energy mismatch, and unresolved directional conflict under reweighting. For K loss terms, the number of pairwise conflict terms grows as  K
+
+> 2
+
+, creating  K
+
+> 2
+
+ potential interference sources that must be managed. 
+
+2.2 Profiling Gradient Conflict for Regime Selection 
+
+To diagnose gradient conflicts before intervention, we propose a profiling stage for the unmodified PINN. We run a short Vanilla optimization window of Tprof = 1000 steps and compute the loss-specific gradients g(t) 
+
+> k
+
+:= ∇θ Lk(θt). For each step, we summarize directional conflict by the fraction and average strength of negative cosine pairs, 
+
+f (t)neg := |{ (i, j ) : i < j, cos( g(t) 
+
+> i
+
+, g (t) 
+
+> j
+
+) < 0}| 
+
+ K
+
+> 2
+
+ , D(t) := f (t)neg |¯c(t) 
+
+> −
+
+|,
+
+where ¯c(t) 
+
+> −
+
+is the mean cosine over the negative pairs and is set to 0 when no negative pair exists. We summarize magnitude imbalance by the coefficient of variation of gradient norms, 
+
+M (t) := std k(∥g(t) 
+
+> k
+
+∥)
+
+K−1 P 
+
+> k
+
+∥g(t) 
+
+> k
+
+∥ + εg
+
+.
+
+3The profiled summaries are 
+
+bfneg := 1
+
+Tprof 
+
+X
+
+> t
+
+f (t)neg , bD := 1
+
+Tprof 
+
+X
+
+> t
+
+D(t), cM := 1
+
+Tprof 
+
+X
+
+> t
+
+M (t), bR := bD
+
+cM + εR
+
+,
+
+where εR = 10 −8. The ratio bR is a practical surrogate for the theory-level directional-to-magnitude ratio UK , not a plug-in estimator: cM uses a coefficient-of-variation proxy, whereas Theorem 1 analyzes a max-to-mean imbalance. For deployment, we also measure persistence by comparing the first and last thirds of the profile, 
+
+P := ¯f late neg 
+
+max( ¯f early neg , ε P ) ,
+
+where εP = 10 −8; we also compute the least-squares slope of t 7 → f (t)neg . Low bfneg or rapidly decaying conflict indicates that scalar reweighting is usually sufficient, whereas persistent conflict motivates the adapter intervention described below. Appendix C.2 gives the zero-gradient convention and full profile definitions, and Appendix Algorithm 2 gives executable pseudocode. These profiled diagnostics determine whether scalar reweighting is sufficient or whether explicit loss-indexed architectural separation is needed. The architectural intervention used in persistent-conflict regimes has two core components. The first is a shared feature trunk, meaning the common network body that computes the hidden representation used by all losses. The second is a set of per-loss low-rank adapters, whose parameters form explicit loss-indexed subspaces and whose outputs are mixed back into the shared representation. The default fixed mixer is Uniform Adapter Mixing (UAM), which uses equal adapter weights. For K ≥ 4,these components can be augmented with Conflict-aware Adapter Mixing (CAM) variants, including Layerwise Conflict-aware Adapter Mixing (LCAM). The CAM and LCAM definitions apply to any 
+
+K; our K = 3 stress-test ablations use them only to assess whether dynamic mixing is worthwhile in the low-K regime. See Appendix C for the shared trunk architecture, orthogonality regularization, conflict-aware mixing variant, and the full training algorithm in Algorithm 1; the main text focuses on the shared-output adapter construction and the default method choice. 
+
+2.3 Per-Loss Low-Rank Adapters Why per-loss adapters for PINNs. In PINNs, all losses constrain the same physical field u(x)
+
+rather than representing independent tasks with separate outputs. This shared-output structure means that the shared trunk naturally captures the common representation, while adapters provide targeted adjustments to the gradient flow. When the PDE residual gradient gPDE conflicts with the BC gradient 
+
+gBC , the standard shared-parameter approach forces a destructive compromise. Per-loss adapters instead introduce structured low-rank parameter blocks whose Jacobian contributions are encouraged to occupy distinct adapter subspaces through the orthogonality loss in Eq. 10 and are interpreted via the blockwise NTK decomposition in Appendix D.2; because these blocks are mixed into the hidden state, as shown in Eq. 6, they can decorrelate the Jacobians of different losses while maintaining a coherent shared output through the trunk. Thus, the proposed adapters explicitly create separate loss-indexed parameter subspaces within a single-output PINN, rather than replacing the shared physical field with separate task heads. Figure 2 summarizes this block-level pipeline. The core innovation is attaching K low-rank adapters to the shared trunk, with one for each loss term. At each residual block ℓ, loss k has an associated adapter: 
+
+A(ℓ) 
+
+> k
+
+(h) = B(ℓ) 
+
+> k
+
+· ϕ(D(ℓ) 
+
+> k
+
+h), (4) where D(ℓ) 
+
+> k
+
+∈ Rr×dh is the down-projection, B(ℓ) 
+
+> k
+
+∈ Rdh×r is the up-projection, ϕ is the adapter nonlinearity, and r = 16 is the adapter rank. Let h(ℓ) 
+
+> trunk
+
+denote the output of the ℓth shared residual block when applied to the current hidden state h(ℓ−1) . Each adapter is assigned a latent mixing score 
+
+ρ(ℓ) 
+
+> k
+
+∈ [0 , 1] for loss k at layer ℓ. The normalized rule below depends only on the relative values of these scores and is well-defined whenever at least one adapter is active. In fixed UAM, we use uniform adapter weights π(ℓ) 
+
+> k
+
+= 1 /K ; equivalently, any common constant score ρ(ℓ) 
+
+> k
+
+≡ c < 1 gives 4shared trunk (one physical output)  all K losses share  𝑢 (𝑥 )
+
+## 𝑥  1 ...  ℓ 𝐿  
+
+> 𝐿 residual blocks
+
+## 𝐻  𝑢 𝜃 (𝑥 )
+
+𝐿 𝑃𝐷𝐸 
+
+𝐿 𝐵𝐶 
+
+𝐿 𝐼𝐶 
+
+inside block  ℓ : per -loss low -rank adapters 
+
+ℎ(𝑙 −1)
+
+ℎ𝑡𝑟𝑢𝑛𝑘 
+
+> (𝑙 )
+> shared block (trunk path)
+
+# + ℎ(𝑙 ) 
+
+> PDE
+
+𝐷  𝜑  𝑟  𝐵  
+
+> BC
+
+𝐷  𝜑  𝑟  𝐵  
+
+> IC
+
+𝐷  𝜑  𝑟  𝐵 
+
+∑𝜋 𝑘 𝐴 𝑘  × 𝛼 𝑎𝑑           
+
+> 𝐾 parallel low -rank paths (𝑑 ℎ→𝑟 →𝑑 ℎ)→separate loss -indexed subspaces
+
+Figure 2: Block-level pipeline for per-loss low-rank adapters in a shared-output PINN. At residual block ℓ, the shared trunk produces h(ℓ)
+
+> trunk
+
+, while each loss-indexed adapter maps the previous hidden state through a rank-r bottleneck formed by a down-projection followed by an up-projection. The mixer forms the weighted adapter correction P 
+
+> k
+
+π(ℓ) 
+
+> k
+
+A(ℓ) 
+
+> k
+
+and adds it to the shared trunk state, as shown in Eq. 6. A single readout H then produces the physical field uθ (x), from which all PDE, BC, IC, or data losses are evaluated; the adapters therefore separate gradient subspaces without creating separate physical outputs. the same weights, and our implementation stores c = 0 .5. We then combine the adapters through the normalized mixing weights 
+
+π(ℓ) 
+
+> k
+
+:= 1 − ρ(ℓ)
+
+> k
+
+PKj=1 (1 − ρ(ℓ) 
+
+> j
+
+) (5) These weights satisfy PKk=1 π(ℓ) 
+
+> k
+
+= 1 , and they define the actual shared hidden-state update 
+
+h(ℓ) = h(ℓ) 
+
+> trunk
+
++ αad 
+
+> K
+
+X
+
+> k=1
+
+π(ℓ) 
+
+> k
+
+A(ℓ) 
+
+> k
+
+(h(ℓ−1) ), (6) where αad controls the overall strength of the adapter correction added to the shared trunk represen-tation. The final output is the single physical field uθ (x) = H(h(L)), where H is the final linear readout. Each loss Lk is evaluated on quantities derived from this same shared output, such as boundary values, PDE residuals, or IC mismatches. The loss-indexed mixer therefore modulates only how strongly each adapter subspace perturbs the common representation; it does not create separate physical outputs. 
+
+2.4 Method variants and recommended defaults 
+
+For compact reporting, GradNorm (GN) denotes the existing GradNorm method, while CAM refers to our global mixing variant, and LCAM to its layer-wise variant. FAMO+UAM combines uniform adapter mixing with loss-value-based reweighting and is the recommended default, offering the best accuracy-cost trade-off with a training-time cost of about 1.3× Vanilla. GN+UAM is an alternative for solving spectral-bias-dominated PDEs such as Helmholtz. Alternative adapter architectures and mixing variants are summarized in Appendix Tables 28 and 29. 52.5 Complementarity 
+
+Adapters resolve directional conflict, defined by cos( gi, g j ) < 0, through separate parameter sub-spaces. Reweighting resolves magnitude imbalance, defined by ∥gi∥ ≫ ∥ gj ∥, through scalar multipliers λk. Because these mechanisms act on different aspects of the multi-loss update, they can be complementary in practice (Section 4). 
+
+## 3 Theoretical Analysis 
+
+We organize the theory around the directional-to-magnitude ratio 
+
+UK := DK
+
+Meff (K) ,
+
+where DK denotes pairwise negative directional conflict and Meff (K) denotes update-level magnitude imbalance in the model analyzed below. The theorem below gives the formal transition statement, while Appendix C.2 gives the profiling definitions used for the empirical diagnostic quantities. See Appendix D for additional supporting theory. The empirical observation that the balance between directional conflict and magnitude imbalance shifts with the number of loss terms is formalized here through a fixed-model transition theorem for the ratio UK . Appendix D.1 gives the supporting conditional concentration result for DK ,interpretation remarks, and the expectation-level finite-range corollary. 
+
+Theorem 1 (Regime transition in a fixed spherical model) . Fix a subspace V ⊆ Rp with dim( V ) = 
+
+deff . Assume gk = mkuk, where u1, . . . , u K are independent and uniformly distributed on V ∩ Sp−1.In orthonormal coordinates on V , these are independent and uniformly distributed on Sdeff −1. The magnitudes m1, . . . , m K are positive i.i.d. random variables, independent of u1, . . . , u K , and satisfy 
+
+μm := E[m1] ∈ (0 , ∞), μd := Γ( deff /2) 2√πΓ(( deff + 1) /2) .
+
+Write 
+
+AK := max  
+
+> 1≤k≤K
+
+mk, ¯m := 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+mk,Meff (K) := AK
+
+¯m , UK := DK
+
+Meff (K) .
+
+Then, we have 
+
+E[UK ] = μdE
+
+ ¯mAK
+
+
+
+. (7) 
+
+Moreover, the following rate statements hold. 
+
+Exponential-tail magnitudes. Suppose there exist constants ν > 0, 0 < a ≤ b < ∞, and t0 > 0
+
+such that for all t ≥ t0,
+
+exp 
+
+
+
+− bt ν
+
+
+
+≤ Pr( m1 > t ) ≤ exp 
+
+
+
+− at ν
+
+
+
+.
+
+Then 
+
+E[UK ] = Θ( d−1/2eff / log K).
+
+Pareto-tail magnitudes. Suppose 
+
+Pr( m1 > t ) = 
+
+ t0
+
+t
+
+α
+
+, t ≥ t0,
+
+for some α > 1. Then 
+
+E[UK ] = Θ( d−1/2eff K−1/α ).
+
+See Appendix D.1 for supporting statements and Appendix E for the full proofs. Empirically, we use the short-run profile described in Section 2.2 and the ratio bR := bD/ ( cM + εR) as a practical surrogate for UK . Appendix C.2 gives the zero-gradient convention and additional reporting details for the profiled summaries. 6Table 1: 10K-epoch benchmark I. Relative L2 error on Burgers, Helmholtz, and Allen–Cahn. We report the mean ± std with dh = 128 and 5 seeds unless otherwise noted. Best values are bold and second-best values are underlined. 
+
+Method Burgers Helmholtz Allen–Cahn Baselines Vanilla (8 .4 ± 2.4) × 10 −3 (2 .8 ± 1.1) × 10 −2 (1 .60 ± 0.33) × 10 −4
+
+Loss Weighting FAMO (4 .7 ± 0.14) × 10 −3 (1 .4 ± 0.63) × 10 −3 (2 .17 ± 0.2) × 10 −4
+
+GradNorm (1 .3 ± 1.9) × 10 −2 (6 .40 ± 6.4) × 10 −4 (5 .7 ± 0.83) × 10 −3
+
+Causal (7 .5 ± 3) × 10 −3 [3] (5 .3 ± 1.1) × 10 −2 [3] (1 .71 ± 0.096) × 10 −4 [3] 
+
+SelfAdapt (1 .1 ± 0.8) × 10 −2 [3] (1 .2 ± 0.5) × 10 −2 [3] (1 .70 ± 0.39) × 10 −4 [3] 
+
+Uncertainty (1 .1 ± 0.7) × 10 −2 (1 .8 ± 1.7) × 10 −2 [4] (1 .31 ± 0.27) × 10 −4
+
+Gradient Surgery ConFIG (9 .6 ± 2.7) × 10 −2 (2 .49 ± 0.77) × 10 −4 [3] 1.4 × 10 −2 [1] 
+
+PCGrad (4 .8 ± 0.11) × 10 −3 (9 .06 ± 2.8) × 10 −4 [4] 2.25 × 10 −4 [1] 
+
+CAGrad (1 .5 ± 1) × 10 −2 (3 .3 ± 1.5) × 10 −2 1.96 × 10 −4 [1] 
+
+NashMTL (6 .5 ± 6.7) × 10 −2 (1 .65 ± 1.11) × 10 −1 (3 .13 ± 0.43) × 10 −4
+
+AlignedMTL (5 .1 ± 0.34) × 10 −3 (1 .1 ± 0.33) × 10 −3 [4] 1.81 × 10 −4 [1] 
+
+Architecture (Ours) UAM (4 .9 ± 0.075) × 10 −3 (1 .5 ± 0.1) × 10 −2 (1 .19 ± 0.21) × 10 −4
+
+FAMO+UAM (4 .8 ± 0.082) × 10 −3 (1 .1 ± 0.46) × 10 −3 (1 .84 ± 0.28) × 10 −4
+
+GN+UAM (4 .6 ± 0.12) × 10 −3 (1 .0 ± 0.44) × 10 −3 (1 .6 ± 0.21) × 10 −3
+
+FAMO+LCAM (4 .8 ± 0.17) × 10 −3 (1 .3 ± 0.41) × 10 −3 (2 .59 ± 0.39) × 10 −4
+
+GN+LCAM (4 .6 ± 0.12) × 10 −3 (7 .81 ± 2.8) × 10 −4 (2 .3 ± 0.45) × 10 −3   
+
+> Superscript [n]denotes seed count when <5.
+
+## 4 Experiments 
+
+We evaluate on 60+ PDE configurations spanning forward, inverse, multi-physics, parameter-varying, and high-dimensional settings. See Appendix G and Appendix I for detailed benchmark definitions, the natural K-scaling setup, compared methods, evaluation protocol, computational-cost analysis, and supplementary diagnostics. The main text focuses on the core empirical findings and the resulting deployment heuristic. The forward-benchmark tables below refer to the conflict-free gradient method (ConFIG) and aligned multi-task learning (AlignedMTL) by their standard short names, alongside the previously defined PCGrad, CAGrad, NashMTL, UAM, GN, and LCAM labels. 
+
+4.1 Main Results on Forward Benchmarks 
+
+Tables 1 and 2 present the full result matrices for five main PDE benchmarks at 10K epochs. Table 1 groups Burgers, Helmholtz, and Allen–Cahn, while Table 2 groups convection-diffusion (Conv-Diff), Klein–Gordon, and the average rank. Architectural and loss-weighting combinations are strongest. On 10K-epoch Burgers, GN+UAM and FAMO+UAM are statistically tied at about 4.6 × 10 −3. This Burgers tie corresponds to a 1.8×
+
+improvement over Vanilla, with a 95% confidence interval (CI) of [1 , 2] and a Cohen’s d = 2 .1. On Helmholtz, GN+UAM with 1.0 × 10 −3 achieves a 28 × improvement over Vanilla, with a CI [18 , 46] 
+
+and d = 3 .4. FAMO+UAM achieves 25 ×, with a CI [16 , 39] and the same effect size d = 3 .4.The gap persists across width and three-dimensional (3D) evaluations in Table 15. All architecture-based methods successfully complete every benchmark without failure, whereas gradient surgery methods such as CAGrad and NashMTL diverge on inverse problems. ConFIG also shows extreme PDE-dependent variance, with 3 × 10 −4 on the Helmholtz but 0.81 on Conv-Diff, where four out of five seeds diverge. No single method dominates, and the right method depends on the PDE conflict profile. Both causal training and self-adaptive weights further confirm this PDE dependence. Causal training matches FAMO+UAM on Burgers but catastrophically fails on Klein–Gordon, reaching 0.98 
+
+at 10K and 0.92 at 20K, whereas FAMO+UAM reaches 1.6 × 10 −3. Self-adaptive weights also show high variance across PDEs. Additional PDE checks in Appendix L.1.5 confirm these findings. On 7Table 2: 10K-epoch benchmark II. Relative L2 error on Conv-Diff and Klein–Gordon together with the average rank. We report mean ± std with dh = 128 and 5 seeds, unless otherwise noted. 
+
+Method Conv-Diff Klein–Gordon Avg. Rank Baselines Vanilla (3 .55 ± 0.74) × 10 −4 (4 .6 ± 1) × 10 −2 7.8 Loss Weighting FAMO (3 .95 ± 1.4) × 10 −4 (2 .5 ± 0.39) × 10 −3 6.4 GradNorm (1 .8 ± 0.46) × 10 −3 (1 .13 ± 0.57) × 10 −1 11.4 Causal (2 .98 ± 0.39) × 10 −4 [3] (9 .80 ± 0.13) × 10 −1 [3] 9.6 SelfAdapt (4 .12 ± 0.91) × 10 −4 [3] (3 .8 ± 0.34) × 10 −2 [3] 8.1 Uncertainty (3 .66 ± 0.73) × 10 −4 (4 .89 ± 4.87) × 10 −1 9.3 Gradient Surgery ConFIG (8 .12 ± 4.44) × 10 −1 (2 .39 ± 3) × 10 −1 12.6 PCGrad (3 .92 ± 1.7) × 10 −4 (9 .0 ± 3.7) × 10 −3 6.0 CAGrad (4 .63 ± 1.5) × 10 −4 (4 .7 ± 1) × 10 −2 11.2 NashMTL (5 .41 ± 1.1) × 10 −4 (3 .6 ± 1.1) × 10 −2 12.0 AlignedMTL (4 .16 ± 1.4) × 10 −4 (1 .14 ± 2.1) × 10 −1 8.7 Architecture (Ours) UAM (2 .64 ± 0.32) × 10 −4 (4 .3 ± 0.7) × 10 −2 5.4 FAMO+UAM (2 .70 ± 0.21) × 10 −4 (1 .6 ± 0.38) × 10 −3 4.4 
+
+GN+UAM (1 .0 ± 0.19) × 10 −3 (4 .8 ± 1.1) × 10 −2 8.5 FAMO+LCAM (3 .07 ± 0.56) × 10 −4 (1 .6 ± 0.11) × 10 −3 5.9 GN+LCAM (1 .4 ± 0.41) × 10 −3 (6 .2 ± 1.7) × 10 −2 8.8 
+
+Table 3: Inverse problem results at 10K epochs with dh = 128 and 3 to 5 seeds. Full-parameter-space gradient surgery methods diverged on these benchmarks and are omitted here. †GradNorm entries use a simplified loss-ratio variant rather than the reference gradient-norm algorithm used in Tables 1 and 2. 
+
+Method Inverse Burgers ( K = 3 ) Inverse Heat ( K = 4 ) Inverse Poisson ( K = 3 )Vanilla (8 .0 ± 0.7) × 10 −2 (2 .2 ± 3.8) × 10 −2 (2 .71 ± 0.65) × 10 −1
+
+FAMO (6 .5 ± 0.4) × 10 −2 (1 .1 ± 2.3) × 10 −2 (2 .3 ± 1.6) × 10 −3
+
+GradNorm † (5 .9 ± 0.2) × 10 −2 (1 .1 ± 0.1) × 10 −3 (1 .0 ± 1.5) × 10 −2
+
+FAMO+UAM (7 .2 ± 0.4) × 10 −2 (2 .8 ± 2.6) × 10 −4 (2 .8 ± 0.9) × 10 −3
+
+GN+UAM † (6 .6 ± 0.4) × 10 −2 (8 .7 ± 0.9) × 10 −4 (3 .4 ± 0.9) × 10 −3
+
+FAMO+LCAM (7 .3 ± 0.2) × 10 −2 (2 .6 ± 0.74) × 10 −4 (3 .2 ± 0.7) × 10 −3
+
+Klein–Gordon, FAMO+UAM achieves a 29 × gain, with a CI [24 , 36] and d = 6 .1. On Darcy flow, the gain is 2.0×, with a CI [1 , 3] and d = 2 .3. Appendix Figure 4 provides a qualitative view of the mechanism underlying regime dependence by visualizing the learned adapter contributions in a persistent-conflict case and a low-conflict control. 
+
+4.2 Inverse Problems and Robustness 
+
+Full-parameter-space gradient surgery methods, namely, PCGrad, CAGrad, NashMTL, and ConFIG, produce invalid values within the first 50 to 200 epochs during inverse-problem runs due to the 
+
+10 4× gradient norm mismatch between network weights and scalar physical constants. Table 25 in the appendix gives the details. At 10K epochs in Table 3, a K-dependent pattern emerges. For 
+
+K = 3 inverse problems, FAMO and GradNorm without adapters outperform adapter combinations by 10% to 25%. On the K = 4 inverse heat problem, adapter variants substantially improve stability compared with Vanilla, with FAMO+LCAM numerically best and FAMO+UAM close behind, while Vanilla fails catastrophically on one of three seeds. Parameter-grouped surgery variants, such as PCGrad-Grouped and CAGrad-Grouped, resolve divergence but remain far worse than the direct baselines shown in Table 3, which confirms that the failure is structural. Gradient surgery corrupts the low-dimensional physical-parameter learning signal. 84.3 Multi-Physics and K-Scaling 
+
+The natural scaling studies clarify the regime picture. In the naturally coupled thermoelastic system with K = 4 , reported in Table 11 in the appendix, the adapter-and-weighting combination outperforms either component alone. This thermoelastic result confirms the complementarity in a multi-physics setting where the loss decomposition is intrinsic to the underlying physics. Appendix Figure 8 shows that this improvement is physically structured. The adapter variant mainly improves the coupled displacement branch and the associated elastic-energy exchange rather than merely reducing a pixel-wise error metric. 
+
+Natural higher-K validation. Natural multi-physics systems with K = 5 reactive transport and 
+
+K = 6 magnetohydrodynamics (MHD), as discussed in Appendix L.5, fall into the empirically magnitude-dominated regime. FAMO alone outperforms FAMO+UAM, consistent with the low-profile proxy bR. See Appendix L.1 for additional 3D and broader forward-validation results. 
+
+4.4 Method Selection and Practical Guidelines 
+
+The results above reveal a clear regime structure that motivates a practical, profiling-based deployment heuristic. In practice, budget-constrained settings favor FAMO. Forward problems with K = 3 
+
+often benefit from FAMO+UAM. Inverse problems with K = 3 favor FAMO or GradNorm without adapters, while inverse problems with K = 4 commonly benefit from FAMO+UAM. The natural higher-K multi-physics systems in our suite are better handled by FAMO alone. The resulting deployment rule is diagnostic-first. Run the 1000-step Vanilla profile from Section 2.2; if the profiled Vanilla error is already below 10 −3 or bfneg < 0.05 , use FAMO alone. If the conflict persists with 
+
+P > 0.8, use FAMO+UAM; if it decays with P < 0.5 and slope < −0.02 , use FAMO alone. When conflict is present but ambiguous, we default to FAMO+UAM. The ratio bR is reported as a compact direction-to-magnitude summary, while P distinguishes persistent conflict from transient negative pairs. Appendix Algorithm 2 gives the full pseudocode; the computational-cost analysis and the qualitative profiling-to-outcome bridge are provided in Appendix I. 
+
+Baseline fairness. All baselines share the same trunk, the AdamW optimizer with a learning rate of 
+
+10 −3, the same scheduler, and a nominal training budget of 10K epochs. Most entries use 5 seeds. Any results with fewer seeds are explicitly marked in Tables 1 and 2. NashMTL is additionally swept at a learning rate of 3 × 10 −4. ConFIG is swept over {10 −4, 5 × 10 −4, 10 −3, 2 × 10 −3, 5 × 10 −3},as reported in Appendix M.3. GradNorm follows the reference algorithm, with gradient norms computed with respect to the last shared layer. Implementation details appear in Appendix H. The source code is provided in the supplementary material. 
+
+Domain decomposition and inference. Extended physics-informed neural networks (XPINNs) partition the input space [ 12 ], whereas per-loss adapters partition the gradient space. These are orthogonal interventions, as Tables 30 and 31 show. Adapters increase the model parameter count by 15% to 41% in the configurations reported in Tables 6 and 30. See Appendix I for training-curve, NTK-weighting, and rank-ablation diagnostics. 
+
+## 5 Conclusion 
+
+We characterized gradient conflict in PINNs and showed that its structure is regime-dependent rather than uniformly requiring a single mitigation strategy. Across 60+ PDE configurations, directional conflict dominates the standard forward K = 3 benchmarks and the natural K = 4 thermoelastic system, making loss-indexed adapters combined with reweighting the most effective choice. In contrast, K = 3 inverse problems and natural K = 5 and K = 6 multi-physics systems are largely magnitude-dominated, often favoring reweighting alone, and expose the unreliability of full-parameter-space gradient surgery on heterogeneous parameter spaces. A 1000-step profiling rule turns this observation into a practical method-selection heuristic, while the regime-transition theorem and the blockwise NTK view explain why adapter gains appear only in the appropriate conflict regime. Overall, our results support a diagnostic-first workflow for selecting PINN training interventions. 9References 
+
+[1] Rafael Bischof and Michael A. Kraus. Multi-Objective Loss Balancing for Physics-Informed Deep Learning. CoRR , abs/2110.09813, 2021. [2] Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. GradNorm: Gradient Normalization for Adaptive Loss Balancing in Deep Multitask Networks. In ICML , pages 793–802, 2018. [3] Arka Daw, Jie Bu, Sifan Wang, Paris Perdikaris, and Anuj Karpatne. Mitigating Propagation Failures in Physics-informed Neural Networks using Retain-Resample-Release (R3) Sampling. In ICML , pages 7264–7302, 2023. [4] Chris Fifty, Ehsan Amid, Zhe Zhao, Tianhe Yu, Rohan Anil, and Chelsea Finn. Efficiently Identifying Task Groupings for Multi-Task Learning. In NeurIPS , pages 27503–27516, 2021. [5] Zhongkai Hao, Jiachen Yao, Chang Su, Hang Su, Ziao Wang, Fanzhi Lu, Zeyu Xia, Yichi Zhang, Songming Liu, Lu Lu, and Jun Zhu. PINNacle: A Comprehensive Benchmark of Physics-Informed Neural Networks for Solving PDEs. In NeurIPS , 2024. [6] A. Ali Heydari, Craig A. Thompson, and Asif Mehmood. SoftAdapt: Techniques for Adaptive Loss Weighting of Neural Networks with Multi-Part Loss Functions. CoRR , abs/1912.12355, 2019. [7] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin de Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-Efficient Transfer Learning for NLP. In ICML , pages 2790–2799, 2019. [8] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-Rank Adaptation of Large Language Models. In 
+
+ICLR , 2022. [9] Zheyuan Hu, Ameya D. Jagtap, George Em Karniadakis, and Kenji Kawaguchi. Augmented Physics-Informed Neural Networks (APINNs): A gating network-based soft domain decompo-sition methodology. Eng. Appl. Artif. Intell. , 126:107183, 2023. [10] Youngsik Hwang and Dong-Young Lim. Dual Cone Gradient Descent for Training Physics-Informed Neural Networks. In NeurIPS , 2024. [11] Arthur Jacot, Clément Hongler, and Franck Gabriel. Neural Tangent Kernel: Convergence and Generalization in Neural Networks. In NeurIPS , pages 8580–8589, 2018. [12] Ameya D. Jagtap and George E. Karniadakis. Extended Physics-informed Neural Networks (XPINNs): A Generalized Space-Time Domain Decomposition based Deep Learning Frame-work for Nonlinear Partial Differential Equations. In AAAI Spring Symposium: MLPS , 2021. [13] Ameya D Jagtap, Ehsan Kharazmi, and George Em Karniadakis. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 365:113028, 2020. [14] Adrián Javaloy and Isabel Valera. RotoGrad: Gradient Homogenization in Multitask Learning. In ICLR , 2022. [15] George Em Karniadakis, Ioannis G Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. [16] Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics. In CVPR , pages 7482–7491, 2018. [17] Ehsan Kharazmi, Zhongqiang Zhang, and George Em Karniadakis. Variational Physics-Informed Neural Networks For Solving Partial Differential Equations. CoRR , abs/1912.00873, 2019. 10 [18] Ehsan Kharazmi, Zhongqiang Zhang, and George Em Karniadakis. hp-VPINNs: Variational Physics-Informed Neural Networks With Domain Decomposition. CoRR , abs/2003.05385, 2020. [19] Aditi S. Krishnapriyan, Amir Gholami, Shandian Zhe, Robert M. Kirby, and Michael W. Mahoney. Characterizing possible failure modes in physics-informed neural networks. In 
+
+NeurIPS , pages 26548–26560, 2021. [20] Raphael Leiteritz and Dirk Pflüger. How to Avoid Trivial Solutions in Physics-Informed Neural Networks. CoRR , abs/2112.05620, 2021. [21] Zongyi Li, Nikola Borislavov Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew M. Stuart, and Anima Anandkumar. Fourier Neural Operator for Parametric Partial Differential Equations. In ICLR , 2021. [22] Xi Lin, Hui-Ling Zhen, Zhenhua Li, Qingfu Zhang, and Sam Kwong. Pareto Multi-Task Learning. In NeurIPS , pages 12037–12047, 2019. [23] Bo Liu, Xingchao Liu, Xiaojie Jin, Peter Stone, and Qiang Liu. Conflict-Averse Gradient Descent for Multi-task learning. In NeurIPS , pages 18878–18890, 2021. [24] Bo Liu, Yihao Feng, Peter Stone, and Qiang Liu. FAMO: Fast Adaptive Multitask Optimization. In NeurIPS , 2023. [25] Qiang Liu, Mengyu Chu, and Nils Thuerey. ConFIG: Towards Conflict-free Training of Physics Informed Neural Networks. In ICLR , 2025. [26] Shikun Liu, Edward Johns, and Andrew J. Davison. End-To-End Multi-Task Learning With Attention. In CVPR , pages 1871–1880, 2019. [27] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. 
+
+Nat. Mach. Intell. , 3(3):218–229, 2021. [28] Jiaqi Ma, Zhe Zhao, Xinyang Yi, Jilin Chen, Lichan Hong, and Ed H. Chi. Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts. In KDD , pages 1930–1939, 2018. [29] Levi D. McClenny and Ulisses M. Braga-Neto. Self-adaptive physics-informed neural networks. 
+
+J. Comput. Phys. , 474:111722, 2023. [30] Ishan Misra, Abhinav Shrivastava, Abhinav Gupta, and Martial Hebert. Cross-Stitch Networks for Multi-task Learning. In CVPR , pages 3994–4003, 2016. [31] Ben Moseley, Andrew Markham, and Tarje Nissen-Meyer. Finite basis physics-informed neural networks (FBPINNs): a scalable domain decomposition approach for solving differential equations. Adv. Comput. Math. , 49(4):62, 2023. [32] Aviv Navon, Aviv Shamsian, Idan Achituve, Haggai Maron, Kenji Kawaguchi, Gal Chechik, and Ethan Fetaya. Multi-Task Learning as a Bargaining Game. In ICML , pages 16428–16446, 2022. [33] Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred A. Hamprecht, Yoshua Bengio, and Aaron C. Courville. On the Spectral Bias of Neural Networks. In ICML ,pages 5301–5310, 2019. [34] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. , 378:686–707, 2019. [35] Ozan Sener and Vladlen Koltun. Multi-Task Learning as Multi-Objective Optimization. In 
+
+NeurIPS , pages 525–536, 2018. [36] Dmitry Senushkin, Nikolay Patakin, Arseny Kuznetsov, and Anton Konushin. Independent Component Alignment for Multi-Task Learning. In CVPR , pages 20083–20093, 2023. 11 [37] Noam Shazeer, Azalia Mirhoseini, Krzysztof Maziarz, Andy Davis, Quoc V. Le, Geoffrey E. Hinton, and Jeff Dean. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer. In ICLR , 2017. [38] Trevor Standley, Amir Zamir, Dawn Chen, Leonidas J. Guibas, Jitendra Malik, and Silvio Savarese. Which Tasks Should Be Learned Together in Multi-task Learning? In ICML , pages 9120–9132, 2020. [39] N. Sukumar and Ankit Srivastava. Exact imposition of boundary conditions with distance functions in physics-informed deep neural networks. CoRR , abs/2104.08426, 2021. [40] Matthew Tancik, Pratul P. Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan T. Barron, and Ren Ng. Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains. In NeurIPS , 2020. [41] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and Mitigating Gradient Flow Pathologies in Physics-Informed Neural Networks. SIAM J. Sci. Comput. , 43(5):A3055–A3081, 2021. [42] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality is all you need for training physics-informed neural networks. CoRR , abs/2203.07404, 2022. [43] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. J. Comput. Phys. , 449:110768, 2022. [44] Sifan Wang, Shyam Sankaran, Hanwen Wang, and Paris Perdikaris. An Expert’s Guide to Training Physics-informed Neural Networks. CoRR , abs/2308.08468, 2023. [45] Sifan Wang, Ananyae Kumar Bhartari, Bowen Li, and Paris Perdikaris. Gradient Alignment in Physics-informed Neural Networks: A Second-Order Optimization Perspective. CoRR ,abs/2502.00604, 2025. [46] Zirui Wang, Yulia Tsvetkov, Orhan Firat, and Yuan Cao. Gradient Vaccine: Investigating and Improving Multi-task Optimization in Massively Multilingual Models. In ICLR , 2021. [47] Zixue Xiang, Wei Peng, Xu Liu, and Wen Yao. Self-adaptive loss balanced Physics-informed neural networks. Neurocomputing , 496:11–34, 2022. [48] Jeremy Yu, Lu Lu, Xuhui Meng, and George Em Karniadakis. Gradient-enhanced physics-informed neural networks for forward and inverse PDE problems. CoRR , abs/2111.02801, 2021. [49] Tianhe Yu, Saurabh Kumar, Abhishek Gupta, Sergey Levine, Karol Hausman, and Chelsea Finn. Gradient Surgery for Multi-Task Learning. In NeurIPS , 2020. [50] Leo Zhiyuan Zhao, Xueying Ding, and B. Aditya Prakash. PINNsFormer: A Transformer-Based Framework For Physics-Informed Neural Networks. In ICLR , 2024. 12 Appendix Table of Contents 
+
+A List of Notation 15 B Related Work 15 C Supplementary Method Details 16 
+
+C.1 Shared Feature Trunk . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 C.2 Conflict Metrics and Profiled Summaries . . . . . . . . . . . . . . . . . . . . . . . 17 C.3 Additional Adapter Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 C.4 Conflict-Aware Adapter Mixing . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 C.5 Training Algorithm . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 
+
+D Supplementary Theory Details 18 
+
+D.1 Supporting Directional-to-Magnitude Results . . . . . . . . . . . . . . . . . . . . 19 D.2 Blockwise NTK View for Per-Loss Adapters . . . . . . . . . . . . . . . . . . . . . 20 D.3 Capacity Heuristics and Per-Layer Mixing . . . . . . . . . . . . . . . . . . . . . . 20 D.4 PDE Structure and Gradient Conflict . . . . . . . . . . . . . . . . . . . . . . . . . 20 
+
+E Proofs for the Regime-Transition Results 21 F Justification of the PDE-Structure Remarks 25 G Experimental Setup 27 
+
+G.1 PDE Benchmarks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 G.2 K-Scaling Experiments . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 G.3 Methods Compared . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 G.4 Evaluation and Reproducibility Protocol . . . . . . . . . . . . . . . . . . . . . . . 28 
+
+H Architecture and Hyperparameter Details 28 
+
+H.1 Default Hyperparameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 H.2 PDE-Specific Settings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 H.3 Experiment-wise Dataset, Task, and Budget Summary . . . . . . . . . . . . . . . . 29 H.4 Baseline Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 H.5 Model Sizes . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30 H.6 Natural K = 4 Thermoelastic System . . . . . . . . . . . . . . . . . . . . . . . . 30 H.7 Parameter-Grouped Gradient Surgery . . . . . . . . . . . . . . . . . . . . . . . . 31 H.8 ConFIG Baseline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 
+
+I Supplementary Cost, Scalability, and Diagnostic Analyses 31 
+
+I.1 Regime-Aware Method Selection . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 I.2 Profiling-to-Outcome Bridge . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32 I.3 Adapter Specialization Visualization . . . . . . . . . . . . . . . . . . . . . . . . . 33 13 I.4 Computational Cost and Scalability . . . . . . . . . . . . . . . . . . . . . . . . . 33 I.5 Training Dynamics Visualization . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 I.6 NTK Weighting Comparison . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35 I.7 Adaptive Rank Selection Validation . . . . . . . . . . . . . . . . . . . . . . . . . 36 I.8 Scalability and Ablation Tables . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36 
+
+J Supplementary Benchmark Tables 37 K Statistical Comparison 38 L Extended Validation and Robustness 39 
+
+L.1 Extended Forward Validation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 L.1.1 3D Validation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 39 L.1.2 Additional Forward Benchmarks . . . . . . . . . . . . . . . . . . . . . . . 39 L.1.3 Criterion Expansion Validation . . . . . . . . . . . . . . . . . . . . . . . . 40 L.1.4 Helmholtz Scaling Across Width, Dimension, and Training Budget . . . . 40 L.1.5 Additional PDE Generalization Checks . . . . . . . . . . . . . . . . . . . 41 L.2 Diagnostic Transfer to Standard MTL Benchmarks . . . . . . . . . . . . . . . . . 41 L.3 Mitigating Catastrophic Weight Divergence with Bounded FAMO . . . . . . . . . 42 L.4 Architecture Generality . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 L.5 Natural K-Scaling and Multi-Physics Diagnostics . . . . . . . . . . . . . . . . . . 43 L.6 Extended Seed Coverage . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44 
+
+M Additional Baseline and Ablation Analyses 44 
+
+M.1 Missing Baseline Comparisons . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44 M.2 Gradient Surgery Mitigation Details . . . . . . . . . . . . . . . . . . . . . . . . . 45 M.3 ConFIG Sensitivity Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45 M.4 Implicit Regularization Ablation . . . . . . . . . . . . . . . . . . . . . . . . . . . 46 M.5 Adapter Variant Checks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46 M.6 Domain Decomposition Comparison . . . . . . . . . . . . . . . . . . . . . . . . . 48 
+
+N Limitations and Future Work 49 
+
+14 Table 4: List of notation 
+
+Symbol Meaning 
+
+Ω, ∂ Ω, x, d Domain, boundary, point, dimension. 
+
+F, f, RPDE , Rm, Γm, u, u θ PDE operator, source, residuals, constraint sets, and fields. 
+
+θ, θ trunk , θ k All, trunk, and kth adapter parameters. 
+
+L, Lk , LPDE , LBC , LIC , K, λ k Losses, loss count, and weights. 
+
+ν, κ, α Physical coefficients in inverse and coupled problems. 
+
+gk , cos( gi, g j ), C ij , ε g Gradient, cosine, conflict score, floor. 
+
+g(ℓ) 
+
+> k
+
+, C (ℓ) 
+
+> k
+
+Layer gradient and conflict. 
+
+Ck , ¯r Mean conflict, average norm ratio. 
+
+h(ℓ), H, L, d h Layer feature, readout, depth, width. 
+
+h(ℓ) 
+
+> trunk
+
+Pre-adapter trunk feature. 
+
+A(ℓ) 
+
+> k
+
+(h), D (ℓ) 
+
+> k
+
+, B (ℓ) 
+
+> k
+
+, r Adapter, projections, rank. 
+
+ρ(ℓ) 
+
+> k
+
+, π (ℓ) 
+
+> k
+
+, α ad Mixing score, adapter mixing weight, adapter strength. 
+
+Rortho , λ self , λ cross Orthogonality regularizer and weights. 
+
+Φ( x), ω f , F, ω max Fourier features, frequencies, bands, max frequency. 
+
+DK , M eff (K), UK , K ⋆ 
+
+> E
+
+Conflict, imbalance, regime ratio, endpoint. 
+
+Tprof , bfneg , bD, cM , bR, P Profile length, negative-pair fraction, summaries, persistence. 
+
+Jθ (x), r i, e j Jacobian, pointwise PDE residual, pointwise BC error. 
+
+Θij , Θshared  
+
+> ij
+
+, Θ(k) 
+
+> ij
+
+Block NTK, shared and adapter terms. 
+
+## A List of Notation 
+
+We list the symbols used throughout the paper. 
+
+## B Related Work 
+
+Training difficulties and loss reweighting in PINNs. Raissi et al. [34] introduced PINNs, and Karniadakis et al. [15] reviewed the broader physics-informed machine-learning landscape. Subse-quent work identified gradient pathologies [ 41 ], NTK-driven spectral bias [ 43 , 33 ], soft-constraint trivial solutions [ 20 ], poor propagation [ 3], and broader failure modes [ 19 ]. Recent benchmarks and guides systematize these observations [ 5, 44 ]. Loss reweighting methods include learning rate anneal-ing [ 41 ], NTK-based weighting [ 43 ], self-adaptive weights [ 29 , 47 ], GradNorm [ 2], SoftAdapt [ 6 ], FAMO [ 24 ], uncertainty weighting [ 16 ], and causal training [ 42 ]. These methods adjust when or how much each loss contributes, but they do not directly resolve directional gradient conflict. Causal training, for example, enforces temporal causality by progressively activating loss terms from earlier to later time points. Other PINN-side interventions modify the loss structure or update geometry itself. Gradient-enhanced PINNs add derivative-based residual terms [ 48 ], exact boundary imposition removes soft BC penal-ties via distance functions [ 39 ], and recent cone-based or gradient-alignment analyses study non-conflicting PINN updates directly [ 10 , 45 ]. Bischof and Kraus [1] showed that multi-objective loss balancing can match gradient surgery. These methods are complementary to our per-loss adapters. They alter the loss schedule, loss scale, or update geometry, while our adapters adjust how each loss influences parameters through explicit loss-indexed subspaces. 
+
+Gradient surgery for MTL. Representative MTL conflict-mitigation and multi-objective methods include the multiple-gradient descent algorithm [35], Pareto MTL [22], PCGrad [49], CAGrad [23], NashMTL [ 32 ], Gradient Vaccine [ 46 ], RotoGrad [ 14 ], ConFIG [ 25 ], and AlignedMTL [ 36 ]. These methods assume homogeneous shared parameters; however, this assumption makes them prone to failure on PINN problems with heterogeneous parameter types. In our setting, this heterogeneity combines network weights with learnable physical constants and produces a 10 4× norm mismatch, as we systematically demonstrate in Section 4. Indeed, ConFIG’s unit-vector normalization discards gradient magnitude information critical for PDE loss landscapes where gradient magnitude ratios can exceed 10 3 in our evaluation suites. AlignedMTL’s singular value decomposition (SVD)-based alignment also incurs O(p2) cost per step. 15 Architecture-level approaches and adapters. Domain decomposition methods such as conser-vative PINNs [ 13 ], XPINNs [ 12 ], finite basis PINNs [ 31 ], and augmented PINNs [ 9] partition the input space into subdomains, each handled by a local PINN with interface constraints. Variational formulations such as variational PINNs [ 17 ] and their hp-variants [ 18 ] instead modify the weak-form residual and can be combined with domain decomposition. These methods address spatial complexity, weak-form structure, or discontinuities, but they do not resolve gradient conflict between different loss terms within each subdomain or formulation. Our per-loss adapters are orthogonal to this line of work. They augment the shared trunk with loss-indexed low-rank parameter blocks and can be integrated with domain decomposition by placing such adapters inside each XPINN subdomain when a problem exhibits both spatial and loss-term complexity. Beyond the PINN setting, broader MTL studies architecture-level soft sharing, where representations, routing weights, or parameter subsets are partially shared across tasks rather than tied through a single monolithic trunk. Representative examples include Cross-Stitch Networks [ 30 ], task-attention mechanisms [ 26 ], and Multi-gate mixture-of-experts (MoE) [ 28 ], in addition to generic sparse MoE [ 37 ] and task grouping [ 4 , 38 ]. Task-specific adapters were popularized in transfer learning [ 7], and Low-Rank Adaptation (LoRA) introduced rank-controlled adapters for parameter-efficient large language model fine-tuning [ 8]. We use this low-rank parameterization not for task adaptation, but to instantiate loss-indexed perturbation subspaces inside a single shared-output PINN. Our loss-indexed adapter mixing is derived from gradient conflict rather than input features, which makes the method complementary to both domain decomposition and MoE approaches. 
+
+NTK analysis and spectral diagnostics in deep learning. The NTK [ 11 ] provides a spectral characterization of neural network training dynamics. Wang et al. [43] applied NTK analysis to PINNs, revealing how eigenvalue disparity between PDE and BC kernels causes spectral bias and contributes to training difficulty. Our work complements this line by using a blockwise NTK perspective to interpret how per-loss architectural modifications can reduce destructive interference between losses. 
+
+Neural operators. Neural operators such as the Deep Operator Network [ 27 ] and the Fourier Neural Operator [ 21 ] learn function-to-function solution maps, typically from paired solution data, although physics-informed and hybrid variants can also include residual losses. This setting is complementary to ours. We study data-scarce PINN training in which a single physical field is optimized using PDE, BC, IC, and optional data losses, making inter-loss gradient geometry the central bottleneck. 
+
+Positioning our contribution. Prior work provides strong individual tools for PINN loss balanc-ing, gradient surgery, domain decomposition, adapters, and NTK analysis, but it does not, to our knowledge, characterize the conflict regimes that determine when scalar reweighting, architectural separation, or no additional intervention is appropriate. Our novelty is therefore not the adapter primitive itself, but the diagnostic-first regime characterization linking conflict structure to method choice. We support this characterization with regime-transition theory, operator-structure arguments, a blockwise NTK interpretation of per-loss parameter subspaces, and validation across 60+ PDE configurations, MTL benchmarks, NTK-weighting baselines [ 43 ], and architecture-transfer checks spanning multilayer perceptron (MLP), Modified MLP, and Transformer backbones. 
+
+## C Supplementary Method Details 
+
+C.1 Shared Feature Trunk 
+
+All methods share a common feature trunk that maps inputs x ∈ Rd to hidden features, consisting of Fourier feature encoding [40] followed by residual blocks: 
+
+Φ( x) = [sin( ω⊤ 
+
+> 1
+
+x), cos( ω⊤ 
+
+> 1
+
+x), . . . , sin( ω⊤ 
+
+> F
+
+x), cos( ω⊤ 
+
+> F
+
+x)] , (8) where ωf ∈ Rd are fixed frequency vectors with linearly spaced magnitudes ∥ωf ∥2 = f ω max /F for 
+
+f = 1 , . . . , F , with F = 10 bands and ωmax = 10 π. The trunk consists of L = 4 residual blocks with hidden dimension dh = 128 and Tanh activations: 
+
+h(ℓ) = h(ℓ−1) + tanh( W (ℓ)2 tanh( W (ℓ)1 h(ℓ−1) + b(ℓ)1 ) + b(ℓ)2 ). (9) 16 A final linear layer maps to the scalar output uθ (x) ∈ R, or to Rdout for systems. This trunk has 140,033 parameters and serves as the Vanilla baseline. In adapter variants, the same residual trunk is retained as the shared backbone; the adapters are additional loss-indexed low-rank modules inserted at each block. 
+
+C.2 Conflict Metrics and Profiled Summaries 
+
+The aggregate conflict score for loss k is Ck = (1 /(K − 1)) P  
+
+> j̸=k
+
+Ckj , measuring how much loss k conflicts with the others on average. For conflict-aware mixing and per-layer analyses, we analogously define 
+
+C(ℓ) 
+
+> k
+
+:= 1
+
+K − 1
+
+X 
+
+> j̸=k
+
+C(ℓ) 
+
+> kj
+
+,
+
+where C(ℓ) 
+
+> ij
+
+is obtained by applying Eq. 3 to the layer-ℓ parameter gradients g(ℓ) 
+
+> k
+
+:= ∇θ(ℓ) Lk(θ). For per-problem summaries, we also report the average pairwise magnitude ratio 
+
+¯r := 1
+
+ K
+
+> 2
+
+ X
+
+> i<j
+
+max( ∥gi∥, ∥gj ∥) + εg
+
+min( ∥gi∥, ∥gj ∥) + εg
+
+,
+
+which is finite and at least 1 by construction. 
+
+Profiled summaries. For a profiling window t = 1 , . . . , T prof , let g(t) 
+
+> k
+
+:= ∇θ Lk(θt) and define the pairwise cosine with a zero-gradient convention 
+
+c(t) 
+
+> ij
+
+:= 
+
+(
+
+cos( g(t) 
+
+> i
+
+, g (t) 
+
+> j
+
+), ∥g(t) 
+
+> i
+
+∥∥ g(t) 
+
+> j
+
+∥ > 0,
+
+0, otherwise, and define 
+
+N − 
+
+> t
+
+:= {(i, j ) : 1 ≤ i < j ≤ K, c (t) 
+
+> ij
+
+< 0}, f (t)neg := |N − 
+
+> t
+
+|
+
+ K
+
+> 2
+
+ ,
+
+¯c(t) 
+
+> −
+
+:= 
+
+( 1  
+
+> |N−
+> t|
+
+P 
+
+> (i,j )∈N−
+> t
+
+c(t) 
+
+> ij
+
+, |N − 
+
+> t
+
+| > 0,
+
+0, |N − 
+
+> t
+
+| = 0 , D(t) := f (t)neg |¯c(t) 
+
+> −
+
+|,M (t) := std k(∥g(t) 
+
+> k
+
+∥)
+
+K−1 P 
+
+> k
+
+∥g(t) 
+
+> k
+
+∥ + εg
+
+.
+
+We report the profiled summaries 
+
+bfneg := 1
+
+Tprof 
+
+> Tprof
+
+X
+
+> t=1
+
+f (t)neg , bD := 1
+
+Tprof 
+
+> Tprof
+
+X
+
+> t=1
+
+D(t), cM := 1
+
+Tprof 
+
+> Tprof
+
+X
+
+> t=1
+
+M (t).
+
+We also report the empirical proxy 
+
+bR := bD
+
+cM + εR
+
+,
+
+where εR = 10 −8. Here cM is a coefficient-of-variation surrogate for magnitude imbalance, whereas Theorem 1 uses the max-to-mean ratio Meff (K). The profiled ratio bR should therefore be read as an empirical surrogate for the theorem-level quantity UK , not as a plug-in estimator of it. These profiled summaries are the quantities reported in the experiments. 
+
+C.3 Additional Adapter Details Adapter orthogonality. To encourage the independence of the adapter row subspaces in Rdh , we regularize both self-orthogonality within each down-projection and cross-orthogonality between different down-projections: 
+
+Rortho = λself 
+
+X
+
+> k,ℓ
+
+∥D(ℓ) 
+
+> k
+
+D(ℓ)⊤ 
+
+> k
+
+− Ir ∥2 
+
+> F
+
++ λcross 
+
+X
+
+> i<j ℓ
+
+∥D(ℓ) 
+
+> i
+
+D(ℓ)⊤ 
+
+> j
+
+∥2 
+
+> F
+
+. (10) 17 Algorithm 1 Per-loss adapter training with UAM as the default and CAM optional 
+
+Require: PDE problem with K losses, single-output network uθ with K adapters  
+
+> 1:
+
+for epoch t = 1 , . . . , T do  
+
+> 2:
+
+Sample collocation, BC, and IC points  
+
+> 3:
+
+Run the forward pass through the shared trunk and aggregated adapter correction → uθ (x) as in Eq. 6  
+
+> 4:
+
+Compute losses {L k}Kk=1 from the same uθ 
+
+> 5:
+
+For CAM and LCAM only, after warm-up and every τ epochs, update EMA conflict scores, refresh ρ, and recompute π 
+
+> 6:
+
+Total loss: L = P 
+
+> k
+
+λkLk + Rortho  
+
+> 7:
+
+Update θ via AdamW with gradient clipping  
+
+> 8:
+
+end for 
+
+The first term encourages the rows of each D(ℓ) 
+
+> k
+
+to be orthonormal, while the second penalizes overlap between the row spaces of different adapters. When the row spaces are exactly orthogonal and each 
+
+D(ℓ) 
+
+> k
+
+has full row rank r, the cross term vanishes. 
+
+C.4 Conflict-Aware Adapter Mixing 
+
+The latent mixing scores ρ(ℓ) 
+
+> k
+
+can be fixed or dynamically adjusted based on gradient conflict. UAM uses the uniform rule π(ℓ) 
+
+> k
+
+= 1 /K . For global CAM, we use the aggregate conflict summary Ck and set a layer-independent score ρk = σ(a0 − b · Ck), with ρ(ℓ) 
+
+> k
+
+≡ ρk in the normalization above. For LCAM, we instead use layerwise conflict summaries and set ρ(ℓ) 
+
+> k
+
+= σ(a0 + δℓ − b · C(ℓ) 
+
+> k
+
+) before converting these scores into the normalized adapter weights π(ℓ) 
+
+> k
+
+. In both cases, larger conflict decreases ρ and therefore increases the corresponding adapter weight. Here a0 = 1 .0, b = 2 .0, and the LCAM offset δℓ interpolates from +0 .3 at shallow layers, which biases toward sharing, to −0.3 at deep layers, which biases toward specialization. The conflict scores are exponential-moving-average (EMA) smoothed with β = 0 .95 . In practice, fixed UAM captures nearly all of the benefit. On rerun 
+
+K = 3 stress tests in Helmholtz and Klein–Gordon, reported in Table 29, dynamic LCAM stays within single-digit percentage differences and fixed uniform mixing is slightly better in both cases. We therefore recommend UAM with uniform π as the default, while CAM remains a higher-complexity variant for settings in which fixed mixing is insufficient. 
+
+C.5 Training Algorithm 
+
+Training follows Algorithm 1. A warm-up of Twarm = 200 epochs with equal weights and uniform adapter mixing πk = 1 /K establishes a stable baseline. The optional mixing step is used only by dynamic CAM and LCAM variants and is skipped for fixed UAM. After warm-up, every τ
+
+epochs, we compute the current aggregate conflict scores Ck for CAM or layerwise scores C(ℓ) 
+
+> k
+
+for LCAM, update their EMA, set the corresponding latent scores ρ using Section C.4 with clipping to [ρmin , ρ max ], and recompute π through the normalization in Section 2.3. The latent scores are bookkeeping variables for adapter mixing rather than AdamW-optimized model parameters. 
+
+## D Supplementary Theory Details 
+
+We collect the supplementary theory details referenced in the main text. First, we give the supporting directional-to-magnitude results for the regime-transition analysis. We then give a blockwise NTK interpretation of per-loss adapters as structured perturbations of the shared representation. Finally, we justify the operator-structure arguments summarized in Remark 3. 18 D.1 Supporting Directional-to-Magnitude Results Proposition 1 (Conditional concentration of DK ). Let g1, . . . , g K be nonzero gradients in Rp, write 
+
+ˆgk = gk/∥gk∥, and define 
+
+Xij := max(0 , −ˆg⊤ 
+
+> i
+
+ˆgj ), DK := 1
+
+ K
+
+> 2
+
+ X
+
+> i<j
+
+Xij .
+
+Suppose there exists a σ-algebra Λ such that, conditional on Λ, the family {Xij }i<j is exchangeable with 
+
+E[X12 | Λ] = μ(Λ) , sup 
+
+> (i,j )̸=( k,ℓ )
+
+|Cov( Xij , X kℓ | Λ) | ≤ c(Λ) ,
+
+where the supremum is over distinct unordered pairs and c(Λ) ≥ 0 is Λ-measurable. Then with 
+
+nK :=  K
+
+> 2
+
+, we have 
+
+E[DK | Λ] = μ(Λ) ,
+
+Var( DK | Λ) ≤ 14nK
+
++ c(Λ) ,
+
+and therefore 
+
+Var( DK ) = Var( μ(Λ)) + E[Var( DK | Λ)] ≤ Var( μ(Λ)) + 14nK
+
++ E[c(Λ)] . (11) 
+
+If, in addition, the directions ˆgk are independent and uniformly distributed on V ∩ Sp−1 for some fixed subspace V ⊆ Rp with dim( V ) = deff , then in orthonormal coordinates on V they are independent and uniformly distributed on Sdeff −1. For 
+
+μd := Γ( deff /2) 2√πΓ(( deff + 1) /2) = Θ( d−1/2eff ),
+
+we have 
+
+E[DK ] = μd,
+
+Var( DK ) = Var( X12 )
+
+nK
+
+= 1
+
+nK
+
+ 12deff 
+
+− μ2
+
+> d
+
+
+
+= O(( K2deff )−1).
+
+Remark 1. Eq. 11 is the quantity that is stable under latent regime variation. Exchangeability alone does not force DK to concentrate without the additional term Var( μ(Λ)) vanishing. In particular, a short profiling window should be interpreted as estimating a marginal average of the directional-conflict level over that window, not a pointwise constant that is guaranteed to concentrate across all optimization states. 
+
+Remark 2. The next theorem is not a consequence of Proposition 1 under arbitrary latent regime variation. It is a separate stylized model in which the directional regime is fixed, so Λ is trivial, and gradient directions decouple from gradient magnitudes. This fixed-directional-regime model is the setting in which explicit rate calculations are available. 
+
+Corollary 1 (Expected beneficial range) . For τ > 0, whenever the set is nonempty, define 
+
+K⋆
+
+> E
+
+(τ ) := sup {K ≥ 2 : E[UK ] > τ }.
+
+Under the hypotheses of Theorem 1, this set is nonempty for all sufficiently small τ . As τ → 0+,
+
+K⋆
+
+> E
+
+(τ ) = 
+
+(
+
+exp(Θ( d−1/2eff /τ )) , under the exponential-tail model ,
+
+Θ(( τ d 1/2eff )−α), under the Pareto-tail model. The constants hidden in Θ( ·) depend on the tail parameters and on μm, but not on τ or deff .
+
+19 D.2 Blockwise NTK View for Per-Loss Adapters 
+
+This subsection develops the NTK perspective on per-loss adapters, building on the foundational NTK framework [11] and its PINN-specific analysis by Wang et al. [43]. For fixed mixing, write the parameter vector as θ = [ θtrunk , θ 1, . . . , θ K ], where θk denotes the parameters of the kth adapter block. For each loss k, let sk(x) denote a scalar quantity entering Lk
+
+and derived from the same shared output uθ , such as the raw output, a boundary mismatch, or a PDE residual component. We define the loss-indexed block NTK entry, measuring parameter-space coupling between scalar channels i and j at inputs x and x′, by 
+
+Θij (x, x ′) := ∇θ si(x)⊤∇θ sj (x′) (12) for 1 ≤ i, j ≤ K. When the latent mixing scores ρ(ℓ) 
+
+> k
+
+are treated as fixed with respect to θ during differentiation, and equivalently when the normalized weights π(ℓ) 
+
+> k
+
+are fixed, the block kernel splits additively by parameter block: 
+
+Θij (x, x ′) = Θ shared  
+
+> ij
+
+(x, x ′) + 
+
+> K
+
+X
+
+> k=1
+
+Θ(k) 
+
+> ij
+
+(x, x ′), (13) where 
+
+Θshared  
+
+> ij
+
+= ∇θtrunk si(x)⊤∇θtrunk sj (x′),
+
+Θ(k) 
+
+> ij
+
+= ∇θk si(x)⊤∇θk sj (x′).
+
+In the exact single-output architecture, the adapter terms Θ(k) 
+
+> ij
+
+need not vanish for i̸ = j because every si depends on the same shared output uθ , which itself depends on all adapter blocks through Eq. 6. In the idealized exact-separation surrogate where si depends only on θtrunk and θi, the adapter contribution instead reduces to a diagonal δij term. Here, the term “exact” refers to the implemented shared-output adapter architecture with fixed mixing, for which the parameter-block decomposition above is exact but no diagonalization is assumed. The exact-separation surrogate is not the implemented model; it is an idealized limiting case in which cross-adapter sensitivities are neglected. Thus, the diagonal δij form should be read as a mechanism-level approximation, while the actual architecture may retain off-diagonal adapter couplings that are encouraged, but not forced, to be small by subspace separation and orthogonality regularization. We use this blockwise picture as bookkeeping for the kernel-level interpretation of per-loss adapters. It identifies the adapter contribution as an additive perturbation of the shared kernel and clarifies why loss-indexed parameter blocks can relieve directional interference without introducing separate physical outputs. 
+
+D.3 Capacity Heuristics and Per-Layer Mixing 
+
+For architectural capacity, the saturation ratio ∆sat := Kr/d h is a useful heuristic proxy. At fixed width, increasing either the number of losses or the adapter rank leaves less room for loss-specific low-rank specialization, and exact cross-adapter orthogonality becomes harder to satisfy. Per-layer mixing can in principle exploit layer-wise variation in conflict, but in our experiments, its gains are modest at 
+
+K = 3 and become more noticeable only as K grows. We therefore treat capacity, conflict-aware mixing, and orthogonality effects primarily through the rank, mixing, and regularization ablations rather than through separate standalone theorems. 
+
+D.4 PDE Structure and Gradient Conflict 
+
+Beyond the K-dependent regime structure, the type of PDE determines the conflict profile. The empirical results across the evaluation suites suggest a structural pattern: 
+
+Remark 3 (Operator-type heuristic for gradient coupling) . For the PDE and Dirichlet-boundary setting made explicit in Appendix F, the operator class constrains the state-level influence pattern and therefore provides only a qualitative prior for parameter-gradient coupling. Uniform ellipticity is compatible with domain-wide state-level influence via Green and Poisson representations, so widespread PDE and BC gradient coupling is possible; however, its sign and magnitude still depend on the residual and error coefficients and on the network-Jacobian correlations. Scalar linear 
+
+20 parabolic operators satisfying a comparison principle or a maximum principle are order-preserving in the state variable, so the operator alone does not determine the sign of PDE and BC parameter-gradient alignment. Negative alignment can already arise from residual and error signs together with network Jacobian correlations, and can be further amplified by nonlinearities, discretization, or non-monotone parameterizations. Hyperbolic operators localize state-level influence to a domain of dependence through finite propagation speed, but finite propagation alone does not determine the sign of the parameter-gradient cosine. Stiff or highly oscillatory terms can nevertheless change the effective length scales seen by the network. Hence operator type provides a heuristic prior on conflict structure, but not a universal sign or numerical value of fneg .
+
+This classification should therefore be read as a heuristic prior rather than a standalone decision rule. Elliptic problems are more compatible with widespread coupling, while parabolic problems require an additional nonlinearity or parameterization check. However, the following remark shows that operator type alone is still insufficient in high dimensions. 
+
+Remark 4 (Residual decomposition alone does not imply a high-dimensional elliptic monotonicity law) . For the d-dimensional Poisson equation −∆u = f on [0 , 1] d with manufactured solution 
+
+u(x) = Qdi=1 sin( πx i), the residual decomposition 
+
+rθ (x) = −
+
+> d
+
+X
+
+> i=1
+
+∂2 
+
+> xi
+
+uθ (x) − f (x), (14) 
+
+with forcing amplitude f (x) = dπ 2u(x), together with the identity 
+
+∇θ rθ (x) = −
+
+> d
+
+X
+
+> i=1
+
+∇θ ∂2 
+
+> xi
+
+uθ (x), (15) 
+
+does not by itself imply any universal monotone-in-d law for the instantaneous cosine be-tween ∇θ LPDE and ∇θ LBC whenever those aggregated gradients are nonzero. In particular, if the per-coordinate sensitivities ∇θ ∂2 
+
+> xi
+
+uθ (x) are weakly correlated, then the normalized sum 
+
+d−1 Pdi=1 ∇θ ∂2 
+
+> xi
+
+uθ (x) can become more concentrated with d, while the residual formula simul-taneously contains an explicit forcing contribution of size O(d). Because the network Laplacian term can either reinforce or cancel that forcing contribution, the residual amplitude need not scale monotonically with d. Therefore, the displayed decomposition alone does not justify a universal monotone-in-d law for the instantaneous PDE and BC cosine. Any extension of this warning to profiled statistics such as fneg (d) requires additional assumptions on the boundary-gradient scaling and on the training trajectory used in the profiling procedure. 
+
+Appendix F justifies both remarks. Accordingly, operator-type heuristics are insufficient. The conflict regime depends on the interplay between the differential operator, forcing term, and spatial dimension, motivating the lightweight profiling criterion in Section 4.4 as a general-purpose tool that subsumes operator-type heuristics. 
+
+## E Proofs for the Regime-Transition Results 
+
+Proof of Proposition 1. By conditional exchangeability, 
+
+E[DK | Λ] = 1
+
+nK
+
+X
+
+> i<j
+
+E[Xij | Λ] = μ(Λ) .
+
+For the variance, 
+
+Var( DK | Λ) = 1
+
+n2
+
+> K
+
+X
+
+> i<j
+
+X
+
+> k<ℓ
+
+Cov( Xij , X kℓ | Λ) .
+
+The diagonal contribution satisfies 
+
+1
+
+n2
+
+> K
+
+X
+
+> i<j
+
+Var( Xij | Λ) ≤ 1
+
+n2
+
+> K
+
+· nK · 14 = 14nK
+
+,
+
+21 because 0 ≤ Xij ≤ 1. The off-diagonal contribution satisfies 
+
+1
+
+n2
+
+> K
+
+X
+
+> (i,j )̸=( k,ℓ )
+
+|Cov( Xij , X kℓ | Λ) | ≤ nK (nK − 1) 
+
+n2
+
+> K
+
+c(Λ) ≤ c(Λ) .
+
+The conditional covariance bound proves the conditional variance bound. Eq. 11 is then the law of total variance. For the spherical claim, let V be a fixed subspace of Rp with dim( V ) = d := deff , choose orthonormal coordinates on V , and work in that coordinate system. Then the directions become independent and uniformly distributed on Sd−1. If u, v ∈ Sd−1 are independent and uniform, and c := u⊤v, then the density of c on [−1, 1] is symmetric and proportional to (1 − z2)(d−3) /2, so 
+
+E[X12 ] = E[( −c)+] = 12 E|c| = Γ( d/ 2) 2√πΓ(( d + 1) /2) = μd.
+
+Also, 
+
+E[X212 ] = E[c21{c< 0}] = 12 E[c2] = 12d ,
+
+because E[c2] = 1 /d .It remains to show that distinct Xij are pairwise independent. If the pairs are disjoint, pairwise independence is immediate from independence of the underlying directions. If they share one index, say (i, j ) = (1 , 2) and (k, ℓ ) = (1 , 3) , then conditional on u1 the random variables X12 and X13 are independent because u2 and u3 are independent. Moreover, by rotational invariance the conditional law of u⊤ 
+
+> 1
+
+u2 given u1 does not depend on u1, so for any bounded measurable φ and ψ,
+
+E[φ(X12 )ψ(X13 ) | u1] = E[φ(X12 ) | u1]E[ψ(X13 ) | u1] = E[φ(X12 )] E[ψ(X13 )] .
+
+Taking expectations gives pairwise independence. Therefore 
+
+Var( DK ) = 1
+
+n2
+
+> K
+
+X
+
+> i<j
+
+Var( Xij ) = Var( X12 )
+
+nK
+
+= 1
+
+nK
+
+ 12deff 
+
+− μ2
+
+> d
+
+
+
+,
+
+which is O(( K2deff )−1).
+
+Proof of Theorem 1. Since DK depends only on the directions u1, . . . , u K and ¯m/A K depends only on the magnitudes m1, . . . , m K , the two terms are independent. Proposition 1 gives E[DK ] = μd,hence 
+
+E[UK ] = E
+
+
+
+DK
+
+¯mAK
+
+
+
+= E[DK ]E
+
+ ¯mAK
+
+
+
+= μdE
+
+ ¯mAK
+
+
+
+.
+
+The factorization argument proves Eq. 7. 
+
+Exponential-tail magnitudes. Fix constants c−, c + > 0 such that 
+
+0 < c − < νb , c+ > νa .
+
+Set 
+
+q− 
+
+> K
+
+:= c− log K, q+ 
+
+> K
+
+:= c+ log K. 
+
+For sufficiently large K, both q− 
+
+> K
+
+and q+ 
+
+> K
+
+exceed t0, so the tail bounds apply. By the lower tail bound, 
+
+Pr( AK < q − 
+
+> K
+
+) = Pr( m1 ≤ q− 
+
+> K
+
+)K
+
+≤
+
+
+
+1 − exp 
+
+
+
+− bq −
+
+> K
+
+ν
+
+ K
+
+≤ exp 
+
+
+
+−K1−bc −/ν 
+
+= o((log K)−1).
+
+22 Therefore 
+
+E
+
+ ¯mAK
+
+
+
+≤ E
+
+ ¯mq−
+
+> K
+
+1{AK ≥q− 
+
+> K}
+
+
+
++ Pr( AK < q − 
+
+> K
+
+)
+
+≤ E[ ¯ m]
+
+q−
+
+> K
+
++ o((log K)−1)= O((log K)−1).
+
+For the lower bound, the upper tail bound gives 
+
+Pr( AK > q + 
+
+> K
+
+) ≤ K Pr( m1 > q + 
+
+> K
+
+)
+
+≤ K1−ac +/ν = o(1) .
+
+Also ¯m → μm in probability by the law of large numbers, so 
+
+Pr 
+
+
+
+¯m ≥ μm
+
+2
+
+
+
+→ 1.
+
+Hence, by the union bound, 
+
+Pr 
+
+
+
+¯m ≥ μm
+
+2 , A K ≤ q+
+
+> K
+
+
+
+≥ 1 − Pr 
+
+
+
+¯m < μm
+
+2
+
+
+
+− Pr( AK > q + 
+
+> K
+
+) = 1 − o(1) .
+
+Hence 
+
+E
+
+ ¯mAK
+
+
+
+≥ μm
+
+2q+
+
+> K
+
+Pr 
+
+
+
+¯m ≥ μm
+
+2 , A K ≤ q+
+
+> K
+
+
+
+= Ω((log K)−1).
+
+Combining the two bounds with μd = Θ( d−1/2eff ) proves 
+
+E[UK ] = Θ( d−1/2eff / log K).
+
+Pareto-tail magnitudes. Let AK = max 1≤k≤K mk and fix any q ∈ (1 , α ). Write r := q/ (q − 1) .By Hölder’s inequality, 
+
+E
+
+ ¯mAK
+
+
+
+≤ E[ ¯ mq ]1/q E[A−rK ]1/r .
+
+Since q < α , we have E[mq
+
+> 1
+
+] < ∞. By the convexity of t 7 → tq for q ≥ 1,
+
+E[ ¯ mq ] ≤ 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+E[mqk] = E[mq
+
+> 1
+
+] < ∞.
+
+It remains to evaluate E[A−rK ]. For Pareto tails, 
+
+Pr( AK ≤ t) = 
+
+
+
+1 −
+
+ t0
+
+t
+
+αK
+
+, t ≥ t0,
+
+so AK has density 
+
+fAK (t) = Kαt α 
+
+> 0
+
+t−α−1
+
+
+
+1 −
+
+ t0
+
+t
+
+αK−1
+
+, t ≥ t0.
+
+Therefore 
+
+E[A−rK ] = Kαt α
+
+> 0
+
+Z ∞
+
+> t0
+
+t−r−α−1
+
+
+
+1 −
+
+ t0
+
+t
+
+αK−1
+
+dt. 
+
+With the substitution y = ( t0/t )α, the integral becomes 
+
+E[A−rK ] = Kt −r
+
+> 0
+
+Z 10
+
+yr/α (1 − y)K−1dy 
+
+= Kt −r 
+
+> 0
+
+B
+
+
+
+1 + rα , K 
+
+
+
+= t−r 
+
+> 0
+
+Γ
+
+
+
+1 + rα
+
+ Γ( K + 1) Γ( K + 1 + r/α ) = Θ( K−r/α ).
+
+23 Hence 
+
+E
+
+ ¯mAK
+
+
+
+= O(K−1/α ).
+
+For the lower bound, fix any constant C > t 0. Then 
+
+Pr( AK ≤ CK 1/α ) = 
+
+
+
+1 − tα
+
+> 0
+
+CαK
+
+K
+
+−→ exp 
+
+
+
+− tα
+
+> 0
+
+Cα
+
+
+
+> 0.
+
+Also Pr( ¯ m ≥ μm/2) → 1 by the law of large numbers. Hence 
+
+Pr 
+
+
+
+¯m ≥ μm
+
+2 , A K ≤ CK 1/α 
+
+≥ Pr( AK ≤ CK 1/α ) − Pr 
+
+
+
+¯m < μm
+
+2
+
+
+
+−→ exp 
+
+
+
+− tα
+
+> 0
+
+Cα
+
+
+
+> 0.
+
+Thus 
+
+E
+
+ ¯mAK
+
+
+
+≥ μm
+
+2CK 1/α Pr 
+
+
+
+¯m ≥ μm
+
+2 , A K ≤ CK 1/α 
+
+= Ω( K−1/α ).
+
+Combining upper and lower bounds with μd = Θ( d−1/2eff ) yields 
+
+E[UK ] = Θ( d−1/2eff K−1/α ).
+
+Proof of Corollary 1. Under the exponential-tail model, 
+
+E[UK ] = Θ( d−1/2eff / log K)
+
+as K → ∞ . Hence, there exist constants c1, c 2 > 0 and K0 ≥ 2 such that for all K ≥ K0,
+
+c1
+
+d−1/2eff 
+
+log K ≤ E[UK ] ≤ c2
+
+d−1/2eff 
+
+log K .
+
+For sufficiently small τ , define 
+
+K−(τ ) := 
+
+$
+
+exp c1d−1/2eff 
+
+2τ
+
+!% 
+
+,K+(τ ) := 
+
+&
+
+exp 2c2d−1/2eff 
+
+τ
+
+!' 
+
+.
+
+When τ is small enough, K−(τ ) ≥ K0, and the lower bound gives E[UK−(τ )] ≥ 2τ > τ , so the defining set for K⋆
+
+> E
+
+(τ ) is nonempty. Likewise, for every K ≥ K+(τ ), the upper bound gives 
+
+E[UK ] ≤ τ / 2, so no such K belongs to the set. Therefore 
+
+K−(τ ) ≤ K⋆
+
+> E
+
+(τ ) < K +(τ ),
+
+which implies 
+
+K⋆
+
+> E
+
+(τ ) = exp(Θ( d−1/2eff /τ )) 
+
+as τ → 0+.Under the Pareto-tail model, 
+
+E[UK ] = Θ( d−1/2eff K−1/α )
+
+as K → ∞ . Therefore, there exist constants c′
+
+> 1
+
+, c ′ 
+
+> 2
+
+> 0 and K′ 
+
+> 0
+
+≥ 2 such that for all K ≥ K′
+
+> 0
+
+,
+
+c′
+
+> 1
+
+d−1/2eff K−1/α ≤ E[UK ] ≤ c′
+
+> 2
+
+d−1/2eff K−1/α .
+
+24 For sufficiently small τ , define 
+
+eK−(τ ) := 
+
+$
+
+c′
+
+> 1
+
+d−1/2eff 
+
+2τ
+
+!α%
+
+,
+
+eK+(τ ) := 
+
+&
+
+2c′
+
+> 2
+
+d−1/2eff 
+
+τ
+
+!α'
+
+.
+
+When τ is small enough, eK−(τ ) ≥ K′
+
+> 0
+
+, and the lower bound gives E[U eK−(τ )] ≥ 2τ . For every 
+
+K ≥ eK+(τ ), the upper bound gives E[UK ] ≤ τ / 2. Therefore 
+
+eK−(τ ) ≤ K⋆
+
+> E
+
+(τ ) < eK+(τ ),
+
+and hence 
+
+K⋆
+
+> E
+
+(τ ) = Θ(( τ d 1/2eff )−α)
+
+as τ → 0+. The preceding endpoint bounds prove the two asymptotic forms. 
+
+Empirical interpretation. Theorem 1 should be read as a two-model rate statement in a fixed stylized model, and Corollary 1 is an expectation-level consequence of that model, not a deterministic threshold for every realization. The theorem is not an exhaustive taxonomy of all light-tailed distributions. The relevant empirical issue is whether the profiled per-loss gradient magnitudes behave closer to a logarithmic-growth maximum regime or to a power-growth maximum regime over the observed K range. If neither model fits the data well, the qualitative monotonicity conclusion may still be useful, but the explicit rates should not be over-interpreted. 
+
+## F Justification of the PDE-Structure Remarks 
+
+We justify Remarks 3 and 4 by formalizing how the PDE operator type constrains the gradient-coupling structure between LPDE and a Dirichlet BC loss. This appendix therefore specializes the general constraint-residual notation introduced in Section 2.1 to the Dirichlet BC case Γm = ∂Ω
+
+with Rm[u]( x) = u(x) − g(x) so that the BC residual is explicit. Throughout, let uθ : Ω → R be a neural network parameterized by θ ∈ Rp, and define the Jacobian Jθ (x) = ∂u θ (x)/∂θ ∈ R1×p. For the pointwise half-squared losses 
+
+ℓPDE ,i := 12 (Fuθ (xi) − f (xi)) 2,ℓBC ,j := 12 (uθ (x′ 
+
+> j
+
+) − g(x′ 
+
+> j
+
+)) 2,
+
+the corresponding gradients are: 
+
+∇θ ℓPDE ,i = ( Fuθ (xi) − f (xi)) 
+
+| {z }
+
+> ri
+
+·∇ θ [Fuθ (xi)] , (16) 
+
+∇θ ℓBC ,j = ( uθ (x′ 
+
+> j
+
+) − g(x′ 
+
+> j
+
+)) 
+
+| {z }
+
+> ej
+
+·Jθ (x′ 
+
+> j
+
+)⊤, (17) where {xi}Nr 
+
+> i=1
+
+⊂ Ω and {x′ 
+
+> j
+
+}Nb 
+
+> j=1
+
+⊂ ∂Ω are interior and boundary collocation points, and the aggregated losses are LPDE = P 
+
+> i
+
+ℓPDE ,i and LBC = P 
+
+> j
+
+ℓBC ,j up to any common positive averaging factors. 
+
+Lemma 1 (Elliptic PDE and Dirichlet-boundary gradient coupling) . Let F = −∇ · (A(x)∇) be uniformly elliptic on a bounded domain Ω ⊂ Rd with smooth boundary. If uθ is twice differentiable in x and θ, then for any interior point x ∈ Ω and boundary point x′ ∈ ∂Ω:
+
+∇θ [Fuθ (x)] = Fx[Jθ (x)⊤],
+
+where Fx applies the spatial differential operator to each component of Jθ . Moreover, provided 
+
+∇θ LPDE ̸ = 0 and ∇θ LBC ̸ = 0 , the cosine similarity between the aggregated PDE and Dirichlet-boundary gradients satisfies: 
+
+cos( ∇θ LPDE , ∇θ LBC ) = 
+
+P
+
+> i
+
+P 
+
+> j
+
+riej ⟨F x[Jθ (xi)⊤], J θ (x′ 
+
+> j
+
+)⊤⟩∥∇ θ LPDE ∥ · ∥∇ θ LBC ∥ .
+
+25 Proof. The first claim follows from the linearity of F in u and the smoothness of uθ in (x, θ ),which permits interchange of Fx and ∂/∂θ . The cosine similarity expression follows by expanding 
+
+∇θ LPDE = P 
+
+> i
+
+riFx[Jθ (xi)⊤] and ∇θ LBC = P 
+
+> j
+
+ej Jθ (x′ 
+
+> j
+
+)⊤; any common positive averaging factors cancel from the cosine. 
+
+Justification of Remark 3. For elliptic operators, a uniformly elliptic Dirichlet problem has a solution operator that is compatible with domain-wide state-level influence through Green-function or Poisson-kernel representations whose kernels have global spatial support. At the gradient level, Lemma 1 gives 
+
+∇θ [Fuθ (x)] = Fx[Jθ (x)⊤].
+
+Therefore, the cosine between PDE and boundary gradients is controlled by the bilinear terms 
+
+Fx[Jθ (xi)⊤], J θ (x′ 
+
+> j
+
+)⊤ .
+
+Ellipticity places no locality restriction on these couplings, but their sign and magnitude still depend on the learned Jacobian correlations rather than on ellipticity alone. This elliptic coupling argument proves the qualitative compatible-with-widespread-coupling claim. For parabolic operators, scalar linear equations satisfying a comparison principle or a maximum principle have order-preserving state evolution. Larger BC or IC data cannot create a smaller solution later in time. Hence, the operator itself does not determine the sign of the parameter-gradient cosine. Negative alignment can already arise through the residual and error signs together with the Jacobian-correlation terms in the cosine formula, and can be further amplified by nonlinear advection, reaction terms, discretization artifacts, or non-monotone parameterizations of uθ . This parabolic conclusion is exactly the qualitative statement in the remark. For hyperbolic operators, the domain-of-dependence theorem implies finite propagation speed. The state at (x, t ) depends only on data inside the backward characteristic cone. Consequently, the state-level influence pattern is localized to causally connected regions. This finite-propagation structure constrains where PDE and boundary information can interact, unlike the elliptic case, but it does not by itself determine the sign of the parameter-gradient cosine. Stiff or highly oscillatory terms do not remove finite propagation, but they can shorten the relevant physical length scales and thereby change the effective coupling range seen by a finite-width network. This finite-propagation argument proves the qualitative hyperbolic claim. 
+
+Justification of Remark 4. For the d-dimensional Poisson equation with u∗(x) = Qdi=1 sin( πx i),the forcing term is f (x) = dπ 2u∗(x).We begin with the residual-gradient decomposition. At a collocation point xj ,
+
+rθ (xj ) = −
+
+> d
+
+X
+
+> i=1
+
+∂2 
+
+> xi
+
+uθ (xj ) − f (xj ),
+
+and because f is fixed data, 
+
+∇θ rθ (xj ) = −
+
+> d
+
+X
+
+> i=1
+
+∇θ ∂2 
+
+> xi
+
+uθ (xj ).
+
+Thus, the direction of the PDE residual gradient is determined by a sum of d parameter-sensitivity terms, while the residual formula also contains the forcing term f (x) = dπ 2u∗(x), which scales linearly with d.Two competing effects then matter. If the vectors ∇θ ∂2 
+
+> xi
+
+uθ (xj ) are weakly correlated across coor-dinates, then the normalized sum d−1 P 
+
+> i
+
+∇θ ∂2 
+
+> xi
+
+uθ (xj ) can become more concentrated as d grows, which tends to stabilize the residual-gradient direction after rescaling. At the same time, the scalar residual multiplier rθ (xj ) depends on the competition between − P 
+
+> i
+
+∂2 
+
+> xi
+
+uθ (xj ) and the explicit 
+
+O(d) forcing term, so its magnitude can either grow, shrink, or partially cancel depending on the approximation error. Since the PDE-loss gradient has the form 
+
+∇θ LPDE ∝ X
+
+> j
+
+rθ (xj )∇θ rθ (xj ),
+
+26 its cosine with the boundary gradient depends on both effects simultaneously. Taken together, the conclusion is as follows. The concentration effect can push the coupling toward more stable alignment, while the residual-amplitude term can amplify or damp whatever misalignment remains. Because these effects act in opposite directions, the residual-gradient decomposition by itself does not fix the net d-dependence of the instantaneous PDE and BC cosine. Without further control of the boundary-gradient scaling or of the training trajectory that defines profiled quantities, this decomposition-level argument also does not yield a monotone law for fneg (d). Determining whether the trajectory is decreasing, increasing, or non-monotone requires additional assumptions or explicit constructions tied to the forcing family and parameter-sensitivity structure. 
+
+## G Experimental Setup 
+
+G.1 PDE Benchmarks 
+
+We evaluate on 60+ PDE configurations, counting distinct PDE families together with parameter, BC, dimension, inverse, and multi-physics variants: 
+
+Forward problems ( K = 3 ). Burgers, Allen–Cahn, Helmholtz, Conv-Diff, Klein–Gordon, and Navier–Stokes make up this six-PDE set. Each PDE uses PDE residual, BC, and IC losses. The additional forward set includes 3D Helmholtz, reaction-diffusion, Taylor–Green vortex, and Darcy flow. 
+
+Expanded criterion validation for K = 3 and K = 4 . Twenty additional forward-PDE con-figurations broaden the empirical coverage beyond the main forward suite. The twelve parameter variations are Helmholtz high-frequency (Helmholtz-HF, ω = 10 ), Burgers high-viscosity (Burgers-HV, ν = 0 .1), two-dimensional (2D) Poisson (Poisson-2D), one-dimensional (1D) heat (Heat-1D), Korteweg–de Vries (KdV), 2D Laplace (Laplace-2D), sharp Allen–Cahn (Allen–Cahn-Sharp), heavy Klein–Gordon (KG-Heavy, m = 2 ), Fisher–Kolmogorov–Petrovsky–Piskunov (Fisher–KPP), Teleg-rapher, Fokker–Planck, and Burgers-Neumann. The eight new operator families are Cahn–Hilliard with fourth-order parabolic structure, Kuramoto–Sivashinsky with chaotic fourth-order structure, Sine–Gordon as a nonlinear wave equation, Gray–Scott as a two-component reaction-diffusion system with K = 4 , Porous Medium as nonlinear diffusion, Burgers–Fisher as reaction–convection– diffusion, 2D convection (Convection-2D) as a steady problem, and Biharmonic as a fourth-order elliptic problem with ∇4u = f . These span all major operator classes, namely elliptic, parabolic, hy-perbolic, fourth-order, and multi-component settings, and they substantially broaden forward-problem coverage. 
+
+Inverse problems with K = 3 and K = 4 . Inverse Burgers with parameter ν, inverse heat with parameter κ and K = 4 , and inverse Poisson with parameter α include learnable physical parameters that create the gradient heterogeneity needed to understand surgery failures. 
+
+Multi-physics with K from 4 to 6. The multi-physics suite includes thermoelastic coupling with 
+
+K = 4 terms for the heat PDE, wave PDE, BC, and IC; a K = 5 heat–elasticity variant with an explicit coupling loss; reactive transport with K = 5 losses for two-species advection–diffusion– reaction and genuine coupling conflict from the kr c1c2 reaction term; and simplified MHD with 
+
+K = 6 losses for mass conservation, momentum, induction, the divergence-free constraint, BC, and IC. 
+
+G.2 K-Scaling Experiments 
+
+To evaluate how performance changes with K in the reported results, we focus on natural multi-loss systems: K = 4 thermoelastic coupling, K = 5 heat–elasticity and reactive transport, and K = 6 
+
+MHD. These systems represent genuinely distinct physics at each loss term rather than artificial residual splitting, directly addressing the concern that K-scaling validation may rely on constructed decompositions. The regime-transition framework is used empirically. Once profiling shows that the surrogate bR has dropped below the adapter-favoring range, scalar reweighting is expected empirically to dominate in these settings. 27 G.3 Methods Compared 
+
+We compare a broad method suite that includes Vanilla with 140K parameters and Vanilla-Wide with 162K capacity-matched parameters as baselines; gradient-surgery and gradient-alignment methods PCGrad, CAGrad, NashMTL, ConFIG [ 25 ], and AlignedMTL [ 36 ]; loss-weighting methods GradNorm, FAMO, uncertainty weighting [ 16 ], causal training [ 42 ], and self-adaptive weights [ 29 ]; and domain decomposition through XPINN [ 12 ]. ConFIG constructs conflict-free updates, whereas AlignedMTL performs gradient alignment based on SVD or eigendecomposition. The XPINN baselines use 4 and 8 subdomains with roughly comparable capacity, with interface and flux continuity constraints, providing a direct comparison between gradient-space and input-space decomposition. We also compare our architectural variants FAMO+UAM, which is the recommended default with 161K parameters and a 15% parameter overhead, and GN+UAM. Additional variants such as UAM, CAM, LCAM, and their loss-weighting combinations serve as comparison controls. We also test architecture generality by adding per-loss adapters to Modified MLP [ 41 ] on 6 PDEs and to a Transformer backbone [ 50 ] on 4 PDEs, as discussed in Appendix L.4. Causal training [ 42 ] enforces temporal causality via exponentially weighted residual chunks, and self-adaptive weights [ 29 ] learn loss weights as differentiable parameters. NTK weighting [ 43 ] is evaluated on a representative subset of four PDEs described in Section I.6 using 3 seeds, with reduced collocation points for computational feasibility. For inverse problems, we additionally report PCGrad-Grouped and CAGrad-Grouped, which apply surgery only to network parameters while updating learnable physical parameters with vanilla updates. 
+
+G.4 Evaluation and Reproducibility Protocol Evaluation. We report relative L2 error, namely, ∥uθ − uref ∥2/∥uref ∥2, on a held-out grid. Meth-ods are ranked from 1 to M per PDE, where 1 is best and failed methods receive the worst rank. Forward-benchmark comparisons are additionally summarized with Bayesian bootstrap comparisons using a Dirichlet prior, which quantify the probability of improvement P (A < B ).In the aggregate significance tables, effect sizes are reported as median relative improvement: 
+
+∆ = median  (Lbase  
+
+> 2
+
+− Lmethod  
+
+> 2
+
+)/L base 
+
+> 2
+
+. For a small number of headline pairwise summaries in the prose, we additionally report Cohen’s d on the seed-level L2 values. 
+
+Reproducibility Protocol. Seed counts vary by suite and are stated in each table or caption. The main 10K forward benchmarks use 5 random seeds from 0 to 4. Many supplementary or higher-cost studies use 3 seeds, and targeted sensitivity checks use fewer when explicitly noted. The selected forward comparisons in Table 23 rerun seeds 5 to 7 in addition to the default seeds 0 to 4, giving 8 total seeds for those entries. All experiments run from a single PyTorch 2.8 codebase on graphics processing unit (GPU) hardware, with suite-specific fixed seeds and deterministic collocation sampling. The default training setup uses 10,000 epochs, the AdamW optimizer with a learning rate of 10 −3 and a weight decay of 10 −5, cosine annealing with a 200-epoch warm-up, and gradient clipping at a norm of 1.0. The implementation is hardware-agnostic across standard PyTorch GPU backends. PDE-specific settings and all hyperparameters are listed in Appendix H. 
+
+## H Architecture and Hyperparameter Details 
+
+H.1 Default Hyperparameters 
+
+Unless otherwise stated, all experiments use a hidden dimension dh = 128 , L = 4 residual blocks, 
+
+F = 10 Fourier bands with maximum frequency 10 π, and an adapter rank r = 16 . We train with AdamW at a learning rate of 10 −3 and a weight decay of 10 −5, with 200 warm-up epochs. Klein– Gordon uses a higher learning rate of 5 × 10 −3. Adapter-specific settings were determined via a grid search on Burgers and then fixed across all other benchmarks. The settings are EMA momentum 
+
+βema = 0 .95 , mixing update frequency τ = 20 , mixing bias a0 = 1 .0, mixing sensitivity b = 2 .0,latent mixing score range [ρmin , ρ max ] = [0 .15 , 0.95] , depth prior range [δ1, δ L] = [+0 .3, −0.3] ,orthogonality weight λortho = 0 .01 , cross-orthogonality weight λcross = 0 .001 , a gradient clip norm of 1.0, and magnitude-aware conflict scoring enabled. Per-layer methods use a gradient clip norm of 
+
+0.8.28 H.2 PDE-Specific Settings 
+
+The default training budget is 10,000 epochs for the main forward suite and most supplementary evaluations unless otherwise stated. Klein–Gordon requires a higher learning rate of 5×10 −3 because its utt term produces initial PDE residuals ∼ 10 4. For per-layer methods on Klein–Gordon, we use a learning rate of 10 −3 with gradient clipping at a norm of 0.5 and warm-up extended to 500 epochs. 3D problems use 10,000 epochs with 2,000 collocation points unless otherwise stated. The dedicated Helmholtz-3D validation in Table 13 uses 15,000 epochs. Inverse problems use 10,000 epochs with learnable parameters initialized via log-parameterization. Multi-physics and K-scaling suites use experiment-specific budgets. The corresponding tables cover 5,000 to 15,000 epochs, so their captions should be treated as definitive for those experiments. 
+
+H.3 Experiment-wise Dataset, Task, and Budget Summary 
+
+Main forward benchmarks are Burgers, Helmholtz, Allen–Cahn, Conv-Diff, and Klein–Gordon. These synthetic forward-PDE benchmarks recover the solution field using only physics losses. The runs use 5 seeds, 10K epochs, ncoll = 2000 , nbc = nic = 400 , 10 4 test points, and the default backbone with dh = 128 , L = 4 , F = 10 , and r = 16 . Klein–Gordon uses a learning rate of 
+
+5 × 10 −3, whereas the others use a learning rate of 10 −3.Inverse problems include inverse Burgers, inverse heat, and inverse Poisson. These settings require joint recovery of the state and one unknown coefficient, namely, ν, κ, or α. We keep the same network and sampling budget, use 10K epochs with log-parameterized scalar initialization, and report 3 to 5 seeds depending on the method. The natural multi-physics and K-scaling suite includes the natural K = 4 thermoelastic benchmark, a coupled heat–wave problem on [−1, 1] × [0 , 1] with a finite-difference reference solution on a 
+
+200 × 200 grid. These runs use 2K epochs, 1.5K collocation points, and 5 seeds. The natural K = 5 
+
+and K = 6 studies use reactive transport and simplified MHD with finite-difference references, 15K epochs, ncoll = 2000 , nbc = nic = 400 , and 5 seeds. The expanded forward validation adds 20 forward PDE configurations and parameter variations, including Poisson-2D, Heat-1D, KdV, Laplace-2D, 1D wave (Wave-1D), Fisher–KPP, Telegrapher, Fokker–Planck, Cahn–Hilliard, Kuramoto–Sivashinsky, Sine–Gordon, Gray–Scott, Porous Medium, Burgers–Fisher, Convection-2D, and Biharmonic. Unless a table caption states otherwise, these runs use 3 seeds, 10K epochs, dh = 128 , r = 16 , and the same collocation budget as the main suite. Architecture transfer evaluates the generality of Modified MLP across 6 PDEs, namely, Helmholtz, Burgers, Klein–Gordon, Conv-Diff, Allen–Cahn, and Wave-1D, with 3 seeds and 10K epochs. It evaluates the generality of the Transformer backbone across 4 PDEs, namely, Helmholtz, Burgers, Allen–Cahn, and Klein–Gordon, with 3 seeds, 15K epochs, dh = 128 , r = 16 , and ncoll = 2000 .MTL transfer uses two-task benchmarks built from the Modified National Institute of Standards and Technology (MNIST) and Fashion-MNIST datasets. The benchmarks are Multi-MNIST and Multi-FashionMNIST, respectively. Both overlay two digits or garments in a single 36 × 36 image and predict the left and right labels. They use 60K training samples, 10K test samples, 5 seeds, 100 epochs, a batch size of 256, a hidden width of 256, an adapter rank of 16, and Adam with a learning rate of 10 −3. The Canadian Institute for Advanced Research 100-class dataset (CIFAR-100) transfer experiment uses fine-label and coarse-superclass prediction as a two-task classification problem with a shared residual network (ResNet)-style encoder. It uses 3 seeds, 50 epochs, a batch size of 128, a hidden width of 512, an adapter rank of 32, and Adam with a learning rate of 10 −3.
+
+H.4 Baseline Implementation Details 
+
+Unless otherwise stated, all baselines use the same trunk architecture, data sampling, outer AdamW optimizer, scheduler, and training budget. Method-specific inner updates, auxiliary optimizers, parameter grouping, and learning-rate sweeps are stated here or in the corresponding sensitivity sections. FAMO [ 24 ] maintains logits z ∈ RK updated via dual ascent. The model loss is P 
+
+> k
+
+wkLk, where 
+
+w = softmax( z) with a lower clamp of 0.01 followed by renormalization. After each step, the logits 29 are updated componentwise as zk ← zk + γ(L(t) 
+
+> k
+
+− L (t−1)  
+
+> k
+
+) with γ = 0 .01 , which focuses weight on losses that are worsening. GradNorm follows the reference algorithm [ 2]. Task weights w ∈ RK , initialized to 1, are represented as an nn.Parameter and optimized by a separate Adam optimizer with ηw = 0 .025 . At each step, gradient norms G(k) 
+
+> W
+
+= wk∥∇ Wℓ Lk∥2 are computed with respect to the last shared layer Wℓ.Their average is ¯G = K−1 P 
+
+> k
+
+G(k) 
+
+> W
+
+, the normalized loss ratios are ˜Lk(t) = Lk(t)/Lk(0) and 
+
+ξk(t) = ˜Lk(t)/((1 /K ) P 
+
+> j
+
+˜Lj (t)) , and the targets are G(k)target = ¯Gξ k(t)α with α = 1 .5. The GradNorm loss Lgrad = P 
+
+> k
+
+|G(k) 
+
+> W
+
+− G(k)target | is then minimized by backpropagation through w.PCGrad [ 49 ] and CAGrad [ 23 ] use per-loss gradients over the same trainable parameter vector for the forward benchmarks. For inverse-problem grouped variants, projection or conflict-averse updates are applied only to network parameters, while learnable physical scalars receive vanilla AdamW updates as described in the parameter-grouped surgery section. NashMTL uses projected gradient ascent in log-space to maximize the Nash product [ 32 ]. The Gram matrix Gij = ⟨gi, g j ⟩ is regularized as G + 0 .01 · ¯Gii · I. We update the weights through 
+
+α ← α · exp( ηα∇α) with clamped increments satisfying |∆| ≤ 0.5, use 25 inner iterations, and warm-start from the previous solution. A numerical-instability fallback reverts to uniform weights. This is a GPU-native adaptation of NashMTL that uses gradient-based optimization rather than the original solver-based implementation by Navon et al. [32] , avoiding expensive host round-trips on GPU hardware. AlignedMTL [ 36 ] computes the top-k SVD of the gradient matrix and projects the average gradient onto the principal subspace. ConFIG uses iterative projection to find a conflict-free direction, with geometric mean scaling [25]. Uncertainty weighting [ 16 ] learns per-loss log-variance parameters with the standard exp( −sk)Lk +
+
+sk formulation. Causal training [ 42 ] uses exponentially weighted residual chunks, and self-adaptive weighting [ 29 , 47 ] learns differentiable loss weights. NTK weighting and XPINN settings are described in their dedicated comparison sections. These shared defaults and explicitly stated method-specific deviations define the reproducibility protocol used for the comparisons. 
+
+H.5 Model Sizes 
+
+Vanilla has 140,033 parameters. Vanilla-Wide has 162,013 parameters with dh ≈ 138 to match adapter capacity. UAM has 160,772 parameters with fixed adapters and a 15% parameter overhead. CAM has 160,776 parameters with global conflict-aware mixing and a 15% parameter overhead. LCAM has 197,661 parameters with per-layer conflict-aware mixing scores and a 41% parameter overhead. These adapter parameters remain active in the forward pass at inference, so the listed parameter overhead is not a training-only cost. For higher-K settings, adapter count scales linearly with K.
+
+H.6 Natural K = 4 Thermoelastic System 
+
+The natural K = 4 benchmark couples a heat equation with a wave equation on [−1, 1] × [0 , 1] :
+
+ut = Du xx + αv, (18) 
+
+vtt = c2vxx + βu, (19) where D = 0 .01 , α = 0 .5, c = 1 .0, and β = 0 .3. The system uses ICs u(x, 0) = sin( πx ),
+
+v(x, 0) = cos( πx/ 2) , vt(x, 0) = 0 , and Dirichlet BCs u(±1, t ) = v(±1, t ) = 0 . The reference solution is computed by finite differences on a 200 × 200 grid, using Crank–Nicolson for the heat equation and Verlet integration for the wave equation. This thermoelastic formulation produces four natural loss terms. These are Lheat for the heat PDE residual, Lwave for the wave PDE residual, LBC 
+
+for the BCs, and LIC for the ICs of both fields. Training uses 2,000 epochs with 1,500 collocation points. 30 Algorithm 2 Regime-aware method selection 
+
+Require: A PDE problem with K loss terms, a budget constraint Bmax  
+
+> 1:
+
+if problem has learnable physical parameters then  
+
+> 2:
+
+if K = 3 then  
+
+> 3:
+
+return FAMO or GradNorm without adapters  
+
+> 4:
+
+else if K = 4 then  
+
+> 5:
+
+return FAMO+UAM { K = 4 inverse benefits empirically}  
+
+> 6:
+
+end if  
+
+> 7:
+
+end if  
+
+> 8:
+
+Run Tprof = 1000 steps of Vanilla profiling  
+
+> 9:
+
+From {f (t)neg }Tprof  
+
+> t=1
+
+, compute bfneg = (1 /T prof ) P 
+
+> t
+
+f (t)neg , ¯f early neg , and ¯f late neg as the means over the first third and last third. Also compute P = ¯f late neg / max( ¯f early neg , ε P ) with εP = 10 −8, together with the least-squares slope of t 7 → f (t)neg  
+
+> 10:
+
+Evaluate Vanilla profiling L2 error ϵvan  
+
+> 11:
+
+if ϵvan < 10 −3 then  
+
+> 12:
+
+return FAMO alone {an easy problem, adapters unnecessary}  
+
+> 13:
+
+end if  
+
+> 14:
+
+if bfneg < 0.05 then  
+
+> 15:
+
+return FAMO alone {negligible directional conflict}  
+
+> 16:
+
+else if P > 0.8 then  
+
+> 17:
+
+return FAMO+UAM with a 1.3× training-time cost {persistent conflict}  
+
+> 18:
+
+else if P < 0.5 and slope < −0.02 then  
+
+> 19:
+
+return FAMO alone {transient conflict resolves}  
+
+> 20:
+
+else  
+
+> 21:
+
+return FAMO+UAM {default when conflict detected}  
+
+> 22:
+
+end if H.7 Parameter-Grouped Gradient Surgery 
+
+The PCGrad-Grouped and CAGrad-Grouped variants partition the parameter vector θ into network parameters θnet , which include hidden weights, biases, and embeddings, and physical parameters 
+
+θphys , which include learnable scalars such as viscosity ν, diffusivity κ, and source coefficient α.Gradient projection with PCGrad or the conflict-aware update with CAGrad is applied only to 
+
+∇θnet Lk. Physical parameters receive vanilla gradient updates. This grouped-update scheme avoids the catastrophic scale mismatch between ∥∇ θnet Lk∥ ∼ 10 −2 and ∥∇ θphys Lk∥ ∼ 10 2.
+
+H.8 ConFIG Baseline 
+
+ConFIG [ 25 ] computes a conflict-free gradient direction by iterative pairwise projections with 20 iterations and scales the update by the geometric mean of per-loss gradient norms. It uses the same learning rate, weight decay, and architecture as the vanilla baseline. ConFIG incurs roughly 1.7×
+
+to 1.9× empirical training-time overhead in our setup, as Table 6 shows, due to the extra per-loss gradient computation and iterative projection. 
+
+## I Supplementary Cost, Scalability, and Diagnostic Analyses 
+
+I.1 Regime-Aware Method Selection 
+
+Algorithm 2 therefore does not treat K alone as sufficient evidence for method selection; the natural higher-K multi-physics results provide empirical guidance, while the final choice is made by the profiling diagnostics. 
+
+Profiling criterion. The primary discriminator is the window-average negative-pair fraction bfneg := 
+
+T −1prof 
+
+P 
+
+> t
+
+f (t)neg from a 1000-step Vanilla profile: bfneg < 0.05 indicates negligible conflict. We write 
+
+¯f early neg and ¯f late neg for the averages over the first and last thirds of that profile, define the persistence 31 Table 5: Diagnostic regimes and recommended interventions. 
+
+Profile Choice Appropriate Methods Low conflict or easy profile FAMO only [41, 24] High cM , low bR FAMO or GradNorm [2, 24] Transient: P < 0.5, slope < −0.02 Reweight only [2, 24] Persistent: P > 0.8 FAMO+UAM [8, 10, 45] Inverse or heterogeneous Avoid full-space surgery [49, 23, 32] 200 400 600 800 1000                                          
+
+> Vanilla profile step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> f (t)neg
+> Burgers
+> transient conflict
+> raw
+> moving avg
+> bfneg = 0 :34 P= 0 :40 ²van = 1 :71 £10 ¡1
+> 200 400 600 800 1000
+> Vanilla profile step
+> Klein-Gordon
+> persistent conflict
+> bfneg = 0 :44 P= 1 :20 ²van = 1 :00 £10 0
+> 200 400 600 800 1000
+> Vanilla profile step
+> Allen-Cahn
+> easy / low-value intervention
+> bfneg = 0 :20 P= 0 :65 ²van = 7 :54 £10 ¡3
+> −1 01
+> x
+> 0.0
+> 0.5
+> 1.0
+> t
+> ¢jej: 5.26e-03 !5.37e-03
+> negative = adapter helps
+> −1 01
+> x
+> ¢jej: 1.54e-03 !1.50e-03
+> negative = adapter helps
+> −1 01
+> x
+> ¢jej: 2.33e-04 !2.17e-04
+> negative = adapter helps
+> −0.002
+> 0.000
+> 0.002
+> ¢jej = jej䘀䄀䴀伀⬀唀䄀 䴀¡ j ejFAMO
+> |e| = | e|FAMO + UAM  |e|FAMO
+> |e| = | e|FAMO + UAM  |e|FAMO
+
+Figure 3: Profiling-to-outcome bridge on three representative forward PDEs. The top row shows the 1000-step Vanilla negative-pair trajectory f (t)neg together with the profile summary ( bfneg , P, ϵ van ), and the bottom row visualizes the local error change ∆|e| = |e|FAMO+UAM − | e|FAMO , where negative values indicate regions in which the adapter variant helps. Burgers exhibits transient conflict with 
+
+P = 0 .40 , and the adapter effect stays confined to a thin shock-adjacent band, yielding essentially tied final errors of 5.26 × 10 −3 and 5.37 × 10 −3. Klein–Gordon maintains persistent conflict with 
+
+P = 1 .20 and a poor profiled Vanilla error ϵvan = 1 .00 , and the adapter-induced change concentrates along oscillatory ridges, improving the final error from 1.54 × 10 −3 to 1.50 × 10 −3. Allen–Cahn shows weaker conflict with bfneg = 0 .20 and a much smaller profiled Vanilla error ϵvan = 7 .54 ×10 −3,and correspondingly the error-difference map is visually negligible. ratio P = ¯f late neg / max( ¯f early neg , ε P ) with εP = 10 −8, and define the slope as the least-squares slope of t 7 → f (t)neg . We use these quantities as a deployment heuristic for choosing between FAMO and FAMO+UAM. Broader comparisons against Vanilla, UAM, or surgery baselines are reported separately in the main result tables. When conflict is present, P > 0.8 is treated as evidence of persistent conflict, while P < 0.5 with negative slope indicates transient conflict likely to resolve without architectural separation. The full procedure in Algorithm 2 should therefore be read as a practical decision rule, not as a guarantee of global optimality. It combines an easy-problem filter with persistence-based classification. 
+
+I.2 Profiling-to-Outcome Bridge 
+
+Figure 3 connects the 1000-step profiling signal used by Algorithm 2 to the final local error difference between FAMO and FAMO+UAM on representative PDEs. It shows why the selection rule depends on persistence rather than merely detecting negative cosine pairs. Persistent conflict yields spatially structured regions where adapters help, while transient or low-impact conflict leaves little qualitative change. 32 −1 0 1                    
+
+> x
+> 0.0
+> 0.5
+> 1.0
+> Klein-Gordon
+> persistent conflict
+> L2 = 1.50 e − 03
+> Exact field
+> −1 01
+> x
+> Dominant adapter
+> −1 01
+> x
+> Adapter 0 (39.9%)
+> −1 01
+> x
+> Adapter 1 (41.1%)
+> −1 01
+> x
+> Adapter 2 (19.0%)
+> −1 01
+> x
+> 0.0
+> 0.5
+> 1.0
+> Allen-Cahn
+> low-conflict control
+> L2 = 2.17 e − 04
+> Exact field
+> −1 01
+> x
+> Dominant adapter
+> −1 01
+> x
+> Adapter 0 (36.6%)
+> −1 01
+> x
+> Adapter 1 (62.5%)
+> −1 01
+> x
+> Adapter 2 (0.9%)
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> ‖Ak(h(x, t))‖ 2
+> Adapter 0 Adapter 1 Adapter 2
+
+Figure 4: Spatial specialization of the learned per-loss adapters on a persistent-conflict case and a low-conflict control. Each row shows the exact field, the dominant adapter index at each space-time point, and the contribution norms ∥Ak(h(x, t )) ∥2 of the three final adapters in the trained FAMO+UAM model. On Klein–Gordon, all three adapters occupy non-trivial regions of the slab, with shares of 39.9%, 41.1%, and 19.0%, and split the dynamics into boundary- and interior-sensitive correction zones. On Allen–Cahn, by contrast, one adapter dominates 62.5% of the domain and the third adapter is almost unused at 0.9%. Thus, in the adapter-beneficial regime, the additional low-rank branches do more than uniformly rescale the shared trunk; they learn spatially distinct corrections for the same physical field. 
+
+I.3 Adapter Specialization Visualization 
+
+Figure 4 complements the shared-output adapter construction in Section 2.3 and the blockwise NTK interpretation in Appendix D. It shows that, in the adapter-beneficial regime, different loss-indexed adapters learn spatially distinct corrections, whereas the low-conflict control collapses toward a dominant branch; this supports interpreting the gains as conflict-dependent specialization rather than merely added parameter capacity. 
+
+I.4 Computational Cost and Scalability 
+
+Table 6 shows that FAMO+UAM incurs only a 1.3× runtime cost relative to Vanilla, whereas GN+UAM rises to 1.8× because of the extra gradient-norm computation. LCAM variants are substan-tially more expensive, with overhead ranging from 2.4× to 3.0×. We therefore treat FAMO+UAM as the default cost-conscious adapter configuration rather than claiming a universal cost optimum across all budgets and PDEs. Figure 7 shows that higher rank mainly helps on persistent-conflict PDEs, while transient or no-conflict cases are largely rank-insensitive. 
+
+Adaptive rank selection. The default rank r = 16 performs well across benchmarks, and the saturation ratio ∆sat = Kr/d h is a useful capacity proxy. One simple profiling-based heuristic is 
+
+rheur =
+
+&
+
+dh bfneg 
+
+K
+
+'
+
+,
+
+where bfneg is the profiled average fraction of negative pairwise cosines. This rule is a capacity-matching heuristic rather than a direct theorem consequence, chosen so that ∆sat ≈ bfneg . In persistent-conflict cases, the rule suggests a nontrivial adapter rank, whereas in no-conflict cases it collapses to zero, so no adapters are used. Figure 7 shows that larger ranks help mainly on persistent-conflict PDEs, while transient or no-conflict cases are comparatively insensitive. We recommend 33 Table 6: Computational cost comparison at dh = 128 , 10K epochs. Wall-clock time (seconds) and overhead relative to Vanilla are shown separately for each PDE. All runs use 5 seeds except where noted. Parameter counts reflect the shared trunk plus any per-loss adapter modules. GradNorm timings reflect the reference algorithm [ 2 ] with gradient-norm computation with respect to the last shared layer. Helmholtz Burgers Method # Params. Time (s) Overhead Time (s) Overhead Shared-output baselines Vanilla 140,033 697 1.00 × 440 1.00 ×
+
+FAMO 140,033 692 0.99 × 456 1.04 ×
+
+GradNorm 140,033 929 1.33 × 613 1.39 ×
+
+ConFIG 140,033 1201 1.72 × 848 1.93 ×
+
+Uniform adapter mixing (ours) UAM 160,772 933 1.34 × 607 1.38 ×
+
+FAMO+UAM 160,772 929 1.33 × 615 1.40 ×
+
+GN+UAM 160,772 1262 1.81 × 820 1.86 ×
+
+Layerwise conflict-aware adapter mixing (ours) FAMO+LCAM 197,661 1689 2.42 × 1160 2.64 ×
+
+GN+LCAM 197,661 1963 2.82 × 1336 3.04 ×0 5000 10000 15000 20000                               
+
+> Epoch
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Relative  L2 Error
+> Helmholtz
+> Vanilla
+> FAMO
+> FAMO+UAM
+> 05000 10000 15000 20000
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> Burgers
+> Vanilla
+> FAMO
+> FAMO+UAM
+> 05000 10000 15000 20000
+> Epoch
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Poisson-2D
+> Vanilla
+> FAMO
+> FAMO+UAM
+> 05000 10000 15000 20000
+> Epoch
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Relative  L2 Error
+> Allen-Cahn
+> Vanilla
+> FAMO
+> FAMO+UAM
+> 05000 10000 15000 20000
+> Epoch
+> 10 0
+> 8 × 10 1
+> 9 × 10 1
+> KdV
+> Vanilla
+> FAMO
+> FAMO+UAM
+
+Figure 5: Training curves of L2 error by epoch for five PDEs spanning different conflict regimes, with 20K epochs, 3 seeds, and interquartile range (IQR) shading. On Helmholtz and Poisson-2D, which show persistent conflict, FAMO+UAM separates from Vanilla early and the gap widens monotonically, reaching about 45 × and 33 .8× at 20K. On Allen–Cahn with no conflict and Burgers with transient conflict, all methods converge similarly. KdV fails to converge under any method, with 
+
+L2 > 0.8.
+
+r = 16 as a conservative mid-range default; practitioners with a profiling step can use rheur as a coarse starting point. 
+
+I.5 Training Dynamics Visualization 
+
+Figure 5 visualizes the training dynamics for five PDEs across the conflict regimes and shows when the performance gap appears and widens. On Helmholtz, which exhibits persistent conflict with 34 Table 7: NTK weighting comparison on four representative PDEs. Lower relative L2 error is better. PDE Vanilla FAMO NTK Weighting FAMO+UAM (Ours) Helmholtz 4.38 × 10 −2 1.25 × 10 −3 7.51 × 10 −4 5.93 × 10 −4
+
+Klein–Gordon 4.62 × 10 −2 2.09 × 10 −3 1.58 × 10 −3 1.57 × 10 −3
+
+Burgers 1.36 × 10 −2 8.33 × 10 −3 4.83 × 10 −3 6.46 × 10 −3
+
+Allen–Cahn 1.61 × 10 −4 2.22 × 10 −4 1.01 × 10 −3 1.92 × 10 −40 2000 4000 6000 8000 10000                           
+
+> Epoch
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Relative  L2 Error
+> Helmholtz
+> Vanilla
+> FAMO
+> FAMO+UAM
+> NTK
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> Klein-Gordon
+> Vanilla
+> FAMO
+> FAMO+UAM
+> NTK
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> Burgers
+> Vanilla
+> FAMO
+> FAMO+UAM
+> NTK
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Allen-Cahn
+> Vanilla
+> FAMO
+> FAMO+UAM
+> NTK
+
+Figure 6: Training dynamics for the NTK-weighting comparison with 4 PDEs, 3 seeds, and IQR shading. On Helmholtz and Klein–Gordon, FAMO+UAM converges faster and achieves lower final error than NTK weighting. On Burgers, which shows transient conflict, NTK weighting matches or slightly outperforms FAMO+UAM. On Allen–Cahn, where no conflict is detected, Vanilla dominates. 
+
+P > 0.8, FAMO+UAM separates from Vanilla within the first 2000 epochs and the gap widens monotonically to roughly 45 × at 20K epochs. Poisson-2D exhibits the same pattern. FAMO+UAM reaches 2.19 × 10 −4 compared with Vanilla’s 7.41 × 10 −3, which gives a 33 .8× improvement at 20K and confirms that persistent conflict drives sustained adapter benefit. On Allen–Cahn, where no conflict is detected, all methods converge to the same error of about 5 × 10 −5, confirming that adapters provide no benefit when directional conflict is absent. On Burgers, which exhibits mixed but transient conflict with P = 0 .63 , all methods converge to nearly identical errors of about 4.5 × 10 −3,with early separation that vanishes at extended training. KdV fails to converge under any method (L2 > 0.8), indicating a fundamentally hard problem where gradient conflict resolution cannot compensate for architectural limitations. 
+
+I.6 NTK Weighting Comparison 
+
+NTK-based loss weighting [ 43 ] adjusts loss weights via the NTK trace to balance learning speeds. We compare NTK weighting against Vanilla, FAMO, and FAMO+UAM on 4 representative PDEs spanning different conflict regimes, as reported in Table 7. NTK weighting adds negligible training overhead, about 1.06 × with periodic kernel recomputation every 100 steps, making it a low-cost alternative to FAMO+UAM, whose training-time cost is about 1.3×.Results confirm that the intervention class should match the conflict type. On the high-conflict Helmholtz PDE, FAMO+UAM achieves 5.9 × 10 −4 while NTK weighting reaches 7.5 × 10 −4,showing that persistent directional conflict can require architectural intervention rather than scalar reweighting. On Klein–Gordon, FAMO+UAM ( 1.57 ×10 −3) and NTK ( 1.58 ×10 −3) are comparable. On Burgers, which shows moderate and transient conflict, NTK weighting reaches 4.8 × 10 −3 and slightly outperforms FAMO+UAM at 6.5 × 10 −3, which is consistent with the regime prediction that magnitude rebalancing suffices for transient conflict. On Allen–Cahn, where no conflict is detected, Vanilla reaches 1.6 × 10 −4 and outperforms all intervention methods, including NTK at 1.0 × 10 −3,confirming that unnecessary intervention can be harmful. Figure 6 visualizes the training dynamics. On Helmholtz, FAMO+UAM separates from NTK weighting within the first 2000 epochs, confirming that the architectural advantage emerges early and persists. 35 22 23 24 25 26     
+
+> Adapter Rank r
+> 10 4
+> 10 3
+> Relative  L2 Error
+> Rank Ablation (FAMO+UAM)
+> Helmholtz Burgers Allen-Cahn
+
+Figure 7: Adapter rank ablation across three PDEs spanning different conflict regimes. Optimal rank correlates with conflict persistence. Helmholtz benefits from higher rank, while Allen–Cahn is largely rank-insensitive. 
+
+I.7 Adaptive Rank Selection Validation 
+
+We use the saturation ratio ∆sat = Kr/d h as a simple capacity proxy for how much adapter specialization a fixed-width trunk can support. The profiling-based rule 
+
+rheur =
+
+&
+
+dh bfneg 
+
+K
+
+'
+
+is a capacity proxy rather than a theoretical guarantee. Figure 7 therefore provides end-to-end empirical validation across three PDEs spanning different conflict regimes. On Helmholtz, which exhibits persistent conflict, performance improves monotonically with rank: r = 4 gives 6.95 × 10 −4,
+
+r = 8 gives 5.63 × 10 −4, r = 16 gives 3.72 × 10 −4, r = 32 gives 3.33 × 10 −4, and r = 64 
+
+gives 3.06 × 10 −4. This Helmholtz rank sweep spans 2.3×, with diminishing returns above r = 32 .On Burgers, which exhibits transient conflict, all five ranks yield indistinguishable errors from 
+
+4.57 × 10 −3 to 4.64 × 10 −3. This narrow range corresponds to only a 1.0× span and is consistent with the regime prediction that scalar reweighting suffices. On Allen–Cahn, where no conflict is detected, rank has minimal effect. Errors range from 6.7 × 10 −5 to 8.6 × 10 −5, which corresponds to a 1.3× span and confirms that adapters are unnecessary. These results support the heuristic capacity picture. Higher-conflict PDEs benefit from larger adapter subspaces, and the 2.3× gap between r = 4 
+
+and r = 64 on Helmholtz shows that underpowered adapters can leave performance on the table. 
+
+I.8 Scalability and Ablation Tables 
+
+Tables 8 and 9 test whether the adapter benefit persists across changes in network capacity and collocation density rather than depending on a single training configuration. Several observations follow from these stress tests. First, increasing trunk capacity does not turn the adapter into a uniformly beneficial add-on. On low-conflict Allen–Cahn, Vanilla remains competitive or best, which is consistent with the profiling rule that recommends no architectural intervention when directional conflict is absent. Second, Burgers shows the expected transient-conflict pattern. Across widths, depths, and collocation budgets, FAMO and adapter variants are close, and the best entry alternates rather than being dominated by the adapter; this indicates that scalar loss balancing and ordinary approximation capacity capture most of the remaining difficulty once the early conflict decays. Third, Helmholtz behaves differently. The best adapter-and-weighting variants stay between 10 −4 and 
+
+10 −3 error across network sizes, while Vanilla remains one to two orders of magnitude worse in most configurations. The collocation sweep gives the clearest signal: FAMO+UAM stays between 
+
+1.9 × 10 −3 and 3.7 × 10 −3 from 1K to 20K collocation points, whereas Vanilla stays near 10 −1.Thus, the Helmholtz improvement is not explained by a fortunate width and depth choice or by sparse residual sampling; it reflects a persistent directional-conflict bottleneck that benefits from loss-indexed parameter subspaces. 36 Table 8: Scalability analysis of network size effects on adapter benefits. Relative L2 error is averaged over 3 seeds. Bold indicates the best result for each configuration. †GN+UAM scalability data uses a simplified GradNorm variant, whereas the main-forward results in Tables 1 and 2 use the reference algorithm. 
+
+PDE Config Vanilla FAMO FAMO+UAM GN+UAM †
+
+Allen–Cahn dh = 128 , L = 4 5 × 10 −4 7 × 10 −4 7 × 10 −4 7 × 10 −4
+
+dh = 128 , L = 8 4 × 10 −4 5 × 10 −4 6 × 10 −4 5 × 10 −4
+
+dh = 256 , L = 4 2 × 10 −4 3 × 10 −4 2 × 10 −4 2 × 10 −4
+
+dh = 256 , L = 8 1 × 10 −4 2 × 10 −4 2 × 10 −4 5 × 10 −4
+
+dh = 512 , L = 4 1 × 10 −4 1 × 10 −4 1 × 10 −4 4 × 10 −4
+
+Burgers dh = 128 , L = 4 3.17 × 10 −2 1.08 × 10 −2 1.04 × 10 −2 1.06 × 10 −2
+
+dh = 128 , L = 8 6.14 × 10 −2 1.33 × 10 −2 9.5 × 10 −3 1.00 × 10 −2
+
+dh = 256 , L = 4 4.41 × 10 −2 5.8 × 10 −3 1.03 × 10 −2 9.4 × 10 −3
+
+dh = 256 , L = 8 2.07 × 10 −2 7.4 × 10 −3 7.4 × 10 −3 1.10 × 10 −2
+
+dh = 512 , L = 4 2.93 × 10 −2 1.35 × 10 −2 9.9 × 10 −3 1.01 × 10 −2
+
+Helmholtz dh = 128 , L = 4 1.248 × 10 −1 5.3 × 10 −3 2.0 × 10 −3 4 × 10 −4
+
+dh = 128 , L = 8 9.62 × 10 −2 2.2 × 10 −3 1.9 × 10 −3 3 × 10 −4
+
+dh = 256 , L = 4 4.42 × 10 −2 1.0 × 10 −3 5 × 10 −4 2 × 10 −4
+
+dh = 256 , L = 8 4.48 × 10 −2 8 × 10 −4 4 × 10 −4 1 × 10 −4
+
+dh = 512 , L = 4 9.6 × 10 −3 6 × 10 −4 6 × 10 −4 3 × 10 −4
+
+Table 9: Scalability with collocation points. Relative L2 error, averaged over 3 seeds. On Helmholtz, FAMO+UAM maintains roughly 34 × to 72 × improvement over Vanilla across all tested Ncoll values, where Ncoll ∈ { 1K, 2K, 5K, 10 K, 20 K}, confirming robustness to collocation density. 
+
+PDE Ncoll Vanilla FAMO FAMO+UAM Burgers 1,000 2.60 × 10 −2 1.33 × 10 −2 1.50 × 10 −2
+
+2,000 2.89 × 10 −2 1.43 × 10 −2 7.7 × 10 −3
+
+5,000 2.03 × 10 −2 1.07 × 10 −2 5.0 × 10 −3
+
+10,000 1.83 × 10 −2 8.0 × 10 −3 4.7 × 10 −3
+
+20,000 1.35 × 10 −2 7.7 × 10 −3 4.7 × 10 −3
+
+Helmholtz 1,000 1.070 × 10 −1 7.1 × 10 −3 1.9 × 10 −3
+
+2,000 1.275 × 10 −1 4.8 × 10 −3 3.7 × 10 −3
+
+5,000 1.372 × 10 −1 5.3 × 10 −3 1.9 × 10 −3
+
+10,000 1.092 × 10 −1 4.0 × 10 −3 2.0 × 10 −3
+
+20,000 1.510 × 10 −1 6.1 × 10 −3 2.3 × 10 −3
+
+Table 10: Darcy flow 2D benchmark. We report L2 error as mean ± std over 3 seeds at 5K epochs. GN+UAM achieves the best result with 5.6 × 10 −2, which is a 4.5× improvement over Vanilla and confirms adapter benefits on this standard elliptic PDE benchmark with K = 3 losses and extreme magnitude imbalance ¯r > 8, 500 . †GradNorm uses a simplified variant, whereas the main-forward results in Tables 1 and 2 use the reference algorithm. 
+
+Method L2 Error # Params. Vanilla (2 .48 ± 0.29) × 10 −1 140K FAMO (1 .44 ± 0.43) × 10 −1 140K FAMO+UAM (9 .7 ± 0.8) × 10 −2 161K FAMO+LCAM (8 .8 ± 0.9) × 10 −2 198K GN+UAM † (5 .6 ± 0.8) × 10 −2 161K 
+
+## J Supplementary Benchmark Tables 
+
+This section collects supplementary benchmark tables that extend the main forward and natural 
+
+K = 4 evaluations used to support the regime classification. 37 Table 11: Natural K = 4 coupled thermoelastic benchmark. Mean ± std L2 error over 5 seeds. This naturally coupled system of heat and wave equations provides a K = 4 validation where the adapter-and-weighting combination outperforms either component alone. Best values are shown in bold. †GradNorm uses a simplified variant; the main-forward results in Tables 1 and 2 use the reference algorithm. 
+
+Method L2 Error Rank Vanilla (5 .11 ± 0.83) × 10 −1 10 FAMO (1 .04 ± 0.17) × 10 −1 5GradNorm † (2 .28 ± 0.84) × 10 −1 6UAM (4 .15 ± 0.58) × 10 −1 7FAMO+UAM (7 .95 ± 2.38) × 10 −2 4GN+UAM † (5 .84 ± 1.31) × 10 −2 2CAM (4 .57 ± 0.92) × 10 −1 9LCAM (4 .34 ± 1.06) × 10 −1 8FAMO+LCAM (7 .79 ± 2.1) × 10 −2 3GN+LCAM † (4 .78 ± 0.78) × 10 −2 10.0 0.2 0.4 0.6 0.8 1.0                                     
+
+> t
+> −1.00
+> −0.95
+> −0.90
+> −0.85
+> −0.80
+> −0.75
+> Amplitude
+> Temperature trace u(−0.5, t)
+> Exact
+> FAMO
+> FAMO+UAM
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Amplitude
+> Displacement trace v(−0.5, t)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.00
+> 1.05
+> 1.10
+> 1.15
+> 1.20
+> 1.25
+> Energy
+> Elastic energy Ev(t)
+> −1.00 −0.95 −0.90 −0.85 −0.80 −0.75
+> u
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> v
+> Thermoelastic loop at x= −0.5
+> −1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50 0.75 1.00
+> x
+> −0.10
+> −0.05
+> 0.00
+> 0.05
+> 0.10
+> v
+> Final-time displacement v(x, 1)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> ‖ev(⋅,  t)‖ 2/‖ v ⋆ (⋅,  t)‖ 2
+> t = 0.8
+> Time-resolved displacement error
+
+Figure 8: Energy exchange and branchwise dynamics on the natural K = 4 thermoelastic system. The top row compares a representative temperature trace u(−0.5, t ), displacement trace v(−0.5, t ),and elastic energy Ev (t) = 1 /2 R (v2
+
+t + c2v2
+
+x)dx ; the bottom row shows the local thermoelastic loop 
+
+(u(−0.5, t ), v (−0.5, t )) , the final-time displacement profile, and the time-resolved displacement-profile error. The qualitative signal is branchwise rather than uniform. FAMO already tracks the thermal branch closely, but it keeps the displacement branch too positive at late time and underestimates the elastic-energy envelope, whereas FAMO+UAM restores the signed displacement swing and follows the coupled loop more faithfully. On this representative run, the mean relative elastic-energy error drops from 1.15 × 10 −1 to 3.17 × 10 −3, and the displacement-profile error at 
+
+t ≈ 0.8 drops from 2.51 × 10 −1 to 5.48 × 10 −2.
+
+## K Statistical Comparison 
+
+Table 12 reports Bayesian bootstrap comparisons with 10,000 Dirichlet-weighted resamples over 25 matched PDE-seed pairs for each method comparison and shows that FAMO+UAM consistently outperforms Vanilla with P > 0.99 , as well as GradNorm and most competitors on the 5 forward PDEs. The comparison between FAMO+UAM and FAMO remains close because FAMO alone is already strong on the less challenging PDEs. The gap widens on high-conflict problems like Klein–Gordon, where FAMO+UAM reaches 29 × over Vanilla and FAMO reaches 19 ×.38 Table 12: Bayesian pairwise comparison on forward benchmarks with 5 PDEs, dh = 128 , and 10K epochs. P(A <B) denotes the Dirichlet-weighted bootstrap probability that Method A achieves lower 
+
+L2 error than Method B, using n = 10 , 000 resamples. Each comparison uses 25 matched PDE-seed error pairs. Probabilities above 0.95 are bold.                                             
+
+> Method A Method B P(A <B) FAMO+UAM FAMO 0.991
+> FAMO+UAM GN+UAM 1.000
+> FAMO+UAM GradNorm 1.000
+> FAMO+UAM FAMO+LCAM 0.824 FAMO+UAM GN+LCAM 1.000
+> FAMO+UAM Vanilla 1.000
+> FAMO GN+UAM 1.000
+> FAMO GradNorm 1.000
+> FAMO FAMO+LCAM 0.053 FAMO GN+LCAM 1.000
+> FAMO Vanilla 1.000
+> GN+UAM GradNorm 1.000
+> GN+UAM FAMO+LCAM 0.000 GN+UAM GN+LCAM 1.000
+> GN+UAM Vanilla 0.993
+> GradNorm FAMO+LCAM 0.000 GradNorm GN+LCAM 0.000 GradNorm Vanilla 0.063 FAMO+LCAM GN+LCAM 1.000
+> FAMO+LCAM Vanilla 1.000
+> GN+LCAM Vanilla 0.773
+
+Table 13: 3D validation on Helmholtz-3D over [0 , 1] 3 with K = 3 , 5 seeds, dh = 128 , and 15K epochs. We report relative L2 error as mean ± std, where lower is better. The adapter benefit persists in 3D with the same regime structure as in 2D.                                  
+
+> Method Relative L2Ratio Vanilla (4 .13 ±3) ×10 −21.0×
+> FAMO (3 .58 ±2.7) ×10 −311 .5×
+> PCGrad (1 .80 ±0.59) ×10 −322 .9×
+> ConFIG (2 .21 ±0.14) ×10 −318 .7×
+> FAMO+UAM (1 .45 ±0.18) ×10 −328 .5×
+
+## L Extended Validation and Robustness 
+
+L.1 Extended Forward Validation L.1.1 3D Validation 
+
+On 3D Helmholtz, shown in Table 13, FAMO+UAM achieves a 28 .5× improvement over Vanilla. On Taylor–Green, which shows low conflict, Vanilla matches adapters and confirms that benefit tracks conflict rather than dimensionality. The 25-pair Bayesian bootstrap comparisons in Table 12 support the same pattern. FAMO+UAM is favored over Vanilla and most competitors on the forward suite. 
+
+L.1.2 Additional Forward Benchmarks 
+
+Table 14 broadens the forward evaluation across operator families. The gains remain strongly PDE-dependent. FAMO+UAM is clearly best on Poisson-2D, KG-Heavy, Helmholtz-HF, Fisher–KPP, and Burgers-HV, while several easier or magnitude-dominated cases show little or no benefit. Fokker– Planck exposes a FAMO instability, with a 162 × degradation from near-singular loss Hessians, which motivates log-space dual updates in Appendix L.3. 39 Table 14: Expanded PDE benchmarks on 12 additional forward PDEs. We report median L2 error with 3 seeds, dh = 128 , and 10K epochs unless noted. Lower is better. The operator-type column spells out elliptic, parabolic, hyperbolic, and damped wave. Bold indicates the best method for each PDE. The last column reports the Vanilla-to-best ratio. 
+
+PDE Type Vanilla FAMO FAMO+UAM Ratio Adapter benefit ( ≥ 1.5×)Poisson-2D Elliptic 4.21 × 10 −2 1.24 × 10 −3 4.78 × 10 −4 88 ×
+
+KG-Heavy Hyperbolic 5.95 × 10 −2 2.64 × 10 −3 1.52 × 10 −3 39 ×
+
+Laplace-2D Elliptic 1.30 × 10 −2 5.81 × 10 −4 5.83 × 10 −4 22 ×
+
+Telegrapher Damped wave 7.02 × 10 −1 1.58 × 10 −1 1.58 × 10 −1 4.5×
+
+Helmholtz-HF ∗ Elliptic 9.39 × 10 −1 8.58 × 10 −1 3.24 × 10 −1 2.9×
+
+Fisher–KPP Parabolic 6.11 × 10 −3 5.27 × 10 −3 2.95 × 10 −3 2.1×
+
+Burgers-HV Parabolic 2.78 × 10 −4 1.95 × 10 −4 1.53 × 10 −4 1.8×
+
+No adapter benefit KdV Hyperbolic 8.47 × 10 −1 8.13 × 10 −1 8.13 × 10 −1 1.04 ×
+
+Burgers-Neumann Hyperbolic 2.76 × 10 −2 2.74 × 10 −2 2.99 × 10 −2 1.01 ×
+
+Heat-1D Parabolic 4.77 × 10 −5 5.95 × 10 −5 4.69 × 10 −5 1.02 ×
+
+Allen–Cahn-Sharp Parabolic 1.01 × 10 −3 1.14 × 10 −3 1.15 × 10 −3 1.00 ×
+
+Fokker–Planck † Parabolic 4.47 × 10 −3 7.26 × 10 −1 8.26 × 10 −1 1.00 ×
+
+> ∗
+
+15K epochs. †FAMO catastrophically fails and becomes 162 × worse than Vanilla. 0 2500 5000 7500 10000 12500 15000                
+
+> Epoch
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Relative  L2 Error
+> KG-Heavy
+> Vanilla
+> FAMO
+> FAMO+UAM
+> 02500 5000 7500 10000 12500 15000
+> Epoch
+> 10 0
+> Helmholtz-HF
+> 02500 5000 7500 10000 12500 15000
+> Epoch
+> 10 0
+> Telegrapher
+
+Figure 9: Training curves for three criterion-expansion PDEs with 3 seeds and IQR shading. KG-Heavy and Helmholtz-HF show persistent adapter benefit, with gains of 27 .8× and 3.4×, and the gap widens monotonically. 
+
+L.1.3 Criterion Expansion Validation 
+
+To complement the 10K expanded forward-benchmark table with longer-horizon runs, we evaluate 6 representative PDEs at 15K epochs with 3 seeds each, as shown in Figure 9. These are separate 15K validation runs, not part of the 10K profiling and variant analyses discussed in Section 4.4. Results confirm the regime characterization. KG-Heavy, a hyperbolic case with K = 3 , shows 27 .8× adapter benefit. Helmholtz-HF, the high-frequency variant, shows 3.4×, and Telegrapher shows 2.0×. Fisher– KPP is mixed at 15K. FAMO+UAM achieves a 1.6× improvement over Vanilla, but FAMO attains the best median overall, with 3.10 × 10 −3 compared with 3.39 × 10 −3 for FAMO+UAM. The sharp Allen–Cahn variant, with a ratio of 1.0×, confirms no benefit for reaction-dominated PDEs. Fokker– Planck remains outside the adapter-beneficial regime. FAMO fails catastrophically, with median 
+
+3.4 × 10 −1 compared with Vanilla’s 1.6 × 10 −3, and FAMO+UAM is worse still. This case should therefore be read as a cautionary limitation of applying the default FAMO+UAM combination without screening for loss-scale stiffness rather than as evidence against the diagnostic-first framework. 
+
+L.1.4 Helmholtz Scaling Across Width, Dimension, and Training Budget 
+
+Helmholtz serves as a stress test for multi-loss methods. As shown in Table 15, the best listed multi-loss method improves over Vanilla by at least 19 × across six configurations spanning 2D and 3D settings, dh ∈ { 128 , 192 , 256 , 384 }, and 10K or 15K epochs, with a peak of 36 × at dh = 256 
+
+40 Table 15: Helmholtz improvement across scales. We report relative L2 error for the best multi-loss method compared with Vanilla at different widths, epochs, and dimensions. Across the 10K and 15K settings, the improvement ratio consistently exceeds 19 ×, which confirms that the benefit is structural because it reflects conflict mitigation rather than capacity. Best values are shown in bold. 
+
+Config Seeds Epochs Vanilla Best method Ratio 
+
+dh = 128 (2D) 5 10K 2.8 × 10 −2 1.0 × 10 −3 (GN+UAM) 28 ×
+
+dh = 128 (2D) 3 15K 1.2 × 10 −2 4.4 × 10 −4 (FAMO+UAM) 27 ×
+
+dh = 192 (2D) 3 15K 7.3 × 10 −3 2.6 × 10 −4 (FAMO+UAM) 28 ×
+
+dh = 256 (2D) 3 15K 8.1 × 10 −3 2.2 × 10 −4 (FAMO+UAM) 36 ×
+
+dh = 384 (2D) 3 15K 3.8 × 10 −3 2.0 × 10 −4 (FAMO+UAM) 19 ×
+
+dh = 128 (3D) 5 15K 4.1 × 10 −2 1.5 × 10 −3 (FAMO+UAM) 28 .5×
+
+Table 16: Additional PDE evaluation with dh = 128 . Persistent-conflict PDEs show clear adapter gains, whereas low-conflict or transient-conflict cases show little or no adapter benefit, consistent with regime-dependent selection. Best values are bold and second-best values are underlined.                                                                                                                                                                       
+
+> PDE Vanilla FAMO FAMO+UAM GN+UAM 10K evaluation subset with 3 to 5 seeds Klein–Gordon (4 .6±1) ×10 −2(2 .46 ±0.39) ×10 −3(1 .62 ±0.38) ×10 −3(4 .8±1.1) ×10 −2
+> Reaction-Diffusion (8 .94 ±0.68) ×10 −4[3] (1 .08 ±0.063) ×10 −3(1 .12 ±0.055) ×10 −3(3 .59 ±0.35) ×10 −3
+> Darcy flow (1 .34 ±0.49) ×10 −1[3] (7 .5±0.8) ×10 −2(6 .9±0.3) ×10 −2(6 .8±0.5) ×10 −2
+> Navier–Stokes (2 .41 ±1.2) ×10 −4[3] (1 .75 ±0.23) ×10 −4(2 .45 ±0.2) ×10 −4(4 .34 ±0.63) ×10 −4
+> 3-seed extended subset with 15K to 20K epochs Wave-1D (2 .69 ±0.41) ×10 −2(2 .11 ±0.53) ×10 −3(1 .44 ±0.67) ×10 −3NA Advection (1 .79 ±0.24) ×10 −3(2 .09 ±0.23) ×10 −3(2 .21 ±0.44) ×10 −3NA Eikonal (15K) (2 .22 ±0.02) ×10 −4(3 .16 ±0.1) ×10 −4(2 .69 ±0.076) ×10 −4NA Eikonal (20K) (1 .61 ±0.034) ×10 −4NA (1 .80 ±0.071) ×10 −4NA Poisson-Multiscale (1 .74 ±0.09) ×10 −1(2 .09 ±2.3) ×10 −2(3 .65 ±0.046) ×10 −3NA
+> Superscript [n]denotes seed count when <5, and NA denotes not evaluated.
+
+NA denotes not evaluated. 
+
+and 15K epochs. The 3D row, drawn from Table 13, achieves 28 .5×, indicating that the empirical Helmholtz benefit persists beyond 2D and is consistent with the same qualitative persistent-conflict regime, while Remark 3 should not be read as implying dimension-invariant effect sizes. 
+
+L.1.5 Additional PDE Generalization Checks 
+
+Across the supplementary PDE checks in Table 16, which use 3 to 5 seeds, the conflict profile remains directionally consistent. Clear adapter-beneficial cases include Klein–Gordon at 29 ×, Poisson-Multiscale at 48 ×, Wave-1D at 19 ×, and Darcy flow at 2.0×, while low-conflict or transient cases show little or no adapter advantage in Reaction-Diffusion, Navier–Stokes, Advection, and Eikonal. On Reaction-Diffusion, GN+UAM degrades 4×, giving the clearest case where the criterion correctly recommends against adapters. 
+
+L.2 Diagnostic Transfer to Standard MTL Benchmarks 
+
+The profiled ratio bR = bD/ ( cM + εR) is domain-agnostic in the sense that it depends only on loss-specific gradient geometry, not on PDE-specific structure. It compares implementation-level summaries of directional conflict and a coefficient-of-variation surrogate for magnitude imbalance between loss-specific gradients using the same profiling pipeline as in the PINN experiments. We test whether it correctly predicts the appropriate intervention class. This validation focuses on whether the regime classification transfers across domains, not on whether adapters improve MTL. We evaluate three standard K = 2 MTL benchmarks spanning magnitude-dominated settings, namely, Multi-MNIST, Multi-FashionMNIST [ 35 ], and CIFAR-100. Across all three benchmarks, the diagnostic is directionally consistent. No adapter-based variant is the best method on any benchmark, as shown in Table 17. 41 Table 17: Profile-score diagnostic validation on MTL benchmarks ( K = 2 ). CIFAR-100 uses a ResNet-18 shared encoder.                                                                               
+
+> Method Multi-MNIST Multi-FashionMNIST CIFAR-100 (Fine+Coarse) Task L Task R Avg Task L Task R Avg Fine Coarse Avg Vanilla 98.6 98.2 98.40 ±0.17 88.4 87.6 87.98 ±0.28 48.3 63.2 55.75 ±0.19 PCGrad 98.6 98.3 98.45 ±0.18 88.9 88.1 88.48 ±0.21 50.2 65.0 57.60 ±0.23 FAMO 98.7 98.3 98.47 ±0.24 88.9 87.9 88.39 ±0.10 47.6 62.5 55.05 ±0.19 UAM 98.6 98.2 98.40 ±0.12 88.7 88.1 88.40 ±0.22 47.2 63.5 55.35 ±0.39 FAMO+UAM 98.6 98.2 98.40 ±0.12 88.9 87.9 88.40 ±0.14 47.4 63.4 55.40 ±0.16
+> Profile statistics: bD= 0 .035 ,cM= 0 .55 ,fneg = 0 .37 for Multi-MNIST, and bD= 0 .056 ,cM= 0 .30 ,fneg = 0 .41 for Multi-FashionMNIST. bD < 0.01 ,cM= 0 .17 , and fneg <0.05 for CIFAR-100, which places all three in the magnitude regime. The prediction is that adapters are unnecessary, and this prediction is supported because no adapter-based variant beats the strongest non-adapter baseline on Multi-MNIST, Multi-FashionMNIST, or CIFAR-100.
+
+These MTL checks serve as an external sanity test for the do-not-intervene side of the rule. When magnitude imbalance dominates and task-specific heads already absorb much of the interference, architectural separation provides no consistent benefit. 
+
+L.3 Mitigating Catastrophic Weight Divergence with Bounded FAMO 
+
+The Fokker–Planck FAMO failure, which corresponds to a 162 × degradation at 10K epochs, reveals that FAMO’s componentwise absolute-scale dual update 
+
+zk ← zk + γ(L(t) 
+
+> k
+
+− L (t−1)  
+
+> k
+
+)
+
+can diverge when losses span multiple orders of magnitude. A log-space variant, 
+
+zk ← zk + γ(log( L(t) 
+
+> k
+
++ εL) − log( L(t−1)  
+
+> k
+
++ εL)) ,
+
+where εL = 10 −12 , provides scale-invariant updates and achieves L2 = 1 .1 × 10 −2 on Fokker– Planck. The log-space update gives a 64 × improvement over FAMO with 3 seeds and changes well-behaved PDEs by less than 5%. The bounded variant therefore substantially mitigates but does not fully eliminate the instability. It improves sharply over standard FAMO yet still trails the best stable baselines, and pairing it with adapters did not remove the remaining gap in our runs. 
+
+L.4 Architecture Generality Modified MLP backbone. To verify architecture-agnostic regime transfer, we evaluate Modified MLP [ 41 ], a multiplicative-gating architecture widely used in PINN practice, on 6 PDEs with 3 seeds and 10K epochs. The pattern of adapter benefits transfers. Helmholtz shows a 734 × improvement with FAMO+UAM, and Klein–Gordon shows 154 ×. Wave-1D shows 495 × because adapters rescue non-converging vanilla Modified MLP, and Burgers shows 2.6×. Allen–Cahn and Conv-Diff show no benefit above 1.1×, which matches the regime predictions. This Modified MLP transfer result confirms that the profiling criterion operates on gradient statistics, not model structure. 
+
+Transformer backbone. To further verify architecture-agnostic regime transfer, we evaluate using a Transformer-based PINN backbone, a self-attention architecture that uses a learnable positional embedding over Fourier-encoded point features. This Transformer evaluation tests a fundamentally different inductive bias, namely global attention rather than local MLP processing, and the design is inspired by PINNsFormer [ 50 ]. We evaluate 4 PDEs, namely Helmholtz, Burgers, Allen–Cahn, and Klein–Gordon, across 2 configurations, Vanilla Transformer and FAMO+UAM Transformer, with 3 seeds each for a total of 24 experiments. Table 18 reports the median L2 errors. The regime prediction transfers cleanly. On Helmholtz with persistent conflict, FAMO+UAM Transformer achieves 5.4 × 10 −4 compared with Vanilla Transformer’s 1.2 × 10 −1, which gives a 225 .8× improvement. On Klein–Gordon, FAMO+UAM Transformer achieves 1.8 × 10 −3, compared with 2.1 × 10 −2 for Vanilla Transformer, which gives an 11 .5× improvement. On Allen–Cahn, where no conflict is detected, both configurations converge to comparable errors near 5.9 × 10 −5 with a ratio of 1.0×. The Transformer backbone also benefits 42 Table 18: Architecture generality for the Transformer backbone. We report median relative L2 error across 3 seeds at 15K epochs. The regime prediction transfers. The adapter-beneficial cases of Helmholtz, Burgers, and Klein–Gordon show clear gains on the Transformer architecture, while Allen–Cahn, a no-conflict control, remains essentially unchanged as predicted. 
+
+MLP Transformer PDE Vanilla FAMO+UAM Vanilla FAMO+UAM Helmholtz 4.38 × 10 −2 5.93 × 10 −4 1.21 × 10 −1 5.36 × 10 −4
+
+Burgers 1.36 × 10 −2 6.46 × 10 −3 1.17 × 10 −2 4.83 × 10 −3
+
+Klein–Gordon 4.62 × 10 −2 1.57 × 10 −3 2.09 × 10 −2 1.82 × 10 −3
+
+Allen–Cahn 1.61 × 10 −4 1.92 × 10 −4 5.83 × 10 −5 5.96 × 10 −5
+
+Table 19: Multi-physics K = 5 rank sensitivity with dh = 128 , 15,000 epochs, and 3 seeds. Relative 
+
+L2 error is reported as mean ± std. This is the regime in which the diagnostic would select FAMO alone. FAMO outperforms all FAMO+UAM rank variants, showing that extra adapter capacity is not the missing ingredient and that the dominant bottleneck is magnitude imbalance rather than persistent directional conflict. 
+
+Configuration L2 Error # Params. FAMO alone ( dh = 128 ) (4 .5 ± 0.9) × 10 −2 140,162 FAMO+UAM ( r = 4 , dh = 128 ) (1 .33 ± 0.01) × 10 −1 153,671 FAMO+UAM ( r = 8 , dh = 128 ) (8 .6 ± 3.4) × 10 −2 158,791 FAMO+UAM ( r = 16 , dh = 128 ) (1 .39 ± 0.36) × 10 −1 169,031 FAMO+UAM ( r = 32 , dh = 128 ) (1 .32 ± 0.27) × 10 −1 189,511 
+
+Table 20: Gradient flow analysis on K = 5 multi-physics at 5,000 epochs. Relative L2 error is reported as mean ± std. ∥∇ trunk ∥max denotes the largest per-loss trunk gradient norm at convergence. 
+
+f final neg denotes the fraction of negative pairwise cosines at the final epoch. 
+
+Method Relative L2 ∥∇ trunk ∥max f final neg 
+
+FAMO (5 .8 ± 2.4) × 10 −2 2.75 0.70 FAMO+UAM (1 .45 ± 0.24) × 10 −1 1.02 0.80 UAM (1 .87 ± 0.28) × 10 −1 0.82 0.63 GradNorm (3 .75 ± 0.12) × 10 −1 7.64 0.67 GN+UAM (5 .14 ± 0.17) × 10 −1 1.80 0.70 
+
+from adapters on Burgers with a gain of 2.4×, which slightly exceeds the MLP ratio and is consistent with the hypothesis that Transformers may amplify inter-loss interference through shared attention parameters. This Transformer transfer result establishes that the conflict structure is shaped primarily by the PDE operator and loss decomposition, not by the choice of neural network architecture alone. 
+
+L.5 Natural K-Scaling and Multi-Physics Diagnostics 
+
+K = 5 regime-transition analysis. Table 19 isolates the K = 5 coupled case and shows that increasing adapter rank does not recover the gap to FAMO alone, reinforcing that the bottleneck here is magnitude imbalance rather than insufficient adapter capacity. 
+
+Gradient flow analysis. Table 20 reports the trunk-gradient and final conflict statistics for the 
+
+K = 5 multi-physics setting. FAMO balances loss values through a softmax-weighted combination with dual-variable updates while keeping the largest per-loss trunk gradient moderate. Table 20 shows 
+
+∥∇ trunk ∥max = 2 .75 with f final neg = 0 .70 .GradNorm instead produces much larger trunk-gradient spikes ( ∥∇ trunk ∥max = 7 .64 ) while leaving final directional conflict at a similar level, with f final neg = 0 .67 compared with 0.70 for FAMO. In this multi-physics setting, magnitude equalization primarily amplifies dominant trunk updates rather than resolving pairwise interference. 43 Table 21: Natural multi-physics K-scaling for K = 5 and K = 6 . Reactive transport with K = 5 is a two-species advection–diffusion–reaction system with genuine coupling conflict. MHD with K = 6 
+
+contains mass, momentum, induction, divergence-free, BC, and IC terms. The profiled surrogate bR
+
+places both systems in the magnitude-dominated regime, and the results confirm that FAMO provides the dominant benefit while adapters add marginal or no improvement. The table reports relative L2
+
+error at 15K epochs. Results use 5 seeds except for MHD FAMO+UAM, which uses 4 seeds.                                           
+
+> System Method Relative L2Ratio Relative to Vanilla Reactive Transport ( K= 5 )Vanilla (6 .57 ±0.32) ×10 −21.0×
+> FAMO (5 .25 ±0.47) ×10 −21.25 ×
+> FAMO+UAM (5 .80 ±0.18) ×10 −21.13 ×
+> Simplified MHD ( K= 6 )Vanilla (6 .12 ±0.063) ×10 −21.0×
+> FAMO (4 .80 ±0.093) ×10 −21.27 ×
+> FAMO+UAM (5 .07 ±0.27) ×10 −21.21 ×
+
+Table 22: Extended validation with up to 5 seeds, using dh = 128 and 10K epochs. Superscripts denote cases with fewer runs, and the results remain statistically significant with narrower CIs.                                                                     
+
+> Method Burgers Helmholtz Conv-Diff Vanilla (8 .4±2.4) ×10 −3(2 .8±1.1) ×10 −2(3 .55 ±0.74) ×10 −4
+> FAMO (4 .8±0.15) ×10 −3[3] (1 .4±0.63) ×10 −3(3 .95 ±1.4) ×10 −4
+> FAMO+UAM (4 .8±0.079) ×10 −3[4] (1 .1±0.46) ×10 −3(2 .70 ±0.21) ×10 −4
+> GN+UAM (4 .6±0.12) ×10 −3(1 .0±0.44) ×10 −3(1 .0±0.19) ×10 −3
+> Superscript [n]denotes seed count when <5.
+
+Natural K-scaling validation. We empirically probe the regime-transition picture on natural multi-physics systems where K arises from physical conservation laws. Table 21 illustrates the regime-transition picture on two natural multi-physics systems. On reactive transport ( K = 5 ), FAMO alone achieves a 1.25 × improvement over Vanilla by improving from 6.57 × 10 −2 to 5.25 × 10 −2,while FAMO+UAM provides only 1.13 ×, which shows that adapters add no benefit in this example. On simplified MHD ( K = 6 ), FAMO achieves 1.27 × by improving from 6.12 ×10 −2 to 4.80 ×10 −2,while FAMO+UAM reaches 5.07 × 10 −2 and 1.21 ×, again underperforming FAMO alone. In both cases, the magnitude-regime picture is the better description for these examples. Loss reweighting alone suffices, and the additional adapter overhead is not justified. 
+
+L.6 Extended Seed Coverage 
+
+To verify that the main results are robust to random seed variability, we first extend seed coverage on representative PDEs to up to 5 seeds, with superscripts marking cases where fewer than 5 runs are reported in Table 22. We then further extend to 8 seeds indexed from 0 to 7 on selected forward PDEs with all three key configurations in Table 23. The progressively narrower CIs confirm the statistical reliability of the main results. On Helmholtz, the 8-seed FAMO+UAM mean is 8.3 × 10 −4 and the Vanilla mean is 2.3 × 10 −2, yielding a 27 × ratio with non-overlapping 95% CIs. 
+
+## M Additional Baseline and Ablation Analyses 
+
+M.1 Missing Baseline Comparisons 
+
+To ensure comprehensive baseline coverage, we add causal training [ 42 ], self-adaptive weights [ 29 ], and uncertainty weighting [ 16 ] to the comparison on selected core PDEs. These methods are included in the 10K main forward tables, Tables 1 and 2, and evaluated at 20K epochs below in Table 24. Full-scale NTK weighting [ 43 ] is excluded from this extended-baseline table due to the prohibitive cost of per-epoch NTK trace computation at a scale of ∼10 5 Jacobian columns per epoch. Causal training achieves strong results on Burgers at 4.6 × 10 −3, which matches FAMO+UAM; however, it catastrophically fails on Klein–Gordon at 0.92 . This Klein–Gordon causal-training error is 1000 × worse than the FAMO+UAM result of 7.9 × 10 −4 and is consistent with its design 44 Table 23: Extended seed coverage with relative L2 error over 8 seeds indexed from 0 to 7 on selected forward PDEs at dh = 128 and 10K epochs. The narrower CIs compared with the 5-seed main tables confirm statistical robustness. 
+
+PDE Method Mean ± Std 95% CI Helmholtz Vanilla (2 .3 ± 1.1) × 10 −2 [1 .4 × 10 −2, 3.2 × 10 −2]
+
+FAMO (1 .05 ± 0.69) × 10 −3 [4 .7 × 10 −4, 1.6 × 10 −3]
+
+FAMO+UAM (8 .3 ± 5.2) × 10 −4 [3 .9 × 10 −4, 1.3 × 10 −3]
+
+Klein–Gordon Vanilla (3 .9 ± 1.3) × 10 −2 [2 .8 × 10 −2, 5.0 × 10 −2]
+
+FAMO (2 .39 ± 0.34) × 10 −3 [2 .1 × 10 −3, 2.7 × 10 −3]
+
+FAMO+UAM (1 .45 ± 0.37) × 10 −3 [1 .1 × 10 −3, 1.8 × 10 −3]
+
+Burgers Vanilla (7 .0 ± 2.7) × 10 −3 [4 .8 × 10 −3, 9.2 × 10 −3]
+
+FAMO (4 .60 ± 0.23) × 10 −3 [4 .4 × 10 −3, 4.8 × 10 −3]
+
+FAMO+UAM (4 .68 ± 0.23) × 10 −3 [4 .5 × 10 −3, 4.9 × 10 −3]
+
+Table 24: Extended baselines on selected core PDEs at dh = 128 , 20K epochs (5 seeds unless noted). Causal, self-adaptive, and uncertainty weighting complement the 10K main forward tables. Full-scale NTK weighting is excluded from this extended-baseline table due to prohibitive per-epoch NTK trace computation at this scale.                                                                                                                                      
+
+> Method Burgers Helmholtz Klein–Gordon Conv-Diff Vanilla (4 .6±0.15) ×10 −3[3] (8 .1±3.2) ×10 −3[3] (1 .5±0.4) ×10 −2[3] NA FAMO (4 .6±0.16) ×10 −3[3] (2 .67 ±0.71) ×10 −4[3] (8 .70 ±1.1) ×10 −4[3] NA Causal (4 .6±0.12) ×10 −3(1 .2±0.4) ×10 −2(9 .19 ±0.77) ×10 −1(2 .04 ±0.15) ×10 −4[4]
+> SelfAdapt (4 .6±0.14) ×10 −3(1 .1±1.3) ×10 −2(6 .7±1.1) ×10 −32.07 ×10 −4[1]
+> Uncertainty (4 .6±0.14) ×10 −3(4 .1±2.6) ×10 −3(5 .98 ±5.41) ×10 −1NA UAM (4 .6±0.088) ×10 −3(6 .7±1.7) ×10 −3(1 .5±0.3) ×10 −2NA FAMO+UAM (4 .6±0.21) ×10 −3[2] (2 .27 ±0.23) ×10 −4[3] (7 .93 ±0.98) ×10 −4[3] NA
+
+Table 25: Gradient surgery mitigations on inverse problems. Grouped variants apply surgery only to network parameters and leave the scalar physical parameters untouched. Direct baselines in Table 3 include Vanilla, FAMO, GradNorm, and adapter variants. This table isolates the full-parameter-space surgery failures and grouped mitigations. Entries marked fail indicate failed full-parameter-space training. 
+
+Method Inverse Burgers Inverse Heat Inverse Poisson PCGrad fail fail fail CAGrad fail fail fail NashMTL fail fail fail ConFIG fail fail fail PCGrad-Grouped 8.70 × 10 −2 8.65 × 10 −2 2.855 × 10 −1
+
+CAGrad-Grouped 9.21 × 10 −2 1.082 × 10 −1 6.394 × 10 −1
+
+for time-dependent PDEs with causal structure, whereas Helmholtz and Klein–Gordon lack strict temporal causality. Self-adaptive weights perform well on Klein–Gordon at 6.7 × 10 −3 but show high variance on Helmholtz, reaching (1 .1 ± 1.3) × 10 −2 with one diverging seed. These results confirm that temporal reweighting strategies are PDE-dependent, whereas the regime characterization provides a principled, PDE-agnostic method selection framework. 
+
+M.2 Gradient Surgery Mitigation Details 
+
+This analysis separates full-parameter-space gradient-surgery failures from grouped updates to show how heterogeneous network and physical parameters drive inverse-problem instability. 
+
+M.3 ConFIG Sensitivity Analysis 
+
+This analysis checks whether ConFIG’s mixed performance is explained by learning-rate choice or by the gradient geometry induced by unit-vector normalization. The strongest learning-rate sensitivity concern is ConFIG, whose Helmholtz performance is unusually dependent on η. Table 26 addresses 45 0 2000 4000 6000 8000 10000     
+
+> Epoch
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Cosine similarity (PDE, BC)
+> cos 0.71 (aligned)
+> cos 0.01 (orthogonal)
+
+(a) Gradient alignment      
+
+> Burgers
+> Helmholtz
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> PDE  / BC
+> 54 ×
+> 2458 ×
+
+(b) Gradient magnitude ratio      
+
+> Burgers
+> Helmholtz
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> Gradient magnitude
+> ConFIG
+> suppresses
+> updates
+
+(c) Burgers: ConFIG underscales      
+
+> Vanilla grad. norm
+> ConFIG grad. norm
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> 10 6
+> Gradient magnitude
+> ConFIG
+> rebalances
+> BC gradient
+
+(d) Helmholtz: ConFIG corrects imbalance 
+
+> Vanilla grad. norm
+> ConFIG grad. norm
+
+Figure 10: ConFIG gradient dynamics on Burgers and Helmholtz. ConFIG suppresses learning on Burgers, where the gradients are aligned with cos ≈ 0.71 , but rebalances on Helmholtz, where the gradients are nearly orthogonal with cos ≈ − 0.01 .this concern directly. Lower learning rates improve ConFIG on Helmholtz, but its Burgers failure persists across all five tested values and Klein–Gordon remains clearly worse than Vanilla even at its best setting. Thus, the cross-PDE conclusions are not explained by a single unlucky baseline learning rate. Table 26 further shows that ConFIG’s failure persists across five learning rates from 
+
+10 −4 to 5 × 10 −3 on both Burgers, where it is 19 × worse than Vanilla at the best learning rate, and Klein–Gordon, where it is 2.7× worse at the best learning rate. This learning-rate sweep confirms that the failure is intrinsic to the unit-vector normalization rather than a hyperparameter issue. 
+
+M.4 Implicit Regularization Ablation 
+
+This ablation, summarized in Table 27, tests whether the gains come from the per-loss adapter structure itself rather than from the modest increase in parameter count. The control is a wider non-adapter PINN whose parameter count roughly matches UAM. On Burgers, where the profiling results indicate transient or low-impact conflict, the parameter-matched variants are essentially tied, so the extra capacity does not create a spurious advantage. On Helmholtz, the wider non-adapter model improves only modestly over Vanilla, whereas FAMO+UAM reaches an order-of-magnitude lower error; together with the specialization evidence in Figure 4, this supports the claim that the high-conflict gains arise from loss-indexed adapter subspaces rather than dense widening alone. 
+
+M.5 Adapter Variant Checks Alternative adapter architectures. We use LoRA as the default adapter and compare it with Infused Adapter by Inhibiting and Amplifying Inner Activations (IA 3), feature-wise linear modulation (FiLM), per-loss LayerNorm, and a non-adapter multi-output readout baseline. Table 28 reports the comparison under FAMO weighting, with matched parameter counts of about 149K to 166K. 46 Table 26: ConFIG learning rate sensitivity analysis with 2 seeds, 10K epochs, and dh = 128 .ConFIG’s Burgers failure persists across all five learning rates and remains 19 × worse than Vanilla at the best learning rate, which confirms that the failure is intrinsic to the unit-vector normalization rather than a hyperparameter issue. On Klein–Gordon, ConFIG is also worse than Vanilla by 2.7× at the best learning rate. On Helmholtz, ConFIG performs well at η ≤ 10 −3.
+
+PDE Method η Relative L2 error Burgers ConFIG 10 −4 (9 .4 ± 1.4) × 10 −2
+
+ConFIG 5 × 10 −4 (2 .31 ± 1.31) × 10 −1
+
+ConFIG 10 −3 (1 .44 ± 0.42) × 10 −1
+
+ConFIG 2 × 10 −3 (8 .8 ± 0.4) × 10 −2
+
+ConFIG 5 × 10 −3 (3 .39 ± 0.10) × 10 −1
+
+Vanilla 10 −3 (4 .7 ± 0.2) × 10 −3
+
+Klein–Gordon ConFIG 10 −4 (1 .047 ± 0.113) 
+
+ConFIG 5 × 10 −4 (5 .1 ± 1.7) × 10 −2
+
+ConFIG 10 −3 (4 .1 ± 0.3) × 10 −2
+
+ConFIG 2 × 10 −3 (1 .58 ± 0.15) × 10 −1
+
+ConFIG 5 × 10 −3 (9 .71 ± 0.22) × 10 −1
+
+Vanilla 10 −3 (1 .5 ± 0.4) × 10 −2
+
+Helmholtz ConFIG 10 −4 (4 .0 ± 0.58) × 10 −4
+
+ConFIG 5 × 10 −4 (1 .9 ± 0.31) × 10 −4
+
+ConFIG 10 −3 (2 .5 ± 0.22) × 10 −4
+
+ConFIG 2 × 10 −3 (9 .5 ± 1.1) × 10 −4
+
+ConFIG 5 × 10 −3 (1 .3 ± 0.16) × 10 −2
+
+Table 27: Implicit regularization ablation at 15,000 epochs. Relative L2 error is reported as mean ±
+
+std over 3 seeds, with parameter counts shown separately. Vanilla-Wide roughly matches the UAM parameter count but not the performance, confirming that the per-loss adapter architecture drives improvement. 
+
+Configuration # Params. Burgers Helmholtz Vanilla 140,033 (4 .7 ± 0.1) × 10 −3 (1 .76 ± 0.53) × 10 −2
+
+Vanilla-Wide 162,013 (4 .8 ± 0.2) × 10 −3 (1 .20 ± 0.29) × 10 −2
+
+UAM 160,772 (4 .6 ± 0.1) × 10 −3 (1 .31 ± 0.24) × 10 −2
+
+FAMO+UAM 160,772 (4 .6 ± 0.1) × 10 −3 (3 ± 1) × 10 −4
+
+Table 28: Alternative adapter architecture comparison on Helmholtz with dh = 128 , 10K epochs, and 5 seeds. We report the best L2 error, where lower is better. 
+
+Adapter Type Best L2 Overhead Relative to LoRA LoRA ( r = 16 ) 1.13 × 10 −3 15% 1.0×
+
+IA 3 2.85 × 10 −3 < 1% 0.40 ×
+
+FiLM 3.21 × 10 −3 < 1% 0.35 ×
+
+Per-loss LayerNorm 4.12 × 10 −3 < 1% 0.27 ×
+
+Non-adapter multi-output readout 2.41 × 10 −3 8% 0.47 ×
+
+No adapter (Vanilla) 2.71 × 10 −2 0% 0.04 ×
+
+LoRA’s advantage in the PINN setting begins with subspace diversity. Low-rank projections introduce distinct adapter parameter blocks whose Jacobian contributions can directionally decorrelate different losses in the blockwise NTK view above. By contrast, IA 3 and FiLM apply element-wise rescaling that mainly modifies gradient magnitudes rather than creating new low-rank directions, which limits their ability to resolve directional conflict. LoRA also offers rank-controlled capacity. The explicit rank parameter r provides a transparent capacity proxy through the saturation ratio ∆sat = Kr/d h,allowing capacity to be matched empirically to conflict severity, whereas rescaling methods have no such control. Finally, LoRA has an orthogonality-compatible structure. The bilinear form B · σ(D · h)
+
+47 Table 29: Adapter mixing rerun comparing fixed UAM and dynamic LCAM, both with FAMO weighting. The table reports mean relative L2 error over 3 seeds at 10K epochs. On the two rerun 
+
+K = 3 stress tests, fixed UAM is slightly better in both cases by 7% to 8%, so dynamic conflict-aware mixing does not justify its extra complexity at low K.
+
+PDE FAMO+UAM FAMO+LCAM Gap Helmholtz 8.97 × 10 −4 9.58 × 10 −4 LCAM +6 .8% 
+
+Klein–Gordon 1.42 × 10 −3 1.53 × 10 −3 LCAM +7 .6% 
+
+Table 30: Comparison between XPINN domain decomposition and gradient-space decomposition through per-loss adapters on five forward PDEs with dh = 128 , 10K epochs, and 5 seeds. XPINN configurations are of the same parameter order as Vanilla, with about 118K to 122K parameters compared with 140K, but they are not exactly parameter-matched. Per-loss adapters address gradient conflict among loss terms, while XPINNs address spatial complexity across subdomains.                                                                                                                                                          
+
+> Method Burgers Helmholtz Allen–Cahn Conv-Diff Klein–Gordon Vanilla (140K) (8 .4±2.4) ×10 −3(2 .8±1.1) ×10 −2(1 .60 ±0.33) ×10 −4(3 .55 ±0.74) ×10 −4(4 .6±1) ×10 −2
+> Domain decomposition XPINN-4 (118K) (2 .56 ±0.19) ×10 −1(5 .6±0.7) ×10 −2(5 .1±0.67) ×10 −3(1 .7±0.19) ×10 −3(9 .58 ±0.49) ×10 −1
+> XPINN-8 (122K) (2 .56 ±0.14) ×10 −1(6 .6±0.4) ×10 −2(2 .3±0.19) ×10 −3(3 .5±0.25) ×10 −31.00 ±0.033
+> Gradient decomposition (ours) FAMO+UAM (161K) (4 .8±0.082) ×10 −3(1 .1±0.46) ×10 −3(1 .84 ±0.28) ×10 −4(2 .70 ±0.21) ×10 −4(1 .6±0.38) ×10 −3
+> GN+UAM (161K) (4 .6±0.12) ×10 −3(1 .0±0.44) ×10 −3(1 .6±0.21) ×10 −3(1 .0±0.19) ×10 −3(4 .8±1.1) ×10 −2
+> FAMO+LCAM (198K) (4 .8±0.17) ×10 −3(1 .3±0.41) ×10 −3(2 .59 ±0.39) ×10 −4(3 .07 ±0.56) ×10 −4(1 .6±0.11) ×10 −3
+
+admits efficient cross-orthogonality regularization and distinct row subspaces in practice, whereas diagonal rescaling methods lack a natural notion of inter-adapter orthogonality. 
+
+Adapter mixing ablation. Table 29 compares fixed UAM against dynamic LCAM mixing, both combined with FAMO, on the two rerun K = 3 stress tests. Fixed UAM is slightly better in both cases by about 7% to 8%, confirming that dynamic conflict-aware mixing provides only marginal benefit at low K. We therefore recommend UAM with fixed ρ = 0 .5 as the default for simplicity, as discussed in Section C.4. 
+
+M.6 Domain Decomposition Comparison 
+
+To directly compare gradient-space decomposition through per-loss adapters with input-space de-composition through XPINNs, we evaluate two roughly capacity-comparable XPINN configurations on five PDEs, as reported in Table 30. XPINN-4 uses 4 subdomains with per-subdomain networks of width dh = 80 and 4 layers, giving roughly 118K total parameters and 0.84 × Vanilla capacity. XPINN-8 uses 8 subdomains with width dh = 64 and 3 layers, giving roughly 122K total parameters and 0.87 × Vanilla capacity. Interface continuity and flux continuity are enforced with a weight 
+
+λif = 1 .0. All results use 5 seeds and 10K epochs. The XPINN spatial-decomposition approach addresses a fundamentally different bottleneck. It reduces the spatial complexity each subnetwork must capture, but it does not resolve the gradient conflict within each subdomain between PDE residual, BC, and IC losses. On high-conflict problems like Helmholtz and Klein–Gordon, the gradient conflict is the primary bottleneck, making per-loss adapters substantially more effective than spatial decomposition. 
+
+Hyperparameter sensitivity. To verify that XPINN results are not an artifact of poor hyperparam-eter choices, we conduct a sensitivity study varying the number of subdomains {2, 4, 6}, interface weight λif ∈ { 0.1, 1.0, 10 .0}, and overlap fraction {0.0, 0.1, 0.2} on Burgers, Helmholtz, and Conv-Diff with 3 seeds each. Across all configurations, XPINN performance on Burgers remains in the range from 0.23 to 0.28 , compared with Vanilla’s 8.4 × 10 −3, confirming that the poor result is structural rather than due to insufficient tuning. Conv-Diff spans from 9.5×10 −4 to 4.8×10 −3 across configurations, with XPINN-2 at 9.5×10 −4 outperforming the default XPINN-4 at 1.7×10 −3. Fewer subdomains therefore reduce interface gradient conflict. Interface weight effects are PDE-dependent. Lower λif = 0 .1 helps Burgers, where the best configuration reaches 0.23 , but hurts Helmholtz, 48 Table 31: XPINN hyperparameter sensitivity on three representative PDEs with 3 seeds each. All configurations use 10K epochs. Rows vary one factor from the XPINN-4 default: 4 subdomains, 
+
+λif = 1 .0, and overlap fraction 0.1.
+
+Config Change Burgers Helmholtz Conv-Diff Vanilla baseline 8.4 × 10 −3 2.8 × 10 −2 3.55 × 10 −4
+
+XPINN-4 (default) λif = 1 .0, overlap =0.1 (2 .56 ± 0.19) × 10 −1 (5 .6 ± 0.7) × 10 −2 (1 .7 ± 0.19) × 10 −3
+
+XPINN-2 2 subdomains (2 .50 ± 0.02) × 10 −1 [3] (1 .8 ± 0.3) × 10 −2 [3] (9 .54 ± 0.7) × 10 −4 [3] 
+
+XPINN-6 6 subdomains (2 .80 ± 0.3) × 10 −1 [3] (5 .3 ± 0.1) × 10 −2 [3] (2 .1 ± 0.43) × 10 −3 [3] 
+
+XPINN-4 λif = 0 .1 (2 .30 ± 0.04) × 10 −1 [3] (8 .0 ± 0.1) × 10 −2 [3] (3 .0 ± 0.58) × 10 −3 [3] 
+
+XPINN-4 λif = 10 .0 (2 .63 ± 0.19) × 10 −1 [3] (4 .7 ± 0.7) × 10 −2 [3] (4 .8 ± 0.3) × 10 −3 [3] 
+
+XPINN-4 overlap =0.0 (2 .46 ± 0.07) × 10 −1 [3] (5 .3 ± 0.5) × 10 −2 [3] (1 .9 ± 0.22) × 10 −3 [3] 
+
+XPINN-4 overlap =0.2 (2 .46 ± 0.07) × 10 −1 [3] (5 .8 ± 0.4) × 10 −2 [3] (1 .6 ± 0.22) × 10 −3 [3] 
+
+where the worst setting reaches 8.0 × 10 −2 compared with the default 5.6 × 10 −2. Overlap has negligible effect. Full sensitivity results appear in Table 31. 
+
+## N Limitations and Future Work 
+
+The theory uses stylized gradients and an explanatory blockwise NTK view rather than a finite-time convergence proof. This level of theory is nevertheless aligned with the paper’s claim, which is to predict when adapter gains should appear across conflict regimes rather than to guarantee global convergence for nonconvex PINN training. Our experiments cover 60+ PyTorch PINN settings and two alternative backbones, but not fractional, nonlocal, stochastic, production-scale, or operator-learning systems; extending to these settings is future work. The evaluated suite still spans forward, inverse, multi-physics, parameter-varying, high-dimensional, NTK-weighting, MTL, and backbone-transfer checks, making the empirical claim about regime-dependent intervention substantially broader than a single benchmark family. 49

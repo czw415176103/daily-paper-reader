@@ -1,0 +1,1529 @@
+Title: Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs
+
+URL Source: https://arxiv.org/pdf/2605.24774v1
+
+Published Time: Tue, 26 May 2026 01:28:48 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Jinjin He 1 Zhiqi Li 1 Sinan Wang 1 Bo Zhu 1
+
+## Abstract 
+
+We propose Hermite-NGP , a gradient-augmented multi-resolution hash encoding designed to enable fast and accurate computation of spatial deriva-tives for neural PDE solvers. Unlike existing NGP-based approaches that rely on automatic dif-ferentiation or finite differences and suffer from instability or high cost, Hermite-NGP explicitly stores function values and mixed partial deriva-tives at hash grid vertices, allowing fully ana-lytic evaluation of gradients, Jacobians, and Hes-sians via Hermite interpolation. This design pre-serves the efficiency and spatial adaptivity of NGP while supporting analytic differential operators up to second order. We further introduce a multi-resolution curriculum training strategy analogous to multigrid V-cycles to enable coarse-to-fine op-timization. Across a range of 2D and 3D PDE benchmarks, Hermite-NGP achieves up to ∼20 ×
+
+lower error than prior neural PDE methods, and reduces wall-clock convergence time by 2–10 ×
+
+compared to other solvers, with per-epoch train-ing times as low as 3.5 ms for models with up to 
+
+17 M parameters. 
+
+## 1. Introduction 
+
+Efficient neural scene representations that combine classi-cal data structures (grids, tensors, Gaussians) with neural counterparts have emerged as a highly effective family of spatial representations for neural field learning, offering strong locality, spatial adaptivity, and instant training in high-dimensional function approximation. Multi-resolution hash tables, popularized by Instant Neural Graphics Prim-itives (I-NGP) (M ¨uller et al., 2022), are one such design; related approaches include grid- and tensor-decomposition representations (Fridovich-Keil et al., 2022; 2023; Chen et al., 2022; Cao & Johnson, 2023; Kim et al., 2024; Chen 
+
+> 1
+
+Georgia Institute of Technology, Atlanta, GA, USA. Corre-spondence to: Jinjin He <jhe433@gatech.edu >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+Figure 1. SDF Gradients and Curvature on Armadillo. Our method (left) recovers smoother gradient and curvature fields than NeuralAngelo (Li et al., 2023b) (right), used here as an FD-based hash-encoding baseline under the same SDF+gradient objective. Gradients are visualized as green line segments around the surface, while curvature is shown via mesh coloring. 
+
+et al., 2025; Zou et al., 2024), anti-aliased NeRF vari-ants (Barron et al., 2023), and Gaussian-based methods such as 3DGS (Kerbl et al., 2023). These computational merits make NGP-style encodings particularly attractive for representation learning problems that demand both accuracy and efficiency, such as neural radiance field, signed distance field, image reconstruction, and so on (Chen et al., 2023a; Hu et al., 2023; Chen et al., 2023b; Li et al., 2023b; Yu et al., 2022; Wang et al., 2023b; M¨ uller et al., 2022). However, despite their success in representing graphics primitives, NGP-style encodings prove inadequate for learn-ing PDE-governed functions, especially in the context of physics-informed neural networks (PINNs) that rely on ac-curate differential constraints (Raissi et al., 2020; Karni-adakis et al., 2021; Raissi et al., 2019; 2017). The core challenge lies in I-NGP’s inherent inability to compute spa-tial derivatives efficiently : standard hash encodings do not support evaluation of first- and second-order derivatives via automatic differentiation, while finite-difference approxima-tions incur prohibitive computational cost and are highly sensitive to the choice of discretization parameters. As a re-sult, naive applications of NGP to neural PDE settings often face challenges in addressing differentiation (see (Huang & Alkhalifah, 2024; Li et al., 2023b; Chetan et al., 2025; Wang et al., 2024a) for examples). This mismatch constitutes a fundamental barrier to leveraging the efficiency of NGP-style representations for solving PDE learning problems. To address this challenge of efficient differentiation, we pro-1
+
+> arXiv:2605.24774v1 [cs.LG] 23 May 2026 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs
+
+pose Hermite-NGP , a gradient-augmented multi-resolution hash encoding designed to support analytic derivative eval-uation within a neural representation. Our key insight is inspired by the gradient-augmented field representations (e.g., gradient-augmented level set (Nave et al., 2010), affine particle-in-cell (Jiang et al., 2015), and flow map methods (Zhou et al., 2024; Deng et al., 2023), where a scalar field discretized on a grid is augmented with an aux-iliary, collocated gradient field, enabling continuous and stable derivative reconstruction via Hermite interpolation within each grid cell (see Fig. 3). Rather than approximat-ing derivatives using finite-difference stencils or recover-ing them implicitly through automatic differentiation, these methods treat derivative information as a first-class compo-nent of the representation itself. By explicitly parameteriz-ing and evolving the gradient field alongside the primary scalar field, gradient-augmented representations yield well-defined, easy-to-calculate differential operators throughout the domain. Such representations have been widely adopted in computational physics and later computer graphics for various simulation problems involving dynamic interfaces (Li et al., 2023a; Kolomenskiy et al., 2016; Kolahdouz & Salac, 2013), material transport (Anumolu & Trujillo, 2018; Lee et al., 2014), and vortical structures (Bøckmann & Vart-dal, 2014; Mercier et al., 2020; Zhou et al., 2024). Hermite-NGP explicitly parameterizes both the hashed fea-ture function and its mixed partial derivatives at each hash grid point. For each spatial resolution, we store Hermite in-terpolation coefficients corresponding to the function value and its partial derivatives and jointly optimize these quan-tities during training, resulting in a coupled representation that directly encodes local differential structure. Given these learned coefficients across hash resolutions, Hermite inter-polation reconstructs a globally C1-continuous spatial field whose second-order derivatives are analytic within each cell (piecewise across cell boundaries). This representation-level design eliminates truncation error from numerical differ-encing and avoids instability caused by automatic differ-entiation through discontinuous hash encodings, enabling analytic evaluation of gradients, Jacobians, Hessians, and Laplacians in a single forward pass while preserving the locality, adaptivity, and scalability of NGP-style encodings (see Figure 1 for an example). We demonstrate the efficacy of our approach across diverse 2D and 3D PDE benchmarks by achieving relative L2 errors down to 10 −5, offering up to 
+
+10 × accuracy gains over state-of-the-art neural PDE solvers and up to 10 3× improvement over baseline NGP methods, while converging within minutes with per-epoch training costs of 2–3.5 ms on a single GPU. Our main contributions are: • Gradient-Augmented Hash Encoding . We propose a gradient-augmented hash encoding based on Hermite interpolation that stores mixed partial derivatives at grid vertices, enabling C1 Hermite interpolation with non-trivial second-order structure. • Analytic Derivative Evaluation . The proposed en-coding admits fully analytic computation of first-and second-order spatial derivatives, avoiding finite-difference approximations and auto-differentiation. • Multi-resolution Coarse-to-Fine Training . We de-velop a coarse-to-fine training strategy that leverages the hierarchical structure of Hermite-NGP, inspired by multigrid methods for PDE optimization. • Neural PDE Solving with Complex Geometry .We demonstrate Hermite-NGP across diverse 2D/3D PDEs, complex geometric domains, and intrinsic differ-ential operators within a unified learning framework. 
+
+## 2. Related Work 
+
+Physics-Informed Neural Networks. PINNs (Raissi et al., 2017; 2019) embed PDE constraints into networks to obtain mesh-free solutions (Karniadakis et al., 2021) with applications in fluid mechanics (Raissi et al., 2020) and libraries like DeepXDE (Lu et al., 2021b). Key chal-lenges include spectral bias (Rahaman et al., 2019), gradient pathologies (Wang et al., 2021), and loss imbalances (Wang et al., 2022), addressed by adaptive weighting (McClenny & Braga-Neto, 2023), causal training (Wang et al., 2024c), cur-riculum strategies (Krishnapriyan et al., 2021; Duan et al.), complex geometry handling (Costabal et al., 2024), and high-dimensional techniques (Hu et al., 2024); recent bench-marks (Zhongkai et al., 2024) evaluate these systematically. Alternative representations include Fourier features (Tancik et al., 2020), PIXEL (Kang et al., 2023), SPINN (Cho et al., 2023), and PIG (Kang et al., 2024). Neural operators (Lu et al., 2021a; Li et al., 2021) learn solution mappings but require supervision. 
+
+Multi-Resolution Hash Encoding. Instant NGP (M ¨uller et al., 2022) introduced compact multi-resolution hash ta-bles with O(1) lookup for neural radiance fields (Mildenhall et al., 2021), inspiring extensions such as Zip-NeRF (Barron et al., 2023), Neuralangelo (Li et al., 2023b), NeuS2 (Wang et al., 2023b), and Nerfstudio (Tancik et al., 2023). Related grid- and tensor-decomposition representations include Ten-soRF (Chen et al., 2022); Gaussian-based methods such as 3D Gaussian Splatting (Kerbl et al., 2023) occupy a distinct but adjacent design space. Recent work also applies hash encodings to efficient PINN training (Huang & Alkhalifah, 2024; Wang et al., 2024a). 
+
+Gradient-Augmented Representation In level set meth-ods, gradient-augmented (Nave et al., 2010; Bøckmann & Vartdal, 2014) approaches improve interface tracking ac-curacy by maintaining both signed distance and its gradi-ent (Jiang et al., 2015). Similar ideas appear in fluid simula-2Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 4                    
+
+> 32
+> 0
+> 6
+> 70
+> 2
+> 𝑓𝑓 ,𝑓𝑓 𝑥𝑥 ,𝑓𝑓 𝑦𝑦 ,𝑓𝑓 𝑥𝑥𝑥
+> γ,∇γ ,∇2γ
+> MLP
+> u, 𝜕𝜕𝜕 𝜕𝜕 γ,𝜕𝜕 2u
+> 𝜕𝜕 2γ
+> ∇𝑢𝑢 ,∇2𝑢𝑢
+> Product Rule &&
+> Chain Rule
+> Backward
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 7
+> 6
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 7
+> 6
+> 𝑇𝑇 1+ 2 × 𝑇𝑇 2+𝑇𝑇 3
+> Concatenation
+
+Figure 2. Hermite-NGP Workflow. Multi-resolution grids store Hermite coefficients (f, f x, f y , f xy ) in separate hash tables with sizes 
+
+T1 (values), T2 (first derivatives), and T3 (mixed derivatives), producing encoding γ, ∇γ, ∇2γ. The MLP outputs u, ∂u/∂γ, ∂ 2u/∂γ 2,combined via chain rule to yield ∇u, ∇2u for PDE loss. 
+
+tion, where velocity gradients enable higher-order advection schemes. Recent neural representations have explored gra-dient supervision for improved surface reconstruction and normal estimation (Sommer et al., 2022; Huang et al., 2024). 
+
+## 3. Background 
+
+Multi-Resolution Hash Encoding Multi-resolution hash encoding (M ¨uller et al., 2022) represents a function using 
+
+L resolution levels of learnable hash tables, each storing 
+
+F -dimensional features. At level l ∈ { 0, . . . , L − 1}, an implicit d-dimensional grid has resolution Nl = ⌊Nmin bl⌋,
+
+where b = exp 
+
+ ln Nmax −ln Nmin 
+
+> L−1
+
+
+
+.Given a query point x ∈ Rd, the 2d neighboring grid ver-tices {gi,l } are identified. Their features are retrieved via the hash function h(gi,l ) = 
+
+Ld−1 
+
+> j=0
+
+gi,l j πj
+
+
+
+mod T l, where L
+
+denotes XOR, {πj } are fixed primes, and T l is the table size. d-linear interpolation over these features yields the encoding γl(x). Encodings from all levels are concatenated as γ(x) ∈ RL·F and fed to a lightweight MLP. However, d-linear interpolation is only C0 continuous: first-order deriva-tives are piecewise constant and discontinuous across cell boundaries, rendering higher-order derivatives undefined. This precludes analytic evaluation of PDE operators involv-ing first- or second-order derivatives (first derivatives jump across cell boundaries; second derivatives vanish within cells). 
+
+Physics-Informed Neural Networks Physics-Informed Neural Networks (PINNs) (Raissi et al., 2019) solve PDEs by embedding physical constraints into neural network train-ing. Given a PDE Nx,t [u]( x, t ) = f (x, t ) on domain 
+
+Ω × [0 , T ] with initial condition u(x, 0) = g(x) and bound-ary condition Bx,t [u] = h(x, t ) on ∂Ω, PINNs approximate 
+
+u using a neural network uθ (x, t ) by minimizing 
+
+L(θ) = λres Lres + λic Lic + λbc Lbc + λdata Ldata , (1) where Lres enforces the PDE residual at collocation points, and the remaining terms impose initial, boundary, and data constraints. Derivative boundary conditions (e.g., Neumann) are imposed identically, via a soft loss applied to the corre-sponding boundary collocation set. 
+
+## 4. Gradient-Augmented Representation 
+
+Naming Convention. We denote the spatial dimension by 
+
+d, the number of resolution levels by L, grid resolution at level l by Nl, and grid spacing by ∆xl. Hash table sizes for derivative type i at level l are T li , with feature dimension F
+
+per stored value. Multi-index α ∈ { 0, 1}d specifies partial derivative orders, θ(α) 
+
+> l,k
+
+denotes Hermite coefficients at level 
+
+l and hash index k, and H(α) the corresponding Hermite basis. The SIREN frequency parameter is ω.
+
+4.1. Hermite Interpolation 
+
+Hermite interpolation constructs smooth approximations us-ing both function values and derivatives at grid points (Her-mite & Borchardt, 1878; Birkhoff et al., 1968; Ciarlet & Raviart, 1972). In 1D, given function values f0, f 1 and derivatives f ′
+
+> 0
+
+, f ′ 
+
+> 1
+
+at endpoints of interval [0 , 1] , the cubic 3Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs Surface    
+
+> +
+> ++
+> +
+> -
+> --
+> -
+> +
+> ++
+> +
+
++
+
++
+
++ +- -
+
+Figure 3. Gradient-augmented illustration. The left cell without gradients yields constant interpolation, while the others use gradi-ents to produce rich sub-grid features. 
+
+Hermite interpolant is: 
+
+H(t) = f0h(0) (t) + f1h(0) (1 − t) + f ′
+
+> 0
+
+h(1) (t) + f ′
+
+> 1
+
+h(1) (t),h(0) (t) = 
+
+(
+
+−2t3 + 3 t2, 0 ≤ t ≤ 1,
+
+0, otherwise, 
+
+,h(1) (t) = 
+
+(
+
+2t3 − 3t2 + 1 , 0 ≤ t ≤ 1,
+
+0, otherwise, (2) where h(i), i ∈ { 0, 1}, denote the basis functions. For a scalar field f (x) in d dimensions defined on a grid with spacing ∆x, at each grid vertex g located at position xg ,we store 2d values, including the function value fg = f (xg )
+
+and the mixed partial derivatives f (α) 
+
+> g
+
+= ∂|α|f 
+
+> (∂x)α
+
+|x=xg , α ∈{0, 1}d, where α = ( αi)d−1 
+
+> i=0
+
+denotes a multi-index and 
+
+|α| = P 
+
+> i
+
+αi. For example, in three dimensions, f (0 ,1,1)  
+
+> g
+
+= 
+
+> ∂2f∂x 2∂x 3
+
+|x=xg . Then the Hermite interpolant is constructed via tensor products: 
+
+H[f ]( x) = X 
+
+> g∈N(x)
+
+X
+
+> α∈{ 0,1}d
+
+f (α) 
+
+> g
+
+H(α)
+
+ x − xg
+
+∆x
+
+
+
+∆x|α|,
+
+(3) where N (x) denotes the 2d vertices of the cell contain-ing x, H(α)(x) = Πi=1 d h(αi)(xi) are basis functions for d dimensions. This construction guarantees C1 con-tinuity with gradients exactly recovered at grid points: 
+
+∇H[f ]( xg ) = ( f (1 ,0,... ) 
+
+> g
+
+, f (0 ,1,... ) 
+
+> g
+
+, . . . ). Unlike d-linear in-terpolation where ∇2u ≡ 0 inside cells, Hermite interpo-lation provides well-defined, non-zero second derivatives throughout the domain. 
+
+4.2. Hermite Hash Encoding 
+
+Standard hash encoding stores only function values at grid vertices and relies on d-linear interpolation. While simple and efficient, this yields only C0 continuity: first deriva-tives are piecewise constant (giving ∇2u ≡ 0 inside cells) and discontinuous at cell boundaries. For PINNs, this fun-damentally prevents analytic computation of higher-order derivatives like the Laplacian. Our key insight is that by storing the complete set of mixed partial derivatives ∂αf
+
+for α ∈ { 0, 1}d at each vertex, we have exactly the degrees of freedom needed for C1 Hermite interpolation (Ciarlet & Raviart, 1972) with well-defined second derivatives. For each hash entry, we store the complete set of partial derivatives {f (α)}α∈{ 0,1}d —e.g., (f, f x, f y , f xy ) in 2D— requiring 2d coefficients per vertex rather than one. To manage this increased storage efficiently, we maintain sep-arate hash tables grouped by derivative type. In 2D, this yields three tables: (1) T1 × F for function values f ; (2) 
+
+T2 × 2F for first derivatives (fx, f y ); and (3) T3 × F for the mixed derivative fxy . This separation allows different tables to use different sizes based on their representational requirements. At resolution level l with grid spacing ∆xl = 1 /N l, the Hermite hash encoding is: 
+
+γl(x) = X
+
+> g∈Nl(x)
+
+X
+
+> α∈{ 0,1}d
+
+θ(α)
+
+> l,h (g)
+
+H(α)
+
+ x − xg
+
+∆xl
+
+
+
+∆x|α| 
+
+> l
+
+,
+
+(4) where Nl(x) denotes the 2d vertices of the cell containing 
+
+x at level l, θ(α) 
+
+> l,h (g)
+
+are the learnable Hermite coefficients retrieved from the hash table corresponding to derivative order |α|, and H(α) are the basis functions defined in Sec-tion 3. Like standard NGP, hash collisions within each table are resolved implicitly through gradient-based optimization. Features from all L resolution levels are concatenated to form the final encoding γ(x) = ( γ0(x), ..., γ L−1(x)) ∈
+
+RL·F , where F is the feature dimension per stored value. In 2D, the total parameter count across all tables is L × (T1 +2T2 + T3) × F . When all tables use the same size T , this simplifies to L × 4T × F , matching the 2d factor from the 4 Hermite coefficients per vertex. A key advantage of storing derivative information explicitly is that the encoding captures richer local spatial structure than function values alone. This enables the network to rep-resent sharp gradients and rapid spatial variations directly in the encoding, which is particularly beneficial for PDEs with complex boundary conditions—the derivative coefficients can adapt locally to enforce boundary constraints while the function values capture the global solution structure. This spatial adaptivity, inherited from hash encoding’s irregu-lar grid structure, allows Hermite-NGP to handle complex geometric boundaries naturally without requiring boundary-conforming meshes. Note that the hash function h(·) is a discrete index lookup mapping integer grid coordinates to table entries: it is not part of the continuous computation graph, and all spatial derivatives are computed through the smooth Hermite basis applied to the retrieved coefficients. 
+
+## 5. Analytic Differentiation 
+
+5.1. Analytic Derivative Calculation 
+
+PDE residuals like the Laplacian ∇2u require second-order spatial derivatives. Standard autodifferentiation cannot pro-vide meaningful second derivatives for hash encoding: the 4Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+d-linear interpolation yields piecewise constant first deriva-tives, making second derivatives zero almost everywhere. Standard NGP therefore resorts to finite differences (FD) like INGP-FD (Huang & Alkhalifah, 2024; Li et al., 2023b; Wang et al., 2024a), requiring 2d + 1 forward passes (5 in 2D, 7 in 3D) and introducing O(ϵ2) truncation error in the estimated second derivatives of the model output. This trun-cation error creates a fundamental accuracy ceiling around 
+
+10 −5, regardless of how long training continues. For appli-cations requiring higher precision, analytic derivatives are therefore essential rather than merely preferable. Hermite encoding enables analytic computation in a single forward pass by differentiating the basis functions directly. Derivatives of the Hermite encoding follow by differentiat-ing the basis functions. Defining t = ( x − xg )/∆xl, we have: 
+
+∂ki1··· ik γl = X
+
+> g∈Nl(x)
+
+X
+
+> α∈{ 0,1}d
+
+θ(α) 
+
+> l,h (g)
+
+∆x|α|− kl ∂ki1··· ik H(α)(t).
+
+(5) For first derivatives ( k = 1 ) and second derivatives ( k = 2 ,enabling analytic Laplacian), the scaling ∆x|α|− kl ensures correct dimensional behavior across resolution levels. These formulas provide analytic derivatives of the Hermite interpolant within each cell, free of truncation error. For implementation, the derivatives of the 1D Hermite basis functions are:                                           
+
+> ∂h (0)
+> ∂t (t) =
+> 
+> −6t2+ 6 t, 0≤t < 1,
+> 6t2+ 6 t, −1< t < 0,
+> 0,|t|>1,∂2h(0)
+> ∂t 2(t) =
+> 
+> −12 t+ 6 ,0≤t < 1,
+> 12 t+ 6 ,−1< t < 0,
+> 0,|t| ≥ 1,∂h (1)
+> ∂t (t) =
+> (
+> 3t2−4t+ 1 ,|t|<1,
+> 0,|t| ≥ 1,∂2h(1)
+> ∂t 2(t) =
+> (
+> 6t−4,|t|<1,
+> 0,|t| ≥ 1,
+
+(6) For the d-dimensional Hermite basis, derivatives can be factorized as ∂H (α)(y) 
+
+> ∂x i
+
+= ∂h (i)(yi) 
+
+> ∂x i
+
+Πk̸ =ih(k)(yk),
+
+> ∂2H(α)(y)
+> ∂x 2
+> i
+
+= ∂2h(i)(yi)
+
+> ∂x 2
+> i
+
+Πk̸ =ih(k)(yk) and ∂2H(α)(y) 
+
+> ∂x i∂x j
+
+=  
+
+> ∂h (i)(yi)
+> ∂x i
+> ∂h (j)(yj)
+> ∂x j
+
+Πk̸ =i,j h(k)(yk) for i̸ = j, where y =( x−xg 
+
+> ∆xl
+
+) (see Appendix A.1 for the complete 2D worked example). This factorization enables efficient vectorized computation: we compute 1D basis values and derivatives once per dimension, then combine them via outer products. The Laplacian is computed analytically by summing diago-nal Hessian entries: ∇2γ = Pdi=1 
+
+> ∂2γ∂x 2
+> i
+
+.Furthermore, our grouped table structure (Section 4.2) al-lows allocating smaller tables to higher-order derivatives, providing fine-grained control over the memory-accuracy tradeoff(see Section 7.7 for ablation study). 
+
+Algorithm 1 Hermite-NGP Training 
+
+Require: Points x ∈ RN ×d, hash tables {θ(α) 
+
+> l
+
+}, MLP ϕ,active levels Lactive 
+
+Ensure: PDE solution u(x), derivatives ∇u, ∇2u
+
+1: // Hermite Hash Encoding (Sec. 4.2) 
+
+2: for l = 1 , . . . , L active do ▷ Coarse-to-fine: Sec. 6 
+
+3: g ← Nl(x) ▷ 2d grid vertices 
+
+4: k ← h(g) mod Tl ▷ Hash function 
+
+5: θ(α) 
+
+> l,k
+
+← Lookup (θl, k ) for α ∈ { 0, 1}d
+
+6: γl, ∇γl, ∇2γl ← P
+
+> g
+
+P 
+
+> α
+
+θ(α) 
+
+> l,k
+
+H(α)(x) ▷ Eq. 4 
+
+7: end for 
+
+8: γ ← [γ1; . . . ; γLactive ] ▷ Concat multi-resolution 
+
+9: // MLP with Analytic Derivatives (Sec. 5.2) 
+
+10: u, ∂u ∂γ , ∂2u∂γ 2 ← MLP ϕ(γ) ▷ SIREN 
+
+11: ∇u ← ∂u ∂γ ∇γ; ∇2u ← ∂2u∂γ 2 (∇γ)2 + ∂u ∂γ ∇2γ
+
+12: // PDE Loss and Backward 
+
+13: L ← L pde (u, ∇u, ∇2u) + λbc Lbc 
+
+14: Backward (L) → update {θ(α) 
+
+> l
+
+}, ϕ 
+
+15: return u, ∇u, ∇2u
+
+5.2. End-to-End Differentiation 
+
+The complete Hermite-NGP model computes uθ (x) =
+
+MLP ϕ(γ(x)) , where γ(x) is the Hermite hash encoding. A key advantage is that analytic derivatives from the en-coding propagate through the MLP to obtain differential operators without finite differences or autograd overhead. We use SIREN activations (Sitzmann et al., 2020) with 
+
+σ(x) = sin( ωx ), satisfying σ′′ = −ω2σ. For a single layer 
+
+u = W2 sin( ω(W1γ + b1)) + b2, denoting z = W1γ + b1
+
+and a = sin( ωz ), the Laplacian is: 
+
+∇2u = W2
+
+h
+
+−ω2a⊙Pdi=1 (W1γxi )2+ω cos( ωz )⊙W1∇2γ
+
+i
+
+,
+
+(7) where γxi = ∂γ ∂x i and ∇2γ are the analytic encoding deriva-tives from Section 5.1. All terms except γxi and ∇2γ reuse quantities from the forward pass. For K-layer networks, derivatives propagate recursively. Let a(0) = γ and a(k) = sin( ωz (k)) where z(k) =
+
+Wka(k−1) + bk:
+
+∂a (k)
+
+∂x i
+
+= ω cos( ωz (k)) ⊙ Wk
+
+∂a (k−1) 
+
+∂x i
+
+, (8) 
+
+∂2a(k)
+
+∂x 2
+
+> i
+
+= −ω2a(k) ⊙
+
+
+
+Wk ∂a (k−1) 
+
+> ∂x i
+
+2
+
+(9) 
+
++ ω cos( ωz (k)) ⊙ Wk
+
+∂2a(k−1) 
+
+∂x 2
+
+> i
+
+. (10) The base case uses Hermite encoding derivatives; the full Laplacian ∇2u = Pdi=1 ∂2u∂x 2
+
+> i
+
+is computed in a single for-ward pass (see Appendix A.2). We initialize MLP weights 5Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Figure 4. Helmholtz 3D ( a=10 ). Cross-sectional slices of the 3D Helmholtz solution. Hermite-NGP accurately captures the oscillatory wave patterns, achieving an L2 error of 6 × 10 −3, substantially better than the closest baseline, I-NGP-FD ( 7.21 × 10 −2). PINN SPINN JAX-PI INGP-FD PIRATENET OURS GT 
+
+> Prediction Error
+
+Figure 5. Convection 1+1D ( c = 30 ): Solution field at final time. Hermite-NGP preserves the sharp traveling wave with L2 =8.49 ×10 −5, a 10 × improvement over PirateNet ( 8.54 × 10 −4), while SPINN and INGP-FD fail to converge. 
+
+following Sitzmann et al. (2020) with ω0 = 30 ; hash table coefficients start near zero. Algorithm 1 summarizes the complete Hermite-NGP training pipeline, from hash encod-ing through analytic derivatives to PDE loss computation. The recursion in (8) – (10) works with any twice-differentiable activation (Swish, Softplus, GELU, etc.); even with an autograd MLP, the Hermite encoding’s analytic derivatives are preserved. 
+
+## 6. Multi-Resolution Coarse-to-Fine Training 
+
+Inspired by multigrid methods (Briggs et al., 2000) and coarse-to-fine strategies in neural surface reconstruction (Li et al., 2023b), we leverage the hierarchical structure of multi-resolution hash encoding for curriculum training. We em-ploy a three-phase strategy: (1) train only coarse levels (l = 0 , . . . , L 0) to capture global structure; (2) progressively activate finer levels; (3) fine-tune all levels jointly. The num-ber of active levels follows Lactive (t) = min( L, L 0 +⌊t/τ ⌋),where τ is the activation interval. Ablation studies (Sec-tion 7.7) show coarse-to-fine achieves 79% error reduction over training all levels simultaneously. We summarize the pipeline in Algorithm 1. 
+
+## 7. Experiments 
+
+We evaluate Hermite-NGP on a broad suite of 2D/3D PDE benchmarks, covering elliptic, hyperbolic, and parabolic equations, as well as geometric applications. These bench-marks probe complementary aspects of neural PDE solvers, including high-frequency oscillations, sharp transport, cou-
+
+Figure 6. Helmholtz 2D ( a = 10 ): Ground truth (left), Hermite-NGP prediction (middle), and pointwise error (right). Our method achieves relative L2 error of 1.81 ×10 −5, compared to 3.57 ×10 −4
+
+for the closest baseline. Ours GT 
+
+Figure 7. Helmholtz 2D ( a = 100 ) enlarged: Hermite-NGP is the only method that converges on this challenging high-frequency setting, achieving L2 = 4 .59 ×10 −2. All baseline methods fail to capture the rapid oscillations. 
+
+pled dynamics, complex geometries, and geometric con-straints. For problems without analytic solutions, we obtain ground truth from high-resolution conventional PDE solvers. All metrics are reported as relative L2 errors. Full PDE for-mulations and training details are provided in App. B. 
+
+7.1. Experimental Setup Baselines. We compare Hermite-NGP against recent PINN-based methods: PirateNet (Wang et al., 2024b), JAX-PI (Wang et al., 2023a), PIG (Kang et al., 2024), INGP-FD (Huang & Alkhalifah, 2024) (hash encoding with finite differences), SPINN (Cho et al., 2023), PIXEL (Kang et al., 2023), and a vanilla PINN baseline (Raissi et al., 2019). For all baselines, we use the official implementations with recommended hyperparameters and, unless otherwise noted, a shared training protocol (Adam (Kingma, 2014) optimizer, GradNorm loss balancing), see details in Appendix B.2. Table 1 summarizes the relative L2 errors across all bench-marks, and full PDE formulations are provided in App. B.1. 
+
+7.2. 2D PDE Experiments 
+
+We evaluate two 2D benchmarks that stress high-frequency oscillations and sharp transport. For Helmholtz 2D 
+
+6Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Table 1. Relative L2 error comparison. Best results in bold . “fail” denotes failure ( L2 ≥ 1.0 or divergence). NA indicates not evaluated. 
+
+> †
+
+Reported in the original paper. ‡Compact format (larger model). For Helmholtz 2D, our results report small-model performance, with large-model results in parentheses. 
+
+Helmholtz 2D Helmholtz 3D Conv. T-G Flow Method a=10 a=20 a=100 a=3 a=10 c=30 ν=.01 Mix. Ours ‡ 5.29e-05 ( 1.81e-05 ) 9.87e-05 ( 7.93e-05 ) 4.59e-02 6.09e-05 6.01e-03 8.49e-05 7.71e-05 2.35e-04 
+
+PirateNet 3.57e-04 1.36e-03 fail 8.40e-04 1.55e-01 8.54e-04 fail NA JAX-PI 5.76e-04 1.20e-03 fail NA NA 8.54e-04 NA NA INGP-FD 1.67e-03 2.77e-03 4.98e-01 4.04e-03 7.21e-02 7.02e-01 6.80e-01 fail SPINN 5.46e-03 3.30e-02 7.08e-01 2.28e-02 9.61e-02 7.92e-01 3.98e-01 2.90e-03 †
+
+PIXEL 3.47e-02 1.34e-01 fail NA NA 1.84e-03 † NA NA PINN fail fail fail 2.58e-01 fail 1.11e-02 4.57e-02 NA PIG 7.04e-04 fail fail 2.57e-01 fail NA 7.27e-04 2.67e-04 †
+
+Figure 8. Training loss curves across four different benchmarks. Our method’s loss curve decreases smoothly, in contrast to the highly oscillatory behavior of the baselines, and converges to errors up to four orders of magnitude lower across different benchmarks; see Table 1 for details. 
+
+(Figs. 6, 18, and 19), Hermite-NGP achieves relative 
+
+L2 errors of 1.81 ×10 −5, 7.93 ×10 −5, and 4.59 ×10 −2
+
+for a=10 , 20 , 100 , corresponding to 20 ×, 17 ×, and 11 ×
+
+improvements over the strongest baselines, respectively. Hermite-NGP is also the only method that converges at the challenging a=100 setting. For time-dependent Con-vection ( 1+1 D) with c=30 (Fig. 5), Hermite-NGP attains a relative error of 8.49 ×10 −5, a 10 × reduction compared to PirateNet ( 8.54 ×10 −4). Grid-based methods (INGP-FD, SPINN) fail to resolve the sharp front due to severe numeri-cal diffusion from their finite-difference discretization. 
+
+Additional Baselines (Helmholtz 2D, a=10 ). Under a unified protocol, ∂∞-Grid (Kairanda et al., 2026) reaches 
+
+6.07 ×10 −3 and SIREN (Sitzmann et al., 2020) 6.67 ×10 −2
+
+– both two to three orders of magnitude behind our result in Table 1 (Fig. 9; Appendix Table 18). 
+
+7.3. 3D PDE Experiments 
+
+We evaluate three 3D benchmarks, including a station-ary Helmholtz problem and two time-dependent 2+1 Dflows. For Helmholtz 3D (Figs. 4, 17), Hermite-NGP achieves relative L2 errors of 6.09 ×10 −5 at a=3 (14 ×rel. L2=6.67e-02          
+
+> SIREN
+> rel. L2=4.66e-03
+> -Grid
+> rel. L2=1.81e-05
+> Hermite-NGP GT
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Helmholtz 2D ( a= 10 )
+> u(x, y)Error
+
+Figure 9. Helmholtz 2D ( a=10 ) qualitative comparison across Hermite-NGP, ∂∞-Grid (Kairanda et al., 2026), SIREN. Only Hermite-NGP recovers the high-frequency structure cleanly. 
+
+Figure 10. Taylor-Green vortex ( ν = 0 .01 ): Velocity magnitude at 
+
+t = 1 . Hermite-NGP captures the decaying vortex structure with 
+
+L2 = 7 .71 ×10 −5, outperforming PIG by 9×.
+
+lower than PirateNet) and 6.01 ×10 −3 at a=10 (12 × lower than INGP-FD), demonstrating strong scalability to 3D. For 
+
+time-dependent Taylor–Green vortex ( 2+1 D) (Fig. 10), Hermite-NGP attains a relative L2 error of 7.71 ×10 −5,which is 9 × lower than PIG and over 600 × lower than the vanilla PINN baseline, while PirateNet fails to con-verge on this coupled system. For time-dependent flow mixing ( 2+1 D) (Figs. 11 and 16), Hermite-NGP reaches a relative L2 error of 2.35 ×10 −4, slightly outperforming t=0.0 t=1.0 t=2.0 t=3.0 t=4.0 
+
+Figure 11. Flow Mixing: Solution field showing rotational trans-port. Hermite-NGP achieves L2 = 2 .35 ×10 −4, resolving sharp gradients from fluid stretching. 
+
+7Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs Ours Neuralangelo GT   
+
+> Figure 12. SDF Learning and Curvature Estimation. Hermite-NGP learns an SDF whose gradients (green line segments) and cur-vature (shown as color) remain smooth thanks to analytic second derivatives, whereas NeuralAngelo’s finite-difference curvature is noisy and exhibits visible artifacts.
+
+PIG ( 2.67 ×10 −4) and achieving a 12 × improvement over SPINN; the PIG and SPINN numbers are taken from their original publications. For the first two benchmarks, the second-row error visualizations show that Hermite-NGP consistently has the smallest discrepancy from the ground truth compared to all baselines. Quantitative results are summarized in Table 1. 
+
+7.4. 3D PDEs on Complex Geometries 
+
+We evaluate Hermite-NGP on 3D Stanford meshes with varying geometric complexity, assessing the ability of neural PDE solvers to handle intricate shapes, complex boundaries, and higher-order geometric operators such as curvature. 
+
+3D Poisson with Mesh Boundary Conditions. We solve a homogeneous Poisson problem (Laplace equation) ∆u =0 on [0 , 1] 3, with the mesh surface as an inner Dirichlet boundary ( u = 1 ) and the domain boundary as an outer Dirichlet boundary ( u = 0 ). Ground truth is computed using a high-resolution conjugate-gradient solver in SciPy (Virta-nen et al., 2020). Table 2 reports relative L2 errors, where ours achieves, on average, a 3× lower error than PIG. 
+
+SDF learning. Table 2 reports the mean absolute error (MAE) of the gradient, where Hermite-NGP attains a 2.4×
+
+lower error than NeuralAngelo (Li et al., 2023b) on aver-age. As shown in Fig. 12, our analytic second derivatives produce smooth and accurate curvature shown as color on mesh, whereas NeuralAngelo’s finite-difference approxima-tions yield noisy curvature with visible artifacts, a critical limitation for downstream tasks such as mesh extraction and physics simulation. 
+
+7.5. Image Reconstruction from Gradient Supervision 
+
+To show that the gradient-augmented hash representation generalizes beyond PDE residuals, we reconstruct the 
+
+camera image from gradient -only supervision follow-ing Kairanda et al. (2026). Hermite-NGP attains the best PSNR at both resolutions ( 32 .56 dB at 256 ×256 , 32 .35 dB at 512 ×512 ), ahead of ∂∞-Grid (Kairanda et al., 2026) and SIREN (Sitzmann et al., 2020) (Fig. 13; best result in Appendix Table 19).                                         
+
+> Table 2. 3D with Complex Geometry. Poisson with mesh bound-ary (MAE ↓) and SDF learning (Grad MAE ↓). 3D Poisson: L2 ↓SDF: Grad. MAE ↓
+> Mesh Ours PIG Ours NeuralAngelo Armadillo 0.0055 0.0167 0.0478 0.1009 Bunny 0.0044 0.0127 0.0416 0.0887 Fandisk 0.0031 0.0100 0.0516 0.1064 Lucy ––0.0418 0.1213 Dragon ––0.0453 0.1322 Average 0.0043 0.0131 0.0456 0.1099
+> Figure 13. Image reconstruction from gradient supervision on the
+> camera image. Hermite-NGP recovers sharper edges and finer texture than ∂∞-Grid and SIREN while matching their soft-region quality.
+
+7.6. GPU Memory and Speed Comparison 
+
+Hermite-NGP scales efficiently: 68K to 16.8M parameters uses 133–389 MB memory and 1.8–3.6 ms/epoch (Table 10). INGP-FD with similar parameter counts (81K–11.2M) uses 5.4–241 MB and 2.5–8.7 ms/epoch. PIG scales poorly: 1600 Gaussians (32K params) requires 33.5 GB memory and 5 s/epoch. Full details are provided in Appendix Table 10. 
+
+3D Training Memory vs. INGP-FD. Despite the 2d stor-age overhead, in 3D Hermite-NGP uses less peak GPU memory than INGP-FD across the tested range ( 150 K– 
+
+33 .6M params), because INGP-FD’s 7 forward passes for the central-difference Laplacian retain 7× activation graphs while Hermite-NGP keeps a single graph (Appendix Ta-ble 17). 
+
+7.7. Ablation Studies 
+
+We conduct ablation studies on Helmholtz 2D ( a =5, 10 , 15 , 20 ) to analyze key design choices. We report key findings here and refer to Appendix C for complete results. 
+
+Cubic-NGP Baseline. We evaluate higher-order NGP variants (Trilinear, Cubic, Bicubic Catmull–Rom) that dif-ferentiate through the encoding without stored derivatives. On Helmholtz 2D ( a=10 ), all variants fail (L2 > 0.1), in-cluding true 4×4 Bicubic, while Hermite-NGP achieves 
+
+1.81 × 10 −5. The underlying failure mode is that hash col-lisions inject high-frequency noise into the stored feature values; computing derivatives through (or by FD on) these 8Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs Ours PIG GT             
+
+> Figure 14. 3D Poisson with mesh boundary (Armadillo). Solution
+> uwith Dirichlet values u=1 on the mesh surface and u=0 on the outer domain boundary. Hermite-NGP achieves an L2error of
+> 5×10 −3, a 3×improvement over PIG. The third row shows L2 error.
+
+noisy features amplifies the noise. Hermite-NGP instead treats the derivative field as a first-class optimization target, distributing the representation burden across function and derivative channels. Figure 15 provides a visual comparison and confirms that stored derivative coefficients are essential. 
+
+Coarse-to-Fine Training. We evaluate several multigrid-inspired resolution schedules. Our coarse-to-fine (C2F) strategy reduces error by 79.2% relative to training with-out any scheduling, and consistently outperforms both V-and W-cycle variants, which yield smaller improvements. Detailed results for all 28 configurations are provided in Appendix C.1. 
+
+Hash Table Allocation. We ablate hash capacity for Hermite coefficients: values ( H1), first ( H2), and mixed (H3) derivatives. The optimal 14 –14 –10 (log 2) achieves 
+
+2.26 × 10 −5 L2 error, a 56% reduction over uniform 
+
+12 –12 –12 . Reducing H2 to 10 degrades error to 9.98 ×10 −5,while reducing H1 yields 8.90 × 10 −5, showing higher col-lision sensitivity for first derivatives. Appendix C.2 reports all 30 settings. 
+
+Architecture Parameters. We ablate hash size, resolution levels, and per-level scale on 2D Helmholtz ( a=5 , 10 , 20 ). Performance is frequency-dependent: at a=5 , hash 216 
+
+achieves 6.52 × 10 −6; at a=10 , a compact model yields 
+
+5.29 × 10 −5, improved to 1.81 × 10 −5 with hash 214 ; at 
+
+a=20 , a compact model yields 9.87 × 10 −5, improved to 
+
+7.93 ×10 −5 with hash 216 . Scale 2.0 and 8 levels perform ro-bustly across frequencies. Full sweeps are in Appendix C.3. 
+
+MLP Depth. On Helmholtz 2D ( a=20 ), depth 4 im-proves error by 1.7× over the default depth 2 at a cost of ∼0.9 ms/epoch per layer; the hash encoding carries most of the representational burden, so we keep d=2 as default (Appendix Table 16). 
+
+Computational Efficiency. Training takes 2.85–3.13 ms per epoch with 10K collocation points, broken down into 0.35–0.41 ms for PDE residuals, 0.23–0.26 ms for bound-ary conditions, and 1.98–2.17 ms for the backward pass. With 100K points, each epoch takes 19.7 ms, of which the backward pass accounts for 16.5 ms (84%). See Ap-pendix C.4 for a full scaling analysis across 5K–100K col-location points. 
+
+Robustness Across Seeds. Across 5 seeds on every main benchmark, relative standard deviations stay below 
+
+∼15% (e.g., Helmholtz 2D a=10 : 3.35 ×10 −5 ±4.4×10 −6;
+
+a=100 : 7.34 ×10 −2 ± 6.06 ×10 −3), confirming the gains are not seed-driven (Appendix Table 15). 
+
+Derivative Computation. We compare full analytic derivatives to autograd-based alternatives. Our method achieves 3–15 × speedup (9.5 × avg.) over full autograd. A hybrid with analytic encoding but autograd MLP is only 1.2–1.5 × slower, indicating analytic encoding derivatives dominate the speedup. Gains are largest at small batches (15 × at 5K collocation) due to near-constant autograd over-head. Full results are in Appendix C.4. 
+
+## 8. Conclusion 
+
+We presented Hermite-NGP , a gradient-augmented multi-resolution hash encoding for neural PDE solving. By explic-itly storing function values and mixed partial derivatives at hash grid vertices and reconstructing the field via Hermite interpolation, Hermite-NGP enables analytic, stable evalua-tion of first- and second-order differential operators, over-coming the discontinuities of standard NGP encodings. The resulting C1-continuous representation, combined with spa-tial adaptivity and coarse-to-fine training, yields an efficient neural PDE solver for problems on complex geometries. 
+
+Limitations and Future Work. Hermite-NGP incurs stor-age overhead from explicit mixed derivative parameteriza-tion, which may grow in higher dimensions, though offset by reduced training memory from analytic derivatives. Our im-plementation uses SIREN for efficient second-order deriva-tives; extending to other activation families remains future work. We also plan to explore quintic Hermite interpolation for PDEs requiring higher-order derivatives. Our Hermite interpolation is currently realized over multi-resolution hash encodings under strong-form PDE residuals; weak-form variants are left as future work, and our method is not in-tended as a substitute for classical FDM/FEM solvers. 
+
+## Acknowledgments 
+
+We sincerely thank the anonymous reviewers for their valu-able feedback. Georgia Tech authors acknowledge NSF CAREER #2420319, IIS #2433307, OISE #2433313, IIS #2433322, ECCS #2318814, and CNS #2450401 for fund-ing support, and the NVIDIA Academic Grant Program for hardware support. We credit the Houdini education license for rendering. 9Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+## Impact Statement 
+
+The goal of this work is to improve the reliability and ef-ficiency of neural PDE solvers by providing analytic and faithful spatial derivatives, particularly in settings involving complex geometries and higher-order differential operators. We do not foresee direct negative societal consequences arising from this work. 
+
+## References 
+
+Anumolu, L. and Trujillo, M. F. Gradient augmented level set method for phase change simulations. Journal of Computational Physics , 353:377–406, 2018. Barron, J. T., Mildenhall, B., Verbin, D., Srinivasan, P. P., and Hedman, P. Zip-nerf: Anti-aliased grid-based neural radiance fields. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision , pp. 19697–19705, 2023. Birkhoff, G., Schultz, M. H., and Varga, R. S. Piecewise hermite interpolation in one and two variables with appli-cations to partial differential equations. Numer. math , 11 (3):232–256, 1968. Bøckmann, A. and Vartdal, M. A gradient augmented level set method for unstructured grids. Journal of Computa-tional Physics , 258:47–72, 2014. Briggs, W. L., Henson, V. E., and McCormick, S. F. Amultigrid tutorial . SIAM, 2000. Cao, A. and Johnson, J. Hexplane: A fast representation for dynamic scenes. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pp. 130–141, 2023. Chen, A., Xu, Z., Geiger, A., Yu, J., and Su, H. Tensorf: Tensorial radiance fields. In European conference on computer vision , pp. 333–350. Springer, 2022. Chen, D., Zhou, J., and Zhu, B. A neural particle level set method for dynamic interface tracking. ACM Transac-tions on Graphics , 44(3):1–21, 2025. Chen, Z., Badrinarayanan, V., Lee, C.-Y., and Rabinovich, A. Gradnorm: Gradient normalization for adaptive loss balancing in deep multitask networks. In International conference on machine learning , pp. 794–803. PMLR, 2018. Chen, Z., Funkhouser, T., Hedman, P., and Tagliasacchi, A. Mobilenerf: Exploiting the polygon rasterization pipeline for efficient neural field rendering on mobile architec-tures. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 16569– 16578, 2023a. Chen, Z., Li, Z., Song, L., Chen, L., Yu, J., Yuan, J., and Xu, Y. Neurbf: A neural fields representation with adaptive radial basis functions. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 4182– 4194, 2023b. Chetan, A., Yang, G., Wang, Z., Marschner, S., and Hariha-ran, B. Accurate differential operators for hybrid neural fields. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 530–539, 2025. Cho, J., Nam, S., Yang, H., Yun, S.-B., Hong, Y., and Park, E. Separable physics-informed neural networks. 
+
+Advances in Neural Information Processing Systems , 36: 23761–23788, 2023. Ciarlet, P. G. and Raviart, P.-A. General lagrange and her-mite interpolation in rn with applications to finite element methods. Archive for Rational Mechanics and Analysis ,46(3):177–199, 1972. Costabal, F. S., Pezzuto, S., and Perdikaris, P. δ-pinns: Physics-informed neural networks on complex geome-tries. Engineering Applications of Artificial Intelligence ,127:107324, 2024. Deng, Y., Yu, H.-X., Zhang, D., Wu, J., and Zhu, B. Fluid simulation on neural flow maps. ACM Transactions on Graphics (TOG) , 42(6):1–21, 2023. Duan, S., Wu, W., Hu, P., Ren, Z., Peng, D., and Sun, Y. Copinn: Cognitive physics-informed neural networks. In Forty-second International Conference on Machine Learning .Fridovich-Keil, S., Yu, A., Tancik, M., Chen, Q., Recht, B., and Kanazawa, A. Plenoxels: Radiance fields without neural networks. In Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition , pp. 5501–5510, 2022. Fridovich-Keil, S., Meanti, G., Warburg, F. R., Recht, B., and Kanazawa, A. K-planes: Explicit radiance fields in space, time, and appearance. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 12479–12488, 2023. Hermite, M. C. and Borchardt, M. Sur la formule d’interpolation de lagrange. Journal f ¨ur die reine und angewandte Mathematik (Crelles Journal) , 1878(84):70– 79, 1878. Hu, W., Wang, Y., Ma, L., Yang, B., Gao, L., Liu, X., and Ma, Y. Tri-miprf: Tri-mip representation for efficient anti-aliasing neural radiance fields. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,pp. 19774–19783, 2023. 10 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Hu, Z., Shukla, K., Karniadakis, G. E., and Kawaguchi, K. Tackling the curse of dimensionality with physics-informed neural networks. Neural Networks , 176:106369, 2024. Huang, B., Yu, Z., Chen, A., Geiger, A., and Gao, S. 2d gaussian splatting for geometrically accurate radiance fields. In ACM SIGGRAPH 2024 conference papers , pp. 1–11, 2024. Huang, X. and Alkhalifah, T. Efficient physics-informed neural networks using hash encoding. Journal of Compu-tational Physics , 501:112760, 2024. Jiang, C., Schroeder, C., Selle, A., Teran, J., and Stomakhin, A. The affine particle-in-cell method. ACM Transactions on Graphics (TOG) , 34(4):1–10, 2015. Kairanda, N., Naik, S., Habermann, M., Sharma, A., Theobalt, C., and Golyanik, V. Dinf-grid: A neural dif-ferential equation solver with differentiable feature grids. 
+
+arXiv preprint arXiv:2601.10715 , 2026. Kang, N., Lee, B., Hong, Y., Yun, S.-B., and Park, E. Pixel: Physics-informed cell representations for fast and accu-rate pde solvers. In Proceedings of the AAAI confer-ence on artificial intelligence , volume 37, pp. 8186–8194, 2023. Kang, N., Oh, J., Hong, Y., and Park, E. Pig: Physics-informed gaussians as adaptive parametric mesh repre-sentations. arXiv preprint arXiv:2412.05994 , 2024. Karniadakis, G. E., Kevrekidis, I. G., Lu, L., Perdikaris, P., Wang, S., and Yang, L. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. Kerbl, B., Kopanas, G., Leimk ¨uhler, T., and Drettakis, G. 3d gaussian splatting for real-time radiance field rendering. 
+
+ACM Trans. Graph. , 42(4):139–1, 2023. Kim, D., Lee, M., and Museth, K. Neuralvdb: High-resolution sparse volume representation using hierarchi-cal neural networks. ACM Transactions on Graphics , 43 (2):1–21, 2024. Kingma, D. P. Adam: A method for stochastic optimization. 
+
+arXiv preprint arXiv:1412.6980 , 2014. Kolahdouz, E. M. and Salac, D. A semi-implicit gradient augmented level set method. SIAM Journal on Scientific Computing , 35(1):A231–A254, 2013. Kolomenskiy, D., Nave, J.-C., and Schneider, K. Adaptive gradient-augmented level set method with multiresolution error estimation. Journal of Scientific Computing , 66:116– 140, 2016. Krishnapriyan, A., Gholami, A., Zhe, S., Kirby, R., and Mahoney, M. W. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems , 34:26548–26560, 2021. Lee, C., Dolbow, J., and Mucha, P. J. A narrow-band gradient-augmented level set method for multiphase in-compressible flow. Journal of Computational Physics ,273:12–37, 2014. Li, X., Ni, X., Zhu, B., Wang, B., and Chen, B. Garm-ls: A gradient-augmented reference-map method for level-set fluid simulation. ACM Transactions on Graphics (TOG) ,42(6):1–20, 2023a. Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Bhat-tacharya, K., Stuart, A., and Anandkumar, A. Fourier neu-ral operator for parametric partial differential equations. In International Conference on Learning Representations ,2021. Li, Z., M ¨uller, T., Evans, A., Taylor, R. H., Unberath, M., Liu, M.-Y., and Lin, C.-H. Neuralangelo: High-fidelity neural surface reconstruction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 8456–8465, 2023b. Lu, L., Jin, P., Pang, G., Zhang, Z., and Karniadakis, G. E. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021a. Lu, L., Meng, X., Mao, Z., and Karniadakis, G. E. Deepxde: A deep learning library for solving differential equations. 
+
+SIAM review , 63(1):208–228, 2021b. McClenny, L. D. and Braga-Neto, U. M. Self-adaptive physics-informed neural networks. Journal of Computa-tional Physics , 474:111722, 2023. Mercier, O., Yin, X.-Y., and Nave, J.-C. The characteristic mapping method for the linear advection of arbitrary sets. 
+
+SIAM Journal on Scientific Computing , 42(3):A1663– A1685, 2020. Mildenhall, B., Srinivasan, P. P., Tancik, M., Barron, J. T., Ramamoorthi, R., and Ng, R. Nerf: Representing scenes as neural radiance fields for view synthesis. Communica-tions of the ACM , 65(1):99–106, 2021. M ¨uller, T., Evans, A., Schied, C., and Keller, A. Instant neural graphics primitives with a multiresolution hash encoding. ACM transactions on graphics (TOG) , 41(4): 1–15, 2022. Nave, J.-C., Rosales, R. R., and Seibold, B. A gradient-augmented level set method with an optimally local, coherent advection scheme. Journal of Computational Physics , 229(10):3802–3827, 2010. 11 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Rahaman, N., Baratin, A., Arpit, D., Draxler, F., Lin, M., Hamprecht, F., Bengio, Y., and Courville, A. On the spec-tral bias of neural networks. In International conference on machine learning , pp. 5301–5310. PMLR, 2019. Raissi, M., Perdikaris, P., and Karniadakis, G. E. Machine learning of linear differential equations using gaussian processes. Journal of Computational Physics , 348:683– 693, 2017. Raissi, M., Perdikaris, P., and Karniadakis, G. E. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. Raissi, M., Yazdani, A., and Karniadakis, G. E. Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481):1026–1030, 2020. Sitzmann, V., Martel, J., Bergman, A., Lindell, D., and Wetzstein, G. Implicit neural representations with peri-odic activation functions. Advances in neural information processing systems , 33:7462–7473, 2020. Sommer, C., Sang, L., Schubert, D., and Cremers, D. Gradient-sdf: A semi-implicit surface representation for 3d reconstruction. In Proceedings of the IEEE/CVF Con-ference on Computer Vision and Pattern Recognition , pp. 6280–6289, 2022. Tancik, M., Srinivasan, P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Singhal, U., Ramamoorthi, R., Barron, J., and Ng, R. Fourier features let networks learn high fre-quency functions in low dimensional domains. Advances in neural information processing systems , 33:7537–7547, 2020. Tancik, M., Weber, E., Ng, E., Li, R., Yi, B., Wang, T., Kristoffersen, A., Austin, J., Salahi, K., Ahuja, A., et al. Nerfstudio: A modular framework for neural radiance field development. In ACM SIGGRAPH 2023 conference proceedings , pp. 1–12, 2023. Virtanen, P., Gommers, R., Oliphant, T. E., Haberland, M., Reddy, T., Cournapeau, D., Burovski, E., Peterson, P., Weckesser, W., Bright, J., et al. Scipy 1.0: fundamental algorithms for scientific computing in python. Nature methods , 17(3):261–272, 2020. Wang, H., Yu, T., Yang, T., Qiao, H., and Dai, Q. Neu-ral physical simulation with multi-resolution hash grid encoding. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pp. 5410–5418, 2024a. Wang, S., Teng, Y., and Perdikaris, P. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing ,43(5):A3055–A3081, 2021. Wang, S., Yu, X., and Perdikaris, P. When and why pinns fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. Wang, S., Sankaran, S., Wang, H., and Perdikaris, P. An ex-pert’s guide to training physics-informed neural networks. 
+
+arXiv preprint arXiv:2308.08468 , 2023a. Wang, S., Li, B., Chen, Y., and Perdikaris, P. Piratenets: Physics-informed deep learning with residual adaptive networks. Journal of Machine Learning Research , 25 (402):1–51, 2024b. Wang, S., Sankaran, S., and Perdikaris, P. Respecting causal-ity for training physics-informed neural networks. Com-puter Methods in Applied Mechanics and Engineering ,421:116813, 2024c. Wang, Y., Han, Q., Habermann, M., Daniilidis, K., Theobalt, C., and Liu, L. Neus2: Fast learning of neural implicit surfaces for multi-view reconstruction. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 3295–3306, 2023b. Yu, Z., Peng, S., Niemeyer, M., Sattler, T., and Geiger, A. Monosdf: Exploring monocular geometric cues for neural implicit surface reconstruction. Advances in neural information processing systems , 35:25018–25032, 2022. Zhongkai, H., Yao, J., Su, C., Su, H., Wang, Z., Lu, F., Xia, Z., Zhang, Y., Liu, S., Lu, L., et al. Pinnacle: A compre-hensive benchmark of physics-informed neural networks for solving pdes. Advances in Neural Information Pro-cessing Systems , 37:76721–76774, 2024. Zhou, J., Chen, D., Deng, M., Deng, Y., Sun, Y., Wang, S., Xiong, S., and Zhu, B. Eulerian-lagrangian fluid simulation on particle flow maps. ACM Transactions on Graphics (TOG) , 43(4):1–20, 2024. Zou, Z.-X., Yu, Z., Guo, Y.-C., Li, Y., Liang, D., Cao, Y.-P., and Zhang, S.-H. Triplane meets gaussian splatting: Fast and generalizable single-view 3d reconstruction with transformers. In Proceedings of the IEEE/CVF confer-ence on computer vision and pattern recognition , pp. 10324–10335, 2024. 12 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+## A. Analytic Derivative Computation 
+
+Here, we provide complete derivations of the analytic derivative formulas used in Section 5.1 of the main text. Our neural graphics primitives (NGP) network architecture consists of two components: a Hermite interpolation–based multi-resolution representation and a SIREN-based MLP network. We first present the analytic derivatives for the Hermite interpolation– based multi-resolution representation, and then derive the corresponding formulas for the SIREN network. Finally, we combine these results to obtain the complete analytic derivatives of the full model. 
+
+A.1. Full Derivation of Encoding Derivatives 
+
+We derive the first and second derivatives of the Hermite encoding in detail, culminating in a complete 2D worked example. 
+
+Setup. Consider a single resolution level with grid spacing ∆x. For a query point x = ( x, y ) in 2D, let the enclosing cell have corners at (x0, y 0), (x0 + ∆ x, y 0), (x0, y 0 + ∆ x), (x0 + ∆ x, y 0 + ∆ x). We denote corners as: (0 , 0) → bottom-left, 
+
+(1 , 0) → bottom-right, (0 , 1) → top-left, (1 , 1) → top-right and define local coordinates: 
+
+s = x − x0
+
+∆x , t = y − y0
+
+∆x , s, t ∈ [0 , 1] . (11) 
+
+2D Hermite Interpolant. The bicubic Hermite interpolant is: 
+
+H[f ]( s, t ) = X
+
+> i,j ∈{ 0,1}
+
+h
+
+f (00)  
+
+> ij
+
+H(00) (s − i, t − i) + f (10)  
+
+> ij
+
+H(10) (s − i, t − i)∆ x
+
++ f (01)  
+
+> ij
+
+H(01) (s − i, t − i)∆ x + f (11)  
+
+> ij
+
+H(11) (s − i, t − i)∆ 2x
+
+i (12) where fij , f (10)  
+
+> ij
+
+, f (01)  
+
+> ij
+
+, f (11)  
+
+> ij
+
+are the function value, x-derivative, y-derivative, and mixed derivative at corner (i, j ), and the basis functions are tensor products: 
+
+H(00) (s, t ) = h(0) (s)h(0) (t), (13) 
+
+H(10) (s, t ) = h(1) (s)h(0) (t), (14) 
+
+H(01) (s, t ) = h(0) (s)h(1) (t), (15) 
+
+H(11) (s, t ) = h(1) (s)h(1) (t). (16) 
+
+First Derivatives. Using the chain rule ∂/∂x = (1 /∆x)∂/∂s :
+
+∂H [f ]
+
+∂x = 1∆x
+
+X
+
+> i,j ∈{ 0,1}
+
+h
+
+f (00)  
+
+> ij
+
+h(0) ′(s − i)h(0) (t − i) + f (10)  
+
+> ij
+
+h(1) ′(s − i)h(0) (t − i)∆ x
+
++ f (01)  
+
+> ij
+
+h(0) ′(s − i)h(1) (t − i)∆ x + f (11)  
+
+> ij
+
+h(1) ′(s − i)h(1) (t − i)∆ 2x
+
+i (17) Simplifying the ∆x factors: 
+
+∂H [f ]
+
+∂x = X
+
+> i,j ∈{ 0,1}
+
+h 1∆x f (00)  
+
+> ij
+
+h(0) ′(s − i)h(0) (t − i) + f (10)  
+
+> ij
+
+h(1) ′(s − i)h(0) (t − i)+ f (01)  
+
+> ij
+
+h(0) ′(s − i)h(1) (t − i) + f (11)  
+
+> ij
+
+h(1) ′(s − i)h(1) (t − i)∆ x
+
+i (18) 
+
+Second Derivatives. Taking another derivative: 
+
+∂2H[f ]
+
+∂x 2 = X
+
+> i,j ∈{ 0,1}
+
+h 1∆2x f (00)  
+
+> ij
+
+h(0) ′(s − i)h(0) (t − i) + 1∆x f (10)  
+
+> ij
+
+h(1) ′(s − i)h(0) (t − i)+ 1∆x f (01)  
+
+> ij
+
+h(0) ′(s − i)h(1) (t − i) + f (11)  
+
+> ij
+
+h(1) ′(s − i)h(1) (t − i)
+
+i (19) 13 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Complete 2D Example with All 16 Terms. Here, we expand Equation (12) . The full interpolant has 16 terms (4 corners 
+
+× 4 coefficients each): 
+
+H[f ]( s, t ) = 
+
+f (00)  
+
+> ij
+
+h(0) (s)h(0) (t) + f (00)  
+
+> ij
+
+h(0) (s − 1) h(0) (t) + f (00)  
+
+> ij
+
+h(0) (s)h(0) (t − 1) + f (00)  
+
+> ij
+
+h(0) (s − 1) h(0) (t − 1)+ 
+
+f (10)  
+
+> ij
+
+h(1) (s)h(0) (t)∆ x + f (10)  
+
+> ij
+
+h(1) (s − 1) h(0) (t)∆ x + f (10)  
+
+> ij
+
+h(1) (s)h(0) (t − 1)∆ x + f (10)  
+
+> ij
+
+h(1) (s − 1) h(0) (t − 1)∆ x+
+
+f (01)  
+
+> ij
+
+h(0) (s)h(1) (t)∆ x + f (01)  
+
+> ij
+
+h(0) (s − 1) h(1) (t)∆ x + f (01)  
+
+> ij
+
+h(0) (s)h(1) (t − 1)∆ x + f (01)  
+
+> ij
+
+h(0) (s − 1) h(1) (t − 1)∆ x+
+
+f (11)  
+
+> ij
+
+h(1) (s)h(1) (t)∆ 2x + f (11)  
+
+> ij
+
+h(1) (s − 1) h(1) (t)∆ 2x+
+
+f (11)  
+
+> ij
+
+h(1) (s)h(1) (t − 1)∆ 2x + f (11)  
+
+> ij
+
+h(1) (s − 1) h(1) (t − 1)∆ 2x+
+
+(20) This formula makes explicit how each of the 22 × 22 = 16 coefficients stored in the hash tables contributes to the interpolated value. 
+
+Laplacian Computation. The Laplacian ∇2H[f ] = ∂2H[f ]/∂x 2 + ∂2H[f ]/∂y 2 is computed by evaluating (19) for both directions and summing. Each term involves: • Retrieving 16 coefficients from hash tables (4 corners × 4 derivative types) • Evaluating 4 second-derivative basis values: h(0) ′′ (s), h (0) ′′ (s − 1) , h (1) ′′ (s), h (1) ′′ (s − 1) (and similarly for t)• Computing tensor products and weighted sums The factored structure allows efficient implementation: compute 1D basis values once per dimension, then form outer products. 
+
+A.2. Multi-Layer SIREN Laplacian 
+
+We prove by induction that the Laplacian propagates efficiently through a K-layer SIREN network, reusing forward pass quantities. 
+
+Proposition A.1 (SIREN Derivative Propagation) . Let u(x) = WK+1 a(K) + bK+1 be a K-hidden-layer SIREN network with a(0) = γ(x) (the Hermite encoding) and a(k) = sin( ωz (k)), z(k) = Wka(k−1) + bk for k = 1 , . . . , K . Then the spatial derivatives satisfy: 
+
+∂a (k)
+
+∂x i
+
+= ω cos( ωz (k)) ⊙ Wk
+
+∂a (k−1) 
+
+∂x i
+
+, (21) 
+
+∂2a(k)
+
+∂x 2
+
+> i
+
+= −ω2a(k) ⊙
+
+
+
+Wk
+
+∂a (k−1) 
+
+∂x i
+
+2
+
++ ω cos( ωz (k)) ⊙ Wk
+
+∂2a(k−1) 
+
+∂x 2
+
+> i
+
+, (22) 
+
+where ⊙ denotes element-wise multiplication. Proof. We proceed by induction on layer index k.
+
+Base case ( k = 0 ): The encoding derivatives ∂γ/∂x i and ∂2γ/∂x 2 
+
+> i
+
+are computed analytically from the Hermite basis as derived in Appendix A.1. 
+
+Inductive step: Assume (21)–(22) hold for layer k − 1. For layer k:
+
+First derivative: By the chain rule, 
+
+∂a (k)
+
+∂x i
+
+= ∂∂x i
+
+sin( ωz (k))= ω cos( ωz (k)) ⊙ ∂z (k)
+
+∂x i
+
+= ω cos( ωz (k)) ⊙ Wk
+
+∂a (k−1) 
+
+∂x i
+
+,
+
+14 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+using ∂z (k)/∂x i = Wk∂a (k−1) /∂x i (since bk is constant). 
+
+Second derivative: Differentiating again, 
+
+∂2a(k)
+
+∂x 2
+
+> i
+
+= ∂∂x i
+
+
+
+ω cos( ωz (k)) ⊙ Wk
+
+∂a (k−1) 
+
+∂x i
+
+
+
+= −ω2 sin( ωz (k)) ⊙ ∂z (k)
+
+∂x i
+
+⊙ Wk
+
+∂a (k−1) 
+
+∂x i
+
++ ω cos( ωz (k)) ⊙ Wk
+
+∂2a(k−1) 
+
+∂x 2
+
+> i
+
+= −ω2a(k) ⊙
+
+
+
+Wk
+
+∂a (k−1) 
+
+∂x i
+
+2
+
++ ω cos( ωz (k)) ⊙ Wk
+
+∂2a(k−1) 
+
+∂x 2
+
+> i
+
+.
+
+This completes the induction. The final output derivative is: 
+
+∂2u∂x 2
+
+> i
+
+= WK+1 
+
+∂2a(K)
+
+∂x 2
+
+> i
+
+,
+
+and the Laplacian is ∇2u = Pdi=1 ∂2u/∂x 2 
+
+> i
+
+.
+
+Remark A.2 (Computational Reuse) . The key efficiency insight is that all quantities in (21) – (22) are available from a modified forward pass: • a(k) = sin( ωz (k)) is the standard activation • cos( ωz (k)) can be computed alongside sin( ωz (k)) at negligible extra cost • Wk∂a (k−1) /∂x i uses the same weight matrices as the forward pass No backward pass or automatic differentiation graph is needed. 
+
+A.3. Mixed Partial Derivatives 
+
+For PDEs involving mixed derivatives (e.g., Burgers equation, convection-diffusion), we derive the full Hessian matrix. 
+
+Mixed Encoding Derivative. The mixed second derivative of the Hermite encoding is: 
+
+∂2H[f ]
+
+∂2x∂y = 1∆2x
+
+X
+
+> i,j
+
+h
+
+f (00)  
+
+> ij
+
+h(0) ′(s − i)h(0) ′(t − j) + · · · + f (11)  
+
+> ij
+
+∆x∆yh (1) ′(s − i)h(1) ′(t − j)
+
+i
+
+, (23) where we use first derivatives of basis functions in both directions. 
+
+Mixed Derivative Through SIREN. For the full network, the mixed derivative propagates as: 
+
+∂2a(k)
+
+∂x i∂x j
+
+= −ω2a(k) ⊙
+
+
+
+Wk
+
+∂a (k−1) 
+
+∂x i
+
+
+
+⊙
+
+
+
+Wk
+
+∂a (k−1) 
+
+∂x j
+
+
+
++ ω cos( ωz (k)) ⊙ Wk
+
+∂2a(k−1) 
+
+∂x i∂x j
+
+. (24) This allows computing the full Hessian matrix ∇2u analytically, which is needed for: • Burgers equation: ut + u · ∇ u = ν∇2u
+
+• Navier-Stokes: requires both Laplacian and convective derivatives • Geometric operators: Gaussian curvature involves determinant of Hessian 
+
+## B. Experimental Details 
+
+This appendix provides complete details for reproducing our experimental results. 15 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+B.1. PDE Formulations 
+
+B.1.1. H ELMHOLTZ 2D E QUATION 
+
+The 2D Helmholtz equation models time-harmonic wave propagation: 
+
+−∆u(x, y ) + k2u(x, y ) = f (x, y ), (x, y ) ∈ Ω = [0 , 1] 2, (25) with Dirichlet boundary conditions u = g on ∂Ω. The wave number k = 1 is fixed; the frequency parameter a1 controls solution oscillation. We use the manufactured solution: 
+
+u∗(x, y ) = sin( a1πx ) sin( a2πy ), (26) with a2 = a1. Substituting into (25) yields the source term: 
+
+f (x, y ) =  k2 − (a21 + a22)π2 sin( a1πx ) sin( a2πy ). (27) Higher a1 ∈ { 10 , 20 , 100 } produces increasingly oscillatory solutions that challenge neural network spectral bias. B.1.2. H ELMHOLTZ 3D E QUATION 
+
+The 3D extension tests scalability to higher dimensions: 
+
+−∆u(x, y, z ) + k2u(x, y, z ) = f (x, y, z ), (x, y, z ) ∈ Ω = [0 , 1] 3, (28) with manufactured solution: 
+
+u∗(x, y, z ) = sin( aπx ) sin( aπy ) sin( aπz ), (29) and corresponding source: 
+
+f (x, y, z ) =  k2 − 3a2π2 sin( aπx ) sin( aπy ) sin( aπz ). (30) We test a ∈ { 3, 10 }. The 2d = 8 Hermite coefficients per vertex in 3D represent a larger storage overhead, making this a stress test for our approach. B.1.3. C ONVECTION 1+1D E QUATION 
+
+The 1D convection (advection) equation describes transport phenomena: 
+
+∂u ∂t + c ∂u ∂x = 0 , x ∈ [0 , 2π], t ∈ [0 , 1] , (31) with periodic boundary conditions u(0 , t ) = u(2 π, t ) and initial condition u(x, 0) = sin( x). The exact solution is: 
+
+u∗(x, t ) = sin( x − ct ). (32) High velocity c = 30 creates sharp propagating features that require accurate first-derivative computation. For neural network training, coordinates are normalized to [0 , 1] 2.B.1.4. T AYLOR -G REEN VORTEX 2+1D (N AVIER -S TOKES )The incompressible Navier-Stokes equations in 2D with time: 
+
+∂u ∂t + u ∂u ∂x + v ∂u ∂y = − ∂p ∂x + ν
+
+ ∂2u∂x 2 + ∂2u∂y 2
+
+
+
+, (33) 
+
+∂v ∂t + u ∂v ∂x + v ∂v ∂y = − ∂p ∂y + ν
+
+ ∂2v∂x 2 + ∂2v∂y 2
+
+
+
+, (34) 
+
+∂u ∂x + ∂v ∂y = 0 (incompressibility) . (35) 16 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Domain: t ∈ [0 , 1] , (x, y ) ∈ [0 , 2π]2. The Taylor-Green vortex provides an analytic solution: 
+
+u∗(x, y, t ) = − cos( x) sin( y) exp( −2νt ), (36) 
+
+v∗(x, y, t ) = sin( x) cos( y) exp( −2νt ), (37) 
+
+p∗(x, y, t ) = − 14
+
+ cos(2 x) + cos(2 y) exp( −4νt ). (38) This coupled system requires accurate computation of both first derivatives (advection, pressure gradient, incompressibility) and second derivatives (viscous diffusion). B.1.5. F LOW MIXING 2+1D A nonlinear advection equation with spatially-varying rotational velocity: 
+
+∂u ∂t + a(x, y ) ∂u ∂x + b(x, y ) ∂u ∂y = 0 , (39) where the velocity field describes mixing flow with angular velocity depending on radial distance: 
+
+r = px2 + y2, vt = tanh( r)cosh 2(r) , (40) 
+
+ω = vt/v max 
+
+r , a = − vt
+
+vmax 
+
+· yr , b = vt
+
+vmax 
+
+· xr . (41) Domain: t ∈ [0 , 4] , (x, y ) ∈ [−4, 4] 2. The exact solution: 
+
+u∗(t, x, y ) = − tanh 
+
+ y
+
+2 cos( ωt ) − x
+
+2 sin( ωt )
+
+
+
+. (42) This problem develops sharp gradients as fluid parcels stretch and fold under the mixing dynamics. For both Poisson 3D and SDF learning experiments, we evaluate on five Stanford meshes of varying geometric complexity: • Armadillo : High-genus mesh with intricate surface details • Bunny : Classic benchmark with moderate complexity • Fandisk : CAD model with sharp edges and flat regions • Lucy : High-resolution scan with fine geometric features • Dragon (xyzrgb) : Complex topology with thin structures B.1.6. P OISSON 3D WITH MESH BOUNDARY 
+
+We solve the Laplace equation in a domain with an embedded mesh surface: 
+
+∆u = 0 , x ∈ Ω \ M , (43) where Ω = [0 , 1] 3 and M is one of the five Stanford meshes. Boundary conditions: 
+
+u = 1 on ∂M (mesh surface) , (44) 
+
+u = 0 on ∂Ω (domain boundary) . (45) The solution is a harmonic potential field smoothly varying from 1 on the mesh surface to 0 on the domain boundary. Ground truth is computed using a high-resolution finite element solver. This benchmark tests handling of complex geometry without body-fitted meshes. 17 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+B.1.7. SDF L EARNING 
+
+We learn a signed distance function u in Ω = [0 , 1] 3 around a mesh surface ∂M using direct supervision against ground-truth SDF values and gradients sampled from a high-resolution reference. The loss combines a value term and a gradient term: 
+
+Lsdf = ∥u − ugt ∥2, (46) 
+
+Lgrad = ∥∇ u − ∇ ugt ∥2. (47) This tests first-derivative accuracy in a purely geometric setting where the gradient field is the primary quantity of interest. 
+
+B.2. Training Configuration 
+
+Table 3 summarizes the collocation point configurations for each benchmark.                                                         
+
+> Table 3. Collocation point configuration for each PDE benchmark. PDE Setting Interior Points BC/IC Points Epochs
+> Elliptic PDEs
+> Helmholtz 2D a1= 10 10,000 5,000/edge 100k Helmholtz 2D a1= 20 40,000 8,000/edge 100k Helmholtz 2D a1= 100 100,000 25,000/edge 100k Helmholtz 3D a= 3 40,000 20,000 100k Helmholtz 3D a= 10 40,000 20,000 100k
+> Time-Dependent PDEs
+> Convection 1+1D c= 30 10,000 5,000 (IC), 5,000 (BC) 100k Taylor-Green 2+1D ν= 0 .01 20,000 5,000 (IC) 100k Flow Mixing 2+1D –50,000 10,000 (IC), 3,000/edge 200k
+> Complex Geometry (5 meshes)
+> Poisson 3D mesh →1, boundary →050,000 20,000 (5,000/face) –SDF learning –50,000 ––
+
+Initialization. Following Sitzmann et al. (2020), MLP weights are initialized from U(−p6/n, p6/n ) with ω0 = 30 for the first layer. Hermite hash table function values are initialized with N (0 , 0.01) ; derivative coefficients are initialized to zero, representing locally constant functions. 
+
+Optimizer and Learning Rate. All experiments use the Adam optimizer with initial learning rate 10 −3 and cosine annealing schedule with warm restarts. The restart period is 10,000 iterations with restart multiplier 2 (i.e., periods of 10K, 20K, 40K, ...). Collocation points and total epochs for each benchmark are summarized in Table 3. 
+
+Loss Balancing. We use an adaptive gradient-based loss balancing scheme inspired by GradNorm (Chen et al., 2018). At each iteration, we compute the gradient norms of the PDE residual loss ( gpde ) and boundary condition loss ( gbc ). When 
+
+gbc > 10 −8, the BC weight is updated via exponential moving average: 
+
+λbc ← 0.9 · λbc + 0 .1 · gpde 
+
+gbc 
+
+, λbc ∈ [1 , λ max ], (48) where λmax is a problem-dependent cap. This balances gradient magnitudes between PDE and BC losses during training. 
+
+Exponential Moving Average. We maintain an EMA of model parameters with decay rate 0.999 for stable evaluation. Final reported errors use the EMA model weights. 
+
+Coarse-to-Fine Training. For the multi-resolution curriculum (Section 4.4), we use the Coarse-to-Fine (Equal) strategy: all L resolution levels are divided into equal-duration phases, with levels activated progressively from coarse to fine. Each level is trained for τ = T /L iterations before the next level is activated, where T is the total training iterations. 
+
+Hash Table Configuration. For Helmholtz 2D, we select configurations based on our ablation study (Section 7.7). For other 2D benchmarks and 3D problems with simple geometry, we use default settings: hash table size T = 2 14 , L = 8 
+
+resolution levels, and level ratio r = 1 .5. For 3D problems with complex geometry (Poisson with mesh boundary, SDF learning), we increase capacity to T = 2 16 , L = 8 levels, and level ratio r = 2 .0 to better capture fine geometric details. 18 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+MLP Architecture. For baseline methods, we use MLPs with hidden dimension 128 and 4 layers, except SPINN which uses its default configuration. For Hermite-NGP, we use hidden dimension 128 with 2 layers, as our hash encoding stores additional derivative coefficients; the shallower MLP balances overall memory usage while the encoding provides sufficient representational capacity. In speed benchmarks (Table 10), all methods use identical MLP configurations (128 hidden, 2 layers) for fair comparison. 
+
+Hardware. All experiments are conducted on a single NVIDIA 4090 GPU with 24GB memory. 
+
+B.3. Baseline Implementation Details 
+
+All baselines use official implementations with recommended hyperparameters from the original papers: • PirateNet (Wang et al., 2024b): Official JAX implementation with 4 layers, 128 neurons. • JAX-PI (Wang et al., 2023a): Official implementation with RAR (Residual-based Adaptive Refinement) sampling, 4 layers, 128 neurons. • PIG (Kang et al., 2024): 3000 Gaussian particles with learnable positions and covariances (maximum GPU capacity). • INGP-FD (Huang & Alkhalifah, 2024): Same hash encoding hyperparameters as Hermite-NGP, but with standard bilinear interpolation and finite-difference Laplacian ( ϵ = 10 −3), 4 layers, 128 neurons. • SPINN (Cho et al., 2023): Separable basis with default configuration (100 functions per axis, 8 layers). • PIXEL (Kang et al., 2023): 256 × 256 learnable grid for 2D problems, 4 layers, 128 neurons. • PINN (Raissi et al., 2019): Standard MLP with 4 layers, 128 neurons, tanh activations. • NeuralAngelo (Li et al., 2023b): Multi-resolution hash encoding with finite difference for SDF learning, 2 layers, 128 neurons. We use T = 2 18 for NeuralAngelo and T = 2 16 for Hermite-NGP to match parameter counts in SDF/curvature experiments 7.3. • ∂∞-Grid (Kairanda et al., 2026): Official implementation with RBF interpolation on co-located feature grids. For Helmholtz 2D ( a=10 ) we use grid resolution 256 with 4 scales, learning rate 10 −3, and hard boundary conditions; for image reconstruction we use the authors’ default grid rbf gradient image.ini configuration at the matching resolution. • SIREN (Sitzmann et al., 2020): 4-layer, 128 -neuron MLP with sinusoidal activations and ω0 = 30 initialization. Used as a coordinate-network baseline for the Helmholtz a=10 and image-reconstruction experiments. All baselines are trained with the same optimizer settings (Adam, cosine annealing) and loss balancing (GradNorm) as Hermite-NGP to ensure fair comparison. 
+
+## C. Ablation Studies 
+
+We conduct comprehensive ablation studies on Helmholtz 2D to analyze the impact of key design choices. 
+
+C.1. Coarse-to-Fine Training Ablation 
+
+We compare 28 curriculum learning configurations across different strategy types and phase durations. Table 4 shows results sorted by best L2 error. 
+
+Analysis. Coarse-to-fine training significantly outperforms all other strategies, achieving 79% error reduction over baseline (1.20e-4 vs 5.76e-4). V-cycle and W-cycle strategies, while better than baseline, suffer from “forgetting” when returning to coarse levels. Fine-to-coarse training performs poorly as high-frequency noise in early stages corrupts learning. Warmup, gradual ramping, and oscillating strategies underperform baseline, suggesting that abrupt level transitions are beneficial. 19 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Table 4. Curriculum learning ablation on Helmholtz 2D ( a = 15 ). All experiments use 100K total epochs. 
+
+Curriculum Type Phase Ep Best L2 Final L2 Time (s) Coarse-to-Fine 20K 1.20 × 10 −4 1.05 × 10 −4 261.0 Coarse-to-Fine 40K 1.97 × 10 −4 1.36 × 10 −4 264.1 Coarse-to-Fine 20K 2.03 × 10 −4 1.40 × 10 −4 269.0 Coarse-to-Fine 20K 2.22 × 10 −4 1.58 × 10 −4 266.3 Coarse-to-Fine 30K 2.44 × 10 −4 1.73 × 10 −4 264.8 Coarse-to-Fine 20K 2.51 × 10 −4 1.80 × 10 −4 268.4 V-Cycle 20K 2.75 × 10 −4 1.94 × 10 −4 270.6 V-Cycle 20K 2.75 × 10 −4 1.92 × 10 −4 265.2 W-Cycle 20K 2.80 × 10 −4 1.96 × 10 −4 265.3 V-Cycle 10K 2.89 × 10 −4 2.01 × 10 −4 272.2 W-Cycle 20K 3.04 × 10 −4 2.09 × 10 −4 267.5 Coarse-to-Fine 15K 3.14 × 10 −4 2.16 × 10 −4 266.3 W-Cycle 15K 3.18 × 10 −4 2.24 × 10 −4 267.1 Coarse-to-Fine 10K 3.31 × 10 −4 2.27 × 10 −4 265.5 Sandwich 20K 3.32 × 10 −4 2.48 × 10 −4 268.9 V-Cycle 25K 3.34 × 10 −4 2.57 × 10 −4 269.4 V-Cycle 15K 3.72 × 10 −4 2.60 × 10 −4 269.9 V-Cycle 5K 4.52 × 10 −4 3.31 × 10 −4 269.6 W-Cycle 25K 4.69 × 10 −4 3.23 × 10 −4 267.1 Coarse-to-Fine 5K 4.95 × 10 −4 3.40 × 10 −4 263.8 None (Baseline) 20K 5.76 × 10 −4 4.01 × 10 −4 264.5 Fine-to-Coarse 20K 6.07 × 10 −4 4.15 × 10 −4 264.6 W-Cycle 10K 6.26 × 10 −4 4.33 × 10 −4 269.6 Warmup + C2F 20K 6.30 × 10 −4 4.33 × 10 −4 263.6 C2F Gradual 20K 7.14 × 10 −4 5.69 × 10 −4 265.1 Oscillate 20K 9.31 × 10 −4 6.49 × 10 −4 267.1 20 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs                
+
+> Figure 15. Approximate Ablation. Comparison of encoding variants on Helmholtz ( a= 10 ). Trilinear, Cubic, and Bicubic NGP all fail (L2 >0.1), while Hermite-NGP achieves 1.81e-5, confirming stored derivative coefficients are essential.
+> Table 5. Complete hash table allocation ablation. H1,H2,H3are log 2of hash table sizes for u,∂u/∂x ,∂u/∂y respectively.
+
+!
+
+H1 H2 H3 Params Best L2 Rank H1 H2 H3 Params Best L2 Rank 14 14 10 822K 2.26e-5 1 10 12 12 232K 5.41e-5 16 14 12 12 478K 2.40e-5 2 14 10 14 576K 5.73e-5 17 16 12 12 1.26M 2.52e-5 3 8 14 14 809K 7.61e-5 18 10 16 16 3.18M 2.64e-5 4 12 12 8 220K 8.27e-5 19 12 14 12 674K 2.93e-5 5 10 12 14 428K 8.51e-5 20 14 12 10 428K 3.03e-5 6 16 12 8 1.20M 8.78e-5 21 12 16 10 2.20M 3.47e-5 7 10 14 10 576K 8.90e-5 22 10 14 14 822K 3.63e-5 8 14 10 10 330K 9.98e-5 23 8 16 16 3.17M 3.66e-5 9 8 12 16 1.20M 1.08e-4 24 12 12 16 1.26M 4.00e-5 10 12 10 12 183K 1.13e-4 25 12 12 10 232K 4.62e-5 11 16 8 8 1.08M 1.21e-4 26 12 16 12 2.25M 4.82e-5 12 8 12 12 220K 1.22e-4 27 12 12 14 478K 5.11e-5 13 12 10 16 1.17M 1.57e-4 28 12 12 12 281K 5.17e-5 14 10 10 14 330K 1.66e-4 29 16 10 10 1.12M 5.18e-5 15 12 8 12 158K 1.75e-4 30 
+
+C.2. Hash Table Allocation Ablation 
+
+We study how to allocate hash table capacity across the three Hermite coefficient types: values ( H1), first derivatives ( H2:
+
+∂u/∂x ), and second derivatives ( H3: ∂u/∂y ). Table 5 shows all 30 configurations tested on Helmholtz 2D ( a = 15 ), ranked by L2 error. 
+
+Analysis. Several key patterns emerge from the complete results: • H2 (first derivatives) is most critical : The top configuration uses H2=14 . Reducing H2 from 14 to 10 increases error from 2.26e-5 to 9.98e-5. • H3 can be smaller than H1, H2: The optimal H3=10 outperforms larger H3 values, suggesting the ∂u/∂y component has lower spatial variation. • H1 (values) has moderate sensitivity : Reducing H1 from 14 to 10 causes 294% degradation (8.90e-5 vs 2.26e-5). • Non-uniform allocation is optimal : The best (14 , 14 , 10) uses only 822K parameters, outperforming the larger uniform (16 , 16 , 16) configuration. 21 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs   
+
+> Table 6. Architecture ablation on Helmholtz 2D ( a= 5 ). Top 10 configurations by L2 error.
+
+Hash Scale Lvls Params Best L2 Final L2
+
+16 2.0 8 4.21M 6.52e-6 6.46e-6 14 2.0 8 1.07M 8.34e-6 8.23e-6 12 2.0 8 281K 8.70e-6 8.52e-6 10 1.5 10 101K 9.65e-6 8.63e-6 14 1.5 8 1.07M 1.23e-5 1.19e-5 14 1.3 8 1.07M 1.72e-5 1.63e-5 14 1.8 8 1.07M 1.73e-5 1.68e-5 10 1.5 8 84K 1.95e-5 1.78e-5 14 2.0 6 805K 1.98e-5 1.95e-5 10 2.0 8 84K 2.05e-5 1.86e-5   
+
+> Table 7. Architecture ablation on Helmholtz 2D ( a= 10 ). Top 10 configurations by L2 error.
+
+Hash Scale Lvls Params Best L2 Final L2
+
+14 2.0 8 1.07M 1.81e-5 1.66e-5 16 2.0 8 4.21M 3.84e-5 3.83e-5 12 2.0 8 281K 3.90e-5 3.37e-5 14 2.0 10 1.33M 4.63e-5 3.81e-5 14 2.0 6 805K 5.29e-5 5.08e-5 14 1.8 8 1.07M 5.93e-5 5.39e-5 14 1.5 8 1.07M 6.40e-5 5.95e-5 14 1.8 6 805K 9.72e-5 8.46e-5 10 1.5 8 84K 1.07e-4 9.10e-5 10 1.5 10 101K 1.33e-4 1.08e-4 
+
+C.3. Architecture Parameter Ablation 
+
+We ablate hash table size, number of resolution levels, and per-level scale factor across Helmholtz 2D at different frequencies (a = 5 , 10 , 20 ). This reveals how optimal architecture depends on PDE frequency content. C.3.1. H ELMHOLTZ 2D ( a = 20 ) – H IGH FREQUENCY 
+
+Analysis. 
+
+• Hash table size : Higher frequencies ( a = 20 ) benefit more from larger hash tables ( 216 ), while medium frequencies (a = 10 ) work well with 214 . This suggests high-frequency solutions have finer spatial structure requiring more hash capacity.   
+
+> Table 8. Architecture ablation on Helmholtz 2D ( a= 20 ). Top 10 configurations by L2 error.
+
+Hash Scale Lvls Params Best L2 Final L2
+
+16 2.0 8 4.21M 7.93e-5 6.97e-5 14 1.5 8 1.07M 3.33e-4 2.65e-4 14 2.0 6 805K 3.37e-4 2.89e-4 14 2.3 8 1.07M 5.00e-4 4.40e-4 12 2.0 8 281K 5.53e-4 4.60e-4 14 1.5 6 805K 5.68e-4 4.57e-4 14 2.0 8 1.07M 6.38e-4 6.32e-4 14 2.0 10 1.33M 6.56e-4 5.42e-4 14 1.8 8 1.07M 6.64e-4 5.47e-4 14 1.8 6 805K 1.37e-3 1.21e-3 22 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs  
+
+> Table 9. Optimal configuration comparison across frequencies.
+
+a Hash Scale Lvls Params Best L2
+
+5 16 2.0 8 4.21M 6.52e-6 10 14 2.0 8 1.07M 1.81e-5 20 16 2.0 8 4.21M 7.93e-5  
+
+> Table 10. GPU memory comparison at 10K collocation points. Our method does not apply GradNorm, reducing backward-pass memory and computation. In contrast, I-NGP-FD relies on tiny-cuda-nn, which constrains the hash-to-level ratio and requires more levels when using larger hash tables, increasing memory usage.
+
+Method Params Peak GPU (MB) ms/epoch Hermite-NGP ( 210 ) 68K 133 1.82 Hermite-NGP ( 212 ) 264K 133 1.99 Hermite-NGP ( 214 ) 1.05M 154 1.86 Hermite-NGP ( 216 ) 4.20M 195 2.01 Hermite-NGP ( 218 ) 16.8M 389 3.62 INGP-FD ( 212 , L=8) 81K 5.4 2.52 INGP-FD ( 214 , L=8) 130K 6.3 2.57 INGP-FD ( 216 , L=10) 492K 14.0 5.03 INGP-FD ( 218 , L=12) 2.33M 52.5 6.37 INGP-FD ( 220 , L=14) 11.2M 241.1 8.66 PIG (200 Gaussians) 4K 4,230 47.0 PIG (400 Gaussians) 8K 8,390 96.1 PIG (800 Gaussians) 16K 16,760 189.6 PIG (1600 Gaussians) 32K 33,480 4994.3 • Scale and levels : Scale 2.0 with 8 levels consistently performs well across all frequencies. This combination provides good frequency coverage from coarse to fine scales. • Speed-accuracy tradeoff : At a = 10 , the optimal 214 configuration achieves comparable accuracy to 216 while being 4× smaller and faster (3.08 vs 3.40 ms/ep). 
+
+C.4. Computational Scaling 
+
+We benchmark training speed across varying numbers of collocation points and hash sizes, with all timings measured on a single NVIDIA RTX 4090 GPU. For Table 10, GradNorm is not applied, reducing backward-pass time; all other speed benchmarks include GradNorm. 
+
+Effect of Hash Table Size on Speed. Table 12 shows timing at 10K collocation points for different hash sizes. 
+
+Analysis. The backward pass dominates computation time, accounting for 68% at 5K points and increasing to 84% at 100K points. This is expected as gradient computation scales with batch size. The forward pass (PDE + BC) scales sub-linearly  
+
+> Table 11. Computational scaling: time per epoch (ms) and component breakdown. Hash=16, 8 levels.
+
+Collocation PDE (ms) BC (ms) Backward (ms) Total Backward % 5K 0.33 0.23 1.83 2.70 68% 10K 0.38 0.26 2.17 3.13 69% 15K 0.50 0.29 2.48 3.60 69% 20K 0.60 0.26 3.11 4.28 73% 25K 0.78 0.27 3.80 5.15 74% 50K 1.35 0.25 7.30 9.19 79% 100K 2.59 0.28 16.48 19.72 84% 23 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs  
+
+> Table 12. Speed vs. hash table size at 20K collocation points.
+
+Hash Params PDE (ms) BC (ms) Backward (ms) Total 8 35K 0.37 0.23 2.02 2.89 10 84K 0.40 0.26 2.47 3.42 12 281K 0.41 0.25 2.16 3.12 14 1.07M 0.38 0.26 2.17 3.13 16 4.21M 0.36 0.24 2.09 3.04 18 16.8M 0.38 0.23 2.40 4.42  
+
+> Table 13. Derivative computation method comparison (hash=14, levels=8, hidden=128, layers=2). Use GradNorm
+
+Collocation Ours (ms) Autograd-MLP (ms) Fully-Autograd (ms) Speedup 5K 2.70 3.78 40.83 15.1 ×
+
+10K 3.13 4.68 42.07 13.4 ×
+
+20K 4.28 5.15 44.01 10.3 ×
+
+50K 9.19 10.70 48.77 5.3 ×
+
+100K 19.72 23.16 64.50 3.3 ×
+
+due to efficient hash table lookups. Hash table size has minimal impact on speed for sizes 28 to 216 , with timing varying only from 2.89 to 3.04 ms/epoch at 10K points. Only at 218 (16.8M params) does memory bandwidth become a bottleneck. 
+
+Derivative Computation Ablation. We compare three derivative computation strategies to validate our analytic derivative approach: • Ours (Full Analytic) : CUDA Hermite encoding with analytic derivatives + CUDA MLP with analytic Laplacian • Autograd-MLP : CUDA Hermite encoding with analytic derivatives + PyTorch autograd for MLP Laplacian • Fully-Autograd : Standard NGP encoding + PyTorch autograd for all derivatives Our full analytic implementation achieves 3–15 × speedup over fully-autograd baselines (average 9.5 ×). The Autograd-MLP hybrid is only 1.2–1.5 × slower than our approach, demonstrating that analytic encoding derivatives provide the majority of the speedup . Speedup is highest at smaller batch sizes (15 × at 5K) because autograd overhead is relatively constant while computation scales linearly.                
+
+> Table 14. Interpolation ablation on Helmholtz 2D ( a= 10 ). Cubic uses smoothstep, Bicubic uses Catmull-Rom. All NGP variants fail. Method Best L2ms/epoch Hermite-NGP (ours) 1.81e-5 3.08 Trilinear-NGP 1.46e-1 –Cubic-NGP 2.78e-1 693.6 Bicubic-NGP 2.91e-1 683.3 Bicubic-NGP (analytic) 2.47e-1 470.1
+
+## D. Additional Experiments 
+
+This appendix reports the supporting numbers for experiments summarized in the main text: multi-seed robustness (Table 15), MLP depth ablation (Table 16), 3D training-memory comparison vs. INGP-FD (Table 17), additional baselines on Helmholtz 2D ( a=10 ) (Table 18), and image reconstruction (Table 19). For image reconstruction, SIREN and ∂∞-Grid use Kairanda’s percentile-rescale at evaluation (their convention); Hermite-NGP uses raw clip-to-[0 , 1] since its Dirichlet anchor fixes the integration constant. 24 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Table 15. Multi-seed ( 5 seeds) relative L2 error mean ± std on the main benchmarks, using the default configuration (hash 214 , L=8 ,scale 2.0, width 128 , depth 2). Relative standard deviations stay below ∼15% across all settings. Benchmark Relative L2 (mean ± std) Helmholtz 2D ( a=10 ) 3.35 ×10 −5 ± 4.4×10 −6
+
+Helmholtz 2D ( a=20 ) 1.07 ×10 −4 ± 3.64 ×10 −5
+
+Helmholtz 2D ( a=100 ) 7.34 ×10 −2 ± 6.06 ×10 −3
+
+Helmholtz 3D ( a=10 ) 7.29 ×10 −3 ± 1.10 ×10 −3
+
+Taylor–Green ( ν=0 .01 ) 5.69 ×10 −5 ± 3.7×10 −6
+
+Convection ( c=30 ) 9.47 ×10 −5 ± 2.5×10 −5
+
+Table 16. MLP depth ablation on Helmholtz 2D ( a=20 , width 128 , hash 214 ). ∗ paper default. Depth Best L2 ms/epoch 
+
+1 1.02 ×10 −3 2.17 2∗ 6.81 ×10 −4 3.07 3 4.27 ×10 −4 3.95 4 4.03 ×10 −4 4.86 
+
+## E. Additional Figures t=0.0 t=1.0 t=2.0 t=3.0 t=4.0 
+
+> Ours GT Error
+
+Figure 16. Flow Mixing. Solution snapshots at t = 0 , 0.2, 0.4, 0.6, 0.8, 1.0. Hermite-NGP achieves average L2 error of 2.35e-4 across all time steps. 
+
+25 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Figure 17. Helmholtz 3D ( a = 3 ). Cross-sectional slices of the 3D Helmholtz solution. Hermite-NGP achieves L2 error of 6.09e-5, compared to 8.40e-4 for PirateNet (13.8 × lower). 
+
+Figure 18. Helmholtz 2D ( a = 20 ). High-frequency solution with 20 wavelengths. Hermite-NGP achieves 9.87e-5 (1.07M params) and 7.93e-5 (4.21M params), outperforming PirateNet (1.36e-3), JAX-PI (1.2e-3), INGP-FD (2.77e-3), and SPINN (3.30e-2). 
+
+Figure 19. Helmholtz 2D ( a = 100 ): Hermite-NGP is the only method that converges on this challenging high-frequency setting, achieving L2 = 4 .59 ×10 −2. All baseline methods fail to capture the rapid oscillations. 
+
+Figure 20. Training loss curves across three benchmarks. The horizontal axis indicates the number of epochs, while the vertical axis reports the relative ℓ2 training error. Our method exhibits a smoothly decreasing loss trajectory, in contrast to the strongly oscillatory behavior of the baselines, and converges to training errors up to four orders of magnitude smaller across the benchmarks; see Table 1 for details. 
+
+26 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Table 17. Peak GPU training memory in 3D (Helmholtz 3D, a=10 , 40 k collocation points). Hermite-NGP uses less peak memory than INGP-FD across the full range because INGP-FD requires 7 forward passes (storing 7 activation graphs) while Hermite-NGP keeps a single graph. Hermite Params Hermite Mem INGP-FD Params INGP-FD Mem 
+
+150 K 957 MB 117 K 1402 MB 
+
+2.12 M 988 MB 314 K 1405 MB 
+
+8.41 M 1084 MB 4.77 M 1502 MB 
+
+33 .6M 1465 MB 21 .0M 1783 MB 
+
+Table 18. Additional baselines on Helmholtz 2D ( a=10 ), all run under our unified protocol (Adam, cosine LR, identical collocation budget). Companion to Figure 9 in the main text. Method Relative L2
+
+Hermite-NGP (ours) 3.35 ×10 −5
+
+INGP-FD (Huang & Alkhalifah, 2024) 3.66 ×10 −3
+
+∂∞-Grid (Kairanda et al., 2026) 6.07 ×10 −3
+
+SIREN (Sitzmann et al., 2020) 6.67 ×10 −2
+
+Cubic I-NGP 2.47 ×10 −1Ours PIG GT 
+
+Figure 21. Poisson 3D (Bunny). Cross-sectional slice with mesh boundary and zoom-in detail. Hermite-NGP achieves MAE 0.0044 vs. PIG’s 0.0127 (2.9 × lower), with more accurate field near the boundary. 
+
+27 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Table 19. Image reconstruction from gradient supervision on camera : best PSNR (dB) at two resolutions. Companion to Figure 13 in the main text. Method 256 ×256 512 ×512 
+
+Hermite-NGP (ours) 32.56 32.35 
+
+∂∞-Grid (Kairanda et al., 2026) 32 .47 32 .27 
+
+SIREN (Sitzmann et al., 2020) 32 .47 29 .25 
+
+Figure 22. Poisson 3D (Fandisk). Cross-sectional slice with mesh boundary. Hermite-NGP achieves MAE 0.0031 vs. PIG’s 0.0100 (3.2 × lower), accurately capturing sharp geometric features. 
+
+Figure 23. SDF Curvature (Armadillo). Mesh colored by mean curvature, green lines show gradient direction. Hermite-NGP achieves gradient MAE 0.0478 vs. NeuralAngelo’s 0.1009 (2.1 × lower). 
+
+Figure 24. SDF Curvature (Lucy). Mesh colored by mean curvature, green lines show gradient direction. Hermite-NGP achieves gradient MAE 0.0418 vs. NeuralAngelo’s 0.1213 (2.9 × lower). 
+
+28 Hermite-NGP: Gradient-Augmented Hash Encoding for Learning PDEs 
+
+Figure 25. SDF Curvature (Fandisk). Mesh colored by mean curvature, green lines show gradient direction. Hermite-NGP achieves gradient MAE 0.0516 vs. NeuralAngelo’s 0.1064 (2.1 × lower), preserving sharp edges. Ours Neuralangelo GT 
+
+Figure 26. SDF Curvature (Bunny). Mesh colored by mean curvature, green lines show gradient direction. Hermite-NGP achieves gradient MAE 0.0416 vs. NeuralAngelo’s 0.0887 (2.1 × lower). 
+
+29

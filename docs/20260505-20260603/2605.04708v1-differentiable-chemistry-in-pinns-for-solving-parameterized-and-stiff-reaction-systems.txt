@@ -1,0 +1,1727 @@
+Title: Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems
+
+URL Source: https://arxiv.org/pdf/2605.04708v1
+
+Published Time: Thu, 07 May 2026 00:58:04 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Differentiable Chemistry in Physics-Informed Neural Networks for Solving Parameterized and Stiff Reaction Systems 
+
+Miloˇ s Babi´ c 1 2 Franz M. Rohrhofer 3 Stefan Posch 1 2 
+
+Abstract 
+
+From neural ODEs to continuous-time machine learning, differentiable solvers allow physics, optimization, and simulation to become train-able components within deep learning systems. This has opened the path to a new generation of deep learning frameworks for scientific com-puting, with many promising applications still emerging. In this paper, we integrate a differen-tiable chemistry solver into a modified physics-informed neural network to solve parameterized reaction systems that are inherently stiff. The proposed framework introduces several key com-ponents required to overcome limitations of stan-dard physics-informed neural networks. These include a differentiable chemistry solver, a net-work architecture for parameterized solutions, and residual weighting tailored to stiff reactions. We evaluate the framework on a set of differential equations related to hydrogen combustion, which include initial/boundary value problems, inverse parameter identification, and a parameterized par-tial differential equation. Our results highlight the ability of the proposed approach to extend physics-informed neural networks to stiff chemi-cal systems that were previously inaccessible. 
+
+1. Introduction 
+
+Physics-informed machine learning (PIML) has emerged as a powerful paradigm in scientific computing, combin-ing data-driven learning with prior knowledge derived from physical laws (Karniadakis et al., 2021). By embedding known physical constraints directly into modern machine learning models, PIML aims to improve generalization, data efficiency, and physical consistency in the modeling of com-
+
+> 1
+
+CD Laboratory for Physics-driven Machine Learning in Indus-trial Applications, Graz, Austria 2The Institute of Thermodynamics and Sustainable Propulsion Systems, Graz University of Technol-ogy, Graz, Austria 3Know Center Research GmbH, Graz, Austria. Correspondence to: Miloˇ s Babi´ c <milos.babic@tugraz.at >.
+
+plex systems. Over the past decade, a growing body of work has demonstrated that purely data-driven approaches often struggle to achieve the accuracy and robustness required for challenging physical problems, motivating the integration of physics into the learning process. Early developments such as Hamiltonian Neural Net-works (Greydanus et al., 2019), Lagrangian Neural Net-works (Cranmer et al., 2020), and Neural Ordinary Differ-ential Equations (Chen et al., 2018) have highlighted the im-portance of respecting underlying physical structure during learning. Among these approaches, physics-informed neu-ral networks (PINNs) have become a central workhorse of PIML. PINNs encode governing equations, constitutive rela-tions, and constraints directly into the loss function through physics-based residual terms, enabling the solution of for-ward and inverse problems governed by differential equa-tions (Raissi et al., 2019; Cuomo et al., 2022). Since their introduction, PINNs have attracted significant at-tention and inspired numerous extensions that build upon the same principle of physics-based loss formulations. These developments have pushed the boundaries of scientific machine learning toward problems that were traditionally considered intractable using classical numerical methods alone. Notable examples include deep operator learning approaches such as DeepONets (Lu et al., 2021), Fourier Neural Operators (Li et al., 2021), and physics-informed neural operators (Li et al., 2024), which aim to learn en-tire solution operators rather than individual realizations of physical systems. These operator-learning frameworks have been successfully applied to a wide range of systems, in-cluding parametric fluid dynamics problems (Li et al., 2021; Kovachki et al., 2023), stochastic and uncertainty-aware PDEs (Lu et al., 2021; Zhu et al., 2023), and multiscale modeling in materials science and solid mechanics (Koric et al., 2024; Rezaei et al., 2025). For PIML reaction–diffusion systems constitute a particu-larly challenging class of physical systems, describing the in-terplay between chemical reactions and transport processes such as diffusion. These systems arise in numerous scientific and engineering applications, including combustion, catal-ysis, biological pattern formation, and materials science. Depending on the underlying reaction mechanisms and 1
+
+> arXiv:2605.04708v1 [cs.LG] 6 May 2026 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems
+
+involved species, reaction–diffusion systems can become highly multi-scale and exhibit stiff dynamics, characterized by rapid temporal variations over very short time scales. Ac-curately resolving such behavior often requires specialized numerical solvers, or even operator splitting approaches that couple solvers tailored to fast chemical kinetics with those designed for slower transport processes (Sportisse, 2000). For systems exhibiting stiff dynamics, standard PINN for-mulations face well-documented limitations, including op-timization difficulties, poor convergence, and imbalanced training across temporal or spatial domains (Krishnapriyan et al., 2021; Monaco & Apiletti, 2023). To address these challenges, several modifications to the original PINN framework have been proposed, each targeting specific fail-ure modes such as spectral bias (Wong et al., 2022; Chai et al., 2024), stiffness (Daw et al., 2022; Ji et al., 2021), or training imbalance (Wang et al., 2021; Maddu et al., 2022). Despite these advances, existing PINN studies on reaction–diffusion systems have largely focused on simpli-fied reaction terms, such as Fisher’s equation (Cho et al., 2024; Rohrhofer et al., 2025) or related low-dimensional problems (Rao et al., 2023; Krishnapriyan et al., 2021). Prior efforts applying PINNs to combustion are valuable but do not address the unsteady, forward reaction–diffusion setting (Wu et al., 2025). They typically target steady config-urations (Cao et al., 2024), inverse parameter inference (Liu et al., 2024; 2025), or neglecting the chemistry in the loss term formulation (Bode et al., 2023). Recent advances in differentiable programming and differ-entiable numerical solvers provide a key opportunity to over-come these limitations (Holl & Thuerey, 2024; Franz et al., 2026; Hu et al., 2020; Freeman et al., 2021). In particu-lar, differentiable chemistry solvers enable backpropagation through complex, stiff reaction kinetics, allowing chemi-cal source terms to be incorporated into physics-based loss functions in an end-to-end differentiable manner. This capa-bility fundamentally expands the scope of PINNs, enabling the seamless integration of high-fidelity chemistry models into neural network training without sacrificing physical accuracy or consistency. In this work, we present a practical, end-to-end differen-tiable PINN framework for stiff combustion systems and demonstrate its effectiveness on hydrogen flamelet equa-tions, which we propose as a challenging benchmark for future PINN research. Our framework introduces several essential modifications to the standard PINN formulation that are required to achieve accurate and stable solutions in the presence of stiff chemical kinetics. These include a fully differentiable chemistry solver, residual-based loss weighting strategies, and the enforcement of hard physical constraints such as mass conservation, boundary and initial conditions, and inert species mass fractions. We evaluate the proposed framework on a range of problem settings for hydrogen combustion, including both ordinary and partial differential equations. The considered tasks span forward problems—such as initial value problems, bound-ary value problems, and operator learning—as well as an inverse problem involving parameter identification. Fur-thermore, we compare our approach against the standard PINN framework and against a state-of-the-art enhance-ment technique for time-dependent problems which utilizes causality-based loss scaling (Wang et al., 2022). Our results demonstrate that the proposed differentiable PINN frame-work significantly improves robustness and accuracy for stiff reaction–diffusion systems, highlighting the critical role of differentiable solvers in enabling next-generation physics-informed learning. In summary, our main contributions are as follows: • We design a physics-informed neural network frame-work that integrates a differentiable chemistry solver, together with additional components required to ad-dress stiff reaction–diffusion systems. • We evaluate the proposed framework on a diverse set of problem definitions, including ODEs and PDEs, covering forward problems (initial and boundary value problems) as well as an inverse problem for parameter identification. • We extend the framework to parameterized partial dif-ferential equations, demonstrating its effectiveness for operator learning in chemically reacting systems. • We conduct an ablation study to systematically assess the relevance and impact of each framework compo-nent. 
+
+2. Methodology 
+
+2.1. Physics-Informed Neural Networks 
+
+PINNs are a deep learning–based framework for solving forward and inverse problems governed by partial and or-dinary differential equations (Raissi et al., 2019). They employ neural networks as universal function approxima-tors (Hornik, 1991) to represent the unknown solution of a differential equation. In the forward setting, full knowl-edge of the governing equations is used to approximate the solution, while in the inverse setting partial physical knowl-edge together with observational data is leveraged to infer unknown quantities such as equation parameters. The governing equation is assumed to be of the form 
+
+F(u(x); μ) = 0 , x ∈ Ω, (1) 2Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems Differentiable Chemistry Solver 
+
+> Chemical State Reaction Rates (RR) Arrhenius Law Species RR
+
+Reaction-Diffusion Equation 
+
+> Forward Pass Backpropagation
+> (Physics Loss Computation)
+
+Physics-Informed Neural Network 
+
+> Input Ouput
+> Mass Conservation
+> Modi fi cations
+> (hard constrained)
+> Initial/Boundary Conditions Inert Species Mass Fraction
+
+Figure 1. Schematic illustration of the proposed framework. A modified PINN approximates the species mass fractions Yi. These predictions are evaluated by a differentiable chemistry solver to compute the species reaction rates ˙ωi. The resulting mass fractions and reaction rates enter the physics-informed loss, enabling end-to-end backpropagation through the chemistry solver during training. For the parameterized problem setup, the strain rate α is taken as an additional input to the network architecture. 
+
+where F denotes a (nonlinear) differential operator, u(x) is the (vector-valued) solution, x is a multidimensional input variable, μ is a vector of physical parameters, and Ω denotes the computational domain. The solution is approximated by a neural network uθ (x)
+
+with parameters θ. The corresponding physics residual, cap-turing the mismatch between the model’s physical behavior and what is dictated by Eq. (1), is defined as 
+
+rθ (x) := F(uθ (x); μ). (2) Training is performed by minimizing a composite loss func-tion of the form 
+
+L = Lf + LIC /BC + Ldata , (3) where the physics loss enforces the governing equations at collocation points sampled from the interior of the domain: 
+
+Lf =
+
+> Nf
+
+X
+
+> i=1
+
+rθ (xif ) 2 , xif ∈ Ω. (4) The initial and boundary condition loss penalizes deviations from prescribed conditions, 
+
+LIC /BC =
+
+> Nu
+
+X
+
+> i=1
+
+uθ (xiu) − u(xiu) 2 , xiu ∈ ∂Ω, (5) which are required to render the problem well posed. In the presence of observational data, an additional data loss term is included, 
+
+Ldata =
+
+> Nd
+
+X
+
+> i=1
+
+uθ (xid) − ˆu(xid) 2 , xid ∈ Ω, (6) where ˆu(x) denotes observed data. In the forward setting, the data loss term is not required provided that sufficient initial and boundary conditions are specified to render the problem well posed. In contrast, in the inverse setting the objective is to infer unknown physical parameters μ from observed data. In this case, the data loss term is essential, and the parameters μ are typically treated as additional learnable variables jointly optimized with the network parameters. 
+
+2.2. Reaction Systems and Differentiable Chemistry 
+
+To apply PINNs to reactive (combusting) systems, the gov-erning equation (1) is augmented by a chemical source term, 
+
+F(Yi(x); μ) = ˙ ωi(Y ), x ∈ Ω, (7) where Yi(x) denotes the i-th component of the species mass fractions vector Y . The source term ˙ωi depends on the full composition and the thermodynamic state, yielding a 3Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+tightly coupled, nonlinear system across all species. Un-der constant-pressure conditions ( p =const), the thermody-namic state is characterized by the temperature T together with Y (or, equivalently, by a prescribed enthalpy h from which T is recovered). Moreover, the kinetics exhibit Arrhe-nius temperature sensitivity, so that, in mass-action form, 
+
+˙ω ∝ exp 
+
+
+
+− 1
+
+T
+
+
+
+, (8) which contributes strongly to stiffness due to the exponen-tial dependence on 1/T . Classical numerical simulation discretizes the differential equations in time and in case of PDE, in spatial coordinate. Chemical kinetics are usually solved by suitable chemistry solvers such as cantera (Good-win et al., 2025). Through the source term dependency on the solution of the differential equation, special numer-ical treatment is required which ranges from linearization to operator splitting schemes in case of reaction-diffusion PDE. Furthermore, the stiff dynamics of reacting systems requires stability constraints leading to limiting step sizes and thus increased simulation times. By contrast, PINNs enables the treatment of the chemistry ”instantaneously” at the level of residual satisfaction rather than via sequential time stepping. However, this requires that the solution of the underlying chemistry is part of the computational graph and thus be differentiable. In our proposed PINN, the reac-tion source terms are determined through the differentiable chemistry backend reactorch (Ji & Deng, 2020). Given the predicted species mass fractions, the mixture enthalpy 
+
+h is first computed from the boundary stream states, and the corresponding temperature T is recovered implicitly by solving the thermochemical equilibrium relation. The re-covered temperature and species composition are then used to evaluate reaction rates via a differentiable implementa-tion of detailed chemical kinetics. This formulation enables end-to-end gradient propagation through the chemistry eval-uation and is essential for both forward and inverse problem settings (Figure 1). Further details on the chemical kinetics computations can be found in the appendix in Section A. 
+
+2.3. Proposed Framework 
+
+Solving stiff reaction systems requires several modifications to the training procedure, without which stable convergence is not achievable. Due to the extreme stiffness of the gov-erning equations, we incorporate residual weighting as pro-posed in (Rohrhofer et al., 2025). Specifically, each residual term in the physics loss computation (cf. Eq. (4) ) is scaled according to the corresponding reaction coefficient, 
+
+ρ(j) 
+
+> i
+
+= 11 + λ|ωi(Y (j))| , (9) where ωi(Y (j)) denotes the reaction rate of species i evalu-ated for the mass-fraction vector Y j , and λ is a hyperparam-eter. This weighting reduces the contribution of regions with very high reaction rates to the loss function, thereby miti-gating instabilities commonly encountered in stiff reactive systems. In the parameterized setting, we do not sample the parame-ter independently for each collocation point. Instead, for a given parameter value, we sample a full set of collocation points covering the entire spatiotemporal domain. This re-flects the fact that each parameter corresponds to a single global solution of the governing equations, which must sat-isfy the PDE constraints throughout the domain. Sampling collocation points in this structured manner is essential for enforcing global physical consistency and was found to be crucial for stable training in the stiff reactive setting consid-ered here. For the parameterized case, we adopt the network architecture proposed in (Cho et al., 2024) rather than a standard fully connected architecture. Initial and boundary conditions are enforced through hard constraints. The inert species (N 2) mass fraction is con-strained throughout the domain, and the predicted mass frac-tions of the reactive species are constrained via a softmax transformation to ensure mass conservation. We employ the Adam optimizer for training and use only the physics loss in all forward problem settings. Details of the network ar-chitecture and training procedure are provided in Section C. 
+
+3. Experimental Setup 
+
+We evaluate the proposed framework on three distinct sys-tems derived from hydrogen combustion chemistry, modeled using a global one-step Arrhenius mechanism to represent the underlying reaction kinetics. The considered problems include an initial value problem, a boundary value prob-lem, and a reaction–diffusion partial differential equation. Hydrogen combustion is used throughout as a deliberately challenging test case due to its extreme stiffness and wide separation of chemical time scales. Rather than varying the chemical mechanism, we focus on evaluating the proposed framework across fundamentally different problem classes (IVPs, BVPs, and reaction–diffusion PDEs), each of which typically requires a distinct numerical treatment. Successful application to hydrogen chemistry thus serves as a strong indicator of robustness and expected generalizability to less stiff combustion systems. In the PDE setting, we study both forward problems, including a parameterized formulation in which a family of solutions indexed by the strain rate is learned, and an inverse problem, where the strain rate is inferred from observed solution data. While each of these systems typically requires a fundamentally different numer-ical solution strategy, the corresponding PINN formulations differ only minimally, highlighting the generality of the 4Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+proposed approach. Since the proposed framework incorporates several training and formulation choices beyond a standard PINN, we eval-uate its performance on forward problems against a basic PINN baseline as well as against one well known PINN modification to serve as a competitive baseline. The vanilla PINN baseline enforces only hard initial and boundary con-ditions and does not include any additional problem-specific constraints, such as mass-fraction normalization or inert-species enforcement, serving as a minimal reference imple-mentation. In addition, we compare against causality-based loss scaling (Wang et al., 2022) which is a widely known PINN training modification, well suited for time-dependent systems. For a fair comparison, all methods share the same network architectures including the hard constraints for initial and boundary conditions and optimization settings. In the case of the competitive baseline, only training modifications that are not orthogonal to the respective method are removed, while all other components of the framework are kept identi-cal. Implementation details are provided in Appendix C, and additional experimental details are described in Appendix D. 
+
+3.1. Initial Value Problem 
+
+We first consider an initial value problem arising from hydro-gen combustion chemistry, formulated as a coupled system of ordinary differential equations 
+
+dY i
+
+dt = ωi(Y ), i = 1 , . . . , N, (10) where Y denotes the vector of species mass fractions and 
+
+ωi(Y ) represents the reaction rate of species i computed through detailed chemical kinetics. We solve this system using a PINN by enforcing the gov-erning equations at collocation points sampled over the temporal domain. To account for the sharp time derivatives occurring at early times, collocation points are sampled in logarithmic time coordinates, and logarithmic transforma-tion is applied to the input. This setting serves as a baseline test for assessing the ability of the proposed framework to handle stiff reaction dynamics in a purely forward setting. 
+
+3.2. Boundary Value Problem 
+
+Next, we evaluate the proposed framework on a boundary value problem corresponding to the steady-state formulation of the reaction–diffusion PDE describing hydrogen com-bustion. The system reduces to a second-order ordinary differential equation of the form 
+
+− χ(Z, α )2
+
+d2Yi
+
+dZ 2 = ωi(Y ), i = 1 , . . . , N. (11) where Z ∈ [0 , 1] is the mixture fraction and χ(Z,α )2 is the scalar dissipation rate which is a function of strain rate α and mixture fraction Z. Boundary value problems are known to be particularly challenging for both PINNs and classical numerical solvers. 
+
+3.3. Reaction-Diffusion PDE 
+
+We consider a reaction–diffusion partial differential equa-tion describing hydrogen combustion in a flamelet configu-ration. The governing equation couples diffusion in mixture– fraction space with nonlinear reaction terms arising from detailed chemical kinetics and is given by 
+
+∂Y i
+
+∂t − χ(Z, α )2
+
+∂2Yi
+
+∂Z 2 = ωi(Y ), i = 1 , . . . , N, (12) In the forward setting, the strain rate is fixed and the net-work is trained to approximate the corresponding flamelet solution for a given parameter value. This fixed-parameter formulation is used as the primary benchmark for perform-ing the ablation study. In the inverse setting, the strain rate is treated as an unknown parameter and is inferred by si-multaneously minimizing the physics-informed loss and the data loss. Beyond these fixed-parameter experiments, we additionally consider a parameterized formulation in which the strain rate is provided as an explicit input to the network. This enables learning a continuous family of flamelet solutions across a prescribed range of strain rates using a single neural network. The parameterized setting serves as an extension of the core methodology and illustrates the flexibility of the proposed framework in handling forward problem across parameter space. 
+
+4. Evaluation and Results 
+
+In Table 1 we show the quantitative results for all of the forward problem settings we considered in our evaluation. Namely, we compare our proposed framework with regular PINN training (without any chemistry specific modifica-tions), and also with causality-based loss scaling approach as a competitive baseline. We compute the mean absolute error and also the relative L2 error on initial value problem, boundary value problem, reaction-diffusion PDE in both non-parametrized setting with a fixed strain rate and with the parametrized setting with strain rate used as input. Our results show that the PINN with our proposed modifications outperforms both baselines across all the test cases. 
+
+4.1. Initial Value ODE 
+
+Figure 2 shows the solution of the stiff initial value problem obtained using the proposed PINN. Despite the presence of rapid transients at early times, the network accurately 5Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+Table 1. Forward problem results for all tested systems. We report mean absolute error (MAE) and relative L2 error with respect to numerical reference solutions. For the parameterized PDE, metrics are aggregated over strain rates α ∈ [1 , 100] .SYSTEM VANILLA PINN CAUSALITY -BASED PINN PROPOSED FRAMEWORK 
+
+MAE REL . L2 MAE REL . L2 MAE REL . L2
+
+IVP ODE 6.60 E-01 3.81 E-00 7.91 E-03 4.80 E-02 1.10 E-03 4.37 E-03 BVP ODE ( α=1 ) 2.17 E-00 7.27 E-00 – – 2.80 E-03 1.71 E-02 BVP ODE ( α=100 ) 2.03 E-00 6.79 E-00 – – 5.20 E-03 2.26 E-02 PDE ( α=1 ) 8.81 E-02 7.04 E-01 4.03 E-03 2.62 E-02 2.41 E-04 1.90 E-03 PDE ( α=100 ) 7.17 E-02 5.19 E-01 3.32 E-03 2.22 E-02 6.59 E-05 3.79 E-04 PARAMETRIZED PDE ( α ∈ [1 , 100] ) 6.33 E-03 4.10 E-02 2.40 E-03 1.52 E-02 8.74 E-04 7.63 E-03 
+
+captures the evolution of all species across the full temporal domain. This experiment demonstrates that the proposed framework can robustly handle highly stiff reaction dynam-ics in a purely forward setting. 10 8 10 7 10 6 10 5 10 4 10 3 10 2
+
+> time [s]
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> mass fraction
+> H2 reference
+> H2 model
+> O2 reference
+> O2 model
+> H2O reference
+> H2O model
+
+Figure 2. Results for initial value problem ODE. 
+
+4.2. Boundary Value ODE 
+
+Figure 3 presents the solution of the boundary value problem ODE corresponding to the steady-state solution of the PDE flamelet formulation. We note that although this problem does not exhibit sharp temporal transients and the solution appears relatively smooth, training without residual scaling led to severe convergence issues and inaccurate results (not shown). 
+
+4.3. Reaction-Diffusion PDE 
+
+4.3.1. F ORWARD PROBLEM 
+
+Figure 4 shows the solution of the reaction-diffusion flamelet PDE for a fixed strain rate. The proposed PINN accurately reproduces the species evolution across the full spatiotemporal domain without exhibiting spurious oscil-lations or instability. Importantly, stable convergence is achieved in a regime characterized by extremely stiff and 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Z
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> 0.175
+> Mass fraction
+> Domain comparison, SR = 10
+> H2 reference
+> H2 PINN
+> O2 reference
+> O2 PINN
+> H2O reference
+> H2O PINN
+
+Figure 3. Results for boundary value problem ODE with the strain rate α set to 10. 
+
+sharply varying reaction dynamics, which is widely regarded as challenging for standard PINN formulations. To the best of our knowledge, this constitutes the first successful ap-plication of PINNs to reaction-diffusion PDE with detailed chemistry. This experiment therefore provides a representa-tive benchmark for evaluating stabilization strategies in stiff reactive PDEs. 4.3.2. I NVERSE PROBLEM 
+
+Table 2 reports the results of the inverse problem for the reaction-diffusion flamelet PDE, where the strain rate α
+
+is inferred from observed solution data. The evaluation is performed for three representative ground-truth values, 
+
+α ∈ { 1, 10 , 100 }, and different additive noise levels applied to the observational data. Across all cases, the PINN accurately recovers the true strain rate, even in the cases with large levels of additive noise. These results demonstrate that the proposed framework is able to identify global physical parameters directly from the PDE residual, even in the presence of stiff reaction dynamics and highly nonlinear source terms. 6Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 0.000 0.005 0.010 0.015                      
+
+> Z
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Reference H2
+> 0.000 0.005 0.010 0.015
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 PINN H2
+> 0.000 0.005 0.010 0.015
+> Z
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Reference O2
+> 0.000 0.005 0.010 0.015
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 PINN O2
+> 0.000 0.005 0.010 0.015
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Reference H2O
+> 0.000 0.005 0.010 0.015
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 PINN H2O
+> 0.0000
+> 0.0025
+> 0.0050
+> 0.0075
+> 0.0100
+> 0.0125
+> 0.0150
+> 0.0175
+> 0.0200
+> 0.0225
+> 0.0000
+> 0.0025
+> 0.0050
+> 0.0075
+> 0.0100
+> 0.0125
+> 0.0150
+> 0.0175
+> 0.0200
+> 0.0225
+> 0.000
+> 0.018
+> 0.036
+> 0.054
+> 0.072
+> 0.090
+> 0.108
+> 0.126
+> 0.144
+> 0.162
+> 0.000
+> 0.018
+> 0.036
+> 0.054
+> 0.072
+> 0.090
+> 0.108
+> 0.126
+> 0.144
+> 0.162
+> 0.0000
+> 0.0135
+> 0.0270
+> 0.0405
+> 0.0540
+> 0.0675
+> 0.0810
+> 0.0945
+> 0.1080
+> 0.1215
+> 0.0000
+> 0.0135
+> 0.0270
+> 0.0405
+> 0.0540
+> 0.0675
+> 0.0810
+> 0.0945
+> 0.1080
+> 0.1215
+
+Figure 4. Results for flamelet PDE PINN for strain rate α = 1 .The left columns shows the reference species mass fraction, the right column the PINN predictions using the proposed framework. 
+
+4.3.3. P ARAMETRIZED PROBLEM 
+
+Figure 6 compares the performance of the parameterized PINN against a vanilla PINN baseline across a range of strain rates. The error is resolved both by strain rate and by individual chemical species. Two trends are immediately apparent. First, lower strain rates are consistently more difficult for PINNs to learn, which is consistent with the in-creased stiffness of the underlying reaction dynamics in this regime. Second, the relative L2 error is notably higher for hydrogen compared to other species. This can be attributed to its very low mass fraction over large parts of the domain, which leads to an imbalance in the residual contributions and makes accurate learning more challenging for standard PINN formulations. In contrast, the proposed framework significantly reduces the error across all strain rates and species. In particular, the improvement is most pronounced at low strain rates, where stiffness effects are strongest and vanilla PINNs struggle to converge to physically meaningful solutions. To further illustrate the quality of the learned parameterized representation, Figure 5 shows the predicted flamelet so-lution evaluated at a representative strain rate of α = 100 .
+
+Table 2. Inverse problem: inferred strain rate ˆα for different true values α under additive noise in the observations. NOISE LEVEL TRUE STRAIN RATE α
+
+1.0 10.0 100.0 0.0 0.994 10.002 99.624 0.01 0.995 9.992 99.598 0.1 0.998 10.022 99.281 1.0 1.027 10.199 94.657 
+
+The parameterized PINN accurately reproduces the spa-tiotemporal structure of the solution, demonstrating that a single network can represent a continuous family of flamelet solutions. 0.000 0.005 0.010 0.015                      
+
+> Z
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Reference H2
+> 0.000 0.005 0.010 0.015
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 PINN H2
+> 0.000 0.005 0.010 0.015
+> Z
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Reference O2
+> 0.000 0.005 0.010 0.015
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 PINN O2
+> 0.000 0.005 0.010 0.015
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Reference H2O
+> 0.000 0.005 0.010 0.015
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 PINN H2O
+> 0.0000
+> 0.0025
+> 0.0050
+> 0.0075
+> 0.0100
+> 0.0125
+> 0.0150
+> 0.0175
+> 0.0200
+> 0.0225
+> 0.0000
+> 0.0025
+> 0.0050
+> 0.0075
+> 0.0100
+> 0.0125
+> 0.0150
+> 0.0175
+> 0.0200
+> 0.0225
+> 0.000
+> 0.018
+> 0.036
+> 0.054
+> 0.072
+> 0.090
+> 0.108
+> 0.126
+> 0.144
+> 0.162
+> 0.000
+> 0.018
+> 0.036
+> 0.054
+> 0.072
+> 0.090
+> 0.108
+> 0.126
+> 0.144
+> 0.162
+> 0.000
+> 0.012
+> 0.024
+> 0.036
+> 0.048
+> 0.060
+> 0.072
+> 0.084
+> 0.096
+> 0.108
+> 0.0000
+> 0.0135
+> 0.0270
+> 0.0405
+> 0.0540
+> 0.0675
+> 0.0810
+> 0.0945
+> 0.1080
+
+Figure 5. Results for the parametrized PINN case trained on α ∈
+
+[1 , 100] ploted for the α = 100 .
+
+In practical combustion simulations, flamelet-based models often rely on precomputed solution tables spanning a range of strain rates and additional physical parameters. While tabulation is effective in low-dimensional settings, the size of such tables can grow rapidly as more parameters are introduced, leading to increased memory requirements and interpolation complexity. Although the present experiments consider a regime where tabulation remains practical, the parameterized PINN formulation explored here suggests a potential path toward memory efficient representation of 7Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 10 0 10 1 10 2
+
+> Strain rate (SR)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Relative  L2 error
+> type
+> vanilla
+> modified
+> Species
+> H2
+> O2
+> H2O
+> N2
+
+Figure 6. Relative L2 error resolved by individual species and strain rates comparing vanilla PINN approach without domain specific modifications and our proposed framework with multiple modifications that take stiffness of the system into account. Lines represent relative L2 error averaged over all species. 
+
+Table 3. Ablation study on the reaction-diffusion PDE in the for-ward setting with α = 1 .METHOD MAE REL . L2
+
+PROPOSED PINN 2.41 E-04 1.90 E-03 NON -DIFF . CHEM . SOLVER 6.77 E-03 3.26 E-02 NO RESIDUAL SCALING 2.85 E-03 1.71 E-02 NO INERT SPECIE CONSTRAINT 2.50 E-03 1.65 E-02 NO MASS CONSERVATION 3.19 E-03 2.03 E-02 
+
+the flamelet equation solutions. With further development, such neural representations could enable simulations that would otherwise be impractical due to prohibitive memory requirements. 4.3.4. A BLATION STUDY 
+
+For the forward reaction-diffusion PDE, we perform an ab-lation study to assess the contribution of chemistry-related modifications introduced in the proposed framework. Start-ing from the full model, we selectively remove individual components while keeping all other training settings fixed. Specifically, we examine the impact of removing (i) differ-entiability of the chemistry solver, (ii) residual scaling of the PDE loss, (iii) the hard constraint on the inert species mass fraction, and (iv) the mass conservation constraint. Table 3 reports the mean absolute error (MAE) and relative 
+
+L2 error for the full model and the ablated variants. Remov-ing any of the proposed components leads to a significant degradation of accuracy. 
+
+5. Conclusion 
+
+In this work, we proposed a general framework for integrat-ing differentiable chemistry solvers with physics-informed neural networks to solve combustion-related differential equations involving detailed chemical kinetics. A recent comprehensive review (Wu et al., 2025) confirms that, to the best of our knowledge, this represents the first successful demonstration of PINNs applied to time-dependent reaction-diffusion PDEs involving physically grounded chemical kinetics in a purely forward setting using physics-based losses only. We further demonstrated that the proposed framework can be extended to a parameterized formulation, enabling a single neural network to approximate a continuous fam-ily of solutions across a wide range of strain rates. This capability suggests a potential pathway toward integrating PINN-based chemistry models into high-fidelity CFD sim-ulations, where detailed chemical kinetics are traditionally represented through discrete precomputed lookup tables. Such neural representations could offer a more flexible and memory-efficient alternative for modeling combustion chemistry across parameter spaces. The present study is limited to global one-step Arrhenius reaction mechanisms. While the proposed framework is, in principle, directly applicable to multi-step and detailed chemical kinetics, extending it to such settings introduces significant additional challenges for PINN optimization due to increased stiffness and system dimensionality. Address-ing these challenges remains an important direction for fu-ture work. 
+
+Acknowledgment 
+
+The financial support by the Austrian Federal Ministry of Economy, Energy and Tourism, and the Christian Doppler Research Association is gratefully acknowledged. Further-more, the authors want to thank Prof. Ricardo Novella and Prof. Jos ´e Maria Garc ´ıa-Oliver from the Clean Mobility & Thermofluids department of the Universitat Polit `ecnica de Val` encia for their input on flamelet data generation. The work Franz M. Rohrhofer was partially funded by the European Union’s HORIZON Research and Innova-tion Programme under grant agreement No 101120657, project ENFIELD (European Lighthouse to Manifest Trust-worthy and Green AI). Know Center is a COMET compe-tence center that is financed by the Austrian Federal Min-istry of Innovation, Mobility and Infrastructure (BMIMI), the Austrian Federal Ministry of Economy, Energy and Tourism (BMWET), the Province of Styria, the Steirische Wirtschaftsf ¨orderungsgesellschaft m.b.H. (SFG), the Vi-enna business agency and the Standortagentur Tirol . The COMET programme is managed by the Austrian Research 8Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+Promotion Agency FFG. 
+
+References 
+
+Bode, M., Gauding, M., Goeb, D., Falkenstein, T., and Pitsch, H. Applying physics-informed enhanced super-resolution generative adversarial networks to turbulent premixed combustion and engine-like flame kernel direct numerical simulation data. Proceedings of the Combus-tion Institute , 39(4):5289–5298, 2023. ISSN 1540-7489. Cao, Z., Liu, K., Luo, K., Wang, S., Jiang, L., and Fan, J. Surrogate modeling of multi-dimensional premixed and non-premixed combustion using pseudo-time stepping physics-informed neural networks. Physics of Fluids , 36 (11), 2024. Chai, X., Cao, W., Li, J., Long, H., and Sun, X. Overcom-ing the spectral bias problem of physics-informed neural networks in solving the frequency-domain acoustic wave equation. IEEE Transactions on Geoscience and Remote Sensing , 2024. Chen, R. T., Rubanova, Y., Bettencourt, J., and Duvenaud, D. K. Neural ordinary differential equations. Advances in neural information processing systems , 31, 2018. Cho, W., Jo, M., Lim, H., Lee, K., Lee, D., Hong, S., and Park, N. Parameterized physics-informed neural net-works for parameterized PDEs. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Proceedings of the 41st International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research , pp. 8510–8533. PMLR, 21–27 Jul 2024. Cranmer, M., Greydanus, S., Hoyer, S., Battaglia, P., Spergel, D., and Ho, S. Lagrangian neural networks. In ICLR 2020 Workshop on Integration of Deep Neural Models and Differential Equations , 2020. Cuomo, S., Di Cola, V. S., Giampaolo, F., Rozza, G., Raissi, M., and Piccialli, F. Scientific machine learning through physics–informed neural networks: Where we are and what’s next. Journal of Scientific Computing , 92(3):88, 2022. Daw, A., Bu, J., Wang, S., Perdikaris, P., and Karpatne, A. Rethinking the importance of sampling in physics-informed neural networks. arXiv preprint arXiv:2207.02338 , 2022. Franz, A., Wei, H., Guastoni, L., and Thuerey, N. Pict–a differentiable, gpu-accelerated multi-block piso solver for simulation-coupled learning tasks in fluid dynamics. 
+
+Journal of Computational Physics , 544:114433, 2026. ISSN 0021-9991. Freeman, C. D., Frey, E., Raichuk, A., Girgin, S., Mordatch, I., and Bachem, O. Brax–a differentiable physics engine for large scale rigid body simulation. In Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks 1 , 2021. Goodwin, D. G., Moffat, H. K., Schoegl, I., Speth, R. L., and Weber, B. W. Cantera: An object-oriented software toolkit for chemical kinetics, thermodynamics, and trans-port processes, 2025. URL https://doi.org/10. 5281/zenodo.17620923 .Grcar, J. Sandia national laboratories report sand91-8230. 
+
+Sandia National Laboratories, Livermore , 1991. Greydanus, S., Dzamba, M., and Yosinski, J. Hamiltonian neural networks. Advances in neural information process-ing systems , 32, 2019. Holl, P. and Thuerey, N. Φflow (PhiFlow): Differentiable sim-ulations for pytorch, tensorflow and jax. In International Conference on Machine Learning . PMLR, 2024. Hornik, K. Approximation capabilities of multilayer feed-forward networks. Neural networks , 4(2):251–257, 1991. Hu, Y., Anderson, L., Li, T.-M., Sun, Q., Carr, N., Ragan-Kelley, J., and Durand, F. Difftaichi: Differentiable pro-gramming for physical simulation. In International Con-ference on Learning Representations , 2020. Ji, W. and Deng, S. Reactorch: A differentiable re-acting flow simulation package in pytorch. https: //github.com/DENG-MIT/reactorch , 2020. Ji, W., Qiu, W., Shi, Z., Pan, S., and Deng, S. Stiff-pinn: Physics-informed neural network for stiff chemical ki-netics. The Journal of Physical Chemistry A , 125(36): 8098–8106, 2021. Karniadakis, G. E., Kevrekidis, I. G., Lu, L., Perdikaris, P., Wang, S., and Yang, L. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. Koric, S., Viswantah, A., Abueidda, D. W., Sobh, N. A., and Khan, K. Deep learning operator network for plastic deformation with variable loads and material properties. 
+
+Engineering with Computers , 40(2):917–929, 2024. Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhat-tacharya, K., Stuart, A., and Anandkumar, A. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Re-search , 24(89):1–97, 2023. Krishnapriyan, A., Gholami, A., Zhe, S., Kirby, R., and Mahoney, M. W. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems , 34:26548–26560, 2021. 9Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+Li, Z., Kovachki, N. B., Azizzadenesheli, K., Bhattacharya, K., Stuart, A., Anandkumar, A., et al. Fourier neural operator for parametric partial differential equations. In 
+
+International Conference on Learning Representations ,2021. Li, Z., Zheng, H., Kovachki, N., Jin, D., Chen, H., Liu, B., Azizzadenesheli, K., and Anandkumar, A. Physics-informed neural operator for learning partial differential equations. ACM/IMS Journal of Data Science , 1(3):1–27, 2024. Liu, S., Wang, H., Chen, J. H., Luo, K., and Fan, J. High-resolution reconstruction of turbulent flames from sparse data with physics-informed neural networks. Combustion and Flame , 260:113275, 2024. ISSN 0010-2180. Liu, S., Wang, H., Luo, K., and Fan, J. Neural network-based 3d reconstruction of temperature and velocity for turbulent flames from 2d measurements. Combustion and Flame , 281:114454, 2025. ISSN 0010-2180. Lu, L., Jin, P., Pang, G., Zhang, Z., and Karniadakis, G. E. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021. Maddu, S., Sturm, D., M ¨uller, C. L., and Sbalzarini, I. F. Inverse dirichlet weighting enables reliable training of physics informed neural networks. Machine Learning: Science and Technology , 3(1):015026, 2022. Monaco, S. and Apiletti, D. Training physics-informed neural networks: One learning to rule them all? Results in Engineering , 18:101023, 2023. Naud, B., Novella, R., Pastor, J. M., and Winklinger, J. F. Rans modelling of a lifted h2/n2 flame using an unsteady flamelet progress variable approach with presumed pdf. 
+
+Combustion and Flame , 162(4):893–906, 2015. ISSN 0010-2180. Peters, N. Turbulent combustion . Cambridge university press, 2000. Petzold, L. R. Description of dassl: a differential/algebraic system solver. Technical report, Sandia National Labs., Livermore, CA (USA), 1982. Raissi, M., Perdikaris, P., and Karniadakis, G. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. ISSN 0021-9991. Rao, C., Ren, P., Wang, Q., Buyukozturk, O., Sun, H., and Liu, Y. Encoding physics to learn reaction–diffusion processes. Nature Machine Intelligence , 5(7):765–779, 2023. Rezaei, S., Asl, R. N., Faroughi, S., Asgharzadeh, M., Ha-randi, A., Koopas, R. N., Laschet, G., Reese, S., and Apel, M. A finite operator learning technique for mapping the elastic properties of microstructures to their mechanical deformations. International Journal for Numerical Meth-ods in Engineering , 126(1):e7637, 2025. Rohrhofer, F. M., Posch, S., G ¨oßnitzer, C., and Geiger, B. C. Approximating families of sharp solutions to fisher’s equation with physics-informed neural networks. Com-puter Physics Communications , 307:109422, 2025. Saxena, P. and Williams, F. A. Testing a small detailed chemical-kinetic mechanism for the combustion of hy-drogen and carbon monoxide. Combustion and Flame ,145(1-2):316 – 323, 2006. Sportisse, B. An analysis of operator splitting techniques in the stiff case. Journal of computational physics , 161(1): 140–168, 2000. Wang, S., Teng, Y., and Perdikaris, P. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing ,43(5):A3055–A3081, 2021. Wang, S., Sankaran, S., and Perdikaris, P. Respecting causal-ity is all you need for training physics-informed neural networks. arXiv preprint arXiv:2203.07404 , 2022. Wong, J. C., Ooi, C. C., Gupta, A., and Ong, Y.-S. Learning in sinusoidal spaces with physics-informed neural net-works. IEEE Transactions on Artificial Intelligence , 5(3): 985–1000, 2022. Wu, J., Wang, X., Zhang, G., Liu, J., Li, X., Zhang, Y., Zhang, H., Lyu, J., Wang, B., and Wu, Y. Physics-informed machine learning for combustion: A review. 
+
+arXiv preprint arXiv:2509.03347 , 2025. Zhu, Y., Tang, Y.-H., and Kim, C. Learning stochastic dy-namics with statistics-informed neural network. Journal of Computational Physics , 474:111819, 2023. 10 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+A. Chemistry 
+
+The underlying chemistry of the reacting system can be described as follows. Let Nr be the number of reactions and Ns the number of species, a general reaction takes the form 
+
+> Ns
+
+X
+
+> i=1
+
+ν′ 
+
+> i,r
+
+MiNsX
+
+> i=1
+
+ν′′  
+
+> i,r
+
+Mi, r = 1 , ..., N r , (13) where ν′ 
+
+> i,r
+
+and ν′′  
+
+> i,r
+
+are the molar stoichiometric coefficients with 
+
+νi,r = ν′′  
+
+> i,r
+
+− ν′ 
+
+> i,r
+
+. (14) The reaction rate ˙qr at which each reaction progresses is the difference of the forward and backward reaction rates as 
+
+˙qr = kf,r NsY
+
+> i=1
+
+[Mi]ν′ 
+
+> i,r
+
+− kb,r NsY
+
+> i=1
+
+[Mi]ν′′  
+
+> i,r
+
+, (15) where kf,r and kb,r denote the forward and backward reaction rates, respectively. The specific reaction rates are determined by the Arrhenius law 
+
+k = AT β exp 
+
+
+
+− Ea
+
+RT 
+
+
+
+, (16) where A and β are constants, Ea is the activation energy, R is the universal gas constant, and T is the temperature. From this law, the strong influence of the temperature on the reaction can be seen. At low temperatures, the reaction velocity is very low while with increasing temperature, reactions become extremely fast leading to the considerable stiffness of the formalism to be solved. The species reaction rate ˙ωi is calculated by 
+
+˙ωi = WiNrX
+
+> r=1
+
+νi,r ˙qr , (17) with Wi being the molecular weight of species i.Additionally to the chemical kinetics, the modeling of the thermodynamic properties of the desired species is required. This is utilized by applying the NASA 7-coefficient polynomial parameterization to compute the species standard state thermodynamic properties ˆc0 
+
+> p
+
+(T ), ˆh0 (T ), and ˆs0 (T ).In the present study, we focused on hydrogen combustion, since its fast kinetics represents major challenges for the PINN in solving the resulting stiffness of the problem. We model the chemistry with a single-step global reaction 
+
+2H2 + O2 2H2O, (18) with the Arrhenius constants, cf.(16), A = 1 .8e19 , β = 0 and Ea = 17614 . The thermodynamic properties are taken from the well-known San Diego hydrogen mechanism (Saxena & Williams, 2006). In order to use the differentiable solver reactorch within our boundary-value and reaction–diffusion formulations, we extended the library to support an enthalpy-based thermodynamic state. The original API specifies the state via pressure p,temperature T , and species mass fractions y, whereas our formulation prescribes mixture enthalpy as a function of mixture fraction and the enthaply values of the fuel and oxidizer, respectively, as 
+
+h = Z · hfuel + (1 − Z) · hoxidizer . (19) 11 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+We therefore added an interface that accepts (p, h, y) using a root finder for solving the NASA 7-coefficient polynomial. Of course, this root finder has to be differentiable to maintain the end-to-end gradient propagation. 
+
+B. Reference Data Generation 
+
+Across all cases, the reference data are produced with classical numerical solvers. Tolerances and resolutions are chosen such that the remaining discretization/solver error is negligible compared to the reported PINN errors. 
+
+B.1. Initial Value Problem 
+
+The reference trajectories are generated with SciPy’s solve ivp integrator. We use an implicit method (Radau) to resolve the stiff behavior of the hydrogen reaction. Absolute and relative tolerances are set to stringent values (atol=1e-12, rtol=1e-8) and the solution is evaluated on a dense temporal grid. 
+
+B.2. Boundary Value Problem and Reaction-Diffusion PDE 
+
+For generating the reference data to validate the boundary value problem and the reaction-diffusion PDE, we used the flamelet solver ZLFLAM (Naud et al., 2015). The solver uses Chemkin to calculate the reaction source terms ˙ωi (Y ) based on the specified chemical mechanism. Furthermore, the ”Twopnt program for boundary value problems” presented in (Grcar, 1991) was used for solving the boundary value problem in Z. The unsteady solution is performed applying the DDASSL solver (Petzold, 1982) using the exact block tridiagonal Jacobian matrix. For the discretization of Z, we use a non-conformal resolution 201 in the boundary value problem and the reaction-diffusion PDE. The scalar dissipation rate χ, denoting the diffusion coefficient in (11) and (12) is calculated according to (Peters, 2000) by 
+
+χ (Z, α ) = απ exp 
+
+h
+
+−2  erc −1 (2 Z)2i
+
+, (20) with erfc ( x) = 1 − erf ( x) = (2 /√π) R ∞ 
+
+> x
+
+exp  −y2 dy.
+
+C. Network Architecture and Training Settings 
+
+C.1. Initial Value Problem 
+
+The solution for the initial value problem is approximated using a fully connected neural network with four hidden layers and 50 neurons per layer. All hidden layers use the hyperbolic tangent activation function, while an exponential activation is applied to the output layer to ensure non-negativity of the predicted mass fractions and also to allow applying constraint for the mass fraction sum. The network is trained using the Adam optimizer with a fixed learning rate of 10 −3 for 20,000 epochs. To improve numerical stability in the presence of sharp temporal transients at early times, the temporal input is transformed to logarithmic scale. Specifically, the network takes as input log( t + ε), where ε > 0 is a small constant to avoid singularities at t = 0 . This transformation allows the network to better resolve the stiff initial dynamics commonly encountered in reactive systems. Hard constraints are imposed to enforce the initial conditions, mass conservation, and the constancy of the inert species mass fraction. Let y(t) ∈ RN denote the vector of species mass fractions, and let yN2 denote the inert nitrogen mass fraction. The network predicts only the reactive species mass fractions through an unconstrained neural output f θ (log t + ε) ∈ RN −1.The reactive species mass fractions are constructed as 
+
+˜Y react (t) = Y react (0) + t f θ (log t + ε), (21) which enforces the initial condition exactly at t = 0 . The inert species mass fraction is fixed as 
+
+YN2 (t) = YN2 (0) , (22) and mass conservation is enforced by normalizing the reactive species such that 
+
+Y react (t) = ˜Y react (t)
+
+P 
+
+> i
+
+˜Yreact ,i (t) (1 − YN2 (0)) . (23) 12 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+The full mass-fraction vector is then obtained by concatenating the reactive and inert species. This construction guarantees that all predicted mass fractions are non-negative, satisfy the prescribed initial conditions, and sum to 1 for all t.Physics-informed training is performed by minimizing the mean squared residual of the governing ODE evaluated at collocation points sampled logarithmically in time. Specifically, we draw samples ξj ∼ U (0 , 1) and map them to physical time as 
+
+tj = exp  log( tmin + ε) + ξj
+
+ log( tmax ) − log( tmin + ε) , j = 1 , . . . , N col , (24) where [tmin , t max ] denotes the temporal domain, Ncol is the number of collocation points, and ε > 0 is a small constant to avoid numerical singularities. This sampling strategy concentrates collocation points near early times while still covering the full temporal domain, enabling accurate enforcement of the physics residual in regions with sharp gradients. Number of collocation points at each epoch is set to 1024 .
+
+C.2. Boundary Value Problem 
+
+For solving the boundary value problem we again use the fully connected architecture with 4 hidden layers of 50 units each, hyperbolic tangent activation function in the hidden layers and exponential function in the output layer. In this case we use only soft constraints for the boundary conditions as it, counter-intuitively, improved the training. We again train using the Adam optimizer with a fixed learning rate 0.001 and train the model for 20 , 000 epochs. We again use hard constraints for the inert species by defining the mass fraction as 
+
+YN2 (t) = ZY f uelN 2 + (1 − Z)Ycof lowN 2 . (25) We use the same constraint outlined in (23) for mass conservation. To improve conditioning, the input mixture fraction is scaled to [−1, 1] via 
+
+ˆZ = 2 Z − Zmin 
+
+Zmax − Zmin 
+
+− 1, (26) and the network prediction is evaluated as yθ (Z) = fθ ( ˆZ).We enforce the ODE residual at collocation points sampled uniformly in the domain. Specifically, we draw uj ∼ U (0 , 1) 
+
+and map to physical mixture fraction via 
+
+Zj = Zmin + ( Zmax − Zmin )uj , j = 1 , . . . , N col . (27) Derivatives with respect to Z are obtained through automatic differentiation. Dirichlet boundary conditions are enforced at Z = 0 and Z = 1 using the known stream compositions (coflow and fuel states). Let ycoflow and yfuel denote the corresponding mass-fraction vectors. We include a boundary loss term 
+
+LBC = ∥yθ (0) − ycoflow ∥22 + ∥yθ (1) − yfuel ∥22 . (28) In addition, we impose soft Neumann-type constraints motivated by the physical boundary behavior of the major reactants. Specifically, we penalize the derivatives 
+
+∂y H2
+
+∂Z Z=0 
+
+≈ 0, ∂y O2
+
+∂Z Z=1 
+
+≈ 0, (29) through the auxiliary loss 
+
+L∂Z = ∂y H2,θ 
+
+∂Z Z=0 
+
+> 22
+
++ ∂y O2,θ 
+
+∂Z Z=1 
+
+> 22
+
+, (30) where the derivatives are computed by automatic differentiation of the network output with respect to Z.The physics-informed loss consists of the mean squared ODE residual evaluated at collocation points, together with boundary penalties: 
+
+L = λf Lf + LBC + L∂Z , (31) where λf balances the residual and boundary terms (in our implementation we use a fixed scaling factor of 0.1). 13 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+C.3. Reaction-Diffusion PDE 
+
+In all cases, the input variables are scaled to the interval [−1, 1] . Collocation points in time ( t) and mixture fraction ( Z) are sampled using Latin hypercube sampling, with 1024 collocation points per epoch. Hard constraints for PDE PINN are implemented as 
+
+˜Y react (t, Z ) = ZY f uel + (1 − Z)Y cof low + f θ (t, Z )( t/t max )Z(1 − Z). (32) For both the forward and inverse problems with a fixed strain rate, we use the same network architecture: a fully connected neural network with four hidden layers of 50 units each, hyperbolic tangent activation functions in the hidden layers, and an exponential activation function at the output. In both cases, training is performed using the Adam optimizer with a fixed learning rate of 0.0005 for 50 ,000 epochs. The inert species mass fraction is defined in the same manner as in the boundary value problem, as shown in (25) , and mass conservation is enforced as described in (23) . The only difference between the two settings is that the forward problem is trained solely using the physics loss, minimizing the scaled PDE residuals, whereas in the inverse setting the loss function is defined as 
+
+L = λf Lf + Ldata , (33) where the loss scaling factor λf is set to 0.001 . In the inverse setting, the logarithm of the strain rate is treated as a learnable parameter and is used for computing the physics loss. For the parameterized case, the strain rate is included explicitly as an input to the network. As outlined in the main part of the paper, a single strain rate is sampled per epoch and concatenated with the sampled collocation points for t and Z. We employ a specialized architecture for the parameterized case as described in (Cho et al., 2024). This architecture uses a branched network structure, in which the parameter input ( α) and the coordinate inputs ( t, Z) are processed by separate encoder networks. The encoded outputs are then concatenated and passed through a decoder network. In our implementation, both encoder networks and the decoder consist of two hidden layers with 50 units each. 
+
+D. Experiment setup 
+
+D.1. Systems Settings 
+
+For all of the systems we used in our experiments, we need to define pressure, which we set to normal atmospheric pressure of 101325 .0 Pa. In the case of initial value problem we set the initial temperature to 1000 K and initial mass fractions to: 
+
+YH2(0) = 0 .02 
+
+YO2(0) = 0 .22 
+
+YH2O (0) = 0 .0
+
+YN 2(0) = 0 .76 .
+
+For both the boundary value problem and the reaction-diffusion PDE, the flamelet formulation is defined by two opposing streams corresponding to the fuel and coflow (oxidizer) states. The fuel and coflow states are specified by their temperature and composition according to (Naud et al., 2015) as Fuel: T = 305 K , Y fuel = {YH2 = 0 .25 , Y N2 = 0 .75 },
+
+Coflow: T = 1045 K , Y coflow = {YO2 = 0 .14744 , Y N2 = 0 .75363 , Y H2O = 0 .09893 }.
+
+Using these definitions, the exact thermochemical states of the fuel and coflow streams are computed with Cantera . The resulting species mass fractions define Dirichlet boundary conditions in mixture-fraction space, 
+
+Y (Z = 0) = Y coflow , Y (Z = 1) = Y fuel . (34) The corresponding mass-fraction values obtained from the equilibrium evaluation are 
+
+YH2 (Z = 0) = 0 .0000 , YH2 (Z = 1) = 0 .0234 ,YO2 (Z = 0) = 0 .1709 , YO2 (Z = 1) = 0 .0000 ,YH2O(Z = 0) = 0 .0645 , YH2O(Z = 1) = 0 .0000 ,YN2 (Z = 0) = 0 .7646 , YN2 (Z = 1) = 0 .9766 .
+
+14 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 
+
+D.2. Training Setup 
+
+For all results reported in this paper, a global random seed of 1 is used for every training run. For the residual loss scaling defined in (9) , we use the default hyperparameter value λ = 1 and do not perform additional tuning. Training is always preformed on a time window t ∈ [0 , 0.02] in which most of the reaction has already taken place. For the baseline comparisons reported in Table 1, all methods share the same network and training settings, except for the differences explicitly described below. In the vanilla PINN baseline, we do not employ the residual scaling defined in (9) ,the mass conservation constraint in (23), nor the hard constraint on the inert species mass fraction. For the parametrized problem, the vanilla baseline does not use the parameterized architecture of (Cho et al., 2024), but instead employs a fully connected neural network with four hidden layers of 70 units each, resulting in the same depth and a comparable number of trainable parameters. For causality-based training, we retain all components of the proposed framework except for the residual scaling based on the reaction term. The remaining modifications are orthogonal to the causality-based weighting strategy and are therefore kept fixed to ensure a fair comparison. The causality-based loss function is defined as 
+
+Lcf =
+
+> Nt
+
+X
+
+> k=1
+
+wk Lf (tk), (35) with weights 
+
+wk = exp −γ
+
+> k−1
+
+X
+
+> m=1
+
+Lf (tm)
+
+!
+
+. (36) The hyperparameter γ is manually tuned on the parametrized PDE case and is found to have little influence on training performance within the tested range γ ∈ [10 −4, 1] . Consequently, we fix γ = 1 for all experiments involving causality-based training. 
+
+Inverse Problem As outlined in the main text, inverse problem experiments aim to infer the unknown strain rate from observed solution data. These experiments are conducted both in the noise-free setting and in the presence of additive noise. When noise is introduced, synthetic observations are generated by perturbing each species mass fraction independently according to ˜Yj = Yj + ϵ η j , ηj ∼ N (0 , std( Yj )) , (37) where Yj denotes the mass fraction of species j, ϵ is the prescribed noise level, and std( Yj ) is the standard deviation of species j computed over the entire dataset. This construction ensures that the noise magnitude is scaled appropriately for each species based on its variability. 
+
+E. Additional Results 
+
+Figures 7, 8, and 9 illustrate the behavior of a vanilla physics-informed neural network applied to the initial value problem ODE, the boundary value problem ODE, and the reaction–diffusion flamelet PDE, respectively. In all cases, training without the chemistry-aware modifications introduced in this work fails to converge to a physically meaningful solution and results in severe inaccuracies across the domain. These qualitative failures highlight the necessity of domain-specific stabilization strategies when applying PINNs to extremely stiff reactive systems. Figure 10 compares numerical reference solutions with predictions obtained using the proposed parameterized PINN across multiple strain rates. A single trained model accurately represents a continuous family of flamelet solutions over a wide range of strain rates, demonstrating its ability to capture the parametric structure of the solution manifold. 15 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 10 8 10 7 10 6 10 5 10 4 10 3 10 2
+
+time [s] 
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> mass fraction
+> H2 reference
+> H2 model
+> O2 reference
+> O2 model
+> H2O reference
+> H2O model
+
+Figure 7. Vanilla PINN solution for the initial value problem ODE. The network fails to capture the rapid transients induced by stiff reaction dynamics. In this plot we included the mass fraction of N2 as it is predicted by the network in the vanilla PINN case. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Z
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Mass fraction
+
+Domain comparison, SR = 10 
+
+> H2 reference
+> H2 PINN
+> O2 reference
+> O2 PINN
+> H2O reference
+> H2O PINN
+> N2 reference
+> N2 PINN
+
+Figure 8. Vanilla PINN solution for the boundary value problem ODE. The predicted species profiles deviate significantly from the physically admissible solution. 
+
+16 Differentiable Chemistry in PINNs for Solving Parameterized and Stiff Reaction Systems 0.000 0.005 0.010 0.015 
+
+Z
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 Reference H2 
+
+0.000 0.005 0.010 0.015 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 PINN H2 
+
+0.000 0.005 0.010 0.015 
+
+Z
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 Reference O2 
+
+0.000 0.005 0.010 0.015 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 PINN O2 
+
+0.000 0.005 0.010 0.015 
+
+Z
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 Reference H2O 
+
+0.000 0.005 0.010 0.015 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 PINN H2O 
+
+0.000 0.005 0.010 0.015 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 Reference N2 
+
+0.000 0.005 0.010 0.015 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 PINN N2 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.0000 
+
+0.0135 
+
+0.0270 
+
+0.0405 
+
+0.0540 
+
+0.0675 
+
+0.0810 
+
+0.0945 
+
+0.1080 
+
+0.1215 
+
+0.0 
+
+0.3 
+
+0.6 
+
+0.9 
+
+1.2 
+
+1.5 
+
+1.8 
+
+2.1 
+
+2.4 
+
+2.7 
+
+0.7625 
+
+0.7850 
+
+0.8075 
+
+0.8300 
+
+0.8525 
+
+0.8750 
+
+0.8975 
+
+0.9200 
+
+0.9425 
+
+0.9650 
+
+0.762 
+
+0.828 
+
+0.894 
+
+0.960 
+
+1.026 
+
+1.092 
+
+1.158 
+
+1.224 
+
+1.290 
+
+1.356 
+
+Figure 9. Vanilla PINN solution for the reaction–diffusion PDE at α = 1 . The model fails to recover the correct spatiotemporal species evolution, demonstrating the inadequacy of standard PINN formulations in this stiff regime. 0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Z
+
+H2 | = 1 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2 | = 10 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2 | = 100 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Z
+
+O2 | = 1 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 O2 | = 10 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 O2 | = 100 
+
+0.00 
+
+0.01 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Z
+
+H2O | = 1 
+
+0.00 
+
+0.01 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2O | = 10 
+
+0.00 
+
+0.01 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2O | = 100 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.0000 
+
+0.0135 
+
+0.0270 
+
+0.0405 
+
+0.0540 
+
+0.0675 
+
+0.0810 
+
+0.0945 
+
+0.1080 
+
+0.1215 
+
+0.0000 
+
+0.0135 
+
+0.0270 
+
+0.0405 
+
+0.0540 
+
+0.0675 
+
+0.0810 
+
+0.0945 
+
+0.1080 
+
+0.1215 
+
+0.000 
+
+0.012 
+
+0.024 
+
+0.036 
+
+0.048 
+
+0.060 
+
+0.072 
+
+0.084 
+
+0.096 
+
+0.108 0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Z
+
+H2 | = 1 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2 | = 10 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2 | = 100 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Z
+
+O2 | = 1 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 O2 | = 10 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 O2 | = 100 
+
+0.00 
+
+0.01 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Z
+
+H2O | = 1 
+
+0.00 
+
+0.01 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2O | = 10 
+
+0.00 
+
+0.01 
+
+t
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 H2O | = 100 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.0000 
+
+0.0025 
+
+0.0050 
+
+0.0075 
+
+0.0100 
+
+0.0125 
+
+0.0150 
+
+0.0175 
+
+0.0200 
+
+0.0225 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.000 
+
+0.018 
+
+0.036 
+
+0.054 
+
+0.072 
+
+0.090 
+
+0.108 
+
+0.126 
+
+0.144 
+
+0.162 
+
+0.000 
+
+0.012 
+
+0.024 
+
+0.036 
+
+0.048 
+
+0.060 
+
+0.072 
+
+0.084 
+
+0.096 
+
+0.108 
+
+0.0000 
+
+0.0135 
+
+0.0270 
+
+0.0405 
+
+0.0540 
+
+0.0675 
+
+0.0810 
+
+0.0945 
+
+0.1080 
+
+0.0000 
+
+0.0135 
+
+0.0270 
+
+0.0405 
+
+0.0540 
+
+0.0675 
+
+0.0810 
+
+0.0945 
+
+0.1080 
+
+Figure 10. Numerical reference solutions (left) and parameterized PINN predictions (right) across multiple strain rates. The proposed framework accurately captures the continuous dependence of the solution on the strain rate. 
+
+17

@@ -1,0 +1,2968 @@
+Title: An alternating learning-based collocation method for solving inverse elliptic problems
+
+URL Source: https://arxiv.org/pdf/2606.01622v1
+
+Published Time: Tue, 02 Jun 2026 02:33:52 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# An alternating learning-based collocation method for solving inverse elliptic problems 
+
+## Zhizhong Kong ∗1, Jerry Zhijian Yang †1, and Cheng Yuan ‡21School of Mathematics and Statistics, Wuhan University, Wuhan, 430072, Hubei, China 
+
+> 2
+
+## School of Artificial Intelligence, Wuhan University, Wuhan, 430072, Hubei, China 
+
+Abstract 
+
+We propose the Alternating Learning-Based Collocation (ALBC) method for solving inverse elliptic problems. Our approach employs sinusoidal shallow networks as adaptive basis generators. By alternately updating the state variable and the unknown parameter, we decompose the orig-inal nonconvex joint optimization problem into a sequence of tractable linear subproblems. This strategy effectively overcomes the fixed-basis limitations of classical collocation methods while avoiding the slow convergence typically encountered in deep learning approaches. Theoretically, we establish stability estimates and prove the convergence of the proposed algorithm. Numerical experiments on five benchmark problems demonstrate the efficacy of ALBC, which consistently outperforms the standard collocation method in accuracy. Furthermore, it achieves performance comparable to or better than that of physics-informed neural networks at a substantially lower computational cost. Finally, the method remains robust under noise levels of up to twenty percent. 
+
+# 1 Introduction 
+
+Inverse problems, which aim to infer unknown model parameters from indirect observational data, play a central role in scientific and engineering disciplines such as seismic wave inversion [8, 18, 37], biomedical imaging [1, 2, 6], environmental monitoring [3, 20, 29] and data assimilation [11]. Classical numerical strategies for solving such problems rely on discretizing the underlying PDE and embedding it within an optimization or regularization framework. Mesh-based methods, such as the finite element method (FEM) [4] and spectral collocation [32], provide mature theoretical foundations with rigorous convergence guarantees, but require explicit mesh generation and repeated forward PDE solves, result-ing in substantial computational overhead that grows prohibitively with problem dimension. Meshless approaches, including radial basis function (RBF) collocation [26], circumvent mesh generation and extend more naturally to higher dimensions, yet remain critically dependent on the choice of basis functions: an ill-suited basis can lead to spectral mismatch, ill-conditioned algebraic systems, or poor convergence of the reconstruction. Although regularization strategies such as Tikhonov regularization [7, 38] and Total Variation minimization [36] can stabilize the inversion, the overall reconstruction quality remains fundamentally constrained by the expressiveness of the chosen basis. More critically, all these classical approaches require a priori specification of the approximation basis whose regularity must match the unknown solution, yet offer limited adaptivity for resolving localized features. This central limitation has motivated the exploration of neural network-based methods, which construct data-driven representations and exhibit inherent robustness to observational noise. In recent years, owing to their significant robustness to observational noise [23, 28, 48], neural net-works have been widely applied to the inverse problems of partial differential equations [5, 21, 47] to address these challenges. Physics-Informed Machine Learning (PIML) stands out as a representative approach [16, 33, 35], which treats the unknown coefficients as trainable parameters while enforcing 
+
+> ∗zhizhongkong@whu.edu.cn.
+> †zjyang.math@whu.edu.cn.
+> ‡yuancheng@whu.edu.cn.
+
+1
+
+> arXiv:2606.01622v1 [math.NA] 1 Jun 2026
+
+physical laws, enabling simultaneous recovery of hidden parameters and solutions. For the recon-struction of non-constant coefficients in PDEs, a prevalent strategy involves approximating both the solution and the unknown coefficient function using two separate neural networks. These networks are coupled via a composite loss function that integrates a least-squares data-fitting term with a physics-informed constraint. This methodology has since been extensively adapted to a diverse array of inverse problems [12, 13, 27]. While PIML methods have demonstrated impressive numerical performance in prior studies, they face significant challenges: their theoretical analysis remains under-developed, and they often suffer from high computational overhead, typically requiring a vast number of training epochs to achieve high-precision solutions. Conversely, classical numerical methods benefit from rigorous theoretical foundations. Recent studies, such as [42], have combined the collocation method with neural networks, effectively leveraging the strengths of both approaches to achieve excellent results in PDE problems with rigorous theoretical guarantees. Similarly, [44] integrated the Finite Element Method with neural networks, yielding comparable success. These findings highlight the substantial potential of hybridizing traditional numerical methods with neural networks. Motivated by this paradigm, we propose a hybrid framework that integrates the collocation method with neural networks to solve inverse problems. Fundamentally, we parameterize the basis functions of the collocation method using neural networks, optimizing their parameters via an alternating learning strategy. Compared with classical numerical approaches, our method inherits the inherent robust-ness to observational noise characteristic of neural networks and effectively circumvents the curse of dimensionality, making it well-suited for high-dimensional parameter spaces. In contrast to purely deep learning-based methods, our approach leverages an alternating iterative structure to guide the optimization process, thereby significantly accelerating convergence and enhancing computational effi-ciency, particularly during the early stages of training. In summary, the primary contributions of this work are three-fold: 
+
+• We introduce the Alternating Learning-Based Collocation (ALBC) method, a novel framework tailored for solving inverse elliptic problems. 
+
+• We establish rigorous stability estimates and provide a comprehensive convergence analysis for the proposed ALBC framework. 
+
+• Through extensive numerical experiments, we demonstrate the effectiveness and superiority of ALBC over both traditional collocation methods and several deep-learning baselines, achieving higher accuracy with lower computational cost. The remainder of this paper is organized as follows. Section 2 outlines the problem formulation and the collocation method employed for its solution. Section 3 details the proposed framework. Section 4 establishes the theoretical guarantees, including stability and convergence analysis. In Section 5, we present numerical experiments that assess the performance of the proposed approach across a range of inverse elliptic problems. Finally, Section 6 summarizes our findings and discusses possible directions for future research. 
+
+# 2 Preliminary 
+
+In this section, we define the target problems and the foundational optimization framework discussed in this paper. Section 2.1 outlines the formal problem setting, while Section 2.2 reviews the standard collocation scheme for inverse problems, which serves as the basis for our proposed method. 
+
+## 2.1 Problem setting 
+
+Let Ω ⊂ Rd be a bounded domain with a Lipschitz continuous boundary ∂Ω. We consider a physical system governed by the following second-order elliptic boundary value problem: 
+
+(−∇ · (q(x)∇u(x)) + b(x)u(x) = f (x), x ∈ Ω,
+
+Bu(x) = g(x), x ∈ ∂Ω. (1) 2Here, q(x) represents the diffusion coefficient (or conductivity), assumed to be strictly positive to satisfy the ellipticity condition. The term b(x) ≥ 0 denotes the reaction coefficient (or potential field), and 
+
+f (x) is the internal source term. The operator B specifies the boundary condition including Dirichlet, Neumann, with g(x) representing the boundary data. In this work, the objective is to identify an unknown parameter field, generally denoted by λ, while assuming all other system parameters are given. Depending on the physical scenario, the target unknown λ in this study may represent one of the following: 
+
+• The diffusion coefficient q(x) (e.g., conductivity imaging); 
+
+• The reaction coefficient b(x) (e.g., potential reconstruction); 
+
+• The source term f (x) (e.g., source identification problems). To reconstruct the target field λ, we utilize observational data Lobs governed by the measurement equation: 
+
+Lobs (x) = Ol(u)( x) + ϵ(x), x ∈ Ω, (2) where Ol denotes a linear observation operator and ϵ is an additive noise term of level δnoise ≥ 0. Notably, the method presented in this work can be readily extended to accommodate observation models that exhibit a bilinear or even nonlinear dependence on both the state u and the parameter λ,as demonstrated by the Current Density Impedance Imaging (CDII) experiment in Section 5. To facilitate the subsequent derivation, we define the residual operator as 
+
+N (u, λ )( x) = −∇ · (q(x)∇u(x)) + b(x)u(x) − f (x),
+
+where, depending on the specific inverse problem, exactly one of the functions q, b, or f is identified with the unknown λ, while the remaining two are treated as known data. Although N is nonlinear with respect to the pair ( u, λ ), it possesses a favorable bi-linear structure. Specifically, we denote 
+
+Nu(u) := −∇ · (q(x)∇u(x)) + b(x)u(x) as the linear operator acting on u when λ is fixed, and Nλ(λ) as the linear operator acting on λ when u is given (e.g., Nλ(λ) := λ(x)u(x) for potential identification). Crucially, both Nu and Nλ exhibit strict linearity with respect to their primary arguments, u and λ,respectively. 
+
+## 2.2 Collocation scheme for inverse problem 
+
+The collocation method provides a rigorous framework for discretizing infinite-dimensional opera-tor equations by enforcing governing laws strongly at a set of nodal points. In contrast to weak-formulations that rely on integral projections, the collocation scheme directly minimizes the pointwise residuals of the differential operators. For the inverse problem defined in (1), this method approximates the unknown state u(x) and parameter λ(x) within a finite-dimensional subspace VN = span {ϕj }Nj=1 .Specifically, one can adopt a unified ansatz where both fields are expanded using the same set of basis functions {ϕj }Nj=1 :
+
+u(x) ≈ uN (x) = ϕ(x)⊤c, λ(x) ≈ λN (x) = ϕ(x)⊤d, (3) where ϕ(x) = [ ϕ1(x), . . . , ϕ N (x)] ⊤ is the basis vector, c, d ∈ RN are the coefficient vectors to be determined. To formulate the discrete system, we define a total of M collocation points, partitioned into interior points Xint = {xi}Mint  
+
+> i=1
+
+⊂ Ω, boundary points Xbdy = {xb}Mbdy  
+
+> b=1
+
+⊂ ∂Ω, and observation points Xobs =
+
+{xo}Mobs  
+
+> o=1
+
+⊂ Ω, such that M = Mint + Mbdy + Mobs . Evaluating the state u and parameter λ at these collocation points and substituting them into the governing equations (1) yields the following interior physical residual vector rΩ ∈ RMint and the boundary residual vector rB ∈ RMbdy :[rΩ(c, d)] i := N  ϕ⊤c , ϕ⊤d (xi), xi ∈ X int ,
+
+[rB(c)] b := B  ϕ⊤c (xb) − g(xb), xb ∈ X bdy .
+
+3Given the bilinearity of N , the coupled algebraic system rΩ renders the inverse problem inherently nonlinear. A common approach to addressing this is to simultaneously optimize the independent variables ( c, d) ∈ R2N by relaxing the governing equations into soft penalty terms [40]: (c∗, d∗) = argmin 
+
+> c,d
+
+ wr
+
+Mint 
+
+∥rΩ(c, d)∥22 + wb
+
+Mbdy 
+
+∥rB(c)∥22 + wd
+
+Mobs 
+
+∥O l(ϕ⊤c) − L obs ∥22 + γRreg (d)
+
+
+
+. (4) Here, wr , wb, and wd are positive penalty weights balancing the physics residual, boundary condition, and data fidelity terms, respectively. ∥ · ∥ 2 denotes the discrete l2 norm over the corresponding set of collection points. The term Rreg (d) denotes a regularization functional that promotes smoothness or sparsity of the reconstructed parameter. Alternatively, by enforcing strict physical constraints rΩ(c, d) = 0 and rB(c) = 0, the state coeffi-cients are reduced to an implicit function of the parameters, establishing the mapping d 7 → c(d). This condenses the optimization to a subspace RN , yielding the reduced objective function [26, 32]: 
+
+d∗ = argmin 
+
+> d
+
+ wd
+
+Mobs 
+
+∥O l(ϕ⊤c(d)) − L obs ∥22 + γRreg (d)
+
+
+
+.
+
+While the former circumvents iterative forward PDE solutions at the cost of exacerbated non-convexity, the latter guarantees exact physical fidelity but necessitates full numerical inversions and adjoint-based gradient evaluations at each iteration. In practice, the implementation of this framework faces a critical bottleneck regarding the deter-mination of an optimal basis set. As previously noted, selecting an appropriate basis is a non-trivial task. The formulation of the inverse problem provides limited prior guidance, primarily because the regularity of the unknown parameter field is not pre-defined. Consequently, an inappropriate choice of basis inevitably leads to severe numerical instabilities: 1. Spectral mismatch and Gibbs phenomenon. Using globally smooth basis functions to approximate a parameter field with local abrupt changes or discontinuities results in spurious high-frequency oscillations known as the Gibbs phenomenon [17], which significantly degrades reconstruction accuracy. 2. Ill-conditioning : An improper basis can lead to a rapidly growing condition number of the resulting linear system (or differentiation matrices) [25], causing numerical instability where small errors in data or floating-point arithmetic are catastrophically amplified. To overcome these limitations, we propose a learning-based collocation method. By leveraging neural networks to construct adaptive basis functions, this framework effectively mitigates the afore-mentioned numerical pathologies and demonstrates high fidelity in solving complex inverse problems. 
+
+# 3 Methodology 
+
+In this section, we present the Alternating Learning-Based Collocation (ALBC) method designed for inverse elliptic problems. While traditional collocation schemes typically rely on static, pre-defined basis functions, our approach leverages shallow neural networks to construct basis sets dynamically. This flexibility enables the alternating generation of bases for coupled state and parameter fields, offering two distinct advantages. First, it allows for the adaptive and incremental expansion of the basis dimensionality. Second, it ensures that the basis functions inherently capture the structural characteristics of the underlying physical problem. As a result, ALBC exhibits superior generalizability and robustness. The remainder of this section is organized as follows. Section 3.1 provides a high-level overview of the proposed framework and presents the core algorithm. Subsequent sections detail the technical specifications. Specifically, Section 3.2 describes the construction and training protocols for the basis functions. Section 3.3 outlines the initialization strategy and Section 3.4 introduces the adaptive sampling method. 4Algorithm 1: Alternating Learning-Based Collocation (ALBC) with Periodic Fine-tuning 
+
+Input: Target basis count s, network widths {nk}sk=1 , fine-tuning period T
+
+Output: Final approximations us and λs 
+
+> 1
+
+Initialize empty basis sets: U ← ∅ , P ← ∅  
+
+> 2
+
+Initialize approximations: u ← 0, λ ← 0 
+
+> 3
+
+for k ← 1 to s do 
+
+# Step 1: Update basis set U and state variable u 
+
+> 4
+
+Initialize the k-th basis ϕk of width nk as described in Section 3.3  
+
+> 5
+
+Sample collocation points according to Section 3.4  
+
+> 6
+
+Train the basis ϕk following Section 3.2.1  
+
+> 7
+
+Append to basis set: U ← U ∪ { ϕk} 
+
+> 8
+
+Update state variable: u ← u + ϕk
+
+# Step 2: Update basis set P and parameter field λ 
+
+> 9
+
+Initialize the k-th basis ψk of width nk as described in Section 3.3  
+
+> 10
+
+Sample collocation points according to Section 3.4  
+
+> 11
+
+Train the basis ψk following Section 3.2.2  
+
+> 12
+
+Append to basis set: P ← P ∪ { ψk} 
+
+> 13
+
+Update parameter field: λ ← λ + ψk
+
+# Step 3: Update global coefficients (c, d) 
+
+> 14
+
+Update ( c, d) by solving the joint optimization problem (4) 
+
+# Step 4: Periodic joint fine-tuning  
+
+> 15
+
+if k (mod T ) = 0 then  
+
+> 16
+
+Jointly fine-tune ( c, d) and all parameters in U and P per Section 3.2  
+
+> 17
+
+end  
+
+> 18
+
+end  
+
+> 19
+
+return us, λs
+
+## 3.1 The Alternating Learning-based Collocation method 
+
+Unlike the standard collocation framework in Subsection 2.2, which uses a single shared basis for both u and λ, we employ two distinct basis sets U and P, parameterized by separate shallow neural networks. This separation is motivated by the fact that u and λ may exhibit fundamentally different regularity and spectral characteristics, and constructing dedicated bases allows each to be tailored to its respective target function. Given that the observational data is restricted to u, we implement an alternating generation strategy starting with the state variable. As delineated in Algorithm 1, the iterative procedure commences with empty basis sets and sequentially expands them up to a target dimension s.At the k-th iteration, a new neural network basis function ϕk with width nk is initialized and trained to minimize the data-driven loss; this function is subsequently used to enrich the state basis set U.Following this, a corresponding basis function ψk for the parameter field λ is introduced and optimized by penalizing the PDE residual in conjunction with necessary regularization, before being incorporated into P. Based on these augmented basis sets, the current approximations uk and λk are updated via the collocation method. To mitigate error propagation and maintain global physical consistency during the sequential expansion, a joint optimization is executed every T stages to simultaneously re-calibrate all accumulated basis functions in U and P. This alternating procedure continues until the basis dimensionality reaches a predefined threshold s, culminating in a final collocation update to yield the optimal approximations us and λs.
+
+## 3.2 Basis construction and training procedure 
+
+Constructing effective basis functions requires a parameterization that is both easily trainable and highly expressive. The Single-Hidden-Layer Neural Network (SHLNN) satisfies these requirements, offering a theoretically guaranteed universal approximation at a minimal computational cost [9, 10]. 5In this work, we utilize SHLNNs with sinusoidal activations to emulate the principle of Fourier series expansion. This framework allows the network to adaptively learn various frequency components, making it superior to ReLU or Tanh for capturing high-frequency oscillations. Formally, we parameterize the basis functions for the state u and the parameter λ using neural networks as follows: 
+
+ϕk(x; θ(k) 
+
+> u
+
+) = 
+
+> nk
+
+X
+
+> j=1
+
+auk,j ϕk,j =
+
+> nk
+
+X
+
+> j=1
+
+auk,j sin( ωuk,j · x + buk,j ), (5a) 
+
+ψk(x; θ(k) 
+
+> λ
+
+) = 
+
+> nk
+
+X
+
+> j=1
+
+aλk,j ψk,j =
+
+> nk
+
+X
+
+> j=1
+
+aλk,j sin( ωλk,j · x + bλk,j ). (5b) where nk denotes the width of the k-th basis network, ωuk,j , ωλk,j ∈ Rd represent the frequency vectors of the j-th neuron in the respective basis networks, and θ(k) 
+
+> u
+
+= {auk,j , ωuk,j , b uk,j }nk 
+
+> j=1
+
+(resp. θ(k) 
+
+> λ
+
+) encom-passes the trainable parameters. To express this in a more compact form, we define the coefficient column vector auk := [ auk, 1, . . . , a uk,n k ]T and the corresponding row vector of neuron outputs: 
+
+ϕuk (x) :=  sin( ωuk, 1 · x + buk, 1), . . . , sin( ωuk,n k · x + buk,n k ).
+
+By applying analogous definitions for aλk and ψλk (x), the parameterizations can be succinctly rewritten as ϕk(x; θ(k) 
+
+> u
+
+) = ϕuk auk and ψk(x; θ(k) 
+
+> λ
+
+) = ψλk aλk .We now detail the optimization strategy. As outlined in Algorithm 1, the training procedure is structured into two primary phases: (i) the sequential optimization of new basis functions to fit the current residuals (Lines 6 and 11), and (ii) update of ( c, d) by collection method (Line 14) and a joint fine-tuning phase where all accumulated model parameters are optimized simultaneously (Line 16). This strategy enforces a tight coupling between the variables, reinforcing their structural interdepen-dencies and maximizing reconstruction accuracy. 
+
+3.2.1 Update of U and u
+
+Let uk−1 and λk−1 denote the current global approximations. The localized target residuals during the k-th stage are defined across their respective domains as: 
+
+r(k)
+
+> data
+
+(x) := Lobs (x) − O l(uk−1)( x),r(k) 
+
+> bdy
+
+(x) := g(x) − B (uk−1)( x),r(k) 
+
+> phy
+
+(x) := −N (uk−1, λ k−1)( x).
+
+The pointwise evaluations of these residual functions at their respective collocation sets are assem-bled into residual vectors: 
+
+r(k) 
+
+> data
+
+:= r(k)
+
+> data
+
+(x1), . . . , r (k)
+
+> data
+
+(xMobs )⊤ ∈ RMobs ,
+
+and analogously r(k) 
+
+> bdy
+
+∈ RMbdy and r(k) 
+
+> phy
+
+∈ RMint .With the previous approximations fixed, we construct the k-th basis function ϕk(x; θ(k) 
+
+> u
+
+) by min-imizing the current approximation residuals. Exploiting the linearity of the operators ( Ol, B, and 
+
+Nu) with respect to u, we formulate a composite loss function that penalizes discrepancies in the 6observational data, boundary conditions, and physical governing equations: 
+
+R(k) 
+
+> u
+
+(θ(k) 
+
+> u
+
+) = 1
+
+Mobs 
+
+X
+
+> x∈X obs
+
+Ol(ϕk)( x) − r(k)
+
+> data
+
+(x) 2
+
++ η1
+
+Mbdy 
+
+X
+
+> x∈X bdy
+
+B(ϕk)( x) − r(k) 
+
+> bdy
+
+(x) 2
+
++ η2
+
+Mint 
+
+X
+
+> x∈X int
+
+Nu(ϕk)( x) − r(k) 
+
+> phy
+
+(x) 2
+
+:= R(k) 
+
+> data
+
++ η1R(k) 
+
+> bdy
+
++ η2R(k) 
+
+> phy
+
+.
+
+(6) Here, η1 > 0 and η2 > 0 are positive penalty weights that balance the boundary and physics residuals relative to the data term, respectively. 
+
+3.2.2 Update of P and λ
+
+Once uk is obtained, we update the parameter field λ and the corresponding basis set P. Exploiting the linearity of the differential operator Nλ with respect to λ, we construct the k-th basis function 
+
+ψk(x; θ(k) 
+
+> λ
+
+) by minimizing the physical residuals: 
+
+R(k) 
+
+> λ
+
+(θ(k) 
+
+> λ
+
+) = 1
+
+Mint 
+
+X
+
+> x∈X int
+
+Nλ(ψk)( x) − r(k) 
+
+> λ
+
+(x) 2
+
++ γλnkX
+
+> j=1
+
+∥ωλk,j ∥2 := R(k) 
+
+> phy,λ
+
++ γλR(k)
+
+> reg,λ
+
+, (7) where r(k) 
+
+> λ
+
+is the intermediate physical residual defined as: 
+
+r(k) 
+
+> λ
+
+(x) := −N (uk, λ k−1)( x), (8) and γλ is the penalty coefficient. This group Lasso regularization acts as a low-pass filter, suppressing spurious oscillations and biasing the network toward smoother, physically plausible structures. After refining the basis function sets U and P, we hold the basis parameters constant. The global coefficients ( c, d) are then computed using the standard collocation method for (4). For the inverse source problem, this yields a linear system. However, the potential and diffusion coefficient identifica-tion problems necessitate solving a nonlinear optimization problem. To circumvent this, we introduce the scheme detailed in Algorithm 2. We decouple the original nonlinear problem (4) into two least-squares problems. By fixing one set of coefficients as constants, each subproblem can be efficiently solved as a linear system. 
+
+3.2.3 Periodic joint fine-tuning 
+
+The alternating training procedure introduced in the previous subsections is fundamentally a greedy strategy [42, 45]. Under this framework, previously established basis functions remain frozen; the updated approximation is obtained merely by superimposing the newly generated basis. While com-putationally efficient, this sequential construction suffers from myopic optimization. To overcome this, we update all trainable parameters Θ = {ci, d i, θ (i) 
+
+> u
+
+, θ (i) 
+
+> λ
+
+}ki=1 periodically by minimizing the compre-hensive loss defined as: 
+
+Rtotal (Θ) = wr
+
+Mint 
+
+X
+
+> x∈X int
+
+|N (uk, λ k)( x)|2
+
++ wb
+
+Mbdy 
+
+X
+
+> x∈X bdy
+
+|B (uk)( x) − g(x)|2
+
++ wd
+
+Mobs 
+
+X
+
+> x∈X obs
+
+|O l(uk)( x) − L obs (x)|2
+
++ Rf req (Θ) ,
+
+(9) where wr , w b, w d ≥ 0 are penalty weights, and the frequency regularization term Rf req (Θ) enforces smoothness and prevents overfitting for both networks across all actively accumulated basis functions: 7Algorithm 2: ALBC for inverse potential/diffussion coefficient problem 
+
+Input: Target basis count s, network widths {nk}sk=1 , fine-tuning period T
+
+Output: Final approximations us and λs 
+
+> 1
+
+Initialize empty basis sets: U ← ∅ , P ← ∅  
+
+> 2
+
+Initialize approximations: u ← 0, λ ← 0 
+
+> 3
+
+for k ← 1 to s do 
+
+# Step 1: Update basis set U and state variable u 
+
+> 4
+
+Initialize the k-th basis ϕk of width nk as described in Section 3.3  
+
+> 5
+
+Sample collocation points according to Section 3.4  
+
+> 6
+
+Train the basis ϕk following Section 3.2.1  
+
+> 7
+
+Append to basis set: U ← U ∪ { ϕk} 
+
+> 8
+
+Update state variable: u ← u + ϕk 
+
+> 9
+
+Update coefficient c by solving (4) as a least square problem with d = dk−1
+
+# Step 2: Update basis set P and parameter field λ 
+
+> 10
+
+Initialize the k-th basis ψk of width nk as described in Section 3.3  
+
+> 11
+
+Sample collocation points according to Section 3.4  
+
+> 12
+
+Train the basis ψk following Section 3.2.2  
+
+> 13
+
+Append to basis set: P ← P ∪ { ψk} 
+
+> 14
+
+Update parameter field: λ ← λ + ψk 
+
+> 15
+
+Update coefficient d by solving (4) as a least square problem with c = ck
+
+# Step 3: Periodic joint fine-tuning  
+
+> 16
+
+if k (mod T ) = 0 then  
+
+> 17
+
+Jointly fine-tune ( c, d) and all parameters in U and P per Section 3.2  
+
+> 18
+
+end  
+
+> 19
+
+end  
+
+> 20
+
+return us, λs
+
+Rf req (Θ) = γukX
+
+> i=1
+> ni
+
+X
+
+> j=1
+
+∥ωui,j ∥2 + γλkX
+
+> i=1
+> ni
+
+X
+
+> j=1
+
+∥ωλi,j ∥2,
+
+where γu > 0 is the frequency penalty weight for the state basis, and γλ > 0 is the corresponding weight for the parameter basis (the same γλ appearing in (7)). Fundamentally, this joint fine-tuning step is mathematically equivalent to training a standard PINN equipped with the SHLNN architecture. However, as demonstrated in our numerical examples, preceding this step with the alternating basis generation significantly accelerates convergence compared to standard PINN training (see Figure 3). Furthermore, integrating this joint optimization phase into the alternating framework is crucial for maximizing the overall approximation accuracy (see Figure 12). This synergistic effect is systematically analyzed in Section 5. 
+
+## 3.3 Initialization 
+
+Given that the frequency characteristics of the neural network are governed exclusively by the input layer parameters ω, a well-calibrated initialization strategy is pivotal for facilitating rapid convergence and enhancing training efficacy. To this end, we define a hyperparameter boundary Rk, where the k-th hidden layer parameters of the base network are initialized by sampling uniformly from the interval [ −Rk, R k]. As demonstrated in [34, 46], neural networks exhibit a spectral bias, showing a preference for learning low-frequency components during the early stages of training; consequently, an excessively large Rk produces oversized hidden parameters, causing the network to introduce high frequency noise and squander its representational capacity, whereas an overly small Rk restricts the spectral range and prevents the capture of crucial high frequency details. In fact, the choice of Rk reflects the intrinsic expressive power of the neural network architecture itself [9]. 8Remark 1. While [30, 45] advocates for spherical sampling to mitigate the anisotropic “corner effects” inherent in hypercube sampling, these effects are minimal in the low-dimensional problems considered here. Given that the impact on the frequency distribution is marginal in this context, we opt for the computationally simpler strategy of direct uniform sampling on the interval [−Rk, R k].
+
+3.3.1 Frequency-Domain Analysis 
+
+For the subsequent update, we employ a tailored frequency-domain analysis to determine value of 
+
+Rk. This is a two-step procedure: first, we define an analysis field based on the specific observation format; second, we apply the Discrete Fourier Transform (DFT) to this field to identify its dominant frequencies. 1. Determine the analysis field. For the update of u, the data observation term R(k)data is assigned the dominant weight in (6) (i.e., η1, η 2 < 1). Therefore, the frequency initialization is naturally guided by the data residual r(k)data . For the parameter field λ, the loss R(k) 
+
+> λ
+
+in (7) is purely equation-based. Since the basis ψk is trained to satisfy Nλ(ψk) ≈ r(k) 
+
+> λ
+
+, a natural initialization strategy is to match the dominant frequencies of the approximated solution N −1 
+
+> λ
+
+r(k) 
+
+> λ
+
+. Specifically, for the source identification problem ( λ = f , Nλ(ψ) = −ψ), direct inversion yields ψk ≈ − r(k) 
+
+> λ
+
+, making 
+
+r(k) 
+
+> λ
+
+(x) the appropriate analysis field. Conversely, for the potential reconstruction problem ( λ = b,
+
+Nλ(ψ) = ukψ), pointwise inversion of ukψk = r(k) 
+
+> λ
+
+yields the analysis field r(k) 
+
+> λ
+
+(x) / u k(x). 2. Calculate the dominant frequencies. Given the analysis field obtained above, we compute its discrete Fourier transform over the uniform grid XFFT defined by (10). We then select the top nfft wavevectors associated with the largest amplitudes and assign them as the initial input weights ωk,j in (5). The remaining nk − nfft frequencies are sampled uniformly from [ −Rk, R k], where 
+
+Rk := min 
+
+(
+
+ωmax , 14
+
+> 4
+
+X
+
+> i=1
+
+ωfft 
+
+> i
+
+)
+
+.
+
+Here, ωmax acts as a safeguard against high-frequency instability, while the average of the top four wavevectors {ωfft  
+
+> i
+
+}4 
+
+> i=1
+
+dynamically scales the sampling bound to capture the intrinsic physical features of the current solution. 
+
+## 3.4 Collocation point strategy 
+
+The method relies on two distinct but complementary sets of points, each serving a dedicated purpose. 
+
+FFT grid XFFT . As described in Section 3.3, the frequency-domain initialization requires evaluating the residual on a structured uniform grid. For a rectangular domain Ω = Qdk=1 [ak, b k], this grid is defined as 
+
+XFFT =
+
+> d
+
+Y
+
+> k=1
+
+
+
+ak + ik
+
+mk
+
+(bk − ak) : ik = 0 , 1, . . . , m k
+
+
+
+, (10) yielding NFFT = Qdk=1 (mk +1) points in total, where mk denotes the number of grid intervals along the 
+
+k-th coordinate. For domains with irregular boundaries, XFFT is constructed via rejection sampling [41]. This grid is used exclusively for frequency analysis and does not serve as training collocation points. 
+
+Training collocation set Xint . To enhance training efficiency for multi-scale or non-homogeneous solutions, we adopt a residual-based hybrid collocation strategy. At the beginning of each stage, the interior points Xint are drawn from a mixture distribution [22]: 
+
+ρ(x) = α ρ unif (x) + β ρ adapt (x), α + β = 1 , (11) where ρunif is the uniform distribution over Ω, and ρadapt is a residual-driven importance distribution. Specifically, letting Munif = αM int and Madapt = βM int , we draw Munif points from ρunif and select 9the remaining Madapt points with probabilities proportional to the squared data residual r(k)data [43]: 
+
+p(xi) = r(k)data (xi) 2 + δ0
+
+> Mobs
+
+X
+
+> j=1
+
+  r(k)data (xj ) 2 + δ0
+
+ . (12) Here δ0 > 0 is a small constant introduced for numerical stability. This choice is rooted in the principle of importance sampling: sampling proportionally to |r(k)data |2 minimizes the variance of the Monte Carlo estimator for the data-fidelity loss. As the approximated solution uk−1 evolves, this distribution is dynamically updated at each stage. Finally, the boundary collocation set Xbdy is drawn uniformly from ∂Ω. To address scenarios where the available observation samples are insufficient, we introduce an observation smoothing network [39]. This network is trained on the actual noisy measurements to ap-proximate a continuous observation function. The learned surrogate function can subsequently be used to generate pseudo-observation data in arbitrarily large quantities, thereby facilitating a significantly more robust reconstruction. 
+
+# 4 Numerical analysis 
+
+Building upon extensive research [14, 15, 21] concerning the stability and uniqueness of inverse problems for elliptic equations, we assume that the inverse problem under consideration satisfies stability and uniqueness conditions. Let ( u†, λ †) denote the exact solution pair. We define the continuous population loss as 
+
+L(u, λ ) = Robs (u) + Rphy (u, λ ) + Rbdy (u), (13) where 
+
+Robs (u) = ∥O l(u) − L obs ∥2
+
+> L2(Ω)
+
+, Rphy (u, λ ) = ∥N (u, λ )∥2
+
+> L2(Ω)
+
+, Rbdy (u) = ∥B u − g∥2
+
+> L2(∂Ω)
+
+.
+
+By design, Rphy (u†, λ †) = 0 and Rbdy (u†) = 0. In particular, the total loss satisfies L(u†, λ †) = 0 in the noise-free setting, whereas Robs (u†) = O(δ2
+
+> noise
+
+) under noisy observations. In the following, ¯R(k)
+
+> u
+
+and ¯R(k) 
+
+> λ
+
+denote the stage-k losses (6) and (7) expressed in their L2 form. We analyze the asymptotic behavior of both ¯R(k) 
+
+> u
+
+and ¯R(k) 
+
+> λ
+
+, establishing that the approximate solution ( uk, λ k) converges to the true solution ( u†, λ †) as the number of stages k → ∞ . Since the sine activation function is smooth, non-constant, and bounded, the universal approximation property (Lemma 1) is guaranteed. For simplicity, we restrict our numerical analysis to inverse source and inverse potential problems, leaving the identification of diffusion coefficients for future work. Detailed proofs of the theorems in this section are deferred to the Appendix B to E. 
+
+Assumption 1. The state variable u and the parameter λ exhibit rapid spectral decay, i.e., they belong to Hp(Ω) with p > max {d/ 2 + 1 , 4}.
+
+Assumption 2. For potential inversion, we assume the state satisfies |u†| ≥ c0 > 0 a.e. in Ω.
+
+Assumption 3. There exist finite constants Mu, M λ > 0, depending only on ωmax , the initial loss ¯R(0)  
+
+> u
+
+,and the priors ∥u†∥Hp(Ω) , ∥λ†∥Hp(Ω) , such that the iterates {uk, λ k}k≥0 generated by the alternating algorithm satisfy 
+
+∥uk∥W 1,∞(Ω) ≤ Mu, ∥λk∥W 1,∞(Ω) ≤ Mλ, ∀k ≥ 0.
+
+## 4.1 Stability 
+
+Theorem 1 (Stability of u). Under Assumption 1 and for any 0 ≤ s < p , the state error satisfies the deterministic bound: 
+
+∥uk − u†∥2 
+
+> Hs(Ω)
+
+≤ C2 
+
+> stab
+
+ω2s
+
+> max
+
+ ¯R(k) 
+
+> u
+
++ δ2
+
+> noise
+
+
+
++ O(ω−2( p−s)max ),
+
+where Cstab > 0 is a stability constant depending only on the domain Ω, the observation operator Ol
+
+and the PDE structure, independent of ωmax , k, and the network parameters. 
+
+10 Theorem 2 (Stability of λ). Under Assumption 1–3, the parameter reconstruction error satisfies the deterministic bound: 
+
+∥λk − λ†∥2 
+
+> L2(Ω)
+
+≤ C2
+
+> λ
+
+ ¯R(k) 
+
+> λ
+
++ Lu∥uk − u†∥2
+
+> H2(Ω)
+
+
+
+,
+
+where Cλ > 0 is a stability constant depending only on the domain Ω and Lu > 0 is the Lipschitz coupling constant quantifying error propagation from the state variable. 
+
+## 4.2 Convergence 
+
+Theorem 3 (Linear Convergence) . Under Assumption 1–3, suppose the basis networks are sufficiently wide, and η2 is sufficiently small (see the details in proof ). Then there exist weights κ1, κ 2 > 0 such that the joint loss J (k) := κ1 ¯R(k) 
+
+> u
+
++ κ2 ¯R(k) 
+
+> λ
+
+satisfies: 
+
+J (k) ≤ ρkJ (0) + 1 − ρk
+
+1 − ρ ζ, (14) 
+
+where ρ ≤ 7/8 is a uniform contraction rate independent of k and ζ = O(ω4max δ2 
+
+> noise
+
++ ω−2( p−4) max ). In particular, as k → ∞ , ¯R∞ 
+
+> u
+
+= O(δ2 
+
+> noise
+
++ ω−2( p−2) max ) and ¯R∞ 
+
+> λ
+
+= O(ω4max δ2 
+
+> noise
+
++ ω−2( p−4) max ).
+
+Theorem 4 (Convergence rate) . By choosing ω⋆ 
+
+> max
+
+∼ δ−1/(p−2)  
+
+> noise
+
+, as k → ∞ we have 
+
+∥u∞ − u†∥2 
+
+> L2(Ω)
+
+= O δ2
+
+> noise
+
+, ∥λ∞ − λ†∥2 
+
+> L2(Ω)
+
+= O δ 2( p−4) /(p−2) 
+
+> noise
+
+.
+
+Remark 2. According to Theorem 4, for a smooth target field, the L2 errors of both u and λ converge at a rate of O(δnoise ). Although our theorem only provides an asymptotic convergence rate as k → ∞ ,which might be conservative, this rate is readily observable within a finite number of stages in practice (see Figure 6 as an example). 
+
+# 5 Numerical Results 
+
+In this section, we evaluate the performance of our proposed method on several elliptic inverse prob-lems. Table 1 summarizes the hyperparameters for the network architecture, sampling complexity, and optimizer settings. For all examples, the number of neurons at the k-th stage follows a linear growth schedule: nk = 30 + 5( k − 1). We use the Adam optimizer for the basis update and L-BFGS for the fine-tuning step. For noise levels of 10% or higher, we train a 3-layer denoising network [39] with a tanh activation function on the noisy data. This trained network then serves as a surrogate observation model, unless otherwise specified. Table 1: Hyperparameters for each numerical example. T is the joint fine-tuning period; EuAdam 
+
+and EλAdam are the Adam epochs in the every stage; ELBF GS is the L-BFGS fine-tuning iterations. (Edn , lr dn ) are the epochs and learning rate of the denoising pre-processor; ωmax is the frequency band-limit imposed on the basis networks. Example T Mobs /Mint Stages (EuAdam , lr) /(EλAdam , lr) (ELBF GS , lr) (Edn , lr dn ) ωmax 
+
+4.1 3 4500 6 (500 , 0.005) / (500 , 0.005) (150 , 0.5) (5000 , 0.001) 30 π
+
+4.2 2 4000 4 (500 , 0.005) / (800 , 0.02) (50 , 0.1) (5000 , 0.001) 30 π
+
+4.3 3 4500 9 (500 , 0.005) / (500 , 0.005) (300 , 0.2) (2500 , 0.01) 30 π
+
+4.4 7 4500 7 (500 , 0.005) / (800 , 0.005) (500 , 1.0) (5000 , 0.005) 30 π
+
+4.5 2 15000 16 (500 , 0.005) / (500 , 0.005) (100 , 0.1) (5000 , 0.001) 30 π
+
+To quantitatively evaluate the reconstruction quality, we utilize the pointwise absolute error |u−u†|
+
+and the relative L2 error computed over Mtest testing points: Relative L2 Error = 
+
+qPMtest  
+
+> j=1
+
+(uj − u† 
+
+> j
+
+)2
+
+qPMtest  
+
+> j=1
+
+(u† 
+
+> j
+
+)2
+
+, (15) where u and u† denote the predicted and exact solutions, respectively. 11 5.1 Inverse source problem 
+
+Example 1. ([13] Example 4.1) We set Ω = (0 , 1) 2, q(x) ≡ 1 and b(x) ≡ 1. The boundary conditions are Neumann. The ground truth source term f †(x) is constructed as a superposition of two Gaussian functions. Let x = ( x1, x 2), then f † is given by: 
+
+
+
+G1(x1, x 2) = exp( −9 × (x1 − 0.3) 2 − 25 × (x2 − 0.7) 2)
+
+G2(x1, x 2) = exp( −25 × (x1 − 0.7) 2 − 9 × (x2 − 0.3) 2)
+
+f †(x1, x 2) = 25 G1(x1, x 2) + 36 G2(x1, x 2)(16) 
+
+The ground truth u† is the solution to the aforementioned governing equation, subject to the zero boundary condition u|∂Ω = 0 . For the inverse problem, we assume the source term is unknown and must be recovered from noisy discrete measurements. The observed dataset, denoted by {(yδi , zδi )}mi=1 ,comprises both solution values and gradient vectors. These measurements are modeled as ground truth values corrupted by independent additive white Gaussian noise: 
+
+yδi = u†(xi) + ϵi, zδi = ∇u†(xi) + ηi,
+
+where the noise terms follow normal distributions ϵi ∼ N (0 , σ 2
+
+> u
+
+) and ηi ∼ N (0, σ 2
+
+> ∇u
+
+I), respectively.    
+
+> (a) Stage 1 (b) Stage 2 (c) Stage 3 (d) Stage 4
+
+Figure 1: Reconstructed f at different training stages for Example 1 with 1% noise. Table 2: Relative L2 errors of the reconstructed f and u for Example 1 with 1% noise. Stage 1 2 3 4 5 6
+
+err (f ) 5.66 × 10 −1 2.99 × 10 −1 1.37 × 10 −1 2.31 × 10 −2 1.09 × 10 −2 8.59 × 10 −3
+
+err (u) 6.13 × 10 −2 7.45 × 10 −3 2.73 × 10 −3 5.66 × 10 −4 2.87 × 10 −4 1.73 × 10 −4
+
+Figure 1 illustrates the evolution of the reconstructed source term f across different training stages under 1% noise. It is evident that the dominant structure is captured as early as the first stage, while fine-scale details are effectively resolved by the fourth stage. A quantitative assessment is provided in Table 2, which lists the relative L2 errors for both the solution u and the source f . We observe a rapid error decay during the stages, followed by a deceleration in convergence. This behavior is attributed to the prioritized learning of low-frequency components, aligning with our theoretical analysis. Figure 2 illustrates the reconstructed solution, the ground truth and the absolute error at last training stages. The remaining errors in the reconstructed source term f are primarily concentrated near the boundaries, which can be attributed to the inherent challenges in estimating second-order derivatives given the function value itself. Table 3 presents the relative L2 errors for u and f across various noise levels in the absence of the observation smoothing step. The reconstruction error exhibits a near-linear dependence on the noise level, empirically validating our theoretical analysis that the error scales as O(δ). To further demonstrate the superiority of our approach, we compare ALBC against the standard PINN baseline and the classical collocation method under varying noise conditions in Table 4. For the PINN baseline, we adopt the network architecture detailed in [12], utilizing 10 , 000 collocation points and training for 50 , 000 epochs. For the classical collocation method, we employ radial basis functions (RBFs) with 10 , 000 collocation points and 8 , 100 basis functions. Furthermore, to validate 12 (a) u† (b) u (c) |u − u†|         
+
+> (d) f†(e) f(f) |f−f†|
+
+Figure 2: Reconstruction results for Example 1 with 1% noise. Table 3: L2 relative errors for Example 1 without observation smoothing. Method Ours without smoothing 
+
+δ 1% 2% 10% 20% 
+
+err (f ) 8.59 × 10 −3 1.57 × 10 −2 9.22 × 10 −2 1.48 × 10 −1
+
+err (u) 1.73 × 10 −4 3.59 × 10 −4 1.82 × 10 −3 3.73 × 10 −3
+
+Table 4: Relative L2 errors and computational costs for reconstructing f across different methods. Error f Times 
+
+δ 1% 10% 20% ALBC 8.59 × 10 −3 4.33 × 10 −2 5.26 × 10 −2 12.87/44.30 PINNs 6.95 × 10 −2 7.04 × 10 −2 7.16 × 10 −2 253.81 L-ALBC 1.28 × 10 −2 4.33 × 10 −2 5.29 × 10 −2 12.1/43.49 Collocation 1.08 × 10 −1 1.83 × 10 −1 1.84 × 10 −1 136 the effectiveness of the global fine-tuning step, we introduce a “lite” variant of our method, denoted as L-ALBC. This variant omits the periodic fine-tuning phase (step 4 in Algorithm 1). The reported times in Table 4 for ALBC and L-ALBC follow a “without smoothing / with smoothing” format. The first value represents the pure training time applied in low-noise scenarios, while the second value includes the additional computational overhead of the neural network-based denoising pre-processing required for high-noise cases. As clearly indicated in the results, ALBC consistently outperforms all baseline methods across all tested noise levels. Finally, Figure 3 illustrates the evolution of the relative error with respect to training time, com-paring our proposed method against the PINN baseline. As demonstrated, our approach achieves significantly faster convergence in the reconstruction of both u and f .
+
+## 5.2 Inverse potential problem 
+
+Example 2. We aim to recover the potential coefficient b. The domain, boundary conditions, and observation data are consistent with Example 1, with q(x) ≡ 1. The true solution u = 1 + sin( x) sin( y)
+
+satisfies |u†| ≥ 1 > 0 on ¯Ω (verifying the non-degeneracy condition in Assumption 2). We set b =0.5 + sin( πx ) sin( πy ), while the source term f is computed explicitly using the PDE. 
+
+13 Figure 3: Evolution of relative L2 errors for u and f versus training time for ALBC and PINN methods. We demonstrate the result for Example 1 with 1% noise.    
+
+> (a) Stage 1 (b) Stage 2 (c) Stage 3 (d) Stage 4
+
+Figure 4: Reconstructed b at different training stages for Example 2 with 1% noise. Table 5: Relative L2 errors of the reconstructed b and u for Example 2 with 1% noise. Stage 1 2 3 4
+
+err (b) 9.21 × 10 −1 9.15 × 10 −2 6.28 × 10 −3 6.12 × 10 −3
+
+err (u) 1.05 × 10 −2 6.94 × 10 −4 9.85 × 10 −5 6.09 × 10 −5
+
+Figure 4 illustrates the reconstructed potential b at four distinct stages, and the pointwise absolute error of u and f is presented in Figure 5. These results demonstrate the spectral bias where the neural network prioritizes capturing the global structure before refining high-frequency details. Table 5 presents the relative L2 errors for both the state u and the potential b under a 1% noise level. The progressive decrease in error across stages confirms that our method achieves high accuracy and stability in low-noise scenarios. Table 6: Relative L2 errors of Example 2 across different methods. Error b uδ 20% 30% 50% 20% 30% 50% ALBC 1.46 × 10 −3 1.69 × 10 −2 1.59 × 10 −2 6.47 × 10 −4 7.12 × 10 −4 9.71 × 10 −4
+
+PINNs 1.61 × 10 −2 1.69 × 10 −2 1.96 × 10 −2 7.14 × 10 −4 9.67 × 10 −4 1.81 × 10 −3
+
+Furthermore, we examine the reconstruction performance under high-noise regimes. Table 6 com-pares the accuracy of our proposed method with the PINNs baseline across various high-noise scenarios. The results reveal that our approach consistently achieves superior reconstruction fidelity. Finally, Figure 6 displays the relative L2 errors of u and b as a function of δnoise on a log–log scale. Since b is smooth (2( p − 4) /(p − 2) → 2 as p → ∞ ), Theorem 4 predicts that both the state and parameter errors will decay at the rate of O(δnoise ). Remarkably, both error curves align well with straight lines possessing a slope of approximately 1, perfectly confirming the theoretical predictions. 14 (a) u† (b) u (c) |u − u†|       
+
+> (d) b†(e) b(f) |b−b†|
+
+Figure 5: Reconstruction results for Example 2 with 1% noise. 
+
+Figure 6: Relative L2 errors of u and b versus the noise level δnoise (log–log) for Example 2; both slopes ≈ 1 match the O(δnoise ) rates. 
+
+## 5.3 Identification of diffusion coefficient 
+
+Example 3. ([24] Example 5.1) We set Ω = ( −1, 1) 2, b(x) ≡ 0 and B(u) = ∂u ∂n (Neumann boundary condition). Our objective is to recover the unknown conductivity q(x) from noisy internal gradient measurements ∇zδ . For the numerical simulation, we set the ground truth conductivity q† as: 
+
+q†(x) = 1 + 
+
+> 3
+
+X
+
+> i=1
+
+si(x),
+
+where the component functions are defined as: 
+
+s1(x) = 0 .3 exp  −20( x1 − 0.3) 2 − 15( x2 − 0.3) 2 ,s2(x) = −0.3 exp  −10 x21 − 10( x2 + 0 .5) 2 ,s3(x) = 0 .2 exp  −15( x1 + 0 .4) 2 − 15( x2 − 0.35) 2 .
+
+The exact potential is chosen as the polynomial u†(x) = x1 + x2 + 13 (x31 + x32), whose gradient ∇u† =(1+ x21, 1+ x22) satisfies |∇ u†| ≥ √2 > 0 on ¯Ω, ensuring the non-degeneracy condition in Assumption 2. The corresponding source term f and boundary flux g are derived by substituting q† and u† into the governing equation (1) . The observational data ∇zδ is generated by adding pointwise Gaussian noise to the exact gradient: 
+
+∇zδ (x) = ∇u†(x) + δ · max  
+
+> y∈Ω
+
+∥∇ u†(y)∥∞ · ι(x), (17) 
+
+where δ is the relative noise level and ι(x) ∼ N (0 , I ) is standard Gaussian noise. 
+
+15 Figure 7 and Table 7 present the reconstructed q and the corresponding accuracy across different stages under 1% noise. These results indicate that the reconstruction of the coefficient q consistently exhibits characteristic spectral bias and rapid initial convergence.    
+
+> (a) Stage 1 (b) Stage 2 (c) Stage 3 (d) Stage 4
+
+Figure 7: Reconstructed q at different training stages for Example 3 under 1% noise level. Table 7: Relative L2 errors for Example 3 at different training stages with 1% noise. Stage 1 2 3 4 5 6
+
+err (q) 5.07 × 10 −2 3.62 × 10 −2 1.51 × 10 −2 1.20 × 10 −2 1.06 × 10 −2 9.80 × 10 −3
+
+Figure 8 displays the exact coefficient q, the reconstructed coefficient, and the corresponding ab-solute error map at the final training stage under 1% noise level. The error distribution exhibits an oscillatory pattern, which validates the necessity of our spectral-based initialization and adaptive sam-pling strategies, while also indicating room for further refinement. For a comprehensive comparison, Table 8 summarizes the accuracy and computational costs of our method alongside the Mixed DNN method [24] across various noise levels. The results demonstrate that ALBC consistently achieves higher precision while requiring significantly less computational time than the Mixed DNN.        
+
+> (a) q(b) q†(c) |q−q†|
+
+Figure 8: Reconstruction results for Example 3 with 1% noise. Table 8: Relative L2 errors for Example 3across different methods. Method Error Times 
+
+δ 0% 1% 10% ALBC 7.67 × 10 −3 7.77 × 10 −3 1.97 × 10 −2 88.4 Mixed DNN 1.01 × 10 −2 8.52 × 10 −3 4.30 × 10 −2 374.4 
+
+## 5.4 Current Density Impedance Imaging 
+
+Although the theoretical analysis in Section 4 focuses on linear observation operators, our alternating collocation framework naturally accommodates bilinear or nonlinear observations. By decoupling the joint inversion, the observation nonlinearity is effectively bypassed at each individual step. As a 16 representative example, we consider Current Density Impedance Imaging (CDII), where the observation 
+
+|J| = q|∇ u| is nonlinear with respect to ( q, u ) but conditionally linear in q when u is fixed. Exploiting this property, we prioritize augmenting the basis for q. Specifically, at the k-th stage of ALBC, we first update the parameter basis ψk using the surrogate observation |J||∇ uk−1| alongside the PDE residual. Subsequently, we update the state basis ϕk by minimizing (6), omitting the data fidelity term R(k)data 
+
+during this step. 
+
+Example 4. ([31], [12] Example 5.1) We consider the Current Density Impedance Imaging (CDII) problem[31]: ∇ · (q∇u) = 0 in Ω, u = g on ∂Ω, where q is the unknown conductivity (with b ≡ 0
+
+and f ≡ 0). The observation data is the current density magnitude |J| = q|∇ u|. The ground truth conductivity is q† = 1 + 0 .3( G1 − G2 − G3), where 
+
+G1 = 0 .3(1 − 3¯ x)2 exp −9¯ x2 − (6 y − 2) 2 ,G2 =   3¯ x 
+
+> 5
+
+− 27¯ x3 − (3(2 y − 1)) 5 exp −9¯ x2 − 9(2 y − 1) 2 ,G3 = exp −(3¯ x + 1) 2 − 9(2 y − 1) 2 ,
+
+with ¯x = 2 x − 1.
+
+We initially evaluate the proposed method by recovering the potential u and conductivity q from data containing 2% noise. Figure 9 illustrates the conductivity reconstructions across various stages. The results demonstrate that while a rough approximation is obtainable after only a few stages, increasing the stage count is essential for capturing intricate structural details. Table 9 presents the relative L2 errors of the potential and conductivity at different stages. We observe that the reconstruction accuracy for both q and u improves progressively as the stages increase. Figure 10 illustrates the predicted values and error maps for q and u at Stage 7. It is evident from the figure that the error distributions for both potential and conductivity exhibit distinct wave-like patterns. This observation further validates the rationality of our frequency-based initialization and sampling strategy. Table 9: Relative L2 errors for reconstructing q and u for Example 4 with 2% noise. Stage 1 2 3 4 5 6
+
+err (q) 4.7 × 10 −2 4.2 × 10 −2 3.5 × 10 −2 3.1 × 10 −2 2.9 × 10 −2 2.7 × 10 −2
+
+err (u) 8.0 × 10 −3 5.8 × 10 −3 4.5 × 10 −3 4.0 × 10 −3 3.3 × 10 −3 3.0 × 10 −3   
+
+> (a) Stage=1 (b) Stage=3 (c) Stage=5 (d) Stage=7
+
+Figure 9: The reconstructed conductivity at different stages for Example 4 with 2% noise. To evaluate the performance of our proposed method, we compare it against the Weighted Least Gradient Method (WLGM) [31]. Table 10 presents the relative errors of the potential and conductivity reconstructed from current density magnitude data under varying noise levels. The results indicate that while the relative errors for the potential u are comparable between the two methods, our approach significantly outperforms WLGM in conductivity reconstruction. Furthermore, our method exhibits remarkable robustness, maintaining its advantage particularly as the noise level increases. 
+
+## 5.5 High-Dimensional Problem 
+
+Example 5. ([24] Example 5.10) We now consider the inversion of the diffusion coefficient q(x) in the 5D unit hypercube Ω = (0 , 1) 5. Setting b(x) ≡ 0, the system is subject to Dirichlet boundary 
+
+17 (a) u† (b) u (c) |u − u†|       
+
+> (d) q†(e) q(f) |q−q†|
+
+Figure 10: Reconstruction results for Example 4 with 2% noise. Table 10: Relative L2 errors for reconstructing q and u across different methods for Example 4. Method ALBC WLGM 
+
+δ 0.1% 1% 10% 0.1% 1% 10% 
+
+err (q) 2.37 × 10 −2 2.47 × 10 −2 3.93 × 10 −2 5.2 × 10 −2 5.5 × 10 −2 1.4 × 10 −1
+
+err (u) 2.3 × 10 −3 2.4 × 10 −3 4.2 × 10 −3 2.3 × 10 −3 2.5 × 10 −3 5.5 × 10 −2
+
+conditions, with both the boundary values and the source term f analytically derived from the exact solutions. Employing the observation operator defined in (17) , the exact parameter q†(x) and state variable u†(x) are given by: 
+
+q†(x) = 1 + 0 .5( x1x5 + x2x4 + x23) − 0.3 exp  −25( x1 − 0.5) 2 − 25( x2 − 0.5) 2 ,u†(x) = 
+
+> 5
+
+X
+
+> i=1
+
+
+
+xi + 13 x3
+
+> i
+
+
+
+.
+
+Table 11: Relative L2 errors for reconstructing q at different stages for Example 5 without noise. Stage 1 2 4 6 8 12 16 
+
+err (q) 1.0 × 10 −1 3.9 × 10 −2 2.7 × 10 −2 2.4 × 10 −2 1.9 × 10 −2 1.2 × 10 −2 9.7 × 10 −3
+
+Table 12: Relative L2 errors for reconstructing q across different methods for Example 5. Method ALBC Mixed PINN 
+
+δ 0% 10% 20% Time 0% 10% Time Error 9.70 × 10 −3 1.07 × 10 −2 1.57 × 10 −2 56s 5.78 × 10 −3 2.86 × 10 −2 962s Table 11 presents the relative L2 errors for q at different stages in the noise-free setting, while Figure 11 illustrates the reconstructed q, the ground truth, the absolute error, and the distribution 18 (a) q (b) q† (c) |q − q†| (d) Sampling points for q                  
+
+> (e) q(f) q†(g) |q−q†|(h) Sampling points for q
+> (i) q(j) q†(k) |q−q†|(l) Sampling points for q
+
+Figure 11: Reconstruction results for Example 5 with noise levels of 0%, 10%, and 20% from top to bottom. 
+
+Figure 12: Comparison of the relative L2 error across different stages for Example 5. The plot compares our complete method against the variant without fine-tuning. of sampling points under three noise levels. As observed, the error decreases steadily with successive stages. Furthermore, our method achieves an accurate reconstruction of q across all tested noise levels, thereby confirming the effectiveness and robustness of the alternating strategy in high-dimensional settings. For a quantitative benchmark, Table 12 compares our approach against the Mixed PINN baseline. Although Mixed PINNs yield a slightly lower error in the strictly noise-free case, our method demonstrates superior robustness under 10% noise. More importantly, our approach requires only a fraction of the computational time (56s versus 962s), thereby highlighting its exceptional scalability and noise resilience in high-dimensional inverse problems. Finally, we utilize this example to verify the necessity of the joint fine-tuning phase in ALBC. As illustrated in Figure 12, ALBC exhibits a significantly faster convergence in the L2 error as the number of stages increases. Notably, even after 16 stages, ALBC continues to converge towards a lower error, 19 whereas the error of L-ALBC plateaus. 
+
+# 6 Conclusion 
+
+In this paper, we introduced the Alternating Learning-Based Collocation (ALBC) method, which integrates alternating iterative strategies with sinusoidal-activated shallow neural networks for solv-ing inverse elliptic problems. By employing shallow networks as adaptive basis generators within a collocation framework, the method alternately constructs dedicated basis sets for the state vari-able u and the unknown parameter λ, effectively decoupling the non-convex joint optimization into tractable linear subproblems. Rigorous theoretical guarantees, including stability estimates and con-vergence analysis, have been established. Extensive numerical experiments across five representative inverse problems (source identification, potential reconstruction, diffusion coefficient recovery, elec-trical impedance tomography, and a five-dimensional problem) demonstrate that the ALBC method achieves high reconstruction accuracy with significantly lower computational costs compared to PINNs and classical RBF-based collocation methods. Looking forward, our future research will primarily focus on three directions. First, we plan to extend the ALBC framework to tackle more complex nonlinear inverse problems. Second, we aim to establish an observable numerical analysis theory. Finally, we intend to further refine the theoretical foundations of the adaptive sampling strategy to provide deeper mathematical insights into its efficiency and convergence properties. 
+
+# A Auxiliary lemmas 
+
+Lemma 1 (Universal Approximation) . [19] Suppose the activation function σ is smooth, bounded, and non-constant. Then, for any target function f belonging to a Sobolev space W m,p (Ω) , the sequence of functions generated by shallow neural networks converges to f in the W m,p norm as the network width approaches infinity. In other words, the space of shallow neural networks is dense in W m,p (Ω) .
+
+Lemma 2 (Spectral Truncation) . Under Assumption 1 ( u† ∈ Hp(Ω) , p > d/ 2 + 1 ), define the band-limited hypothesis space 
+
+Hωmax := 
+
+nPnj=1 aj sin( ωj · x + bj ) n ∈ N, a j ∈ R, |ωj | ≤ ωmax 
+
+o
+
+,
+
+and let u† 
+
+> <ω max
+
+denote the L2-projection of u† onto Hωmax and u† 
+
+> tail
+
+:= u† − u† 
+
+> <ω max
+
+its tail (and analogously λ† 
+
+> <ω max
+
+, λ† 
+
+> tail
+
+for the parameter λ†). Then for any 0 ≤ s < p ,
+
+∥u†
+
+> tail
+
+∥Hs(Ω) ≤ ω−(p−s)max ∥u†∥Hp(Ω) , ∥λ†
+
+> tail
+
+∥Hs(Ω) ≤ ω−(p−s)max ∥λ†∥Hp(Ω) .
+
+Proof of Lemma 2. Since u† 
+
+> tail
+
+has Fourier support on {| ω| > ω max }, for 0 ≤ s < p :
+
+∥u†
+
+> tail
+
+∥2 
+
+> Hs(Ω)
+
+=
+
+Z
+
+> |ω|>ω max
+
+(1 + |ω|2)s|ˆu†|2 dω ≤ ω−2( p−s)max ∥u†∥2
+
+> Hp(Ω)
+
+,
+
+where the inequality uses (1 + |ω|2)−(p−s) ≤ ω−2( p−s)max on the integration domain; the bound for λ†
+
+> tail
+
+is identical. 
+
+# B Proof of Theorem 1 
+
+Proof. Let e(k) 
+
+> u
+
+= uk −u† ∈ Hs(Ω) denote the absolute state approximation error at the k-th alternating stage. Since uk is constrained within a band-limited hypothesis space Hωmax , we decompose the exact solution u† ∈ Hp(Ω) into a spectral projection u† 
+
+> <ω max
+
+onto Hωmax and a high-frequency residual. By Lemma 2, the truncation error satisfies: 
+
+∥u† − u† 
+
+> <ω max
+
+∥2 
+
+> Hs(Ω)
+
+= O(ω−2( p−s)max ).
+
+Applying the triangle inequality, the total error is decoupled into the approximation error within the band-limited space and the spectral truncation error: 20 ∥e(k) 
+
+> u
+
+∥2 
+
+> Hs(Ω)
+
+≤ 2∥uk − u† 
+
+> <ω max
+
+∥2 
+
+> Hs(Ω)
+
++ 2 ∥u† − u† 
+
+> <ω max
+
+∥2
+
+> Hs(Ω)
+
+.
+
+For the band-limited component uk − u† 
+
+> <ω max
+
+∈ H ωmax , we apply the inverse inequality ∥v∥Hs ≤
+
+Cinv ωs
+
+> max
+
+∥v∥L2 for all v ∈ H ωmax , where Cinv is a dimension-dependent constant. A further triangle inequality gives 
+
+∥uk − u† 
+
+> <ω max
+
+∥L2(Ω) ≤ ∥ uk − u†∥L2(Ω) + ∥u† − u† 
+
+> <ω max
+
+∥L2(Ω) ,
+
+where the second term satisfies ∥u† − u† 
+
+> <ω max
+
+∥L2 = O(ω−p
+
+> max
+
+) by Lemma 2. When multiplied by 
+
+C2 
+
+> inv
+
+ω2s
+
+> max
+
+, this contributes O(ω−2( p−s)max ) and is absorbed into the spectral truncation term. Setting 
+
+Cstab := 2 Cinv , we obtain: 
+
+∥e(k) 
+
+> u
+
+∥2 
+
+> Hs(Ω)
+
+≤ C2 
+
+> stab
+
+ω2s 
+
+> max
+
+∥uk − u†∥2 
+
+> L2(Ω)
+
++ O(ω−2( p−s)max ).
+
+To relate the L2 state error to the continuous observation residual, we use the noise model y =
+
+u† + ϵnoise defined on Ω with noise level δ2
+
+> noise
+
+. The triangle inequality yields: 
+
+∥uk − u†∥2 
+
+> L2(Ω)
+
+≤ 2∥uk − y∥2 
+
+> L2(Ω)
+
++ O(δ2
+
+> noise
+
+).
+
+Since ∥uk − y∥2 
+
+> L2(Ω)
+
+equals the data-fidelity component of ¯R(k) 
+
+> u
+
+(cf. (6)), the non-negativity of the remaining boundary and physics terms gives ∥uk − y∥2 
+
+> L2(Ω)
+
+≤ ¯R(k) 
+
+> u
+
+. Substituting back, we obtain the deterministic estimate: 
+
+∥uk − u†∥2 
+
+> Hs(Ω)
+
+≤ C2 
+
+> stab
+
+ω2s
+
+> max
+
+  ¯R(k) 
+
+> u
+
++ δ2
+
+> noise
+
+ + O(ω−2( p−s)max ).
+
+# C Proof of Theorem 2 
+
+Proof. Let e(k) 
+
+> λ
+
+= λk − λ† ∈ L2(Ω) and e(k) 
+
+> u
+
+= uk − u† ∈ H2(Ω) denote the approximation errors at the k-th alternating stage. Since N (u†, λ †) ≡ 0, the physical residual N (uk, λ k) can be decoupled by adding and subtracting N (u†, λ k): 
+
+Au† e(k) 
+
+> λ
+
+= N (uk, λ k) − N (uk, λ k) − N (u†, λ k)| {z }  
+
+> := Pu(e(k)
+> u,λ k)
+
+,
+
+where Au† eλ := N (u†, λ † + eλ) − N (u†, λ †) = Nλ(eλ) is the linearized parameter operator with u†
+
+fixed. Applying ( a + b)2 ≤ 2a2 + 2 b2:
+
+∥A u† e(k) 
+
+> λ
+
+∥2 
+
+> L2(Ω)
+
+≤ 2∥N (uk, λ k)∥2 
+
+> L2(Ω)
+
++ 2 ∥P u(e(k) 
+
+> u
+
+, λ k)∥2
+
+> L2(Ω)
+
+.
+
+Since N is second-order, Pu involves derivatives of e(k) 
+
+> u
+
+up to order two. By Assumption 3, λk is uniformly bounded in W 1,∞(Ω), which guarantees a uniform Lipschitz constant Lu < ∞ depending only on N and Mλ:
+
+∥P u(e(k) 
+
+> u
+
+, λ k)∥2 
+
+> L2(Ω)
+
+≤ Lu∥e(k) 
+
+> u
+
+∥2
+
+> H2(Ω)
+
+.
+
+Subsequently, we analytically invert the linearized operator Au† to isolate eλ, which is customized for the specific structure of the inverse problem dictated by Assumption 2: 
+
+• Inverse Source Problem (λ = f ): The operator acts as the negative identity, Au† ef = −ef .This trivializes the inversion, yielding ∥ef ∥L2(Ω) = ∥A u† ef ∥L2(Ω) .
+
+• Inverse Potential Problem (λ = b): The operator acts as a pointwise multiplier, Au† eb = u†eb.Imposing the strict physical non-degeneracy condition |u†| ≥ c0 > 0 almost everywhere in Ω, we obtain ∥eb∥L2(Ω) ≤ c−10 ∥A u† eb∥L2(Ω) .21 Substituting the Lu bound and applying the inversion inequalities established in the two cases above, we absorb all case-specific constants into a single stability constant Cλ > 0, yielding the continuous deterministic estimate: 
+
+∥e(k) 
+
+> λ
+
+∥2 
+
+> L2(Ω)
+
+≤ C2
+
+> λ
+
+
+
+∥N (uk, λ k)∥2 
+
+> L2(Ω)
+
++ Lu∥e(k) 
+
+> u
+
+∥2
+
+> H2(Ω)
+
+
+
+.
+
+Since ¯R(k) 
+
+> λ
+
+comprises the continuous L2 physics residual ∥N (uk, λ k)∥2 
+
+> L2(Ω)
+
+together with non-negative regularization terms (cf. (7)), we have ¯R(k) 
+
+> λ
+
+≥ ∥N (uk, λ k)∥2
+
+> L2(Ω)
+
+. We arrive at the final deterministic bound: 
+
+∥λk − λ†∥2 
+
+> L2(Ω)
+
+≤ C2
+
+> λ
+
+ ¯R(k) 
+
+> λ
+
++ Lu∥uk − u†∥2
+
+> H2(Ω)
+
+
+
+.
+
+# D Proof of Theorem 3 
+
+Proof. As in the proof of Theorem 2, e(k) 
+
+> u
+
+= uk − u† and e(k) 
+
+> λ
+
+= λk − λ† denote the stage-k errors. We first derive a one-step contraction for the ideal state and parameter losses, then convert each into a recursion for the actual losses, and finally combine the two recursions into a single contracting functional. The stage-k state loss, evaluated at the state iterate uk with the parameter frozen at λk−1, reads ¯R(k) 
+
+> u
+
+= ∥uk − udata ∥2 
+
+> L2(Ω)
+
++ η1∥B uk − g∥2 
+
+> L2(∂Ω)
+
++ η2∥N (uk, λ k−1)∥2
+
+> L2(Ω)
+
+. (18) Here udata = u† + ϵnoise with ∥udata − u†∥2 
+
+> L2(Ω)
+
+= O(δ2
+
+> noise
+
+); for clarity we take Ol = I, a bounded and boundedly invertible Ol only rescaling the constants by ∥O l∥2 and its lower bound, the same condi-tioning already embedded in Cstab of Theorem 1. Replacing λk−1 by λ† defines the ideal counterpart ¯R†
+
+> u
+
+(u) = ∥u − udata ∥2 
+
+> L2(Ω)
+
++ η1∥B u − g∥2 
+
+> L2(∂Ω)
+
++ η2∥N (u, λ †)∥2
+
+> L2(Ω)
+
+. (19) With u† 
+
+> <ω max
+
+and u† 
+
+> tail
+
+as in Lemma 2, the band-limited error is ˜e(k−1)  
+
+> u
+
+:= u† 
+
+> <ω max
+
+− uk−1 = − e(k−1)  
+
+> u
+
+− u† 
+
+> tail
+
+∈ H ωmax .
+
+Since the target u† 
+
+> <ω max
+
+is fixed across stages, Lemma 1 produces, for any αu ∈ (1 /2, 1], there exists an increment ϕ⋆ of that width such that 
+
+∥˜e(k−1)  
+
+> u
+
+− ϕ⋆∥2 
+
+> L2(Ω)
+
+≤ (1 − αu) ∥˜e(k−1)  
+
+> u
+
+∥2
+
+> L2(Ω)
+
+. (20) Fix ωmax and set δϕ := ϕ⋆ − ˜e(k−1)  
+
+> u
+
+∈ H ωmax , the in-class residual left by the increment, which by (20) obeys ∥δϕ ∥2 
+
+> L2
+
+≤ (1 − αu)∥˜e(k−1)  
+
+> u
+
+∥2 
+
+> L2
+
+, so that uk−1 + ϕ⋆ − u† = δϕ − u†
+
+> tail
+
+. Using Bu† = g and 
+
+N (u†, λ †) = 0 together with the linearity of B and of N (·, λ †), the data, boundary and physics terms at uk−1 + ϕ⋆ become, respectively, 
+
+δϕ − u† 
+
+> tail
+
+− ϵnoise , B(δϕ − u†
+
+> tail
+
+), N λ† 
+
+> u
+
+(δϕ − u†
+
+> tail
+
+),
+
+i.e. bounded operators of orders 0 , 1, 2 acting on δϕ − u†
+
+> tail
+
+. We next split each by ( a + b)2 ≤ (1 + 
+
+ξ0)a2 + (1 + 1 
+
+> ξ0
+
+)b2 into the band-limited part δϕ ∈ H ωmax and the tail u†
+
+> tail
+
+, and bound them separately. Writing CB and CN for the continuity constants of B and N λ† 
+
+> u
+
+, applying the inverse inequalities 
+
+∥v∥H1 ≤ Cinv ωmax ∥v∥L2 and ∥v∥H2 ≤ Cinv ω2max ∥v∥L2 to δϕ , we have 
+
+∥uk−1 + ϕ⋆ − udata ∥2 
+
+> L2
+
+≤ (1 + ξ0)∥δϕ ∥2 
+
+> L2
+
++  1 + 1
+
+> ξ0
+
+ O(δ2 
+
+> noise
+
++ ω−2p
+
+> max
+
+),η1∥B (uk−1 + ϕ⋆) − g∥2 
+
+> L2(∂Ω)
+
+≤ η1(1 + ξ0)C2
+
+> B
+
+ω2max ∥δϕ ∥2
+
+> L2
+
++ η1
+
+ 1 + 1
+
+> ξ0
+
+C2 
+
+> B
+
+O(ω−2( p−1) max ),
+
+22 η2∥N (uk−1 + ϕ⋆, λ †)∥2 
+
+> L2(Ω)
+
+≤ η2(1 + ξ0)C2 
+
+> N
+
+ω4max ∥δϕ ∥2
+
+> L2
+
++ η2
+
+ 1 + 1
+
+> ξ0
+
+C2 
+
+> N
+
+O(ω−2( p−2) max ).
+
+Here the constant Cinv is absorbed into CB and CN . With κ2 
+
+> u
+
+:= 1 + η1C2
+
+> B
+
+ω2max + η2C2 
+
+> N
+
+ω4max and 
+
+Cnoise , C trunc > 0 collecting the (1 + 1 
+
+> ξ0
+
+)-weighted noise and tail factors, using Lemma 2, we have ¯R†
+
+> u
+
+(uk−1 + ϕ⋆) ≤ (1 + ξ0)κ2 
+
+> u
+
+∥δϕ ∥2
+
+> L2
+
++ Cnoise δ2 
+
+> noise
+
++ Ctrunc ω−2( p−2) max . (21) Since the data term is one summand of ¯R(k−1)  
+
+> u
+
+, ∥uk−1 − udata ∥2 
+
+> L2
+
+≤ ¯R(k−1)  
+
+> u
+
+; with ˜ e(k−1)  
+
+> u
+
+= −(uk−1 −
+
+udata ) − u† 
+
+> tail
+
+− ϵnoise , the three-term bound ( a + b + c)2 ≤ 3( a2 + b2 + c2) yields 
+
+∥˜e(k−1)  
+
+> u
+
+∥2 
+
+> L2
+
+≤ 3 ¯R(k−1)  
+
+> u
+
++ O(δ2 
+
+> noise
+
++ ω−2( p−2) max ). (22) Combining (20), (21) and (22) together, we have ¯R†
+
+> u
+
+(uk−1 + ϕ⋆) ≤ 3(1 + ξ0)κ2
+
+> u
+
+(1 − αu) ¯R(k−1)  
+
+> u
+
++ Cnoise δ2 
+
+> noise
+
++ Ctrunc ω−2( p−2) max . (23) For a given ˆ αu ∈ (1 /2, 1), we can chose αu such that 3(1 + ξ0)κ2
+
+> u
+
+(1 − αu) < 1 − ˆαu, leading to ¯R†
+
+> u
+
+(uk−1 + ϕ⋆) ≤ (1 − ˆαu) ¯R(k−1)  
+
+> u
+
++ Cnoise δ2 
+
+> noise
+
++ Ctrunc ω−2( p−2) max . (24) For simplicity, we henceforth denote ˆ αu as αu. The minimiser property of the state update gives ¯R(k) 
+
+> u
+
+≤ ¯Ru(uk−1 + ϕ⋆; λk−1), the actual loss with the parameter frozen at λk−1. Since N (u, λ k−1) = 
+
+N (u, λ †) + Nλ(u, λ k−1 − λ†), Young’s inequality ( a + b)2 ≤ (1 + ξ1)a2 + (1 + 1 
+
+> ξ1
+
+)b2 relates the actual loss to its ideal counterpart, ¯Ru(u; λk−1) ≤ (1 + ξ1) ¯R†
+
+> u
+
+(u) + η2
+
+ 1 + 1
+
+> ξ1
+
+∥N λ(u, λ k−1 − λ†)∥2
+
+> L2(Ω)
+
+.
+
+Choosing ξ1 = αu/4 makes (1 + ξ1)(1 − αu) ≤ 1 − αu 
+
+> 2
+
+, so substituting (24) at u = uk−1 + ϕ⋆ into the previous display gives ¯R(k) 
+
+> u
+
+≤
+
+
+
+1 − αu
+
+> 2
+
+ ¯R(k−1)  
+
+> u
+
++ η2
+
+ 1 + 1
+
+> ξ1
+
+ Nλ(uk−1 + ϕ⋆, λ k−1 − λ†) 2 
+
+> L2(Ω)
+
++ O δ2 
+
+> noise
+
++ ω−2( p−2) max 
+
+. (25) It remains to control the discrepancy Nλ. Denote the Lipschitz constant of Nλ as Lλ, we have 
+
+∥N λ(u, e (k−1)  
+
+> λ
+
+)∥2 
+
+> L2(Ω)
+
+≤ L2
+
+> λ
+
+M 2 
+
+> u
+
+∥e(k−1)  
+
+> λ
+
+∥2
+
+> L2(Ω)
+
+. (26) Using Theorem 2 and Theorem 1, we have 
+
+∥e(k−1)  
+
+> λ
+
+∥2 
+
+> L2
+
+≤ C2
+
+> λ
+
+  ¯R(k−1)  
+
+> λ
+
++Lu∥e(k−1)  
+
+> u
+
+∥2
+
+> H2
+
+, ∥e(k−1)  
+
+> u
+
+∥2 
+
+> H2
+
+≤ C2
+
+> stab
+
+ω4max 
+
+  ¯R(k−1)  
+
+> u
+
++δ2
+
+> noise
+
++O(ω−2( p−2) max ),
+
+(27) denote Ccross, 1 = Cξ1 L2
+
+> λ
+
+M 2 
+
+> u
+
+C2 
+
+> λ
+
+with Cξi := (1 + 1 /ξ i) and ζu = O δ2 
+
+> noise
+
++ ω−2( p−2) max 
+
+, insert (27) and (26) into (25), we can obtain ¯R(k) 
+
+> u
+
+≤  1 − αu 
+
+> 2
+
++ η2Ccross, 1LuC2
+
+> stab
+
+ω4max 
+
+ ¯R(k−1)  
+
+> u
+
++ η2Ccross, 1 ¯R(k−1)  
+
+> λ
+
++ ζu, (28) The parameter update follows the same pattern. Define the ideal parameter loss ¯R†
+
+> λ
+
+(λ) := ∥N (u†, λ )∥2 
+
+> L2(Ω)
+
+= ∥A u† (λ − λ†)∥2
+
+> L2(Ω)
+
+,
+
+where Au† = Nλ is the linearized parameter operator of Theorem 2 and we used N (u†, λ †) = 0. With 
+
+λ† 
+
+> <ω max
+
+, λ† 
+
+> tail
+
+as in Lemma 2, set the band-limited error ˜ e(k−1)  
+
+> λ
+
+:= λ† 
+
+> <ω max
+
+− λk−1 = −e(k−1)  
+
+> λ
+
+− λ† 
+
+> tail
+
+∈Hωmax . By the density in Lemma 1, there exist a stage-independent width n⋆λ and an increment ψ⋆
+
+such that 
+
+∥˜e(k−1)  
+
+> λ
+
+− ψ⋆∥2 
+
+> L2(Ω)
+
+≤ (1 − αλ) ∥˜e(k−1)  
+
+> λ
+
+∥2
+
+> L2(Ω)
+
+.
+
+Since λk−1 + ψ⋆ − λ† = −(˜ e(k−1)  
+
+> λ
+
+− ψ⋆) − λ†
+
+> tail
+
+, the inequality ( a + b)2 ≤ (1 + ξ2)a2 + (1 + 1 
+
+> ξ2
+
+)b2 gives ¯R†
+
+> λ
+
+(λk−1 + ψ⋆) ≤ (1 + ξ2)∥A u† (˜ e(k−1)  
+
+> λ
+
+− ψ⋆)∥2 
+
+> L2
+
++ (1 + 1 
+
+> ξ2
+
+)∥A u† λ†
+
+> tail
+
+∥2 
+
+> L2
+
+. (29) 23 By Assumption 1, u† ∈ Hp ,→ L∞(Ω), so Au† is bounded, ∥A u† v∥L2 ≤ Lλ∥v∥L2 , while Theorem 2 gives the reverse stability bound ∥v∥L2 ≤ Cλ∥A u† v∥L2 . With ˜ e(k−1)  
+
+> λ
+
+= −e(k−1)  
+
+> λ
+
+− λ† 
+
+> tail
+
+and ∥A u† e(k−1)  
+
+> λ
+
+∥2 
+
+> L2
+
+=¯R†
+
+> λ
+
+(λk−1), the two terms of the split obey 
+
+∥A u† (˜ e(k−1)  
+
+> λ
+
+− ψ⋆)∥2 
+
+> L2
+
+≤ L2
+
+> λ
+
+∥˜e(k−1)  
+
+> λ
+
+− ψ⋆∥2 
+
+> L2
+
+≤ L2
+
+> λ
+
+(1 − αλ)∥˜e(k−1)  
+
+> λ
+
+∥2 
+
+> L2
+
+,
+
+∥˜e(k−1)  
+
+> λ
+
+∥2 
+
+> L2
+
+≤ C2
+
+> λ
+
+∥A u† ˜e(k−1)  
+
+> λ
+
+∥2 
+
+> L2
+
+≤ 2C2
+
+> λ
+
+  ¯R†
+
+> λ
+
+(λk−1) + ∥A u† λ†
+
+> tail
+
+∥2
+
+> L2
+
+,
+
+the four inequalities using, in order, the boundedness of Au† , the contraction, the stability bound, and (a + b)2 ≤ 2( a2 + b2). The tail term is controlled by the boundedness of Au† and Lemma 2 at s = 0, 
+
+∥A u† λ†
+
+> tail
+
+∥2 
+
+> L2
+
+≤ L2
+
+> λ
+
+∥λ†
+
+> tail
+
+∥2 
+
+> L2
+
+≤ L2 
+
+> λ
+
+ω−2p
+
+> max
+
+∥λ†∥2
+
+> Hp(Ω)
+
+.
+
+Substituting all of these into (29) gives ¯R†
+
+> λ
+
+(λk−1 + ψ⋆) ≤ κ2
+
+> λ
+
+(1 − αλ) ¯R†
+
+> λ
+
+(λk−1) + C′ 
+
+> trunc
+
+ω−2p
+
+> max
+
+∥λ†∥2 
+
+> Hp
+
+, κ2 
+
+> λ
+
+:= 2(1 + ξ2)L2
+
+> λ
+
+C2
+
+> λ
+
+.
+
+Similar to (24), by redefining αλ properly the above inequality can be written as ¯R†
+
+> λ
+
+(λk−1 + ψ⋆) ≤ (1 − αλ) ¯R†
+
+> λ
+
+(λk−1) + C′ 
+
+> trunc
+
+ω−2p 
+
+> max
+
+∥λ†∥2
+
+> Hp(Ω)
+
+, (30) with C′ 
+
+> trunc
+
+> 0 the parameter-side analog of Ctrunc , collecting Lλ, Cλ, the Young factor and the Lemma 2 tail constant. Defining the state perturbation operator P(j) 
+
+> u
+
+= N (uj , · ) − N (u†, · ), the Lipschitz dependence of N on u (Theorem 2, constant Lu) together with the second bound of (27) gives 
+
+∥P (j) 
+
+> u
+
+∥2 
+
+> L2
+
+≤ Lu∥e(j) 
+
+> u
+
+∥2 
+
+> H2
+
+≤ LuC2
+
+> stab
+
+ω4max ¯R(j) 
+
+> u
+
++ ζ′
+
+> u
+
+, (31) where ζ′ 
+
+> u
+
+:= LuC2
+
+> stab
+
+ω4max δ2 
+
+> noise
+
++ Lu O(ω−2( p−2) max ) collects the noise and tail contributions inherited from the H2-stability bound. Apply two Young splits, each using (31), to convert the two endpoints of (30). The minimiser property ¯R(k) 
+
+> λ
+
+≤ ¯Rλ(λk−1 + ψ⋆; uk) combined with N (uk, λ ) = N (u†, λ ) + P(k) 
+
+> u
+
+λ yields ¯R(k) 
+
+> λ
+
+≤ (1 + ξ3) ¯R†
+
+> λ
+
+(λk−1 + ψ⋆) + Cξ3
+
+ LuC2
+
+> stab
+
+ω4max ¯R(k) 
+
+> u
+
++ ζ′
+
+> u
+
+, (32) and the same split with P(k−1)  
+
+> u
+
+acting through uk−1 yields ¯R†
+
+> λ
+
+(λk−1) ≤ (1 + ξ4) ¯R(k−1)  
+
+> λ
+
++ Cξ4
+
+ LuC2
+
+> stab
+
+ω4max ¯R(k−1)  
+
+> u
+
++ ζ′
+
+> u
+
+. (33) Substitute (33) into the right-hand side of (30) and then plug the resulting bound for ¯R†
+
+> λ
+
+(λk−1+ψ⋆) into (32). Choose ξ4 > 0 so that (1+ ξ4)(1 −αλ) ≤ 1− 3αλ 
+
+> 4
+
+and then ξ3 > 0 so that (1+ ξ3)(1 − 3αλ 
+
+> 4
+
+) ≤ 1− αλ 
+
+> 2
+
+.This gives ¯R(k) 
+
+> λ
+
+≤  1 − αλ
+
+> 2
+
+ ¯R(k−1)  
+
+> λ
+
++ Ccross, 2 ¯R(k) 
+
+> u
+
++ C′ 
+
+> cross, 2
+
+¯R(k−1)  
+
+> u
+
++ ζλ, (34) with Ccross, 2 := Cξ3 LuC2
+
+> stab
+
+ω4max , C′ 
+
+> cross, 2
+
+:= (1 + ξ3)(1 − αλ)Cξ4 LuC2
+
+> stab
+
+ω4max and ζλ :=  Cξ3 + (1 + 
+
+ξ3)(1 − αλ)Cξ4
+
+ζ′ 
+
+> u
+
++ (1 + ξ3)C′ 
+
+> trunc
+
+ω−2p
+
+> max
+
+∥λ†∥2 
+
+> Hp
+
+.Substituting (28) into the Ccross, 2 ¯R(k) 
+
+> u
+
+term of (34) and using LuC2
+
+> stab
+
+ω4max ≤ Ccross, 2 in the resulting state diagonal, ¯R(k) 
+
+> λ
+
+≤
+
+
+
+1 − αλ 
+
+> 2
+
++ η2Ccross, 1Ccross, 2
+
+ ¯R(k−1)  
+
+> λ
+
++ ˜Ccross, 2 ¯R(k−1)  
+
+> u
+
++ ζλ + Ccross, 2ζu, (35) where ˜Ccross, 2 := Ccross, 2
+
+ 1 − αu 
+
+> 2
+
++ η2Ccross, 1Ccross, 2
+
+ + C′
+
+> cross, 2
+
+. Applying the same diagonal over-bound to (28) itself and pairing it with (35) gives the coupled system 
+
+¯R(k)
+
+> u
+
+¯R(k)
+
+> λ
+
+!
+
+≤ M ¯R(k−1) 
+
+> u
+
+¯R(k−1) 
+
+> λ
+
+!
+
++ ζ, ζ =  ζu, ζ λ + Ccross, 2ζu
+
+T,
+
+M := 
+
+M11 M12 
+
+M21 M22 
+
+
+
+, M11 := 1 − αu 
+
+> 2
+
++ η2Ccross, 1Ccross, 2, M12 := η2Ccross, 1,M22 := 1 − αλ 
+
+> 2
+
++ η2Ccross, 1Ccross, 2, M21 := ˜Ccross, 2,
+
+24 Since M12 , M 21 > 0, the discriminant ( M11 − M22 )2 + 4 M12 M21 > 0, so the eigenvalues of M are real and its spectral radius equals the larger one: 
+
+ρ(M) = M11 +M22  
+
+> 2
+
++ 12
+
+p(M11 − M22 )2 + 4 M12 M21 ≤ max( M11 , M 22 ) + pM12 M21 ,
+
+the inequality using √x + y ≤ √x + √y on x = ( M11 − M22 )2 and y = 4 M12 M21 . Set α := min( αu, α λ) ∈ (1 /2, 1), so that max( M11 , M 22 ) = 1 − α/ 2 + η2Ccross, 1Ccross, 2. Restrict the physics weight η2 by 
+
+η2 ≤ α2
+
+64 Ccross, 1 ˜Ccross, 2
+
+. (36) The definition of ˜Ccross, 2 with αu < 1 gives ˜Ccross, 2 ≥ Ccross, 2(1 − αu/2) ≥ Ccross, 2/2; substituting this and (36), 
+
+η2Ccross, 1Ccross, 2 ≤ α2Ccross, 2
+
+64 ˜Ccross, 2
+
+≤ α2
+
+32 , pM12 M21 =
+
+q
+
+η2Ccross, 1 ˜Ccross, 2 ≤ α
+
+8 .
+
+Insert both bounds into the spectral-radius estimate: 
+
+ρ(M) ≤ 1 − α 
+
+> 2
+
++ α2 
+
+> 32
+
++ α 
+
+> 8
+
+≤ 1 − 11 α 
+
+> 32
+
+=: ρ, 
+
+and α > 1/2 then gives ρ < 1 − α/ 4 < 7/8. All entries of M are non-negative, and M12 , M 21 > 0 makes M irreducible; the Perron–Frobenius theorem then produces a left eigenvector w = ( κ1, κ 2)T with κ1, κ 2 > 0 and wTM = ρ(M) wT ≤ ρ w T.Define J (k) := κ1 ¯R(k) 
+
+> u
+
++ κ2 ¯R(k) 
+
+> λ
+
+= wT  ¯R(k) 
+
+> u
+
+, ¯R(k)
+
+> λ
+
+T. Taking the inner product of the coupled system with w,
+
+J (k) ≤ (wTM)  ¯R(k−1)  
+
+> u
+
+, ¯R(k−1) 
+
+> λ
+
+T + wTζ ≤ ρ J (k−1) + ζ, ζ := κ1ζu + κ2(ζλ + Ccross, 2ζu).
+
+Iterating from J (0) ,
+
+J (k) ≤ ρkJ (0) +
+
+ k−1X
+
+> j=0
+
+ρj 
+
+ζ = ρkJ (0) + 1 − ρk
+
+1 − ρ ζ, 
+
+To extract per-component asymptotics, observe that ρ(M) < 1 guarantees ( I − M) is invertible with non-negative inverse, so the coupled system at k → ∞ yields ¯R(∞) ≤ (I − M)−1ζ entrywise. Under (36) together with ˜Ccross, 2 ≥ Ccross, 2/2, we have η2Ccross, 1Ccross, 2 ≤ α2/32, hence 1 − M11 , 1 − M22 ≥ α 
+
+> 2
+
+− α2 
+
+> 32
+
+≥ α 
+
+> 4
+
+, M12 M21 = η2Ccross, 1 ˜Ccross, 2 ≤ α2 
+
+> 64
+
+.
+
+Therefore det( I − M) = (1 − M11 )(1 − M22 ) − M12 M21 ≥ α2 
+
+> 16
+
+− α2 
+
+> 64
+
+= 3α2 
+
+> 64
+
+,
+
+and the matrix inversion gives ¯R(∞) 
+
+> u
+
+≤ 1det( I−M)
+
+(1 − M22 )ζu + M12 (ζλ + Ccross, 2ζu), (37) ¯R(∞) 
+
+> λ
+
+≤ 1det( I−M)
+
+M21 ζu + (1 − M11 )( ζλ + Ccross, 2ζu). (38) Substitute ζu = O(δ2 
+
+> noise
+
++ ω−2( p−2) max ) and ζλ = O(ω4max δ2 
+
+> noise
+
++ ω−2( p−2) max ) into the numerator of (37). The first term (1 − M22 )ζu is directly of order O(δ2 
+
+> noise
+
++ ω−2( p−2) max ) since 1 − M22 = O(1). The second term M12 ζλ pairs an O(ω−4max ) factor from M12 with the O(ω4max δ2 
+
+> noise
+
++ ω−2( p−2) max ) bound for 
+
+ζλ, giving O(δ2 
+
+> noise
+
++ ω−2p
+
+> max
+
+). The third term M12 Ccross, 2ζu pairs M12 Ccross, 2 = O(1) with ζu, giving 
+
+O(δ2 
+
+> noise
+
++ ω−2( p−2) max ). Hence ¯R(∞) 
+
+> u
+
+= O δ2 
+
+> noise
+
++ ω−2( p−2) max 
+
+. (39) For (38), M21 ζu pairs an O(ω4max ) factor from M21 with ζu, giving 
+
+M21 ζu = O ω4max δ2 
+
+> noise
+
++ ω−2( p−4) max 
+
+,
+
+and (1 − M11 )( ζλ + Ccross, 2ζu) is of the same order. Hence ¯R(∞) 
+
+> λ
+
+= O ω4max δ2 
+
+> noise
+
++ ω−2( p−4) max 
+
+. (40) 25 E Proof of Theorem 4 
+
+Proof. Using the stability estimate of Theorem 1 with s = 0, we have 
+
+∥uk − u†∥2 
+
+> L2
+
+≤ C2
+
+> stab
+
+  ¯R(k) 
+
+> u
+
++ δ2
+
+> noise
+
+ + O(ω−2p
+
+> max
+
+).
+
+According to Theorem 3, as k → ∞ , ¯R(k) 
+
+> u
+
+= O(δ2 
+
+> noise
+
++ ω−2( p−2) max ), so in the limit the state error satisfies 
+
+∥u∞ − u†∥2 
+
+> L2
+
+= O δ2 
+
+> noise
+
++ ω−2( p−2) max 
+
+,
+
+For the parameter field, Theorem 2 bounds ∥λk −λ†∥2 
+
+> L2
+
+by ¯R(k) 
+
+> λ
+
++Lu∥uk −u†∥2 
+
+> H2
+
+. Applying Theorem 1 with s = 2 to the state term and again letting k → ∞ gives 
+
+∥λ∞ − λ†∥2 
+
+> L2
+
+= O ω4max δ2 
+
+> noise
+
++ ω−2( p−4) max 
+
+.
+
+Denote g(ωmax ) = ω4max δ2 
+
+> noise
+
++ ω−2( p−4) max . Solving g′(ωmax ) = 0, we have that by selecting 
+
+ω⋆ 
+
+> max
+
+∼ δ−1/(p−2)  
+
+> noise
+
+,
+
+∥λk − λ†∥2 
+
+> L2
+
+and ∥uk − u†∥L2 achieve the optimal order (as k → ∞ ): 
+
+∥u∞ − u†∥2 
+
+> L2
+
+= O(δ2
+
+> noise
+
+), ∥λ∞ − λ†∥2 
+
+> L2
+
+= g(ω⋆
+
+> max
+
+) = O δ 2( p−4) /(p−2) 
+
+> noise
+
+.
+
+# References 
+
+[1] Mark A Anastasio, Jin Zhang, Dimple Modgil, and Patrick J La Rivi` ere. Application of inverse source concepts to photoacoustic tomography. Inverse Problems , 23(6):S21, 2007. [2] Simon R Arridge. Optical tomography in medical imaging. Inverse Problems , 15(2):R41–R93, 1999. [3] Juliana Atmadja and Amvrossios C Bagtzoglou. State of the art report on mathematical methods for groundwater pollution source identification. Environmental forensics , 2(3):205–214, 2001. [4] Wolfgang Bangerth. A framework for the adaptive finite element solution of large-scale inverse problems. SIAM Journal on Scientific Computing , 30(6):2965–2989, 2008. [5] Gang Bao, Xiaojing Ye, Yaohua Zang, and Haomin Zhou. Numerical solution of inverse problems by weak adversarial networks. Inverse Problems , 36(11):115003, 2020. [6] Johnathan M Bardsley and Per Christian Hansen. Mcmc algorithms for computational uq of nonnegativity constrained linear inverse problems. SIAM Journal on Scientific Computing ,42(2):A1269–A1288, 2020. [7] Martin Benning and Martin Burger. Modern regularization methods for inverse problems. Acta numerica , 27:1–111, 2018. [8] Tan Bui-Thanh, Omar Ghattas, James Martin, and Georg Stadler. A computational framework for infinite-dimensional bayesian inverse problems part i: The linearized case, with application to global seismic inversion. SIAM Journal on Scientific Computing , 35(6):A2494–A2523, 2013. [9] Jingrun Chen, Xurong Chi, Zhouwang Yang, et al. Bridging traditional and machine learning-based algorithms for solving pdes: the random feature method. J Mach Learn , 1(3):268–298, 2022. [10] George Cybenko. Approximation by superpositions of a sigmoidal function. Mathematics of control, signals and systems , 2(4):303–314, 1989. 26 [11] Zhao Ding, Chenguang Duan, Yuling Jiao, Jerry Zhijian Yang, Cheng Yuan, and Pingwen Zhang. Nonlinear assimilation via score-based sequential langevin sampling. arXiv preprint arXiv:2411.13443 , 2024. [12] Chenguang Duan, Junjun Huang, Yuling Jiao, Xiliang Lu, and Jerry Zhijian Yang. Current density impedance imaging with pinns. Journal of Computational and Applied Mathematics , 452:116120, 2024. [13] Chenguang Duan, Yuling Jiao, Jerry Zhijian Yang, and Pingwen Zhang. Recovering the source term in elliptic equation via deep learning: method and convergence analysis. East Asian Journal on Applied Mathematics , 14(3):460–489, 2024. [14] A El Badia, A El Hajj, M Jazar, and H Moustafa. Lipschitz stability estimates for an inverse source problem in an elliptic equation from interior measurements. Applicable Analysis , 95(9):1873–1890, 2016. [15] Abdellatif El Badia and Takaaki Nara. An inverse source problem for helmholtz’s equation from the cauchy data with a single wave number. Inverse Problems , 27(10):105001, 2011. [16] Han Gao, Matthew J Zahr, and Jian-Xun Wang. Physics-informed graph neural galerkin networks: A unified framework for solving pde-governed forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 390:114502, 2022. [17] David Gottlieb and Chi-Wang Shu. On the Gibbs phenomenon and its resolution. SIAM Review ,39(4):644–668, 1997. [18] Qinglong He and Yanfei Wang. Reparameterized full-waveform inversion using deep neural net-works. Geophysics , 86(1):V1–V13, 2021. [19] Kurt Hornik. Approximation capabilities of multilayer feedforward networks. Neural networks ,4(2):251–257, 1991. [20] Marco A Iglesias, Kody JH Law, and Andrew M Stuart. Ensemble kalman methods for inverse problems. Inverse Problems , 29(4):045001, 2013. [21] Xia Ji, Zihan Jiang, Pengcheng Song, and Cheng Yuan. Potential identification via tikhonov-pinns. 
+
+Inverse Problems , 41(11):115008, 2025. [22] Yuling Jiao, Di Li, Xiliang Lu, Jerry Zhijian Yang, and Cheng Yuan. A gaussian mixture distribution-based adaptive sampling method for physics-informed neural networks. Engineer-ing Applications of Artificial Intelligence , 135:108770, 2024. [23] Bangti Jin, Xiyao Li, and Xiliang Lu. Imaging conductivity from current density magnitude using neural networks. Inverse Problems , 38(7):075003, 2022. [24] Bangti Jin, Xiyao Li, Qimeng Quan, and Zhi Zhou. Conductivity imaging from internal mea-surements with mixed least-squares deep neural networks. SIAM Journal on Imaging Sciences ,17(1):147–187, 2024. [25] Edward J Kansa and Pavel Holoborodko. On the ill-conditioned nature of C ∞ RBF strong collocation. Engineering Analysis with Boundary Elements , 78:26–30, 2017. [26] Wen Li, Xiaoyan Liu, and Guangming Yao. A local meshless collocation method for solving certain inverse problems. Engineering Analysis with Boundary Elements , 57:9–15, 2015. [27] Lu Lu, Raphael Pestourie, Wenjie Yao, Zhicheng Wang, Francesc Verdugo, and Steven G Johnson. Physics-informed neural networks with hard constraints for inverse design. SIAM Journal on Scientific Computing , 43(6):B1105–B1132, 2021. [28] Siddhartha Mishra and Roberto Molinaro. Estimates on the generalization error of physics-informed neural networks for approximating pdes. IMA Journal of Numerical Analysis , 43(1):1– 43, 2023. 27 [29] Maryam Barati Moghaddam, Mehdi Mazaheri, and Jamal Mohammad Vali Samani. Inverse modeling of contaminant transport for pollution source identification in surface and groundwaters: a review. Groundwater for Sustainable Development , 15:100651, 2021. [30] Mervin E Muller. A note on a method for generating points uniformly on n-dimensional spheres. 
+
+Communications of the ACM , 2(4):19–20, 1959. [31] Adrian Nachman, Alexandru Tamasan, and Alexandre Timonov. Recovering the conductivity from a single measurement of interior data. Inverse Problems , 25(3):035014, 2009. [32] Martin Norgren. Chebyshev collocation and newton-type optimization methods for the inverse problem on nonuniform transmission lines. IEEE transactions on microwave theory and tech-niques , 53(5):1561–1568, 2005. [33] Guofei Pang, Lu Lu, and George Em Karniadakis. fpinns: Fractional physics-informed neural networks. SIAM Journal on Scientific Computing , 41(4):A2603–A2626, 2019. [34] Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred Hamprecht, Yoshua Bengio, and Aaron Courville. On the spectral bias of neural networks. In International conference on machine learning , pages 5301–5310. PMLR, 2019. [35] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. [36] Leonid I Rudin, Stanley Osher, and Emad Fatemi. Nonlinear total variation based noise removal algorithms. Physica D: nonlinear phenomena , 60(1-4):259–268, 1992. [37] Albert Tarantola. Inversion of seismic reflection data in the acoustic approximation. Geophysics ,49(8):1259–1266, 1984. [38] Andrei N Tikhonov. Solution of incorrectly formulated problems and the regularization method. 
+
+Sov Dok , 4:1035–1038, 1963. [39] Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. Deep image prior. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 9446–9454, 2018. [40] Tristan van Leeuwen and Felix J Herrmann. A penalty method for PDE-constrained optimization in inverse problems. Inverse Problems , 32(1):015007, 2016. [41] John Von Neumann et al. Various techniques used in connection with random digits. John von Neumann, Collected Works , 5(768-770):1, 1963. [42] Mingxing Weng, Zhiping Mao, and Jie Shen. Deep collocation method: A framework for solving pdes using neural networks with error control. SIAM Journal on Scientific Computing , 48(1):C77– C102, 2026. [43] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, 2023. [44] Wei Xiong, Xiangyun Long, St´ ephane PA Bordas, and Chao Jiang. The deep finite element method: A deep learning framework integrating the physics-informed neural networks with the finite element method. Computer Methods in Applied Mechanics and Engineering , 436:117681, 2025. [45] Jinchao Xu and Xiaofeng Xu. Randomized greedy algorithms for neural network optimization in solving partial differential equations. Journal of Scientific Computing , 105(1):26, 2025. [46] Zhi-Qin John Xu, Yaoyu Zhang, Tao Luo, Yanyang Xiao, and Zheng Ma. Frequency principle: Fourier analysis sheds light on deep neural networks. arXiv preprint arXiv:1901.06523 , 2019. 28 [47] Hui Zhang and Jijun Liu. Solving an inverse source problem by deep neural network method with convergence and error analysis. Inverse Problems , 39(7):075013, 2023. [48] Mengmeng Zhang, Qianxiao Li, and Jijun Liu. On stability and regularization for data-driven solution of parabolic inverse source problems. Journal of Computational Physics , 474:111769, 2023. 29

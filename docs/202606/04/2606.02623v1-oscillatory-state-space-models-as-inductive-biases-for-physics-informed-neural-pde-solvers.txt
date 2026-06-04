@@ -1,0 +1,4712 @@
+Title: Oscillatory State-Space Models as Inductive Biases for Physics-Informed Neural PDE Solvers
+
+URL Source: https://arxiv.org/pdf/2606.02623v1
+
+Published Time: Wed, 03 Jun 2026 00:03:32 GMT
+
+Number of Pages: 40
+
+Markdown Content:
+# Oscillatory State-Space Models as Inductive Biases for Physics-Informed Neural PDE Solvers 
+
+Abhishek Chandra ∗
+
+KTH Royal Institute of Technology Stockholm, Sweden 
+
+Taniya Kapoor ∗,†
+
+Wageningen University & Research Wageningen, The Netherlands 
+
+taniya.kapoor@wur.nl 
+
+Abstract 
+
+Solving time-dependent partial differential equations (PDEs) is an important prob-lem in computational science and engineering. Physics-informed neural networks (PINNs) learn PDE solutions from governing equations. However, accurately capturing temporal evolution remains challenging. Recent sequence-model-based approaches parameterize time evolution using general-purpose sequence models, which capture temporal dependencies but do not explicitly encode the structured dynamics of PDE solutions. In addition, their memory requirements can scale unfa-vorably with sequence length and resolution, limiting applicability in large-scale or high-dimensional settings. This work introduces a PINN approach that incorporates oscillatory state-space dynamics to represent the modal structure of PDE solutions. The proposed method leverages a linear-oscillator-based temporal evolution, to-gether with a PDE-aware spectral basis in space. This design enables closed-form spatial differentiation and consistent enforcement of boundary conditions. The method is evaluated on forward, inverse, and high-dimensional PDE problems, including cases up to 100 spatial dimensions. The results show improved accu-racy and reduced memory usage compared to recent sequence-model-based PINN approaches. Overall, this work highlights the benefits of incorporating structured dynamical priors into the temporal evolution of neural PDE solvers and suggests designing more physics-aligned and computationally efficient PINN architectures. 
+
+1 Introduction 
+
+Partial differential equations (PDEs) are ubiquitous across science and engineering [ 1]. Physics-informed neural networks (PINNs) [ 2 , 3] are a mesh-free machine learning method that can simulate PDEs via well-posed governing equations and incorporate sparse measurements to solve inverse problems. Although successful [ 4, 5], PINNs face challenges for time-dependent PDEs, including high-frequency dynamics, stiffness, long-time integration, high-order operators, and high-dimensional domains [ 6 –10 ]. The temporal component poses particular difficulty, motivating works on causal and curriculum training [6, 11], time-marching and domain-decomposition methods [12–15]. In addition, several architectural advancements that evolve PDE solutions via sequence backbones such as Transformers or modern state-space models [ 16 –18 ] have been proposed and are hereafter referred to as sequence-model-based PINNs . These methods provide better accuracy than coordinate multi-layer perceptron (MLP) PINNs, owing to the expressivity of the underlying sequence backbones. However, they also inherit design choices common to language and generic time-series modeling that do not reflect the modal evolution induced by PDE operators. This can be visualized in Figure 1, top row: on convection, all three sequence-model baselines (PINNsFormer [ 16 ], PINNMamba [ 17 ],                                
+
+> ∗Both authors contributed equally to this work.
+> †Corresponding author: Taniya Kapoor ( taniya.kapoor@wur.nl ). Preprint.
+> arXiv:2606.02623v1 [cs.NE] 29 May 2026 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Convection u(x, t)
+> 0.0 0.4 0.8
+> t
+> 1
+> 0
+> 1
+> normalised latent  latent mode 1
+> 0.0 0.4 0.8
+> t
+> 1
+> 0
+> 1
+> normalised latent  latent mode 2
+> 0.0 0.4 0.8
+> t
+> 1
+> 0
+> 1
+> normalised latent  latent mode 3
+> 0.0 0.4 0.8
+> t
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> RMSE over x
+> spatial RMSE
+> 0.0 0.4 0.8
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Wave u(x, t)
+> 0.0 0.4 0.8
+> t
+> 1
+> 0
+> 1
+> normalised latent  latent mode 1
+> 0.0 0.4 0.8
+> t
+> 1
+> 0
+> 1
+> normalised latent  latent mode 2
+> 0.0 0.4 0.8
+> t
+> 1
+> 0
+> 1
+> normalised latent  latent mode 3
+> 0.0 0.4 0.8
+> t
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> RMSE over x
+> spatial RMSE
+> OSSM-PINN-IMEX (ours) PINNsFormer PINNMamba ML-PINN NeuSA
+
+Figure 1: Latent dynamics on convection (top) and wave (bottom). Columns: solution heatmap, top-3 latent dimensions per method, predicted-field error. OSSM-PINN produces bounded oscillatory latents, yielding lower error than sequence-model and neuro-spectral baselines. ML-PINN [ 18 ]) collapse their latent state into smooth, unbounded drifts rather than the oscillations the PDE inherits from its dispersion relation, leading to higher error. A second issue is computational: the pseudo-sequence strategy scales unfavorably with spatial resolution, exhausting single-GPU memory on coupled 2D problems and becoming infeasible in high-dimensional, non-rectangular, and inverse problems with real-world data settings. A complementary direction, neuro-spectral architectures such as NeuSA [ 19 ], projects the spatial dependence onto a fixed basis and integrates the resulting coefficient dynamics through an ordinary differential equation (ODE)-type rollout. Embedding modal structure into the architecture produces visibly improved latent dynamics; Figure 1, bottom row, shows that on the wave equation, NeuSA’s latents oscillate in a way the sequence-model baselines do not. Two challenges nevertheless remain: the time evolution is not learned from the residual, and the rollout is a sequential ODE solve that cannot be parallelized. Extended related work is discussed in SM §A. These observations lead to an open question: what inductive bias should the temporal evolution of a neural PDE solver encode? The answer to this question should satisfy several constraints. The temporal evolution should be learnable from the residual , so the same architecture transfers across problem classes. It should produce modal trajectories by construction , so that natural frequencies, phase shifts, and damping patterns are available to the optimizer as the default trajectory shape. It should be parallelizable in time , avoiding the O(N 2) cost of attention and the O(N ) cost of sequential rollouts. It should be compact , so that capacity is spent on representing the PDE rather than on a generic sequence prior; and it should decouple from the spatial representation , so that the basis can be chosen to provide exact spatial derivatives by definition and, if possible, hard boundary-condition enforcement. These requirements are realized jointly in the architecture proposed in this paper, oscillatory state-space model physics-informed neural networks (OSSM-PINNs). Temporal evolution is carried out by a linear oscillatory state-space (LinOSS) block [ 20 ], and the spatial representation is provided by a fixed analytical basis chosen per problem family. The two halves are coupled so that the architecture learns time-evolving modal coefficients rather than an unconstrained space-time map (x , t) 7 → u(x , t) .The method is evaluated across forward, inverse, high-dimensional, non-rectangular, large-domain, and problem-adapted-basis settings and is found to extend the reach of neural PDE solvers into regimes where sequence-model and neuro-spectral baselines face challenges. The contributions of this work are as follows. (1) This paper identifies the temporal component of a neural PDE solver as the principal locus at which physics-aligned inductive bias should contribute, and shows that an oscillatory state-space recurrence whose spectrum is constrained to undamped oscillation is a structurally appropriate prior for this role. (2) OSSM-PINN is introduced, a PINN architecture in which an oscillatory state-space cell is coupled to a fixed spatial basis through a modewise decoder, with a single backbone applied unchanged across every benchmark. (3) Empirical results across forward, inverse, high-dimensional, non-rectangular, and large-domain benchmarks indicate that the proposed architecture addresses, under one training recipe, a set of PINN failure modes, with PDE-specific characteristic frequencies recovered from the residual. (4) A cell-swap 2analysis, in which only the temporal cell is replaced while the encoder, decoder, basis, optimizer, and parameter budget are held fixed, indicates that the observed performance is attributable to the oscillatory eigenstructure of the temporal cell rather than to capacity, basis, or decoder. 
+
+2 Method Time (t) 
+
+> Space (x)
+> u0
+> Initial
+> condition
+> MLP
+> encoder
+> LinOSS
+> block
+> MLP
+> decoder
+> Temporal embedding
+> ge
+> gd
+> Spatial
+> basis
+> Spatio -temporal
+> solution u
+> Boundary
+> encoded u
+> Hard boundary
+> condition
+> Total
+> loss
+> Optimization
+> PDE
+> loss
+> IC
+> loss
+
+Figure 2: OSSM-PINN architecture: The initial condition is encoded into an oscilla-tory LinOSS latent state, whose temporal roll-out produces modal coefficients through an MLP decoder. Coefficients are combined with spatial basis and boundary factor to form the spatio-temporal solution, which is trained through physics-informed loss. This section introduces OSSM-PINNs for solv-ing time-dependent PDEs. Let Ω ⊂ Rd
+
+be a spatial domain and [0 , T ] the time inter-val. The abstract PDE could be represented as 
+
+F(u , ut, utt , ∇u, ∆u , . . . , x, t) = 0 on Ω × [0 , T ],where u is the unknown, with initial condition 
+
+u(x , 0) = u 0(x) , boundary condition B[u](x , t) = 0 
+
+on ∂Ω × [0 , T ]. Standard PINNs learn a coordinate map (x , t) 7 → u(x , t) through a multi-layer percep-tron evaluated at collocation points in the compu-tational domain. OSSM-PINN takes a different ap-proach by decoupling the space-time treatment, as de-scribed in detail in the following subsections. The ar-chitecture of OSSM-PINN is shown in Figure 2. The pseudo code of the method is presented in SM §B. 
+
+2.1 Modal Factorization 
+
+OSSM-PINN approximates the PDE solution as 
+
+bu(x , t) = D(x) 
+
+> K
+
+X
+
+> k=1
+
+ck(h(t)) ϕk(x) + g(x) , (1) where {ϕk}Kk=1 are spatial basis functions, h(t) ∈ RH is a temporal latent state, ck(·) are scalar coefficients generated by a shared modewise decoder gd : RH → RK (extended to RK×q for vector-valued PDEs of output dimension q), D(x) and g(x) are used for boundary-condition handling. The neural network thus does not learn an unconstrained space-time field but instead learns a finite set of time-evolving modal coefficients. As the basis is analytical, spatial derivatives of any order can be computed in closed form, and boundary-factor terms could be leveraged through Leibniz rule (§2.3), avoiding autograd evaluations through a spatial network for high-order operators. 
+
+2.2 Oscillatory Temporal Evolution 
+
+This subsection specifies the temporal evolution leading to the modal coefficients in (1) . The latent trajectory is initialized from the initial condition, evolved through forced linear oscillators, and discretized into a uniform time grid via a parallel scan. The initial latent state is generated by an encoder ge : RNIC q → R2H , a MLP that maps a fixed sample U0 = [u 0(x IC 1 ), . . . , u0(x IC  
+
+> NIC
+
+)] of the initial condition (of dimension NIC q) to the 2H-dimensional initial LinOSS state (y0, z 0) = 
+
+ge(U0). The latent state is then propagated by the state-space LinOSS cell, defined for hidden states 
+
+y(t) , z (t) ∈ RH by 
+
+˙y = z, ˙z = −A y + B s (t) , (2) where A ∈ RH×H is a nonnegative diagonal matrix parameterized as A = ReLU( bA) with bA ∈
+
+RH×H a freely learnable diagonal matrix, B ∈ RH is a learnable input projection, and s(t) = t /T is a normalized time forcing. The temporal feature passed to the modewise decoder is h(t) = y(t) ∈ RH .With Ai ≥ 0, each hidden coordinate is a forced harmonic oscillator with angular frequency 
+
+ωi = √Ai, and the continuous-time eigenvalues lie on the imaginary axis at ±i√Ai.Two stable discretizations are used [20]. The implicit-explicit (IMEX) scheme 
+
+zn = zn−1 + ∆t ( −Ay n−1 + Bs n), yn = yn−1 + ∆t zn, (3) is symplectic for the autonomous part and has a discrete spectrum on the unit circle, suiting conserva-tive dynamics. The implicit (IM) scheme 
+
+S = ( I + ∆t 2A)−1, zn = S(zn−1 − ∆t Ay n−1 + ∆t Bs n), yn = yn−1 + ∆t zn, (4) 3introduces controlled dissipation with a discrete spectrum strictly inside the unit disk for Ai > 0,suiting dissipative dynamics. The two models are denoted OSSM-PINN-IMEX and OSSM-PINN-IM. Both discretizations admit the linear-recurrence form ξn+1 = M ξ n + Fn with ξn = [ yn; zn] ∈ R2H ,where M depends on the chosen scheme and Fn carries the discrete forcing. This recurrence is associative under (M2, F 2) ◦ (M1, F 1) = ( M2M1, M 2F1 + F2), so the full Nt-step trajectory is computed by a parallel scan [ 21 ] in O(log Nt) depth on parallel hardware, in contrast to the O(Nt)
+
+depth of sequential integrators. The output of the rollout is the trajectory {h(t n)}Nt
+
+> n=0
+
+, which is then mapped through the modewise decoder gd : RH → RK to generate, at each time step, the K modal coefficients {ck(h(t n)) }Kk=1 that drive the spatial expansion in (1) , where K denotes the number of spatial basis functions. 
+
+2.3 Spatial Basis and Boundary-Condition Enforcement 
+
+The spatial basis is chosen per PDE domain and boundary condition. Periodic problems on [a, b ] use 
+
+K Fourier features ϕk(x) ∈ { 1, sin(2 πk (x −a)/(b−a)) , cos(2 πk (x −a)/(b−a)) } for k = 1 , . . . , K ;homogeneous Dirichlet problems on intervals use the sine modes ϕk(x) = sin( kπ (x − a)/(b − a)) .Multi- dimensional rectangular domains use the tensor product Φk(x) = Qdj=1 ϕ(j) 
+
+> kj
+
+(x j ) over multi-indices k = ( k1, . . . , k d) with kj = 1 , . . . , K j , giving K = Qdj=1 Kj effective basis functions. When the basis itself does not enforce the boundary condition, a smooth boundary factor D(x) is applied to the raw modal sum. For homogeneous Dirichlet conditions on Ω = Qdj=1 [aj , b j ]
+
+D(x) = 
+
+> d
+
+Y
+
+> j=1
+
+(x j − aj )( bj − xj )(( bj − aj )/2) 2 (5) vanishes on ∂Ω, yielding bu = D buraw +g with the raw modal sum buraw (x , t) = PKk=1 ck(h(t)) ϕk(x) .Spatial derivatives of the wrapped prediction follow by the Leibniz rule, ∂m 
+
+> x
+
+bu = Pmℓ=0 
+
+ mℓ
+
+∂ℓ
+
+> x
+
+D ·
+
+∂m−ℓ 
+
+> x
+
+buraw + ∂m 
+
+> x
+
+g. Basis values {ϕk(x i)} and their derivatives, together with the derivatives of D,are precomputed at the fixed collocation points {xi}Nx
+
+> i=1
+
+.
+
+2.4 Training Objective and Algorithm Algorithm 1 OSSM-PINN training. 
+
+Require: Operator F, IC u0, basis {ϕk }; (inv) data 
+
+{(x i, ti, uobs  
+
+> i
+
+)}, loss weights λ 
+
+> 1:
+
+for iter = 1 , . . . , N do  
+
+> 2:
+
+(y0, z 0) ← ge(u 0); {hn}Nt 
+
+> n=0
+
+←
+
+LinOSS( y0, z 0) 
+
+> 3:
+
+bu(x i, tn) ← P 
+
+> k
+
+ck (hn) ϕk (x i) 
+
+> 4:
+
+L ← λPDE ∥R (bu) ∥2 + λIC ∥bu( ·, 0) −u0∥2 
+
+> 5:
+
+(inv) L += λD
+
+P
+
+> i
+
+(bu(x i, ti)−uobs  
+
+> i
+
+)2 
+
+> 6:
+
+Update θ ( and unknown PDE parameters if in-verse )  
+
+> 7:
+
+end for 
+
+The temporal evolution of §2.2 and the spa-tial basis of §2.3 are combined to form the prediction bu(x , t) in (1) , which is trained by minimizing a physics-informed loss. Let X =
+
+{xi}Nx 
+
+> i=1
+
+be the spatial collocation points and let 
+
+{tn}Nt 
+
+> n=0
+
+be the uniform time grid produced by the LinOSS rollout. Temporal derivatives re-quired by F are computed from the predicted sequence {bu(x i, tn)} via pth-order finite differ-ences ( p ∈ { 4, 6}, sixth-order by default) with one-sided stencils near the time boundaries. The training objective is 
+
+L = λPDE 
+
+Nx(Nt + 1) 
+
+X
+
+> i,n
+
+∥F (bu; x i, tn)∥22 + λIC 
+
+Nx
+
+X
+
+> i
+
+∥bu(x i, 0) − u0(x i)∥22, (6) where F(bu; x i, tn) denotes the PDE differential operator evaluated on the prediction at the grid point 
+
+(x i, tn). The hyperparameters λPDE and λIC denoted the loss weights. Optimization uses an Adam warm-up phase followed by L-BFGS. The full training procedure, including the modification used for inverse problems, is summarized in Algorithm 1. 
+
+2.5 Approximation Guarantees 
+
+The modal factorization in (1) , together with the discretization choices in §2.2 and §2.4, admits a residual-loss bound that vanishes as the basis size, the LinOSS hidden width, and the inverse 4time step grow. The result is a composition of three factors: spectral basis truncation, the universal approximation property of the LinOSS cell [ 20 ], and the pth-order accuracy of the finite-difference temporal derivative. 
+
+Proposition 1 (Residual consistency) . Let Ω ⊂ Rd be compact, let u⋆ : Ω × [0 , T ] → Rq be a solution of the PDE with F locally Lipschitz in its arguments on a bounded neighborhood of u⋆,and let u⋆ admit the modal representation u⋆ = D(x) P∞ 
+
+> k=1
+
+ak(t) ϕk(x) + g(x) with D, g, {ϕk}
+
+sufficiently smooth and the basis compatible with the prescribed boundary condition. Let mx, m t be the highest spatial and temporal derivative orders in F, and denote by εbasis (K) and εcoeff (K, H, θ )
+
+the Cmx,m t (Ω × [0 , T ]) -norm errors of, respectively, the order-K modal truncation of u⋆ and the OSSM-PINN approximation buK,H,θ at fixed truncation. Assume εbasis (K) → 0 as K → ∞ , and that for each K there exists a parameterization θ such that εcoeff (K, H, θ ) → 0 as the hidden width H and decoder capacity grow. Then buK,H,θ → u⋆ in the Cmx,m t norm, and the continuous residual converges to zero in L2. If temporal derivatives are evaluated by a consistent pth-order finite-difference scheme on a uniform grid with step ∆t , the discrete PDE residual term in (6) satisfies 
+
+1
+
+Nx(Nt + 1) 
+
+X
+
+> i,n
+
+∥F (buK,H,θ ; x i, tn)∥22 ≤ C  εbasis (K)2 + εcoeff (K, H, θ )2 + ∆t 2p , (7) 
+
+for C > 0 depending on the Lipschitz constant of F and on derivative bounds for buK,H,θ .
+
+Corollary 1 (Exactness for finite-mode dynamics) . If u⋆ has exactly K active modes, a(t) is realized exactly by the OSSM-PINN cell and decoder, and the boundary condition is enforced exactly by D, g,and the basis, then εbasis = εcoeff = 0 and (7) reduces to O(∆t 2p).
+
+3 Experiments 
+
+Goal: The empirical evaluations aim to demonstrate four key advantages of OSSM-PINN. First, OSSM-PINN accurately solves time-dependent PDEs with stiff, oscillatory, high-order, nonlinear, and high-dimensional dynamics, outperforming existing sequence-model-based and neuro-spectral PINN approaches. Second, the performance gains arise from the proposed oscillator-spectral inductive bias rather than increased model capacity. Third, the same architecture applies to forward problems, inverse problems, problem-adapted bases, non-rectangular domains, and large spatial domains. Fourth, the modal factorization leads to compact memory usage and fast inference relative to sequence-model-based baselines. 
+
+Experiment setup: OSSM-PINN is evaluated on twelve time-dependent PDE benchmarks spanning forward, inverse, non-rectangular geometry, high-dimensional, and problem-adapted-basis settings. The suite includes transport, reaction, wave, beam, Taylor–Green vortex, triangular-domain heat, Schrödinger in 5 and 100 spatial domains, KdV inverse recovery, and sea surface temperature (SST) advection–diffusion [ 22 ]. Full equations and benchmark details are given in SM §E and Table 5, with overview visualizations in Figures 10 and 11. The baselines are PINNsFormer [ 16 ], PINNMamba [ 17 ], ML-PINN [ 18 ], and NeuSA [ 19 ] under the same 24 GiB single-GPU compute envelope. Methods exceeding memory are marked OOM; ST and IG denote NeuSA stiff-integrator failure and geometry infeasibility. Both OSSM-PINN-IM and OSSM-PINN-IMEX are reported, using the same backbone across all benchmarks and changing only the PDE residual, spatial basis, number of modes, collocation budget, and temporal rollout length. Hyperparameters for OSSM-PINN and all four baselines are collected in SM §K Tables 15–19. 
+
+Evaluation: Approximately comparable parameter counts are maintained across all models to highlight advantages from the oscillatory-spectral inductive bias rather than overparameterization. All models are trained using Adam warm-up followed by L-BFGS with strong-Wolfe line search. Evaluation metrics are relative mean absolute error (rMAE), relative root mean squared error (rRMSE), and maximum error defined in SM §D. Unless stated otherwise, results are averaged over three random seeds s ∈ { 0, 1, 2}; seed-to-seed variability is shown in Figure 37. 
+
+3.1 Forward Time-Dependent PDEs 
+
+The first experiment evaluates whether the proposed modal architecture generalizes across diverse time-dependent PDE regimes (Exp. 1 in SM §C Table 5), including transport, reaction, hyperbolic, and high-order dynamics. Table 1 summarizes the results, with detailed rMAE, rRMSE, and maximum-error in SM §E Table 7. OSSM-PINN is consistently the most accurate method across the forward 50.0 2.5 5.0                  
+
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Reference u(x, t)
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> PINNsFormer PINNMamba ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours)
+
+Figure 3: Convection ( β = 50 ): predicted u(x, t ) fields and absolute errors for each method. 0.0 2.5 5.0                  
+
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Reference u(x, t)
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.5
+> 1.0
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.5
+> 1.0
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.5
+> 1.0
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.5
+> 1.0
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.5
+> 1.0
+> 0.0
+> 0.4
+> 0.8
+> t
+> Predicted u(x, t)
+> 0.0 2.5 5.0
+> x
+> 0.0
+> 0.4
+> 0.8
+> t
+> Absolute error
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.5
+> 1.0
+> PINNsFormer PINNMamba ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours)
+
+Figure 4: Reaction: predicted u(x, t ) fields and absolute errors for each method. benchmarks, with the largest gains on high-frequency convection, wave propagation, and Euler– Bernoulli beam problems. These results indicate that the oscillator–spectral factorization is effective across both first- and second-order-in-time PDEs, as well as high-order spatial operators. Figures 3 and 4, together with SM §E Figures 12, 13, and 14–15, show that OSSM-PINN closely matches the reference fields while avoiding common baseline failure modes such as near-zero collapse and spurious oscillations. A hyperparameter sensitivity analysis in Table 12 confirms that the proposed model is robust to variations in mode count and rollout depth. 
+
+Spectral and latent structure: Figures 5 and 6 probe the mechanism behind these gains. In the wave benchmark, OSSM-PINN preserves the reference Fourier spectrum while baselines either introduce spurious high-frequency content or do not match the ground truth. In latent space, the dominant LinOSS frequencies align with analytical PDE dispersion across convection, wave, and Euler–Bernoulli benchmarks. These diagnostics confirm that OSSM-PINN improves accuracy by learning physically grounded modal time scales rather than acting as a generic sequence model. Additional spectral and latent results are in SM §F Figure 16 and Figures 17, 18, 19, 20, and 21. 
+
+3.2 Ablations: Which Components Matter? 
+
+Table 2: Architecture ablations (rMAE, IMEX). “Default” is the full OSSM-PINN; each row re-moves or replaces one component. 
+
+Variant Conv. β=50 Euler-Bern. Wave Default 3.04e-5 6.72e-5 4.15e-5 
+
+− IC encoder 5.37e-5 3.84e-2 7.30e-2 
+
+− MLP decoder 1.27e-4 4.34e-5 6.79e-5 
+
+− Fourier basis 7.10e-1 9.95e-3 1.00e+0 
+
+− 6th-order FD 2.75e-2 1.24e-4 3.99e-4 
+
+− FP64 7.97e-4 2.38e-3 8.30e-3 
+
+− LinOSS 1.00e+0 1.00e+0 1.00e+0 
+
+This section analyzes the contribution of each structural component (Exp. 2 in SM §C Table 5). Each ablation removes or alters one compo-nent at a time and is evaluated on three one-dimensional benchmarks: convection ( β = 50 ), wave, and Euler–Bernoulli beam. The ablation results are presented in Table 2 for the IMEX discretization; the full table for both IM and IMEX variants is SM §G Table 8. The results indicate that the performance gains are 6Table 1: Performance on twelve PDE benchmarks. Best in blue , second in green, third in red. Italic factors: improvement over best baseline. 
+
+PDE PINNsFormer PINNMamba ML-PINN NeuSA OSSM-PINN-IM 
+
+> (ours)
+
+OSSM-PINN-IMEX 
+
+> (ours)
+> Forward
+
+Convection ( β=50 ) 6.7e-1 1.0e+0 1.0e+0 3.2e-3 3.3e-5 (×99) 3.0e-5 (×107) 
+
+Convection ( β=100 ) 1.0e+0 1.0e+0 1.0e+0 3.2e-3 5.6e-4 (×6) 1.5e-5 (×219) 
+
+Reaction 1.1e-2 7.0e-1 9.8e-1 2.9e-1 2.9e-3 (×4) 3.1e-3 (×4) 
+
+Wave 7.6e-2 7.3e-1 4.9e-1 5.5e-3 4.3e-5 (×128) 4.2e-5 (×132) 
+
+Euler-Bernoulli (classical) OOM OOM 3.3e-1 3.3e+0 6.6e-5 (×5.0k) 6.7e-5 (×4.9k) 
+
+Euler-Bernoulli (extended) OOM OOM 1.1e+0 5.8e+0 1.1e-5 (×98.4k) 1.5e-5 (×71.1k) 
+
+> High-dimension
+
+Taylor-Green 2D OOM OOM OOM OOM 2.6e-3 3.9e-3 Heat (triangular domain) OOM OOM OOM IG 7.7e-3 7.7e-3 Schrödinger (5D) OOM OOM OOM OOM 1.1e-3 1.1e-3 Schrödinger (100D) OOM OOM OOM OOM 9.3e-4 8.7e-4 
+
+> Inverse
+
+KdV OOM OOM OOM ST 6.4e-3 6.1e-3 
+
+SST 2D adv-diff OOM OOM OOM OOM 8.1e-2 8.0e-2        
+
+> OOM: out-of-memory; IG: infeasible geometry; ST: stiff PDE. 0.0 0.3 0.6 0.9
+> x
+> 0.0
+> 0.4
+> 0.8
+> 1.2
+> u(x, t  = 1)
+> 040 80 120
+> Fourier mode k
+> 10 1
+> | ˆu(k, t max )|
+> PINNsFormer
+> PINNMamba
+> ML-PINN
+> NeuSA
+> OSSM-PINN-IM
+> OSSM-PINN-IMEX
+> Ground truth
+
+Figure 5: Frequency-domain comparison on the wave equation: predictions and Fourier spectra. 0 25 50 75 100        
+
+> angular frequency ω
+> 0.0
+> 0.4
+> 0.8
+> |ˆhtop |
+> conv β=50 conv β=100 wave EB
+> 10 1
+> 10 2
+> dominant  ω
+> analytical ω
+> OSSM-IM (FFT)
+> OSSM-IMEX (FFT)
+> analytical (bar)
+> OSSM-IM (bar)
+> OSSM-IMEX (bar)
+
+Figure 6: Learned dispersion: dominant latent frequencies match analytical PDE dispersion. not attributable to model size alone. Removing the LinOSS rollout ( −LinOSS) causes all three benchmarks to collapse to rMAE ≈ 1, since the latent state no longer evolves in time. Replacing the spectral basis with a learned MLP basis ( −Fourier basis) degrades accuracy by four to five orders of magnitude on convection and wave, demonstrating the value of fixed spatial modes and analytic derivatives. Reducing the temporal finite-difference order from sixth to second ( −6th-order FD) increases convection rMAE by nearly three orders of magnitude, while switching to single precision (−FP64) uniformly degrades all benchmarks by one to two orders of magnitude. These results confirm that OSSM-PINN’s accuracy depends on the joint contribution of the oscillatory rollout, the spectral basis, high-order temporal derivatives, and double-precision arithmetic. A cell-swap analysis (SM §G Tables 9 and 10) further isolates the oscillatory eigenstructure as the source of gains compared to state-of-the-art non-oscillatory state-space models, and a method-attribute comparison is provided in SM §C Table 6. Table 3: Plug-in extensions (rMAE, IMEX). Each row adds one enhancement on top of the default OSSM-PINN backbone. 
+
+Variant Conv. β=50 E-Bern. Wave Default 3.04e-5 6.72e-5 4.15e-5 
+
++ gPINN 2.74e-5 5.28e-5 6.75e-5 
+
++ RWF 3.00e-5 2.73e-5 1.60e-5 
+
++ post-L-BFGS 3.04e-5 4.74e-5 3.75e-5 
+
++ time FD-6 3.04e-5 7.83e-5 2.91e-5 
+
+Furthermore, four plug-in enhancements are considered in Table 3 (Exp. 3): gradient-enhanced residuals (gPINN) [ 23 ], random weight factorization (RWF) [ 24 ], post-training L-BFGS refinement [ 25 ], and sixth-order tempo-ral finite differences. All four integrate without modification to the oscillator rollout, spectral basis, or decoder; the full IM/IMEX results are in SM §G Table 11. Among these, RWF pro-7vides the most consistent improvement, reduc-ing rMAE by up to 2× on the Euler–Bernoulli benchmark. 
+
+3.3 Inverse Problems Reference 
+
+> 0.6
+> 0.0
+> 0.6
+> T (°C)
+> OSSM-IM Pred
+> 0.6
+> 0.0
+> 0.6
+> T (°C)
+> OSSM-IM |err|
+> 0.000
+> 0.004
+> 0.008
+> |err| (°C)
+
+Figure 7: SST inverse at 
+
+t = 23 mo: reference (top), OSSM-IM prediction (mid), absolute error (bot). Full re-sults in Figure 24. This section evaluates whether the same architecture can learn un-known PDE coefficients from sparse observations without architectural changes (Exp. 4 in SM §C Table 5). Unknown coefficients are train-able scalars optimized jointly with the network weights. Two inverse problems are considered: KdV ut + λ1uu x + λ2uxxx = 0 (λ1 = 1 ,
+
+λ2 = 0 .0025 ) and a 2D sea-surface-temperature advection–diffusion problem Tt + cxTx + cy Ty = κ(Txx + Tyy ) (cx = 0 .5, cy = 0 .05 ,
+
+κ = 0 .01 ). The learned coefficients are close to the ground truth in both inverse problems: on KdV, OSSM-PINN-IM estimates λ1 and λ2 with relative errors of 0.07% and 0.06% , respectively, while all four baselines fail on both benchmarks. Detailed quantitative results are reported in SM §H Table 13. A representative snapshot at t = 23 mo is shown in Figure 7; full predicted fields across four monthly snapshots are provided in SM §H Figures 23 and 24, while Figures 25 and 26 show the coefficient convergence trajectories. The frequency-domain analysis in Figure 27 further confirms that the inferred KdV forward solution matches the reference spectrum down to the FFT noise floor, demonstrating that the oscillator-spectral factorization is effective for inverse parameter estimation. 
+
+3.4 Problem-Adapted Spectral Bases 
+
+Table 4: Spatial-basis ablation on quantum benchmarks (rMAE); bracketed factors give the win over NeuSA.                        
+
+> Method Basis IM IMEX QHO  NeuSA Fourier 2.67e-2 OSSM-PINN Fourier 9.18e-3 (×3) 9.51e-3 (×3)
+> Hermite 1.47e-4 (×181) 1.87e-4 (×143)
+> PT  NeuSA Fourier 1.77e-2 OSSM-PINN Fourier 1.92e-1 6.63e-2 PT 2.19e-3 (×8) 1.68e-3 (×11)
+
+A key advantage of OSSM-PINN is that the spatial basis is modular: it can match the eigenstructure of the target PDE while leaving the temporal rollout, decoder, and training unchanged (Exp. 5 in Table 5). We replace the default Fourier basis with Her-mite eigenfunctions for the quantum har-monic oscillator and Pöschl–Teller eigen-functions for the Schrödinger equation with a sech 2 potential. Basis functions are illus-trated in Figure 28, quantitative results in Table 4, and prediction fields in Figures 29 and 30; full values are in SM §I Table 14. Using the Hermite basis reduces QHO rMAE from 
+
+9.5 × 10 −3 to 1.9 × 10 −4 (50 ×), and the PT eigenbasis reduces rMAE from 6.6 × 10 −2 to 1.7 × 10 −3
+
+(40 ×), both at zero architectural cost. These results confirm the modal interpretation: when the spatial basis aligns with the PDE operator, OSSM-PINN only needs to learn the time evolution of modal coefficients. 
+
+3.5 Geometry, Large Domains, High Dimensions, and Efficiency 
+
+This section tests whether the modal factorization generalizes beyond standard 1D periodic settings to diverse geometric and dimensional regimes. 
+
+Non-rectangular and large spatial domains: On a triangular heat equation, OSSM-PINN handles the non-rectangular geometry without mesh generation: the spatial basis is constructed on the triangle directly and the LinOSS rollout proceeds identically. On the extended Euler–Bernoulli beam ( [0 , 8π]), the same architecture remains accurate on a domain 8× larger than the standard benchmark. Errors are in Table 1; prediction fields in SM §J Figures 32 and 13. 
+
+Coupled multi-component PDEs: The Taylor–Green vortex evaluates coupled 2D flow dynamics (velocity and pressure). OSSM-PINN accurately reconstructs all three field components (SM §J Figure 31), while all sequence-model baselines exceed the 24 GiB memory budget since their collocation cost scales quadratically in two dimensions. 8Reference    
+
+> 0.611 0.633
+> OSSM-IM Pred
+> 0.611 0.633
+> OSSM-IM |err|
+> 0.0e+00 4.0e-04
+
+Figure 8: Schrödinger 100D: 
+
+|ψ(x1, . . . , x 100 , t )|2 at t = π/ 2 showing a slice in (x1, x 2, x 3). Reference (left), OSSM-IM prediction (center), absolute error (right). L log Lip =37 .9    
+
+> PINNsFormer
+> Llog Lip =16 .7
+> PINNMamba
+> Llog Lip =13 .2
+> OSSM-PINN-IMEX
+
+Figure 9: Loss landscape on convection ( β =100 ) along top-2 Hessian eigenvectors: PINNs-Former, PINNMamba, OSSM-PINN-IMEX. Lower Llog Lip indicates a smoother basin. 
+
+High-dimensional PDEs: The 5D and 100D Schrödinger benchmarks test scalability with spatial dimension. Figure 8 shows the 100D slice: the prediction matches the reference with errors below 
+
+5 × 10 −4. Full results are in SM §J Figures 33 and 34. Because the basis is tensorized and the rollout is dimension-agnostic, the architecture applies without modification. 
+
+Optimization landscape and computational cost: Figure 9 contrasts loss landscapes on high-frequency convection: OSSM-PINN-IMEX ( Llog Lip = 13 .2) yields the smoothest basin, versus PIN-NMamba ( 16 .7) and PINNsFormer ( 37 .9) which exhibits multiple sharp local minima. The full comparison is in SM §F Figure 22; training loss histories in SM §M Figures 35 and 36; hardware and cost details in SM §L Table 20. 
+
+4 Conclusion, limitations and future work 
+
+Conclusion: We introduced OSSM-PINNs, a physics-informed neural PDE solver that factorizes time-dependent solutions into spatial modes whose coefficients evolve through a learnable oscillatory state-space rollout. This design answers the motivating question of what temporal inductive bias a neural PDE solver should encode: the temporal model should be learnable from the residual, be oscillatory and modal by construction, and should be compact, parallelizable, and decoupled from the spatial representation. Across twelve PDE benchmarks spanning forward, inverse, high-dimensional, non-rectangular, and problem-adapted-basis settings, OSSM-PINNs achieve lower error and improved memory efficiency relative to sequence-model-based and neuro-spectral baselines. On representative forward problems, the method reduces rMAE by up to 219 × on high-frequency convection, 132 × on wave propagation, and 9.8 × 10 4× on the extended Euler–Bernoulli benchmark compared with the state-of-the-art baselines. In inverse KdV recovery, OSSM-PINN estimates the two unknown coefficients with relative errors below 0.1% , while in problem-adapted quantum benchmarks, replacing a generic Fourier basis with operator-aligned eigenbases improves rMAE by roughly 40 –50 × without changing the temporal architecture. Spectral and latent analyses show that these gains are physically grounded: the learned dominant latent frequencies align with analytical PDE dispersion, while the predicted fields avoid the collapse modes and spurious high-frequency spectra observed in several baselines. Ablations further confirm that the improvements are not due to parameter count alone, but depend jointly on the oscillatory rollout, analytical spatial basis, high-order temporal derivatives, and numerical precision. The results suggest that neural PDE solvers should not treat time as a generic sequence. Encoding oscillatory modal structure provides an effective and efficient inductive bias for physics-informed learning. 
+
+Limitations and future work: OSSM-PINNs assume that the target solution is well represented by a finite set of spatial modes with structured temporal evolution. This assumption may be less effective for shocks, moving discontinuities, intermittent localized structures, or strongly non-modal dynamics, where fixed global bases may require many modes. Future work should extend the framework with adaptive, localized, multi-resolution, or domain-decomposed bases. The current implementation uses fixed collocation points, uniform temporal grids, and manually selected problem-aware bases. While these choices enable cached analytical derivatives, high-order finite differences, and efficient parallel rollout, they may be inefficient for multiscale or highly localized phenomena. Future directions include adaptive residual sampling, adaptive temporal refinement, causal curricula, automated basis selection, and broader basis libraries. 9References 
+
+[1] Lawrence C. Evans. Partial differential equations , volume 19 of Graduate Studies in Mathemat-ics . American Mathematical Society, 2nd edition, 2010. doi: 10.1090/gsm/019. [2] Maziar Raissi, Paris Perdikaris, and George Em Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. [3] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. doi: 10.1038/s42254-021-00314-5. [4] Constanza A. Molina Catricheo, Fabrice Lambert, Julien Salomon, and Elwin van’t Wout. Mod-eling global surface dust deposition using physics-informed neural networks. Communications Earth & Environment , 5(1):778, 2024. doi: 10.1038/s43247-024-01942-2. [5] Benjamin Moseley. Physics-informed machine learning: From concepts to real-world applica-tions . PhD thesis, University of Oxford, 2022. [6] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W. Mahoney. Characterizing possible failure modes in physics-informed neural net-works. In Advances in Neural Information Processing Systems , volume 34, pages 26548–26560, 2021. URL https://proceedings.neurips.cc/paper/2021/hash/ df438e5206f31600e6ae4af72f2725f1-Abstract.html .[7] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43 (5):A3055–A3081, 2021. doi: 10.1137/20M1318043. [8] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. doi: 10.1016/ j.jcp.2021.110768. [9] Taniya Kapoor, Hongrui Wang, Alfredo Núñez, and Rolf Dollevoet. Physics-informed neu-ral networks for solving forward and inverse problems in complex beam systems. IEEE Transactions on Neural Networks and Learning Systems , 35(5):5981–5995, 2023. doi: 10.1109/TNNLS.2023.3310585. [10] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in training PINNs: A loss landscape perspective. In International Conference on Machine Learning , pages 42384–42409. PMLR, 2024. URL https://proceedings.mlr.press/ v235/rathore24a.html .[11] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality for training physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 421: 116813, 2024. doi: 10.1016/j.cma.2024.116813. [12] Colby L. Wight and Jia Zhao. Solving Allen-Cahn and Cahn-Hilliard equations using the adaptive physics informed neural networks. Communications in Computational Physics , 29(3): 930–954, 2021. doi: 10.4208/cicp.OA-2020-0086. [13] Revanth Mattey and Susanta Ghosh. A novel sequential method to train physics informed neural networks for Allen-Cahn and Cahn-Hilliard equations. Computer Methods in Applied Mechanics and Engineering , 390:114474, 2022. doi: 10.1016/j.cma.2021.114474. [14] Michael Penwarden, Ameya D. Jagtap, Shandian Zhe, George Em Karniadakis, and Robert M. Kirby. A unified scalable framework for causal sweeping strategies for physics-informed neural networks (PINNs) and their temporal decompositions. Journal of Computational Physics , 493: 112464, 2023. doi: 10.1016/j.jcp.2023.112464. 10 [15] Xuhui Meng, Zhen Li, Dongkun Zhang, and George Em Karniadakis. PPINN: Parareal physics-informed neural network for time-dependent PDEs. Computer Methods in Applied Mechanics and Engineering , 370:113250, 2020. doi: 10.1016/j.cma.2020.113250. [16] Zhiyuan Zhao, Xueying Ding, and B. Aditya Prakash. PINNsFormer: A transformer-based framework for physics-informed neural networks. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum?id=DO2WFXU1Be .[17] Chenhui Xu, Dancheng Liu, Yuting Hu, Jiajie Li, Ruiyang Qin, Qingxiao Zheng, and Jinjun Xiong. Sub-sequential physics-informed learning with state space model. In International Conference on Machine Learning , 2025. URL https://icml.cc/virtual/2025/poster/ 45079 .[18] YiMing Gao, Bing Wang, Jingyi Lu, and Zhou Tian. ML-PINN: A memory-efficient physics-informed Mamba-LSTM network for fast and accurate PDE solving. Neurocomputing , page 131446, 2025. doi: 10.1016/j.neucom.2025.131446. [19] Arthur Bizzi, Leonardo M. Moreira, Márcio Marques, Leonardo Mendonça, Christian Júnior de Oliveira, Vitor Balestro, Lucas dos Santos Fernandez, Daniel Yukimura, Pavel Petrov, João M. Pereira, et al. Neuro-spectral architectures for causal physics-informed networks. In Advances in Neural Information Processing Systems , volume 38, 2025. URL https: //neurips.cc/virtual/2025/poster/119441 .[20] T. Konstantin Rusch and Daniela Rus. Oscillatory state-space models. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview. net/forum?id=GRMfXcAAFh .[21] Guy E. Blelloch. Prefix sums and their applications. Technical Report CMU-CS-90-190, Carnegie Mellon University, School of Computer Science, 1990. [22] Boyin Huang, Chunying Liu, Viva Banzon, Eric Freeman, Garrett Graham, Bill Hankins, Tom Smith, and Huai-Min Zhang. Improvements of the daily optimum interpolation sea surface temperature (DOISST) version 2.1. Journal of Climate , 34(8):2923–2939, 2021. doi: 10.1175/JCLI-D-20-0166.1. [23] Jeremy Yu, Lu Lu, Xuhui Meng, and George Em Karniadakis. Gradient-enhanced physics-informed neural networks for forward and inverse PDE problems. Computer Methods in Applied Mechanics and Engineering , 393:114823, 2022. doi: 10.1016/j.cma.2022.114823. [24] Sifan Wang, Hanwen Wang, Jacob H. Seidman, and Paris Perdikaris. Random weight factorization improves the training of continuous neural representations. arXiv preprint arXiv:2210.01274 , 2022. URL https://arxiv.org/abs/2210.01274 .[25] Elham Kiyani, Khemraj Shukla, Jorge F. Urbán, Jérôme Darbon, and George Em Karniadakis. Optimizing the optimizer for physics-informed neural networks and Kolmogorov–Arnold networks. Computer Methods in Applied Mechanics and Engineering , 446:118308, 2025. doi: 10.1016/j.cma.2025.118308. [26] Isaac E. Lagaris, Aristidis Likas, and Dimitrios I. Fotiadis. Artificial neural networks for solving ordinary and partial differential equations. IEEE Transactions on Neural Networks , 9 (5):987–1000, 1998. doi: 10.1109/72.712178. [27] Jens Berg and Kaj Nyström. A unified deep artificial neural network approach to partial differential equations in complex geometries. Neurocomputing , 317:28–41, 2018. doi: 10.1016/ j.neucom.2018.06.056. [28] Lu Lu, Xuhui Meng, Zhiping Mao, and George Em Karniadakis. DeepXDE: A deep learning library for solving differential equations. SIAM Review , 63(1):208–228, 2021. doi: 10.1137/ 19M1274067. [29] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, 2023. doi: 10.1016/j.cma.2022. 115671. 11 [30] Arka Daw, Jie Bu, Sifan Wang, Paris Perdikaris, and Anuj Karpatne. Mitigating propagation failures in physics-informed neural networks using retain-resample-release (R3) sampling. In International Conference on Machine Learning , pages 7264–7302. PMLR, 2023. URL 
+
+https://proceedings.mlr.press/v202/daw23a.html .[31] Zhiping Gao, Liang Yan, and Tao Zhou. Failure-informed adaptive sampling for PINNs. SIAM Journal on Scientific Computing , 45(4):A1971–A1994, 2023. doi: 10.1137/22M1527763. [32] Yifan Du and Tamer A. Zaki. Evolutional deep neural network. Physical Review E , 104(4): 045303, 2021. doi: 10.1103/PhysRevE.104.045303. [33] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. In First Conference on Language Modeling , 2024. URL https://openreview.net/forum? id=tEYskw1VY2 .[34] Albert Gu, Karan Goel, and Christopher Ré. Efficiently modeling long sequences with structured state spaces. In The Tenth International Conference on Learning Representations , 2022. URL 
+
+https://openreview.net/forum?id=uYLFoz1vlAC .[35] Jimmy T. H. Smith, Andrew Warrington, and Scott W. Linderman. Simplified state space layers for sequence modeling. In The Eleventh International Conference on Learning Representations ,2023. URL https://openreview.net/forum?id=Ai8Hw3AXqks .[36] Antonio Orvieto, Samuel L. Smith, Albert Gu, Anushan Fernando, Caglar Gulcehre, Razvan Pascanu, and Soham De. Resurrecting recurrent neural networks for long sequences. In 
+
+International Conference on Machine Learning , pages 26670–26698. PMLR, 2023. URL 
+
+https://proceedings.mlr.press/v202/orvieto23a.html .[37] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial dif-ferential equations. In International Conference on Learning Representations , 2021. URL 
+
+https://openreview.net/forum?id=c8P9NQVtmnO .[38] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. 
+
+Nature Machine Intelligence , 3(3):218–229, 2021. doi: 10.1038/s42256-021-00302-5. [39] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Graph kernel network for partial differential equations. arXiv preprint arXiv:2003.03485 , 2020. URL https://arxiv.org/ abs/2003.03485 .[40] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40): eabi8605, 2021. doi: 10.1126/sciadv.abi8605. [41] Vladimir S. Fanaskov and Ivan V. Oseledets. Spectral neural operators. Doklady Mathematics ,108(Suppl 2):S226–S232, 2023. doi: 10.1134/S1064562423701107. [42] Ameya D. Jagtap, Ehsan Kharazmi, and George Em Karniadakis. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 365:113028, 2020. doi: 10.1016/j.cma.2020.113028. [43] Ameya D. Jagtap and George Em Karniadakis. Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Communications in Computational Physics , 28(5): 2002–2041, 2020. doi: 10.4208/cicp.OA-2020-0164. [44] Sifan Wang, Hanwen Wang, and Paris Perdikaris. On the eigenvector bias of Fourier feature networks: From regression to solving multi-scale PDEs with physics-informed neural networks. 
+
+Computer Methods in Applied Mechanics and Engineering , 384:113938, 2021. doi: 10.1016/j. cma.2021.113938. 12 [45] Patrick Kidger, James Morrill, James Foster, and Terry Lyons. Neural controlled differential equations for irregular time series. Advances in neural information processing systems , 33: 6696–6707, 2020. [46] James Morrill, Cristopher Salvi, Patrick Kidger, and James Foster. Neural rough differential equations for long time series. In International Conference on Machine Learning , pages 7829–7838. PMLR, 2021. [47] Benjamin Walker, Andrew D McLeod, Tiexin Qin, Yichuan Cheng, Haoliang Li, and Terry Lyons. Log neural controlled differential equations: The lie brackets make a difference. arXiv preprint arXiv:2402.18512 , 2024. 13 Supplementary Material 
+
+Contents 
+
+§A Extended Related Work p. 14 §B OSSM-PINN Pseudocode p. 16 §C Experiment Overview and Benchmark Suite p. 16 §D Implementation Details p. 17 §E Forward-Problem Definitions and Results p. 18 §F Spectral and Latent Diagnostics p. 20 §G Ablation Studies p. 20 §H Inverse Problems p. 22 §I Problem-Adapted Spectral Bases p. 23 §J High-Dim., Geometry, and Large-Domain Experiments p. 23 §K Hyperparameters and Training Recipes p. 24 §L Computational Cost p. 25 §M Training Dynamics and Seed Stability p. 25 
+
+A Extended Related Work 
+
+This section expands the related-work discussion in Section 1. 
+
+A.1 Physics-Informed Neural Networks 
+
+The idea of training neural networks to satisfy differential equations was introduced by Lagaris et al. [26] , who constructed trial solutions that exactly satisfy boundary conditions and minimized the PDE residual. Berg and Nyström [27] extended this to complex geometries using distance-function masks. The modern PINN formulation [ 2 , 3] combined automatic differentiation with deep MLPs and demonstrated forward and inverse solving on a range of canonical problems. DeepXDE [ 28 ]made the approach widely accessible through software implementation. PINNs face failure modes that motivate architectural research. Krishnapriyan et al. [6] showed that vanilla PINNs fail on stiff transport even when the underlying solution is smooth. Wang et al. [7] traced failures to imbalanced gradient flow between loss terms. Wang et al. [8] provided a neural tangent kernel analysis revealing spectral bias toward low frequencies, and Rathore et al. [10] showed that PINN loss surfaces contain narrow valleys with ill-conditioned curvature. These analyses motivate two complementary directions: improving the training procedure (loss weighting, optimizers, sampling) and improving the architecture. 
+
+A.2 Training Improvements: Weighting, Optimization, and Sampling 
+
+Adaptive loss weighting [ 7] adjusts the balance between PDE, IC, and BC loss terms during training based on gradient statistics. Gradient-enhanced PINNs (gPINN) [ 23 ] augment the residual loss with derivative-matching terms, penalizing not only the PDE residual but also its spatial gradients. Kiyani et al. [25] performed a systematic optimizer comparison and found that a second-order phase (L-BFGS) is often decisive for reaching high accuracy, confirming the Adam-then-L-BFGS recipe used throughout this work. Residual-driven collocation [ 29 ] places more training points where the residual is largest, improving efficiency on stiff problems. R3 sampling [ 30 ] and failure-informed strategies [31] extend this idea. 
+
+A.3 Temporal Treatment: Causality and Time-Marching 
+
+Causal training [ 11 ] reweights residual contributions so that earlier time steps are satisfied before later ones, preventing the optimizer from fitting late-time artifacts at the expense of early-time accuracy. Wight and Zhao [12] introduced adaptive time-stepping for Allen–Cahn and Cahn–Hilliard equations. Mattey and Ghosh [13] proposed sequential segment-by-segment methods that solve the PDE on 14 one time window before advancing to the next. Penwarden et al. [14] unified these causal sweeping strategies into a common framework. Meng et al. [15] introduced parareal PINN (PPINN), applying the parareal algorithm to decompose time into subintervals solved in parallel. Du and Zaki [32] treated temporal evolution as a parameterized dynamical system. 
+
+A.4 Sequence-Model-Based PINNs 
+
+PINNsFormer [ 16 ] reformulates the PINN input as a pseudo-sequence of time steps processed by a transformer with a wavelet activation function. PINNMamba [ 17 ] adapts the same pseudo-sequence strategy to the Mamba architecture [ 33 ], replacing attention with selective state-space scanning. ML-PINN [ 18 ] combines Mamba with bidirectional LSTM to capture both forward and backward temporal dependencies. These methods improve on coordinate MLPs for time-dependent PDEs, but they import a generic sequence inductive bias that was designed for language or audio, not for PDE solutions. Their latent representations drift smoothly rather than oscillate at PDE-characteristic frequencies (Figure 1). The pseudo-sequence formulation also couples temporal and spatial resolution: each time step processes the full spatial collocation grid, causing memory to scale as O(Nt ×Nx). This leads to out-of-memory failures on 2D and high-dimensional problems (Table 1). OSSM-PINN decouples temporal from spatial resolution, the LinOSS rollout operates on a compact H-dimensional state independent of Nx,and its oscillatory eigenstructure produces latent trajectories that naturally capture PDE characteristic frequencies. 
+
+A.5 State-Space Models for Sequence Modeling Relevance: OSSM-PINN’s temporal cell is a state-space model. This subsection explains the lineage and the specific variant (LinOSS) that makes the architecture suitable for PDE solving. S4 [ 34 ] demonstrated that structured state-space layers with HiPPO initialization can model long-range dependencies in sequences. S5 [ 35 ] simplified to a diagonal state-space formulation. LRU [ 36 ]showed that carefully initialized linear recurrences without structured parameterization can match SSM performance. Mamba [ 33 ] introduced selective (input-dependent) dynamics, achieving strong results on language modeling. A critical design choice in SSMs is where the eigenvalues of the state transition matrix lie. Most variants place eigenvalues inside the unit disk, producing exponentially decaying dynamics suited to language and audio where information is consumed and forgotten. This conflicts with conservative PDE dynamics where energy is preserved and solutions oscillate indefinitely. LinOSS [ 20 ] constrains eigenvalues to the imaginary axis, yielding forced harmonic oscillators that neither grow nor decay. The IMEX discretization further ensures |eigenvalues | = 1 exactly, providing a symplectic time stepper. The cell-swap ablation (Tables 9 and 10) isolates this spectral constraint as the source of OSSM-PINN’s gains over alternative SSM cells (S5, LRU, Mamba) used in the same backbone. 
+
+A.6 Operator Learning and Domain Decomposition 
+
+A similar line of research is neural operators. While physics-informed neural network based methods focus on single instance PDE solving without any data, neural operators focus on learning the governing operator with data, mostly. Hence, these domains are not directly comparable. Fourier neural operators (FNO) [ 37 ], DeepONet [ 38 ], and graph-based variants [ 39 ] learn solution operators from supervised data corpora, mapping initial/boundary conditions to solution fields across a family of PDEs. Physics-informed DeepONet [ 40 ] and spectral neural operators [ 41 ] combine operator learning with residual supervision. These methods require training data (typically from a numerical solver), whereas OSSM-PINN trains from the PDE residual alone. Domain decomposition methods for PINNs—Conservative PINN [ 42 ] and XPINN [ 43 ]—partition the spatial domain into subdomains with interface continuity constraints. Fourier-feature networks [44] mitigate spectral bias through random feature embeddings. 15 B OSSM-PINN Pseudocode 
+
+class OSSMCell: # Linear Oscillatory State-Space cell 
+
+def __init__(self, H, dt): self.A = Parameter(uniform(0, A_max)) # learnable omega^2 
+
+self.B = Linear(1, H) # input projection 
+
+self.dt = dt def propagator(self): A, dt = relu(self.A), self.dt # A ≥0
+
+M = [[1 - dt**2*A, dt], [-dt*A, 1]] # IMEX (symplectic) 
+
+return M, dt**2, dt class OSSMPINN: def __init__(self, K, H, N_t, dt, basis, bc): self.encoder = MLP(n_ic →H) # IC encoder 
+
+self.cell = OSSMCell(H, dt) # oscillatory cell 
+
+self.decoder = MLP(H →K * n_out) # mode-coefficient decoder 
+
+self.basis = basis # Fourier / Hermite / PT 
+
+self.bc = bc # hard-BC factor B(x) 
+
+def forward(self, u0, x): y0, z0 = self.encoder(u0) # encode IC 
+
+M, ay, az = self.cell.propagator() Bu = self.cell.B(linspace(0, 1, N_t)) # forcing 
+
+F = stack([ay*Bu, az*Bu], dim=-1) h = parallel_scan(M, F, [y0, z0])[:,:,0] # rollout 
+
+c = self.decoder(h).reshape(N_t+1, K, n_out) phi = self.basis(x) # (n_x, K) 
+
+return self.bc(x) * einsum(’tkq,xk →txq’, c, phi) def parallel_scan(M, F, x0): # O(log N) associative scan 
+
+cum_M, cum_F = M.expand(T, ...), F for stride in [1, 2, 4, ...]: cum_M[stride:] = cum_M[stride:] @ cum_M[:-stride] cum_F[stride:] = cum_M[stride:] @ cum_F[:-stride] + cum_F[stride:] return cat([x0.unsqueeze(0), cum_M @ x0 + cum_F]) def compute_loss(model, pde, x, u0, dt): u = model.forward(u0, x) 
+
+# Spatial derivs: closed-form from basis (no autodiff) 
+
+phi, dphi, d2phi = model.basis.eval_with_derivs(x) c = model.decoder(...) u_x = model.bc(x) * einsum(’tkq,xk →txq’, c, dphi) + ... u_xx = ... # Leibniz rule # Temporal derivs: 6th-order finite differences 
+
+u_t = fd_coeffs(order=6) @ u / dt 
+
+# PDE residual (problem-specific, architecture-agnostic) 
+
+res = pde.residual(u, u_t, u_x, u_xx, ...) return w_pde*mean(res**2) + w_ic*mean((u[0]-u0)**2) def train(model, pde, x, u0): # Adam warm-up + L-BFGS 
+
+for step in range(n_adam): compute_loss(...).backward(); Adam.step() for step in range(n_lbfgs): LBFGS.step(lambda: compute_loss(...)) 
+
+C Experiment Overview and Benchmark Suite 
+
+Figures 10 and 11 provide annotated visual overviews of all forward and inverse benchmarks. Table 5 summarizes the full experimental suite, listing each experiment, the problems it contains, and its purpose. Table 6 compares method-level attributes across the PINN-family architectures evaluated in this work. 16 Table 5: Experimental suite: each experiment tests a different aspect of the oscillator-spectral inductive bias. Experiment Problems Purpose Exp. 1 Convection, reaction, wave, beam, Taylor– Green, Schrödinger Forward accuracy across PDE families Exp. 2 noEnc, MLPbasis, linDec, noLinOSS, FD2, FP32 Contribution of each architectural compo-nent Exp. 3 gPINN, RWF, Post-L-BFGS, TimeFD6 Compatibility with PINN enhancements Exp. 4 KdV, SST advection–diffusion Inverse coefficient recovery Exp. 5 Hermite and Pöschl–Teller bases Benefit of problem-adapted spectral bases Exp. 6 Triangle heat equation Non-rectangular geometry Exp. 7 Large-domain Euler–Bernoulli Spatial-domain scaling Table 6: Method-attribute comparison across PINN-family architectures. ✓ = supported, × = not supported, ∼ = partial / problem-dependent.                                      
+
+> PINNsFormer / Mamba NeuSA OSSM-PINN (ours)
+> No PDE-class hand-coded operator ✓×✓
+> Causal time treatment ∼✓✓
+> Inductive bias for oscillatory dynamics ×✓✓
+> Learnable time-evolution operator ××✓
+> Symplectic time-stepping option ××✓
+> Modal / interpretable latent state ×✓✓
+> Hard BC enforcement via spatial basis ×✓✓
+> High-frequency dynamics without failure modes ×∼✓
+> Higher-order spatial operators ×∼✓
+> Inverse-problem capability ✓×✓
+> Curse-of-dim friendly ( d≥5)××✓
+
+D Implementation Details 
+
+Hardware and software: All experiments were performed on a single NVIDIA RTX 5090 Laptop GPU with 24 GiB VRAM, driver version 590.48.01, and CUDA 12.8. The software environment used Ubuntu 24.04 LTS with Linux kernel 6.17, PyTorch 2.10.0+cu128, cuDNN 9.10.02, and Python 3.11.6. All runs were executed in a single-process, single-GPU setting without concurrency. 
+
+Numerical precision: Unless otherwise stated, all experiments are performed in double precision (float64 ). A single-precision ablation ( float32 ) is included in §G and reported in the −FP64 row of Table 8. 
+
+Error metrics: We use relative mean absolute error (rMAE), relative root mean squared error (rRMSE), and maximum absolute error (MaxErr). Given a test set X , ground-truth solution utrue ,and model prediction upred , we define 
+
+rMAE = 
+
+P 
+
+> x∈X
+
+|utrue (x) − upred (x)|
+
+P 
+
+> x∈X
+
+|utrue (x)| , (8) 
+
+rRMSE = 
+
+qP 
+
+> x∈X
+
+(utrue (x) − upred (x)) 2
+
+pP  
+
+> x∈X
+
+utrue (x)2 , (9) 
+
+MaxErr = max  
+
+> x∈X
+
+|utrue (x) − upred (x)| . (10) For experiments with multiple seeds, we report the mean and standard deviation over seeds s ∈{0, 1, 2}; seed-to-seed variability is visualized in Figure 37. Single-seed experiments are explicitly marked. 17 Optimization: All experiments use Adam followed by L-BFGS unless stated otherwise. The Adam learning rate is 10 −3. L-BFGS uses strong-Wolfe line search, history size 50 , maximum inner iterations 20 , learning rate 1.0, gradient tolerance 10 −12 , and change tolerance 10 −14 . The default loss weights for forward problems are λIC = 100 , λPDE = 1 . For inverse problems, we additionally use λdata = 100 . Locally adaptive activation functions are enabled in every coefficient-head MLP. Shared training hyperparameters for OSSM-PINN and all four baselines are listed in Tables 15–19. Per-problem training-loss histories for OSSM-PINN-IMEX and OSSM-PINN-IM are shown in Figures 35 and 36. 
+
+E Forward-Problem Definitions and Additional Results 
+
+This section provides the PDE definitions for all forward benchmarks, the full numerical results table, and additional per-problem field comparisons. 
+
+E.1 PDE Definitions E.1.1 Convection Equation 
+
+We consider the linear advection equation ut + βu x = 0 on [0 , 2π] × [0 , 1] with periodic boundary conditions and u(x, 0) = sin x. The exact solution is u(x, t ) = sin( x − βt ). We report results for 
+
+β = 50 and β = 100 .
+
+E.1.2 Reaction Equation 
+
+We study the logistic reaction equation ut = ρu (1 − u) on [0 , 2π] × [0 , 1] with periodic boundary conditions and Gaussian IC u(x, 0) = exp  −(x − π)2/(2( π/ 4) 2). The exact solution is u(x, t ) = 
+
+he ρt /(h(eρt − 1) + 1) where h = u(x, 0) . We use ρ = 5 .
+
+E.1.3 Wave Equation 
+
+We consider utt = 4 uxx on [0 , 1] × [0 , 1] with homogeneous Dirichlet conditions and IC u(x, 0) = sin( πx )+ 12 sin( βπx ), ut(x, 0) = 0 . The exact solution is sin( πx ) cos(2 πt )+ 12 sin( βπx ) cos(2 βπt )
+
+with β = 3 .
+
+E.1.4 Euler–Bernoulli Beam Equation 
+
+We solve the forced beam equation utt + uxxxx = (1 − 16 π2) sin x cos(4 πt ) on [0 , π ] × [0 , 1] with simply-supported conditions u = uxx = 0 at x = 0 , π and IC u(x, 0) = sin x, ut(x, 0) = 0 . The exact solution is u(x, t ) = sin x cos(4 πt ).
+
+E.1.5 Taylor–Green Vortex 
+
+We solve the two-dimensional incompressible Navier–Stokes equations on [0 , 2π]2 with periodic boundary conditions and t ∈ [0 , 10] at Re = 100 (ν = 10 −2). The IC is u(x, y, 0) = sin x cos y,
+
+v(x, y, 0) = − cos x sin y, p(x, y, 0) = 14 (cos 2 x + cos 2 y).
+
+E.1.6 High-Dimensional Schrödinger 
+
+We solve the linear Schrödinger equation iψ t = − 12 ∆ψ on [0 , π ]d with homogeneous Dirichlet boundary conditions ψ|∂Ω = 0 (infinite-well potential, V ≡ 0 inside the box) and time horizon 
+
+t ∈ [0 , π ]. The eigenstates of − 12 ∆ under these BCs are tensor products of sin( kixi) with energies 
+
+Ek = 12
+
+P 
+
+> i
+
+k2 
+
+> i
+
+, so an IC formed from a few eigenstates evolves as a closed-form sum of phase-rotated modes. 
+
+d = 5 :
+
+ψ(x, 0) = 
+
+ 2
+
+> π
+
+5/2 1
+
+√2
+
+" 5Y
+
+> i=1
+
+sin( xi) + 
+
+> 5
+
+Y
+
+> i=1
+
+sin(2 xi)
+
+#
+
+,
+
+with exact solution ψ(x, t ) = (2 /π )5/2(1 /√2) e−i 5t/ 2 Q 
+
+> i
+
+sin xi + e−i 10 t Q 
+
+> i
+
+sin 2 xi
+
+ (energies 
+
+E = 5 /2 and E = 10 ). 18 d = 100 :
+
+ψ(x, 0) = 
+
+q 2
+
+π
+
+1
+
+d
+
+dX
+
+i=1 
+
+ sin( xi) + 0 .3 sin(2 xi), d = 100 ,
+
+with exact solution ψ(x, t ) = p2/π (1 /d ) P
+
+i
+
+e−it/ 2 sin xi + 0 .3 e−i2t sin 2 xi
+
+ (per-axis energies 
+
+E1 = 1 /2, E2 = 2 ). 
+
+E.2 Full Numerical Results 
+
+Table 7 provides the complete per-problem breakdown with rMAE, rRMSE, and maximum absolute error for all methods. Table 7: Full per-problem numerical results (rMAE, rRMSE, max error). Best in blue , second in green, third in red. Italic factors show improvement over the best baseline. 
+
+PDE Metric PINNsFormer PINNMamba ML-PINN NeuSA OSSM-PINN-IM 
+
+> (ours)
+
+OSSM-PINN-IMEX 
+
+> (ours)
+> Forward
+
+Convection ( β=50 )rMAE 6.68e-1 1.00e+0 1.00e+0 3.24e-3 3.28e-5 (×99) 3.04e-5 (×107) 
+
+rRMSE 7.36e-1 1.00e+0 1.00e+0 1.38e-2 3.83e-5 (×360) 3.50e-5 (×393) 
+
+max error 1.03e+0 1.05e+0 1.02e+0 1.23e-1 1.05e-4 (×1.2k) 9.64e-5 (×1.3k) 
+
+Convection ( β=100 )rMAE 1.00e+0 1.01e+0 1.00e+0 3.24e-3 5.55e-4 (×6) 1.48e-5 (×219) 
+
+rRMSE 1.01e+0 1.02e+0 1.00e+0 1.38e-2 6.31e-4 (×22) 1.76e-5 (×784) 
+
+max error 1.14e+0 1.20e+0 1.04e+0 1.23e-1 1.56e-3 (×79) 5.26e-5 (×2.3k) 
+
+Reaction rMAE 1.12e-2 7.01e-1 9.81e-1 2.87e-1 2.92e-3 (×4) 3.07e-3 (×4) 
+
+rRMSE 2.90e-2 7.56e-1 9.84e-1 4.49e-1 8.75e-3 (×3) 9.24e-3 (×3) 
+
+max error 1.79e-1 1.39e+0 9.92e-1 9.48e-1 7.17e-2 (×3) 7.99e-2 (×2) 
+
+Wave rMAE 7.60e-2 7.32e-1 4.94e-1 5.48e-3 4.29e-5 (×128) 4.15e-5 (×132) 
+
+rRMSE 7.67e-2 7.19e-1 4.83e-1 2.18e-2 4.57e-5 (×476) 4.27e-5 (×510) 
+
+max error 1.36e-1 1.08e+0 6.84e-1 1.51e-1 9.71e-5 (×1.4k) 7.49e-5 (×1.8k) 
+
+Euler-Bernoulli (classical) rMAE  
+
+> OOM OOM
+
+3.28e-1 3.35e+0 6.58e-5 (×5.0k) 6.72e-5 (×4.9k) 
+
+rRMSE 3.32e-1 3.41e+0 6.73e-5 (×4.9k) 6.77e-5 (×4.9k) 
+
+max error 4.31e-1 4.98e+0 1.14e-4 (×3.8k) 9.79e-5 (×4.4k) 
+
+Euler-Bernoulli (extended) rMAE  
+
+> OOM OOM
+
+1.06e+0 5.84e+0 1.08e-5 (×98.4k) 1.49e-5 (×71.1k) 
+
+rRMSE 1.07e+0 6.25e+0 1.39e-5 (×76.6k) 1.82e-5 (×58.6k) 
+
+max error 1.41e+0 1.08e+1 3.29e-5 (×42.7k) 4.04e-5 (×34.8k) 
+
+> Forward high-dim
+
+Taylor-Green 2D rMAE    
+
+> OOM OOM OOM OOM
+
+2.64e-3 3.85e-3 rRMSE 3.14e-3 5.12e-3 max error 3.65e-3 8.46e-3 Heat (triangular) rMAE    
+
+> OOM OOM OOM IG
+
+7.66e-3 7.67e-3 rRMSE 7.50e-3 7.52e-3 max error 1.13e-2 1.16e-2 Schrödinger (5D) rMAE    
+
+> OOM OOM OOM OOM
+
+1.11e-3 1.13e-3 rRMSE 1.24e-3 1.29e-3 max error 2.43e-4 3.75e-4 Schrödinger (100D) rMAE    
+
+> OOM OOM OOM OOM
+
+9.30e-4 8.74e-4 
+
+rRMSE 1.18e-3 1.10e-3 
+
+max error 2.48e-3 2.21e-3 
+
+> Inverse
+
+KdV rMAE    
+
+> OOM OOM OOM ST
+
+6.41e-3 6.06e-3 
+
+rRMSE 6.56e-3 6.22e-3 
+
+max error 1.61e-2 1.65e-2 SST 2D adv-diff rMAE    
+
+> OOM OOM OOM OOM
+
+8.06e-2 8.05e-2 
+
+rRMSE 1.81e-1 1.81e-1 
+
+max error 2.37e+0 2.37e+0 
+
+OOM: out-of-memory; IG: infeasible geometry; ST: stiff PDE. 
+
+E.3 Additional Forward-Problem Figures 
+
+Figures 12 and 13 show per-method predicted fields and absolute errors for the wave and extended Euler–Bernoulli benchmarks. On the wave equation, NeuSA’s spectral rollout reproduces the dom-inant mode but accumulates phase error; OSSM-PINN-IMEX is two orders of magnitude more 19 accurate. On the extended beam, PINNsFormer and PINNMamba exceed the compute envelope; ML-PINN and NeuSA produce qualitatively wrong fields, while OSSM-PINN resolves the fourth-order dynamics. Figure 14 shows the harder convection case ( β = 100 ), and Figure 15 shows the classical Euler–Bernoulli comparison. 
+
+F Spectral and Latent Dynamics 
+
+This section presents frequency-domain analyses, learned dispersion dynamics, and extended latent-state visualizations that probe the mechanism behind OSSM-PINN’s accuracy gains. 
+
+Frequency-domain analysis: In each frequency-domain figure, Figure 17, 18, 19, 20, 21 the left panel shows predictions in physical space at the final time, and the right panel shows the spatial Fourier spectrum |ˆu(k, t max )| on a log scale. Across all benchmarks, OSSM-PINN tracks the reference spectrum from the dominant mode down to the FFT noise floor, while baselines either collapse to near-zero predictions (PINNsFormer, PINNMamba, ML-PINN on convection) or inject spurious high-frequency content (NeuSA on Euler–Bernoulli). The key observation is that NeuSA’s explicit RK4 rollout introduces aliasing signatures visible as a flat spectral plateau at high k, whereas the LinOSS parallel scan preserves spectral fidelity. 
+
+Latent-state dynamics: The latent-dynamics analysis of Figure 1 (main text) is extended to all remaining benchmarks in Figure 16. The pattern is consistent: whenever a baseline method runs, its latent decays into a low-rank drift, while OSSM-PINN’s LinOSS populates multiple oscillating modes, with the spatial-RMSE column confirming the corresponding accuracy gap. 
+
+Loss landscape: The loss-landscape geometry on convection β = 100 is visualized in Figure 22 using the top-2 Hessian eigenvectors at the trained solution. OSSM-PINN-IMEX produces the smoothest basin ( Llog Lip = 13 .2), while PINNsFormer’s landscape is dramatically more rugged ( Llog Lip = 37 .9)with multiple visible local minima. The Lipschitz constant is computed on the filter-normalized, log-scale surface following the methodology of PINNsFormer [16]. 
+
+G Ablation Studies 
+
+G.1 Architecture Ablations 
+
+We perform ablation studies to isolate the contribution of each component (Exp. 2 in Table 5). Each ablation removes or alters one component at a time: • − IC encoder : removes the initial-condition encoder; the initial oscillator state is fixed at zero. • − Fourier basis : replaces the Fourier basis with a learned MLP basis and adds a soft boundary-condition penalty. • − MLP decoder : replaces the spectral decoder with a single linear projection. • − LinOSS : removes the LinOSS rollout and uses a learnable constant latent state. • − 6th-order FD : replaces the sixth-order finite-difference stencil with a second-order stencil. • − FP64 : switches precision from float64 to float32 .Table 8 reports results for both the IM and IMEX discretizations on three benchmarks. 
+
+G.2 State-Space-Cell Swap Ablation 
+
+To isolate the effect of the oscillatory eigenstructure, we hold the OSSM-PINN backbone fixed (encoder, modewise decoder, Fourier basis, Adam → L-BFGS recipe, same hidden size and parameter budget) and swap only the temporal cell. Tables 9 and 10 report results on convection and reaction respectively. On convection ( β = 50 ), LinOSS is the only cell that learns the high-frequency traveling wave; every non-oscillatory cell plateaus at rMAE near unity (LRU [ 36 ]/Mamba [ 33 ]/NCDE [ 45 ]/NRDE 20 Table 8: Architecture ablations (rMAE) on three benchmarks for both IM and IMEX discretizations.                                                           
+
+> Variant Conv. β= 50 Euler-Bernoulli Wave IM IMEX IM IMEX IM IMEX Default 3.28e-5 3.04e-5 6.58e-5 6.72e-5 4.29e-5 4.15e-5
+> −IC encoder 9.70e-5 5.37e-5 3.50e-2 3.84e-2 7.38e-2 7.30e-2
+> −MLP decoder 1.81e-4 1.27e-4 1.03e-4 4.34e-5 4.35e-5 6.79e-5
+> −Fourier basis 7.75e-1 7.10e-1 1.34e-2 9.95e-3 1.00e+0 1.00e+0
+> −6th-order FD 2.65e-2 2.75e-2 1.24e-4 1.24e-4 3.92e-4 3.99e-4
+> −FP64 2.35e-3 7.97e-4 3.03e-3 2.38e-3 1.15e-2 8.30e-3
+> −LinOSS 1.00e+0 1.00e+0 1.00e+0 1.00e+0 1.00e+0 1.00e+0
+
+[ 46 ]/Log-NCDE [ 47 ]) or two orders of magnitude above LinOSS (S5). On reaction, where the dynamics are monotonic and non-oscillatory, LinOSS still leads the closest non-oscillatory cell (Mamba) by an order of magnitude. Table 9: State-space-cell ablation on convection ( β=50 ). Same backbone; only the temporal cell changes. 
+
+Cell rMAE ↓ rRMSE ↓ #params 
+
+LinOSS-IMEX (ours) 3.039e-5 3.505e-5 93,459 LRU 0.887 0.920 93,971 S5 0.008 0.009 93,971 Mamba 0.891 0.924 94,227 NCDE 0.992 0.998 130,451 NRDE 0.993 0.997 114,195 Log-NCDE 0.859 0.900 114,195 
+
+Table 10: State-space-cell ablation on reaction. Same backbone as Table 9. 
+
+Cell rMAE ↓ rRMSE ↓ #params 
+
+LinOSS-IMEX (ours) 0.003 0.009 116,164 LRU 0.136 0.262 116,676 S5 0.095 0.200 116,676 Mamba 0.072 0.161 116,932 NCDE 0.109 0.222 153,156 NRDE 0.356 0.495 136,900 Log-NCDE 0.340 0.488 136,900 
+
+G.3 Plug-in Compatibility 
+
+OSSM-PINN is an architectural change compatible with existing PINN training techniques (Exp. 3 in Table 5). We test four enhancements independently: • gPINN : adds a penalty on additional spatial gradient of the PDE residual, λg ∥∇ xF(u)∥2.• Random weight factorization (RWF) : factorizes each linear layer as W = diag(exp s)V .• Post-L-BFGS : applies an additional L-BFGS refinement from a trained checkpoint. • TimeFD6 : enforces sixth-order finite differences for temporal derivatives throughout train-ing. Table 11 reports results for both IM and IMEX on convection, wave, and Euler–Bernoulli. 
+
+G.4 Hyperparameter Sensitivity 
+
+Table 12 sweeps K ∈ { 8, 16 , 32 , 64 } and N ∈ { 100 , 200 , 400 , 800 } on the 1D reaction problem. All 32 runs converge without failure; sensitivity to the temporal rollout depth N is essentially flat (rMAE varies less than 10% across the 8× range in N ), while mild dependence on K reflects the limited spatial frequency content of the reaction equation. 21 Table 11: Plug-in extensions (rMAE, IM and IMEX). Each row adds one modification on top of the default backbone. 
+
+Variant Conv. β = 50 Euler-Bernoulli Wave IM IMEX IM IMEX IM IMEX Default 3.28e-5 3.04e-5 6.58e-5 6.72e-5 4.29e-5 4.15e-5 
+
++ gPINN 3.33e-5 2.74e-5 7.79e-5 5.28e-5 4.96e-5 6.75e-5 
+
++ RWF 3.29e-5 3.00e-5 4.41e-5 2.73e-5 4.51e-5 1.60e-5 
+
++ post-L-BFGS 2.78e-5 3.04e-5 5.19e-5 4.74e-5 2.74e-5 3.75e-5 
+
++ time FD-6 3.28e-5 3.04e-5 6.46e-5 7.83e-5 5.06e-5 2.91e-5 
+
+Table 12: Hyperparameter sensitivity on 1D reaction. 
+
+Method Metric K = 8 K = 16 K = 32 K = 64 
+
+OSSM-PINN-IM rMAE 3.22–3.35e-3 2.68–4.69e-3 1.55–1.94e-2 2.04–2.36e-2 rRMSE 6.69–7.03e-3 9.22e-3–1.35e-2 4.48–5.52e-2 5.57–6.44e-2 OSSM-PINN-IMEX rMAE 3.22–3.42e-3 2.54–2.82e-3 1.49–1.66e-2 1.90–2.03e-2 rRMSE 6.72–7.28e-3 8.80–9.21e-3 4.29–4.75e-2 5.48–5.63e-2         
+
+> Ranges are over N∈ { 100 ,200 ,400 ,800 }; variation across rollout depth is <10% in all cases.
+
+H Inverse Problems 
+
+H.1 KdV Inverse Problem 
+
+We consider ut + λ1uu x + λ2uxxx = 0 on [−1, 1] × [0 , 1] with periodic boundary conditions and 
+
+u(x, 0) = cos( πx ). True parameters: λ1 = 1 , λ2 = 0 .0025 . We use 1000 randomly sampled space-time observations. Recovered values and relative errors are listed in Table 13. Figure 23 shows the predicted fields and Figure 25 shows the coefficient convergence trajectories. Figure 27 confirms that the inferred forward solution matches the reference spectrum. 
+
+H.2 Sea-Surface-Temperature Inverse Problem 
+
+We consider ut + cxux + cyuy = κ(u xx + u yy ) on [0 , 2π]2 with periodic boundary conditions and 
+
+t ∈ [0 , 23] months. The IC is a NOAA OISST [ 22 ] anomaly field from January 2008. As the data does not specify the exact PDE that governs it. Advection-diffusion equation is considered with true parameters: cx = 0 .5, cy = 0 .05 , κ = 0 .01 . Using true values the solution is found by a traditional method. We use 5000 observations as the data for inverse problem. Figure 24 shows predicted fields and Figure 26 shows coefficient convergence. Table 13: Inverse parameter recovery: Ground-truth vs. OSSM-PINN-recovered coefficients. 
+
+Problem Method Parameter True Recovered Rel. err. KdV (Raissi) OSSM-IM (ours) λ1 1 0.99932 0.07% 
+
+λ2 0.0025 0.0024986 0.06% KdV (Raissi) OSSM-IMEX (ours) λ1 1 0.99656 0.34% 
+
+λ2 0.0025 0.0024935 0.26% SST 2D OSSM-IM (ours) cx 0.5 0.49963 0.07% 
+
+cy 0.05 0.048074 3.85% 
+
+κ 0.01 0.010235 2.35% SST 2D OSSM-IMEX (ours) cx 0.5 0.49971 0.06% 
+
+cy 0.05 0.048107 3.79% 
+
+κ 0.01 0.010215 2.15% 
+
+22 I Problem-Adapted Spectral Bases 
+
+We evaluate whether matching the spectral basis to the PDE’s eigenstructure improves accuracy (Exp. 5 in Table 5). The analytical basis functions are illustrated in Figure 28; quantitative results are in Table 14. 
+
+I.0.1 Quantum Harmonic Oscillator 
+
+We solve iψ t = − 12 ψxx + 12 ω2x2ψ on [−10 , 10] × [0 , 4π] with IC ψ(x, 0) = ( ϕ0(x) + ϕ1(x)) /√2
+
+and exact solution ψ(x, t ) = ( ϕ0(x)e−iE 0t + ϕ1(x)e−iE 1t)/√2. Using the Hermite basis reduces QHO rMAE from 9.5 × 10 −3 to 1.9 × 10 −4, a 50 × improvement at no architectural cost (Figure 29). 
+
+I.0.2 Nonlinear Schrödinger Equation 
+
+We consider the cubic NLS iψ t + 12 ψxx + |ψ|2ψ = 0 on (x, t ) ∈ [−5, 5] × [0 , π/ 2] with periodic boundary conditions ( ψ and ψx matched at x = ±5) and the soliton-like initial condition 
+
+ψ(x, 0) = 2 sech( x),
+
+The reference solution is the analytical Satsuma–Yajima N =2 breather 
+
+ψ(x, t ) = 4 eit/ 2cosh(3 x) + 3 e4it cosh( x)
+
+cosh(4 x) + 4 cosh(2 x) + 3 cos(4 t) ,
+
+which has period π/ 2 in |ψ|, so the chosen t-window covers exactly one breather cycle. 
+
+I.0.3 Pöschl–Teller Well 
+
+We solve iψ t + 12 ψxx + 3 sech 2(x)ψ = 0 on [−10 , 10] × [0 , 4π] with IC a superposition of the two exact bound states ϕ0(x) ∝ sech 2(x) and ϕ1(x) ∝ sech( x) tanh( x). Using the PT eigenbasis reduces rMAE from 6.6 × 10 −2 to 1.7 × 10 −3, a 40 × improvement (Figure 30). Table 14: Spatial-basis ablation on quantum benchmarks. Best in blue , second in green, third in red.                                              
+
+> Problem Method Basis Metric IM IMEX QHO NeuSA Fourier rMAE 2.67e-2 rRMSE 3.14e-2 OSSM-PINN Fourier rMAE 9.18e-3 (×3) 9.51e-3 (×3)
+> rRMSE 9.87e-3 (×3) 9.94e-3 (×3)
+> Hermite rMAE 1.47e-4 (×181) 1.87e-4 (×143)
+> rRMSE 1.46e-4 (×215) 1.81e-4 (×173)
+> Pöschl–Teller NeuSA Fourier rMAE 1.77e-2 rRMSE 2.39e-2 OSSM-PINN Fourier rMAE 1.92e-1 6.63e-2 rRMSE 2.74e-1 8.65e-2 Pöschl–Teller rMAE 2.19e-3 (×8) 1.68e-3 (×11)
+> rRMSE 2.96e-3 (×8) 2.40e-3 (×10)
+
+J High-Dimensional, Geometry, and Large-Domain Experiments 
+
+J.1 Taylor–Green Vortex (2D) 
+
+Figure 31 shows the predicted velocity and pressure fields at t = tmax /2. The temporal evolution under Re = 100 is dominated by a slow e−2νt decay ( ν = 0 .01 , t ≤ 10 ). All four baselines exceeded the single-GPU memory budget. 23 J.2 Heat Equation on Triangular Domain 
+
+We solve ut = 0 .1∆ u + f (x, y, t ) on the right triangle T = {(x, y ) : x ≥ 0, y ≥ 0, x + y ≤ 1}
+
+with t ∈ [0 , 1] and homogeneous Dirichlet boundary conditions. The manufactured solution is 
+
+u(x, y, t ) = sin( πx ) sin( πy ) sin( π(1 −x−y)) cos(2 πt ), which vanishes on all three edges including the hypotenuse x + y = 1 . The forcing is f (x, y, t ) = ut − 0.1∆ u. All baselines are either OOM or geometry-infeasible. 
+
+J.3 High-Dimensional Schrödinger (5D and 100D) 
+
+Figures 33 and 34 show |ψ|2 onto the three visible faces of an inner cube at t = π/ 2. The three varying coordinates are x1, x 2, x 3; remaining dimensions are fixed at π/ 2. All four baselines are infeasible at these dimensionalities. 
+
+J.4 Large-Domain Euler–Bernoulli Beam 
+
+We extend the Euler–Bernoulli beam from x ∈ [0 , π ] to x ∈ [0 , 8π] (Exp. 7 in Table 5), keeping the same PDE, forcing, IC, and exact solution u(x, t ) = sin x cos(4 πt ). The field comparison is shown in Figure 13 and the spectral comparison in Figure 21. 
+
+K Hyperparameters and Training Recipes 
+
+Shared hyperparameters for OSSM-PINN are listed in Table 15; baseline hyperparameters are in Tables 16–19. Table 15: OSSM-PINN hyperparameters.                   
+
+> Hyperparameter Value LinOSS hidden width 128
+> Coefficient MLP width 128
+> Locally-adaptive activation enabled Discretization IM / IMEX Adam learning rate 10 −3
+> L-BFGS history 50
+> L-BFGS line search strong Wolfe L-BFGS learning rate 1.0
+> PDE residual λpde 1
+> Initial condition λic 10 2
+> Data fit (inverse) λdata 10 2
+> GPU 1×NVIDIA RTX 5090, 24 GB Framework PyTorch 2.x
+
+Table 16: PINNsFormer hyperparameters.                       
+
+> Hyperparameter Value Embedding width 64
+> FFN hidden width 288
+> Pseudo-sequence length 3
+> Attention heads 2
+> Encoder / decoder layers 1/1
+> Activation wavelet ω1sin( x) + ω2cos( x)
+> Pseudo-sequence step 10 −3
+> Adam learning rate 10 −3
+> L-BFGS history 50
+> L-BFGS line search strong Wolfe L-BFGS learning rate 1.0
+> PDE residual λpde 1
+> Initial condition λic 10 2
+> Boundary λbc 1
+
+24 Table 17: PINNMamba hyperparameters.                         
+
+> Hyperparameter Value Embedding width 80
+> SSM state size 16
+> Convolution width 4
+> Expansion factor 2
+> Pseudo-sequence length 2
+> Number of Mamba blocks 2
+> Activation wavelet ω1sin( x) + ω2cos( x)
+> Pseudo-sequence step ∆t10 −3
+> Adam learning rate 10 −3
+> L-BFGS history 50
+> L-BFGS line search strong Wolfe L-BFGS learning rate 1.0
+> PDE residual λpde 1
+> Initial condition λic 10 2
+> Boundary λbc 1
+
+Table 18: ML-PINN hyperparameters.                          
+
+> Hyperparameter Value Mamba embedding width 80
+> Mamba SSM state size 8
+> Mamba convolution width 4
+> Mamba expansion factor 2
+> Mamba blocks 1
+> LSTM hidden width 16
+> LSTM layers 1, bidirectional Pseudo-sequence length 4
+> Pseudo-sequence step 10 −2
+> Activation wavelet ω1sin( x) + ω2cos( x)
+> Adam learning rate 10 −3
+> L-BFGS history 50
+> L-BFGS line search strong Wolfe L-BFGS learning rate 1.0
+> PDE residual λpde 1
+> Initial condition λic 10 2
+> Boundary λbc 1
+
+L Computational Cost 
+
+Table 20 reports trainable parameter count, peak GPU memory (MiB), and single-batch inference latency (ms) for every (problem, method) pair. OSSM-PINN consistently uses less peak GPU memory than all sequence-model baselines that can run (as low as 144 MiB on wave versus 1,454 MiB for PINNsFormer and 6,301 MiB for PINNMamba), and inference latency is 8–23 × lower. 
+
+M Training Dynamics and Seed Stability 
+
+Loss curves: Figures 35 and 36 show per-problem training-loss histories for OSSM-PINN-IMEX and OSSM-PINN-IM, aggregated over three seeds. Each panel shows the PDE residual loss, the IC loss, and the total weighted loss; background tints separate the Adam warm-up (cream) from the L-BFGS phase (light blue). 
+
+Seed stability: Figure 37 shows mean rMAE over three seeds for seven benchmarks; error bars show 
+
+±1 std and open circles mark individual seed values. Variability between seeds stays well within the same order of magnitude as the mean for both discretizations. 25 Table 19: NeuSA hyperparameters. 
+
+Hyperparameter Value Spectral basis Fourier (periodic) / sine (Dirichlet) Spectral state size 51 
+
+Neural correction MLP hidden 272 , depth 2
+
+Correction weight ε 0.1
+
+Time integrator explicit RK4 Adam learning rate 10 −3
+
+L-BFGS history 50 
+
+L-BFGS line search strong Wolfe L-BFGS learning rate 1.0
+
+PDE residual λpde 1
+
+Initial condition λic 10 2
+
+Boundary λbc 1
+
+Table 20: Computational cost: parameters (k), peak GPU memory (MiB), and inference latency (ms). 
+
+PDE Quantity PINNsFormer PINNMamba ML-PINN NeuSA OSSM-PINN-IM 
+
+> (ours)
+
+OSSM-PINN-IMEX 
+
+> (ours)
+> Forward
+
+Convection ( β=50 )#params (k) 108.0 107.6 94.9 102.3 93.5 93.5 peak GPU (MiB) 547 1734 1269 98 153 154 latency (ms) 88.65 15.66 9.52 31.95 3.84 3.79 Convection ( β=100 )#params (k) 108.0 107.6 94.9 102.3 93.5 93.5 peak GPU (MiB) 547 1734 1270 134 215 215 latency (ms) 51.58 16.09 11.01 31.18 7.85 7.82 Reaction #params (k) 132.7 139.1 128.8 129.8 116.2 116.2 peak GPU (MiB) 454 1763 1320 87 154 154 latency (ms) 73.61 25.85 16.87 28.93 2.58 2.61 Wave #params (k) 124.5 139.1 128.0 124.2 109.8 109.8 peak GPU (MiB) 1454 6301 3661 85 144 144 latency (ms) 65.28 25.77 14.04 32.47 2.59 2.59 Euler-Bernoulli (classical) #params (k)  
+
+> OOM OOM
+
+94.9 102.5 92.3 92.3 peak GPU (MiB) 9409 76 131 130 latency (ms) 10.34 32.50 2.46 2.51 Euler-Bernoulli (extended) #params (k)  
+
+> OOM OOM
+
+94.9 102.5 93.3 93.3 peak GPU (MiB) 9410 76 187 187 latency (ms) 10.38 32.52 2.59 2.56 Forward high-dim Taylor-Green 2D #params (k)    
+
+> OOM OOM OOM OOM
+
+604.6 604.6 peak GPU (MiB) 809 809 latency (ms) 4.05 3.95 Heat (triangular) #params (k)    
+
+> OOM OOM OOM IG
+
+615.6 615.6 peak GPU (MiB) 603 602 latency (ms) 1.95 1.89 Schrödinger (5D) #params (k)    
+
+> OOM OOM OOM OOM
+
+173.4 173.4 peak GPU (MiB) 405 405 latency (ms) 2.75 2.62 Schrödinger (100D) #params (k)    
+
+> OOM OOM OOM OOM
+
+216.7 216.7 peak GPU (MiB) 4328 4328 latency (ms) 5.22 6.40 Inverse  KdV #params (k)    
+
+> OOM OOM OOM ST
+
+116.2 116.2 peak GPU (MiB) 151 151 latency (ms) 1.97 1.92 SST 2D adv-diff #params (k)    
+
+> OOM OOM OOM OOM
+
+202.4 202.4 peak GPU (MiB) 312 313 latency (ms) 1.45 1.37 
+
+26 Advection 
+
+equation 
+
+Extremely high-
+
+frequency advection 
+
+on a periodic 
+
+domain. 
+
+ut + β u x = 0 
+
+0.0 
+
+2.5 
+
+5.0 x 0.0 
+
+0.4 
+
+0.8 
+
+t -1 
+
+1
+
+Reaction 
+
+equation 
+
+Smooth saturating 
+
+front; super-
+
+exponentially 
+
+decaying spectrum. 
+
+ut = ρ u (1 −u)
+
+0.0 
+
+2.5 
+
+5.0 x 0.0 
+
+0.4 
+
+0.8 
+
+t 0.00034 
+
+1
+
+Wave 
+
+equation 
+
+Multi-scale 
+
+standing-wave 
+
+solutions; second-
+
+order in time. 
+
+utt − c2 uxx = 0 
+
+0.0 
+
+0.4 
+
+0.8 x 0.0 
+
+0.4 
+
+0.8 
+
+t -1.1 
+
+1.1 
+
+Euler 
+
+Bernoulli 
+
+beam 
+
+Higher-order spatial 
+
+derivatives; quartic 
+
+dispersion. 
+
+utt + uxxxx = f(x, t )
+
+0
+
+10 
+
+20 x 0.0 
+
+0.4 
+
+0.8 
+
+t -1 
+
+1
+
+Taylor 
+
+Green flow 
+
+2D incompressible 
+
+flow; periodic 
+
+vortex decay under 
+
+viscosity. 
+
+> t
+
+u + ( u·∇ )u = −∇ p + ν∇2u
+
+0.0 
+
+2.5 
+
+5.0 x 0.0 
+
+2.5 
+
+5.0 
+
+y -0.9 
+
+0.9 
+
+Application Key challenges 
+
+posed by the PDE PDE and ground-truth solution of the PDE Figure 10: Forward-problem benchmark overview: key challenge and ground-truth solution for each PDE. 27 Quantum 
+
+harmonic 
+
+oscillator 
+
+Bound-state coherent 
+
+superposition in a 
+
+harmonic trap. 
+
+iψ t = −12 ψxx + 12 x2ψ
+
+6
+
+0
+
+6x 0.0 
+
+1.5 
+
+3.0 
+
+t 2.9e-22 
+
+0.95 
+
+Pöschl 
+
+Teller well 
+
+Linear Schrödinger 
+
+in an attractive 
+
+sech² potential. 
+
+iψ t + 12 ψxx + 3 sech 2x ψ = 0 
+
+8
+
+0
+
+8x 0
+
+5
+
+10 
+
+t 6.2e-09 
+
+0.69 
+
+Schrödinger 
+
+high-D 
+
+Schrödinger 
+
+evolution in 5 
+
+spatial dimensions; 
+
+curse-of-dim. 
+
+iψ t = −12 ∆ψ
+
+0.0 
+
+1.5 
+
+3.0 
+
+x1 0.0 
+
+1.5 
+
+3.0 
+
+> x2
+
+0
+
+0.052 
+
+Korteweg 
+
+de Vries 
+
+(inverse) 
+
+Nonlinear soliton 
+
+train; recover 
+
+unknown PDE 
+
+coefficients. 
+
+ut + λ1 u u x + λ2 uxxx = 0 
+
+0.8 
+
+0.0 
+
+0.8 x 0.0 
+
+0.4 
+
+0.8 
+
+t -1 
+
+2.3 
+
+Sea-
+
+surface 
+
+temperature 
+
+(inverse) 
+
+Real NOAA ocean-
+
+temperature 
+
+anomalies; recover 
+
+advection + 
+
+diffusion. 
+
+Tt + cxTx + cyTy = ∇2T
+
+0
+
+150 
+
+300 lon 50 
+
+0
+
+50 
+
+lat -1.1 
+
+0.45 
+
+Application Key challenges 
+
+posed by the PDE PDE and ground-truth solution of the PDE Figure 11: Benchmark overview (inverse, geometry, high-dimensional, problem-adapted-basis). 28 0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Reference u(x, t) 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+PINNsFormer PINNMamba ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours) Figure 12: Wave equation: predicted u(x, t ) fields and absolute errors for each method. 0 10 20 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Reference u(x, t) 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0 10 20 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+4
+
+8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0 10 20 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+4
+
+8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0 10 20 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+4
+
+8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0 10 20 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+4
+
+8
+
+ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours) 
+
+Figure 13: Euler–Bernoulli beam (extended domain [0 , 8π]): predicted u(x, t ) fields and absolute errors for each method. 0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Reference u(x, t) 
+
+> 0.8
+> 0.0
+> 0.8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+> 0.8
+> 0.0
+> 0.8
+> 0.0
+> 0.4
+> 0.8
+
+PINNsFormer PINNMamba ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours) 
+
+Figure 14: Convection ( β = 100 ): predicted u(x, t ) fields and absolute errors for each method. 29 0.0 1.5 3.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Reference u(x, t) 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 1.5 3.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+2
+
+4
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 1.5 3.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+2
+
+4
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 1.5 3.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+2
+
+4
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Predicted u(x, t) 
+
+0.0 1.5 3.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Absolute error 
+
+0.8 
+
+0.0 
+
+0.8 
+
+0
+
+2
+
+4
+
+ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours) Figure 15: Euler–Bernoulli beam (classical, [0 , 2π]): predicted u(x, t ) fields and absolute errors for each method. 30 0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Convection ( β = 50 ) reference 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+latent mode 1 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+latent mode 2 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+latent mode 3 
+
+0.0 0.4 0.8 
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+spatial RMSE 
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Reaction 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+0.0 1.5 3.0 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+Euler-Bernoulli (classical) 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+0 10 20 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> t
+
+EB extended 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Taylor-Green 2D 
+
+0 4 8
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0 4 8
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0 4 8
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0 4 8
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Heat (triangle) 
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 0.4 0.8 
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+0.0 1.5 3.0 
+
+s (diagonal) 
+
+0.00 
+
+0.03 
+
+0.06 
+
+> |ψ|2
+
+Schrödinger 5D 
+
+0.0 1.5 3.0 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 1.5 3.0 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 1.5 3.0 
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 1.5 3.0 
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+0.0 1.5 3.0 
+
+s (diagonal) 
+
+0.0 
+
+0.3 
+
+0.6 
+
+> |ψ|2
+
+Schrödinger 100D 
+
+0.0 1.5 3.0 
+
+t
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 1.5 3.0 
+
+t
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 1.5 3.0 
+
+t
+
+1
+
+0
+
+1
+
+> normalised
+> latent
+
+0.0 1.5 3.0 
+
+t
+
+10 6
+
+10 4
+
+10 2
+
+10 0
+
+> RMSE over x
+
+PINNsFormer PINNMamba ML-PINN NeuSA OSSM-IM (ours) OSSM-IMEX (ours) Figure 16: Latent dynamics on all benchmarks in addition to problems shown in Figure 1. Columns: reference field, top-3 latent dimensions per method, spatial RMSE. 31 0 2 4 6
+
+x
+
+0.8 
+
+0.0 
+
+0.8 
+
+> u(x, t  = 1)
+
+Physical domain 
+
+0 40 80 120 
+
+Fourier mode k
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+> |ˆu(k, t max )|
+
+Spectrum (log) 
+
+PINNsFormer 
+
+PINNMamba 
+
+ML-PINN 
+
+NeuSA 
+
+OSSM-PINN-IM 
+
+OSSM-PINN-IMEX 
+
+Ground truth Figure 17: Frequency-domain comparison on convection ( β = 50 ) at t = 1 : spatial Fourier magnitude spectrum |ˆu(k)| of predicted vs. reference fields. 0 2 4 6
+
+x
+
+0.8 
+
+0.0 
+
+0.8 
+
+> u(x, t  = 1)
+
+Physical domain 
+
+0 40 80 120 
+
+Fourier mode k
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+> |ˆu(k, t max )|
+
+Spectrum (log) 
+
+PINNsFormer 
+
+PINNMamba 
+
+ML-PINN 
+
+NeuSA 
+
+OSSM-PINN-IM 
+
+OSSM-PINN-IMEX 
+
+Ground truth 
+
+Figure 18: Frequency-domain comparison on convection ( β = 100 ) at t = 1 : spatial Fourier magnitude spectrum |ˆu(k)| of predicted vs. reference fields. 0 2 4 6
+
+> x
+> 0.0
+> 0.4
+> 0.8
+> u(x, t  = 1)
+
+Physical domain          
+
+> 040 80 120
+> Fourier mode k
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> |ˆu(k, t max )|
+
+Spectrum (log) 
+
+> PINNsFormer
+> PINNMamba
+> ML-PINN
+> NeuSA
+> OSSM-PINN-IM
+> OSSM-PINN-IMEX
+> Ground truth
+
+Figure 19: Frequency-domain comparison on reaction at the final time: spatial Fourier magnitude spectrum of predicted vs. reference fields. 32 0 1 2 3
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> u(x, t  = 1)
+
+Physical domain 
+
+0 40 80 120 
+
+Fourier mode k
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> |ˆu(k, t max )|
+
+Spectrum (log) 
+
+ML-PINN 
+
+NeuSA 
+
+OSSM-PINN-IM OSSM-PINN-IMEX Ground truth Figure 20: Frequency-domain comparison on Euler–Bernoulli beam (classical, [0 , 2π]) at the final time: spatial Fourier magnitude spectrum of predicted vs. reference fields. 0 8 16 24 
+
+x
+
+0.8 
+
+0.0 
+
+0.8 
+
+> u(x, t  = 1)
+
+Physical domain 
+
+0 40 80 120 
+
+Fourier mode k
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+> |ˆu(k, t max )|
+
+Spectrum (log) 
+
+ML-PINN 
+
+NeuSA 
+
+OSSM-PINN-IM OSSM-PINN-IMEX Ground truth 
+
+Figure 21: Frequency-domain comparison on extended Euler–Bernoulli at the final time: spatial Fourier magnitude spectrum of predicted vs. reference fields. −1
+
+> 0
+> +1
+
+α −1  
+
+> 0
+> +1
+> β
+> Llog Lip =37 .9
+
+PINNsFormer 
+
+> −1
+> 0
+> +1
+
+α −1  
+
+> 0
+> +1
+> β
+> Llog Lip =16 .7
+
+PINNMamba 
+
+> −1
+> 0
+> +1
+
+α −1  
+
+> 0
+> +1
+> β
+> Llog Lip =17 .6
+
+ML-PINN 
+
+> −1
+> 0
+> +1
+
+α −1  
+
+> 0
+> +1
+> β
+> Llog Lip =13 .7
+
+NeuSA 
+
+> −1
+> 0
+> +1
+
+α −1  
+
+> 0
+> +1
+> β
+> Llog Lip =15 .5
+
+OSSM-PINN-IM 
+
+> −1
+> 0
+> +1
+
+α −1  
+
+> 0
+> +1
+> β
+> Llog Lip =13 .2
+
+OSSM-PINN-IMEX 
+
+Figure 22: Loss-landscape on convection ( β = 100 ) along top-2 Hessian eigenvectors. Smaller Llog Lip 
+
+indicates a smoother basin. 33 0.8 0.0 0.8 
+
+x
+
+> 0.0
+> 0.4
+> 0.8
+> t
+
+Reference u(x, t) 
+
+> 2
+> 0
+> 2
+> 0.0
+> 0.4
+> 0.8
+> t
+
+Predicted u(x, t)   
+
+> 0.8 0.0 0.8
+
+x
+
+> 0.0
+> 0.4
+> 0.8
+> t
+
+Absolute error 
+
+> 2
+> 0
+> 2
+> 0.000
+> 0.006
+> 0.012
+> 0.0
+> 0.4
+> 0.8
+> t
+
+Predicted u(x, t)   
+
+> 0.8 0.0 0.8
+
+x
+
+> 0.0
+> 0.4
+> 0.8
+> t
+
+Absolute error 
+
+> 2
+> 0
+> 2
+> 0.000
+> 0.006
+> 0.012
+
+OSSM-IM (ours) OSSM-IMEX (ours) Figure 23: KdV inverse problem: predicted u(x, t ) fields and absolute errors. OSSM-PINN recovers both coefficients ( λ1, λ2) to < 0.1% relative error. Reference 
+
+t = 6 mo t = 12 mo t = 18 mo t = 23 mo 
+
+> 1
+> 0
+> 1
+> T (°C)
+> OSSM-IM: Pred
+> 1
+> 0
+> 1
+> T (°C)
+> OSSM-IM: |err|
+> 0.00
+> 0.01
+> 0.02
+> |err| (°C)
+> OSSM-IMEX: Pred
+> 1
+> 0
+> 1
+> T (°C)
+> OSSM-IMEX: |err|
+> 0.00
+> 0.01
+> 0.02
+> |err| (°C)
+
+Figure 24: SST 2D advection–diffusion inverse problem: predicted temperature T (x, y, t ) at four monthly snapshots ( t ∈ { 6, 12 , 18 , 23 } mo). Rows: reference, OSSM-IM prediction, OSSM-IMEX prediction, and absolute errors. 0 800 1600 2400 
+
+training iteration 
+
+0.0 
+
+0.4 
+
+0.8 
+
+λ1
+
+KdV λ1
+
+true 
+
+OSSM-IM (ours) 
+
+OSSM-IMEX (ours) 
+
+0 800 1600 2400 
+
+training iteration 
+
+0.000 
+
+0.001 
+
+0.002 
+
+0.003 
+
+λ2
+
+KdV λ2
+
+Figure 25: KdV coefficient convergence during training. Dashed line: true parameter value. 34 0 800 1600 2400 
+
+training iteration 
+
+> 0.0
+> 0.2
+> 0.4
+
+cx
+
+SST 2D cx   
+
+> true
+> OSSM-IM (ours)
+> OSSM-IMEX (ours)
+> 0800 1600 2400
+
+training iteration 
+
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+
+cy
+
+SST 2D cy   
+
+> 0800 1600 2400
+
+training iteration 
+
+> 0.000
+> 0.004
+> 0.008
+> 0.012
+
+SST 2D Figure 26: SST coefficient convergence during training ( cx, cy , κ). 0.6 0.0 0.6 
+
+x
+
+1
+
+0
+
+1
+
+2
+
+> u(x, t  = 1)
+
+Physical domain 
+
+0 40 80 120 
+
+Fourier mode k
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+> |ˆu(k, t max )|
+
+Spectrum (log) 
+
+OSSM-PINN-IM OSSM-PINN-IMEX Ground truth 
+
+Figure 27: Frequency-domain validation of KdV inverse recovery at final time: spatial Fourier spectrum of the forward solution predicted with recovered coefficients matches the reference down to FFT noise floor. 35 0.0 1.5 3.0 4.5 6.0 
+
+x
+
+0.6 
+
+0.0 
+
+0.6 
+
+> ψn(x)
+
+Fourier (Dirichlet sine) basis 
+
+sin(1 π x/L )
+
+sin(2 π x/L )
+
+sin(3 π x/L )
+
+sin(4 π x/L )
+
+sin(5 π x/L )
+
+8 4 0 4 8
+
+x
+
+0.4 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> ψn(x)
+
+Hermite eigenbasis 
+
+ψ0
+
+ψ1
+
+ψ2
+
+ψ3
+
+ψ4
+
+8 4 0 4 8
+
+x
+
+0.5 
+
+0.0 
+
+0.5 
+
+> ψn(x)
+
+Pöschl Teller eigenbasis 
+
+ψ0 ∝ sech 2x
+
+ψ1 ∝ sech x tanh xFigure 28: Problem-adapted basis functions. 6 0 6
+
+x
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Reference u(x, t) 
+
+> 0.6
+> 0.0
+> 0.6
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Predicted u(x, t) 
+
+6 0 6
+
+x
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Absolute error 
+
+> 0.6
+> 0.0
+> 0.6
+> 0.000
+> 0.015
+> 0.030
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Predicted u(x, t) 
+
+6 0 6
+
+x
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Absolute error 
+
+> 0.6
+> 0.0
+> 0.6
+> 0.000
+> 0.015
+> 0.030
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Predicted u(x, t) 
+
+6 0 6
+
+x
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Absolute error 
+
+> 0.6
+> 0.0
+> 0.6
+> 0.000
+> 0.015
+> 0.030
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Predicted u(x, t) 
+
+6 0 6
+
+x
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Absolute error 
+
+> 0.6
+> 0.0
+> 0.6
+> 0.000
+> 0.015
+> 0.030
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Predicted u(x, t) 
+
+6 0 6
+
+x
+
+0.0 
+
+1.5 
+
+3.0 
+
+> t
+
+Absolute error 
+
+> 0.6
+> 0.0
+> 0.6
+> 0.000
+> 0.015
+> 0.030
+
+NeuSA 
+
+(Fourier) OSSM-IM 
+
+(Fourier) OSSM-IMEX 
+
+(Fourier) OSSM-IM 
+
+(Hermite) OSSM-IMEX 
+
+(Hermite) 
+
+Figure 29: QHO 1D: predicted fields with Fourier vs. Hermite basis. 36 8 0 8
+
+x
+
+0
+
+5
+
+10 
+
+> t
+
+Reference u(x, t) 
+
+0.6 
+
+0.0 
+
+0.6 
+
+0
+
+5
+
+10 
+
+> t
+
+Predicted u(x, t) 
+
+8 0 8
+
+x
+
+0
+
+5
+
+10 
+
+> t
+
+Absolute error 
+
+0.6 
+
+0.0 
+
+0.6 
+
+0.00 
+
+0.15 
+
+0.30 
+
+0
+
+5
+
+10 
+
+> t
+
+Predicted u(x, t) 
+
+8 0 8
+
+x
+
+0
+
+5
+
+10 
+
+> t
+
+Absolute error 
+
+0.6 
+
+0.0 
+
+0.6 
+
+0.00 
+
+0.15 
+
+0.30 
+
+0
+
+5
+
+10 
+
+> t
+
+Predicted u(x, t) 
+
+8 0 8
+
+x
+
+0
+
+5
+
+10 
+
+> t
+
+Absolute error 
+
+0.6 
+
+0.0 
+
+0.6 
+
+0.00 
+
+0.15 
+
+0.30 
+
+0
+
+5
+
+10 
+
+> t
+
+Predicted u(x, t) 
+
+8 0 8
+
+x
+
+0
+
+5
+
+10 
+
+> t
+
+Absolute error 
+
+0.6 
+
+0.0 
+
+0.6 
+
+0.00 
+
+0.15 
+
+0.30 
+
+0
+
+5
+
+10 
+
+> t
+
+Predicted u(x, t) 
+
+8 0 8
+
+x
+
+0
+
+5
+
+10 
+
+> t
+
+Absolute error 
+
+0.6 
+
+0.0 
+
+0.6 
+
+0.00 
+
+0.15 
+
+0.30 
+
+NeuSA 
+
+(Fourier) OSSM-IM 
+
+(Fourier) OSSM-IMEX 
+
+(Fourier) OSSM-IM 
+
+(PT) OSSM-IMEX 
+
+(PT) Figure 30: Pöschl–Teller well: predicted fields with Fourier vs. PT basis. 0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Pred u
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+|err| u
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0000 
+
+0.0003 
+
+0.0006 
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Pred v
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+|err| v
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.00000 
+
+0.00025 
+
+0.00050 
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Pred p
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+|err| p
+
+0.3 
+
+0.0 
+
+0.3 
+
+0.0000 
+
+0.0015 
+
+0.0030 
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Pred u
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+|err| u
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.0000 
+
+0.0003 
+
+0.0006 
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Pred v
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+|err| v
+
+0.8 
+
+0.0 
+
+0.8 
+
+0.00000 
+
+0.00025 
+
+0.00050 
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+Pred p
+
+0.0 2.5 5.0 
+
+x
+
+0.0 
+
+2.5 
+
+5.0 
+
+> y
+
+|err| p
+
+0.3 
+
+0.0 
+
+0.3 
+
+0.0000 
+
+0.0015 
+
+0.0030 
+
+OSSM-IM (ours) OSSM-IMEX (ours) 
+
+Figure 31: Taylor–Green vortex 2D ( Re = 100 ): predicted velocity components u(x, y ), v(x, y ) and pressure p(x, y ), with absolute errors. 0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Pred t=0.1 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+|err| t=0.1 
+
+0.5 
+
+0.0 
+
+0.5 
+
+0.000 
+
+0.004 
+
+0.008 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Pred t=0.5 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+|err| t=0.5 
+
+0.5 
+
+0.0 
+
+0.5 
+
+0.000 
+
+0.004 
+
+0.008 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Pred t=0.9 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+|err| t=0.9 
+
+0.5 
+
+0.0 
+
+0.5 
+
+0.000 
+
+0.004 
+
+0.008 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Pred t=0.1 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+|err| t=0.1 
+
+0.5 
+
+0.0 
+
+0.5 
+
+0.000 
+
+0.004 
+
+0.008 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Pred t=0.5 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+|err| t=0.5 
+
+0.5 
+
+0.0 
+
+0.5 
+
+0.000 
+
+0.004 
+
+0.008 
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+Pred t=0.9 
+
+0.0 0.4 0.8 
+
+x
+
+0.0 
+
+0.4 
+
+0.8 
+
+> y
+
+|err| t=0.9 
+
+0.5 
+
+0.0 
+
+0.5 
+
+0.000 
+
+0.004 
+
+0.008 
+
+OSSM-IM (ours) OSSM-IMEX (ours) 
+
+Figure 32: Heat equation on a triangular domain: predicted u(x, y, t ) at t ∈ { 0.1, 0.5, 0.9}, showing reference, OSSM-IM prediction, and absolute error. 37 Reference   
+
+> 0.0025 0.0050 0.0075
+
+OSSM-IM Pred   
+
+> 0.0025 0.0050 0.0075
+
+OSSM-IM |err|   
+
+> 0.0 0.5 1.0
+
+1e 5
+
+OSSM-IMEX Pred   
+
+> 0.0025 0.0050 0.0075
+
+OSSM-IMEX |err|   
+
+> 0.0 0.5 1.0
+
+1e 5
+
+Schrödinger 5D --- |ψ|2 on three faces of the inner cube [π/ 8, 7π/ 8] 3 ⊂ [0 , π ]3 at t = 1 .57 ; remaining 2 dim(s) fixed at π/ 2Figure 33: Schrödinger 5D: |ψ(x1, . . . , x 5, t )|2 at t = π/ 2, showing a slice in (x1, x 2, x 3). Reference, OSSM-IM prediction, and absolute error. Reference   
+
+> 0.616 0.624 0.632
+
+OSSM-IM Pred   
+
+> 0.616 0.624 0.632
+
+OSSM-IM |err|   
+
+> 0.0000 0.0002 0.0004
+
+OSSM-IMEX Pred   
+
+> 0.616 0.624 0.632
+
+OSSM-IMEX |err|   
+
+> 0.0000 0.0002 0.0004
+
+Schrödinger 100D --- |ψ|2 on three faces of the inner cube [π/ 8, 7π/ 8] 3 ⊂ [0 , π ]3 at t = 1 .57 ; remaining 97 dim(s) fixed at π/ 2
+
+Figure 34: Schrödinger 100D: |ψ(x1, . . . , x 100 , t )|2 at t = π/ 2, showing a slice in (x1, x 2, x 3).Reference, OSSM-IM prediction, and absolute error. 38 0 400 800 1200 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Convection β = 50 
+
+0 800 1600 2400 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Reaction 
+
+0 800 1600 2400 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Wave 
+
+0 500 1000 1500 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Euler-Bernoulli 
+
+0 400 800 1200 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Taylor-Green 2D 
+
+0 300 600 900 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Schrödinger 5D 
+
+0 300 600 900 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Schrödinger 100D 
+
+PDE loss IC loss Total loss Adam phase L-BFGS phase Figure 35: Training-loss histories for OSSM-PINN-IMEX (three seeds). 39 0 400 800 1200 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Convection β = 50 
+
+0 800 1600 2400 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Reaction 
+
+0 800 1600 2400 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Wave 
+
+0 500 1000 1500 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Euler-Bernoulli 
+
+0 400 800 1200 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Taylor-Green 2D 
+
+0 300 600 900 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Schrödinger 5D 
+
+0 300 600 900 
+
+training iteration 
+
+10 10 
+
+10 7
+
+10 4
+
+10 1
+
+10 2
+
+> loss
+
+Schrödinger 100D 
+
+PDE loss IC loss Total loss Adam phase L-BFGS phase Figure 36: Training-loss histories for OSSM-PINN-IM (three seeds). Conv. β = 50 
+
+Reaction 
+
+Wave 
+
+Euler-Bernoulli 
+
+Taylor-Green 2D 
+
+Schrödinger 5D 
+
+Schrödinger 100D 
+
+10 5
+
+10 4
+
+10 3
+
+10 2
+
+> rMAE
+
+OSSM-IM OSSM-IMEX 
+
+Figure 37: Seed stability: mean rMAE ±1 std over three seeds for seven benchmarks. 40

@@ -1,0 +1,2427 @@
+Title: Multi-Scale Separable Fourier Neural Networks for Solving High-Frequency PDEs
+
+URL Source: https://arxiv.org/pdf/2605.31027v1
+
+Published Time: Mon, 01 Jun 2026 01:23:35 GMT
+
+Number of Pages: 51
+
+Markdown Content:
+## Multi-Scale Separable Fourier Neural Networks for Solving High-Frequency PDEs 
+
+Qihong Yang a, Qiaolin He a, ∗
+
+> aSchool of Mathematics, Sichuan University, Chengdu, 610065, China
+
+Abstract 
+
+We propose a novel neural network architecture, termed Multi-Scale Sep-arable Fourier Neural Networks (MS-SFNN), for the accurate and efficient solution of linear and nonlinear high-frequency partial differential equations (PDEs). MS-SFNN exploits a separable representation: given a d-dimensional input, it employs d independent subnetworks — each acting on a single co-ordinate — and constructs basis functions via element-wise multiplication of their outputs. The PDE solution is approximated as a linear combination of these basis functions, with coefficients determined by least squares. Crit-ically, all network weights and biases are randomly initialized once, from a uniform distribution with unit variance, and remain fixed thereafter. To en-hance expressivity, a tunable scaling factor is introduced in each subnetwork to modulate the frequency content of the resulting basis functions. Fourier features are explicitly embedded through cosine activations, endowing the method with strong spectral approximation capabilities. To mitigate the memory bottleneck associated with dense collocation in high-frequency or three-dimensional problems, we replace automatic differentiation with an-alytically derived basis function derivatives and develop a memory-efficient batched QR decomposition algorithm for solving large-scale least-squares sys-tems. Numerical experiments demonstrate that MS-SFNN achieves unprece-dented accuracy across a range of challenging PDEs, significantly outper-forming state-of-the-art methods such as Physics-Informed Neural Networks (PINN) and Separated-Variable Spectral Neural Networks (SV-SNN).    
+
+> ∗Corresponding author
+> Email addresses: yangqh0808@163.com (Qihong Yang), qlhejenny@scu.edu.cn
+> (Qiaolin He )
+> arXiv:2605.31027v1 [cs.LG] 29 May 2026
+
+Keywords: Neural networks, Variable separation, Multiple scaling factors, Fourier features, Least squares method, High-frequency PDEs 
+
+1. Introduction 
+
+In recent years, neural networks have garnered significant attention in sci-entific computing, particularly following the introduction of Physics-Informed Neural Networks (PINNs) [1]. PINNs introduced a novel mesh-free frame-work for solving partial differential equations (PDEs), sparking widespread interest and extensive research throughout the computational science com-munity. Unlike traditional numerical methods — such as the finite element method (FEM) [2, 3] or finite difference method (FDM) [4, 5] — which rely on structured or unstructured grids, PINNs approximate the PDE solutions di-rectly using a neural network trained on scattered collocation points. Differ-ential operators are enforced via automatic differentiation, and the network parameters are optimized by minimizing a loss function that incorporates the PDE residual and boundary/initial conditions, typically using optimiz-ers such as Adam [6] or L-BFGS [7]. Although PINNs are capable of solving a wide range of PDEs [8, 9, 10, 11] and have been successfully applied in numerous fields, such as optics [12, 13], fluid mechanics [14], systems biology [15], and biomedicine [16] — they still suffer from limited accuracy compared to traditional methods such as FEM and FDM. To improve the accuracy of PINNs in solving PDEs, researchers have primarily pursued enhancements along four complementary directions. The original PINN formulation [1] employs a simple multiplayer perceptron (MLP) owing to its ease to implementation and universal approximation property. However, numerous recent studies have explored alternative architectures, such as contolutional neural networks (CNNs) [17, 18, 19], recurrent neu-ral networks [20, 21], generative adversarial networks (GANs) [22, 23], Kol-mogorov–Arnold networks (KANs) [24], and Transformers [25, 26]. A sec-ond direction concerns the distribution and adaptivity of training points [8, 27, 28, 29]. It has been argued that uniformly sampled collocation points may inadequately resolve regions exhibiting high gradients or rapid oscil-lations. Adaptive sampling strategies — where points are dynamically re-located or enriched during training based on residual errors or other error indicators — have been shown to significantly improve both convergence and accuracy. A well-known challenge in PINNs is the imbalance loss terms, 2which often exhibit vastly different magnitudes and convergence rates. To address this issue, various adaptive weighting schemes [30, 31, 32] have been proposed to dynamically adjust the relative weight of each loss term dur-ing optimization. Inspired by advances in representation learning, several approaches enhance PINNs by embedding input coordinates [33, 34, 35] into higher-dimensional or frequency-rich spaces. These techniques aim to mitigate spectral bias and enhance the network’s ability to capture high-frequency solution features. Despite these notable advances, none of the proposed modifications has yet enabled PINNs to consistently match the ac-curacy and efficiency of classical numerical methods. Recently, multi-stage training strategies [36, 37] have achieved unprecedented precision by decou-pling the solution process into sequential refinement stages. However, this comes at a significant computational cost: training time increases several-fold compared to standard PINNs, thereby limiting practical ability. Another prominent class of neural-network-based methods for solving PDEs is randomized neural networks (RNNs) [38, 39, 40, 41, 42, 43, 44, 45, 46], which adopt a least-squares formulation and have attracted consid-erable attention owing to their computational efficiency and high accuracy. In this framework, a neural network — typically randomly initialized — is used to construct a set of fixed basis functions. The PDE solution is then approximated as a linear combination of these basis functions, with the unknown coefficients determined by solving a linear least-squares problem rather than via iterative nonlinear optimization. A defining characteristic of RNNs is that all network parameters are frozen after random initializa-tion. This eliminates the need for backpropagation and circumvents the non-convex optimization landscape that plagues standard PINNs, yielding a deterministic, well-conditioned linear system that can be solved robustly and efficiently. The most widely adopted architecture in this paradigm is the single-hidden-layer feedforward neural network (SLFN). Its popularity stems from several advantages: it is simple yet capable of universal approximation, and it introduces sufficient nonlinearity to represent complex solution fea-tures. When combined with automatic differentiation, it incurs significantly lower memory overhead than deep networks. Nevertheless, some researchers argue that the SLFN may lack the sufficient expressive capacity to adequately span the relevant function space. To address this limitation, more sophisti-cated architectures have been developed. A notable example is HLConcELM [47], which enhances representational power through structured hierarchical concatenation. Overall, RNNs offer a compelling alternative to end-to-end 3trained PINNs, particularly when high accuracy, stability, and computational efficiency are prioritized. In this work, we focus on solving high-frequency PDEs using neural net-works. Although neural-network-based methods have achieved remarkable success across various domains, they often struggle significantly when ap-plied to high-frequency PDEs. In particular, standard PINNs frequently fail to capture underlying oscillatory solutions, and even their improved variants [48, 49, 50, 51, 52, 53] — while capable of qualitatively recovering such solu-tions — still fall short of achieving high accuracy. To address this challenge, we propose a novel architecture, termed MS-SFNN (Multi-Scale Separable Fourier Neural Network), specifically designed for high-frequency PDEs. MS-SFNN leverages a separable representation: for a d-dimensional input, it employs d independent single-hidden-layer neural networks, each acting ex-clusively on one coordinate variable. Recognizing that different input dimen-sions may influence the solution at distinct spatial or temporal scales, we introduce a dedicated scaling factor in each subnetwork to modulate the effec-tive frequency content along that dimension. This enables adaptive emphasis on individual variables according to their physical or spectral significance. To further enhance spectral expressivity, we replace conventional activation functions with the cosine function, thereby explicitly embedding Fourier fea-tures into the basis construction. Inspired by the philosophy of RNNs, all internal weights and biases are randomly initialized and subsequently frozen. The final solution is expressed as a linear combination of separable basis functions obtained via element-wise multiplication of the individual subnet-work outputs, and the expansion coefficients are determined by solving a linear least-squares problem. To overcome the severe GPU memory con-straints imposed by the dense collocation points required for high-frequency and three-dimensional problems, we forgo automatic differentiation and in-stead derive and employ analytical expressions for all derivatives of the so-lution. This strategy drastically reduce memory consumption. Additionally, we introduce a batched QR decomposition algorithm that process collocation points in chunks, enabling stable and memory-efficient solution of large-scale least-squares systems. The remainder of this paper is organized as follows. In Section 2, we briefly review the methodologies of PINNs and RNNs for solving PDEs. Section 3 presents the proposed MS-SFNN architecture together with the batched QR decomposition algorithm designed to alleviate GPU memory constraints. In Section 4, we present a series of numerical experiments on 4high-frequency PDEs to demonstrate the accuracy, efficiency, and robustness of our approach. Finally, Section 5 concludes the paper with a summary of our contributions and a discussion of future research directions. 
+
+2. Preliminaries 
+
+2.1. Partial Differential Equations 
+
+In this work, we mainly consider linear PDEs of the form: 
+
+(Lu(x) = f (x), in Ω,
+
+Bu(x) = g(x), on ∂Ω, (1) where u : Ω → R denotes the unknown scalar field to be approximated, x ∈
+
+Rd is the spatial (or space-time) coordinate, L is a linear differential operator defined over the domain Ω ⊂ Rd, and B is a linear boundary operator acting on the boundary ∂Ω. The functions f and g represent the source term in the interior and the prescribed boundary condition, respectively. 
+
+2.2. Physics-Informed Neural Networks 
+
+PINNs were introduced by Raissi et al. [1] as a simple yet accurate framework for solving PDEs with neural networks, and have since attracted widespread research interest. Let Se = {xi}Ne 
+
+> i=1
+
+and Sb = {xi}Nb 
+
+> i=1
+
+denote the sets of collocation points for the governing equation and boundary con-dition, respectively. These points may be uniformly spaced or randomly sampled within Ω and on ∂Ω, with Ne and Nb denoting their respective car-dinalities. Substituting the collocation points into the PDE system (1) yields the following residual losses: 
+
+
+
+Loss e = 1
+
+NeNeX
+
+> i=1
+
+[LuN N (xi, t i) − f (xi, t i)] 2,Loss b = 1
+
+NbNbX
+
+> i=1
+
+[BuN N (xi, t i) − g(xi, t i)] 2,
+
+(2) where uN N = N (x; Θ) denotes the neural network approximation of the solu-tion, and Θ represents its trainable parameters. The total loss is then defined as Loss total = λeLoss e + λbLoss b, where λe > 0 and λb > 0 are positive reg-ularization parameters that balance the contributions of the equation resid-ual Loss e and the boundary residual Loss b. Once Loss total is constructed, 5the network parameters Θ are optimized with standard gradient-based algo-rithms — e.g., Adam [6] or L-BFGS [7] — to minimize the total loss Loss total 
+
+as closely to zero as possible. Through this process, the neural network is trained to approximate the solution of the underlying PDE system with high fidelity. Although PINNs are capable of handling a wide variety of PDEs, the ac-curacy of their approximate solutions often remains significantly lower than that achieved by classical numerical methods. Moreover, the reliance on trainable network parameters optimized via gradient-based algorithms typ-ically results in prolonged training times. Most critically, PINNs struggle with high-frequency problems, where the solution exhibits rapid oscillations that are difficult for standard neural architectures to resolve accurately. 
+
+2.3. Randomized Neural Networks 
+
+RNNs provide an alternative to PINNs for solving PDEs with neural networks. In this approach, all network parameters — except those in the output layer weights — are randomly initialized and then frozen. The result-ing network thus defines a fixed set of basis functions. The solution to the PDE is then approximated as a linear combination of these basis functions, with the expansion coefficients determined by solving a linear least-squares problem. Let the neural network — after random initialization and freezing of its parameters — generate a set of basis functions 
+
+Φ = [ ϕ1, ϕ 2, ..., ϕ M ]T = N (x; Θ), (3) where M denotes the number of basis functions and Θ represents the fixed network parameters. The approximate solution to the PDE is then expressed as a linear combination of these basis functions: 
+
+uM = wT Φ =
+
+> M
+
+X
+
+> i=1
+
+ciϕi, (4) where the coefficient vector w = [ c1, c 2, ..., c M ]T is determined by solving a linear least-squares problem that enforces the PDE and boundary conditions at a set of collocation points. 6Applying the linear differential operators L and B to the approximation solution uM yields 
+
+
+
+LuM (x) = 
+
+> M
+
+X
+
+> i=1
+
+ciLϕi(x) = wT LΦ, in Ω,
+
+BuM (x) = 
+
+> M
+
+X
+
+> i=1
+
+ciBϕi(x) = wT BΦ, on ∂Ω,
+
+(5) Evaluating these expressions on the collocation sets Se and Sb leads to the block-structured matrix 
+
+A =
+
+LΦ( Se)
+
+BΦ( Sb)
+
+
+
+=
+
+
+
+Lϕ1(x1) Lϕ2(x1) · · · LϕM (x1)
+
+... ... ... ...
+
+Lϕ1(xNe ) Lϕ2(xNe ) · · · LϕM (xNe )
+
+Bϕ1(xNe+1 ) Bϕ2(xNe+1 ) · · · BϕM (xNe+1 )
+
+... ... ... ...
+
+Bϕ1(xNe+Nb ) Bϕ2(xNe+Nb ) · · · BϕM (xNe+Nb )
+
+
+
+.
+
+(6) As described in the previous section, the coefficient vector w is then obtained by solving the linear least-squares problem Aw = F, where the right-hand side vector F is defined as 
+
+F =
+
+
+
+f (x1)
+
+...
+
+f (xNe )
+
+g(xNe+1 )
+
+...
+
+g(xNe+Nb+1 )
+
+
+
+, (7) where f (xi) for 1 ≤ i ≤ Nr denotes the source term evaluated at the inte-rior collocation points, and g(xi) for Ne + 1 ≤ i ≤ Ne + Nb represents the prescribed boundary condition imposed at the boundary collocation points. In recent years, RNNs have attracted widespread attention for solving PDEs due to their ability to produce accurate solution without iterative train-ing, while maintaining high computational efficiency. The underlying archi-tectures are usually fully-connected neural networks (FCNNs), residual neu-ral networks (ResNets), or single-hidden-layer neural networks (SHLNNs). 7When the FCNNs or ResNets are used, automatic differentiation is required to evaluate the action of differential operators on the network output. In con-trast, SHLNNs offer two key advantages: their architecture is exceptionally simple, and the derivatives of the resulting basis functions with respect to the input variables can be expressed in closed form. As a result, SHLNNs are the most widely adopted choice within the RNNs. Despite their efficiency and accuracy for many problems, RNNs still struggle to resolve solutions with high-frequency content or sharp spatial oscillations. 
+
+3. Methodologies 
+
+3.1. Multi-Scale Separable Fourier Neural Networks 
+
+In prior works, we observed that both PINNs and RNNs struggle to re-solve high-frequency solutions of PDEs. To address this limitation, we pro-pose the Multi-Scale Separable Fourier Neural Networks (MS-SFNN), which integrates three key ingredients: variable separation, input-dependent weight scaling, and Fourier features via trigonometric activation. We begin with the variable-separation strategy. Let x ∈ Rd be the input vector. We therefore employ d SHLNNs, each acting on a single coordinate 
+
+xi. The j-th subnetwork is defined as 
+
+Nj (xj ; Θj ) = σ(wj xj + bj ), j = 1 , 2, · · · , d, (8) where wj ∈ RM and bj ∈ RM are the parameters of the neural network, which are frozen after initialization. Specifically, their entries are sampled independently from a uniform distribution with zero mean and variance 1.Here, σ is the activation function, and the output of the j-th network is an 
+
+M -dimensional vector ϕj = Nj (xj , Θj ) = [ ϕj1, ϕ j2, · · · , ϕ jM ]T . The global set of basis functions is constructed via element-wise product across all d
+
+subnetwork outputs: 
+
+Φ =
+
+> d
+
+Y
+
+> j=1
+
+ϕj
+
+=
+
+> d
+
+Y
+
+> j=1
+
+Nj (xj ; Θj )=
+
+> d
+
+Y
+
+> j=1
+
+σ(wj xj + bj ).
+
+(9) 8Consequently, the approximate PDE solution takes the form 
+
+uM (x) = wT Φ
+
+=
+
+> M
+
+X
+
+> i=1
+
+widY
+
+> j=1
+
+σ(wji xj + bji ) (10) In Equation (10), we introduce the variable separation technique to rep-resent the approximate solution uM . However, it is difficult to solve high-frequency problems using weights and biases that are merely sampled from a uniform distribution with a variance 1. In our previous work [54], we have demonstrated that the representation capacity of the neural network can be enhanced by scaling the magnitudes of weights and biases. Nevertheless, dur-ing the implementation process, we found that applying uniform scaling to all parameters — that is, multiplying all parameters by the same scaling factor 
+
+ρ — does not necessarily yield satisfactory results when solve high frequency problems. This is because different variables exert varying degrees of influ-ence on the solution. Therefore, we propose a weight scaling technique that assigns distinct scaling factors based on the input variables. Consequently, Equation (10) is revised to the following form: 
+
+uM (x) = 
+
+> M
+
+X
+
+> i=1
+
+widY
+
+> j=1
+
+σ(ρj (wji xj + bji )) . (11) In Equation (11), there are d input variables, and thus there are d corre-sponding scaling factors. In addition, the activation function σ used in the hidden layer no longer adopts common sigmoidal activation functions such as sigmoid, tanh , and swish. As explored in our previous work [54], trigonometric activation func-tions can introduce Fourier features and achieve superior approximation ca-pability compared with sigmoidal activation functions. We found that when 
+
+cos , sin , and their combinations are used as the activation function, their approximation capabilities are very close under the condition of the same number of basis functions. Therefore, for the sake of simplicity, we directly adopt cos as the activation function to introduce Fourier features. Finally, the approximation solution uM can be expressed by Equation (12): 
+
+uM (x) = 
+
+> M
+
+X
+
+> i=1
+
+widY
+
+> j=1
+
+cos( ρj (wji xj + bji )) . (12) 9Figure 1 illustrates the architecture of MS-SFNN. Each input dimension 
+
+xj is processed by its own single-hidden-layer subnetwork. Within each sub-network, the scalar input undergoes a linear transformation to produce M
+
+intermediate values, which are then scaled by ρj , passed through the cos 
+
+activation, and output as an M -dimensional vector. The global basis func-tions are obtained by element-wise multiplication of these d vectors, and the solution is formed as a linear combination with coefficients w.
+
+Figure 1: Multi-Scale Separable Fourier Neural Networks (MS-SFNN) architecture dia-gram. This architecture employs variable separation: each input dimension xj is processed independently by a dedicated single-hidden-layer network. Each subnetwork applies a lin-ear map, followed by a dimension-specific scaling factor ρj and a cosine activation. The 
+
+M -dimensional outputs from all subnetworks are combined via element-wise multiplica-tion to form the basis functions. The final solution is a linear combination of these bases. 
+
+A notable advantage of MS-SFNN is that it avoids automatic differenti-ation. Despite involving d subnetworks, the explicit analytic form of uM in (12) permits direct computation of derivatives. For example, the first- and second-order partial derivatives with respect to xk are given by 
+
+∂u M
+
+∂x k
+
+=
+
+> M
+
+X
+
+> i=1
+
+widY 
+
+> j̸=k
+
+cos( ρj (wji xj + bji ))( −ρkwik ) sin( ρk(wki xk + bki )) . (13) 
+
+∂2uM
+
+∂x 2
+
+> k
+
+=
+
+> M
+
+X
+
+> i=1
+
+widY
+
+> j=1
+
+cos( ρj (wji xj + bji ))( −ρ2
+
+> k
+
+w2
+
+> ki
+
+). (14) 10 These closed-form expressions enable efficient and exact evaluation of differential operators, eliminating the computational overhead and numerical noise associated with automatic differentiation. 
+
+3.2. Batched QR Decomposition Algorithm 
+
+A major challenge in solving high-frequency problems lies in GPU mem-ory constraints, which arise primarily from two sources: (i) the construction of the system matrix A defined in Equation (6), and (ii) the memory overhead associated with solving the resulting least-squares problem for the coefficient vector w. Since the least-squares solution depends entirely on A, we focus our optimization efforts on its efficient assembly. The memory cost of forming A stems from both its sheer size and the evaluation of the differential operators L and B. To reduce this burden, we replace automatic differentiation with closed-form analytical derivatives — such as those in Equations (13) and (14) — which eliminates computational graphs and significantly lowers memory usage. Nevertheless, when N is very large (e.g., millions of points), even analytical evaluation of LΦ and BΦ can exceed GPU memory capacity. To overcome this limitation, we propose a batched QR decomposition algorithm — inspired by the work of Chen et al. [55] — that incrementally processes collocation points in small batches, ultimately constructing only an M × M upper-triangular matrix. This approach drastically reduces peak memory consumption while preserving numerical accuracy in the computa-tion of w.The workflow of the batched QR decomposition algorithm for solving the linear PDE system (1) is summarized in Algorithm 1. Due to space con-straints, only the high-level structure is shown; a detailed exposition follows. First, we specify the number of collocation points: Ne interior points in 
+
+Ω and Nb boundary points on ∂Ω, yielding datasets Se and Sb. We then construct d SHLNNs to form the separable basis set Φ(x), containing M
+
+basis functions. Given the potentially enormous size of Se and Sb, we partition them into batches of fixed sizes Ne, bs and Nb, bs , resulting in Ne,b = ⌈Ne/N e, bs ⌉ and 
+
+Nb,b = ⌈Nb/N b, bs ⌉ batches, respectively. We initialize two accumulators: an 
+
+M × M upper-triangular matrix Rt and an M -dimensional vector bt, which will store intermediate results for the final least-squares solve. After batch partitioning, we precess the interior points and boundary points separately. We iterate over all Ne,b interior point batches. For the 11 i-th batch Se,i , we substitute it into the PDE operator to compute LΦ(Se,i )
+
+(the action of the differential operator L on the set of basis functions Φ at 
+
+Se,i ) and the right-hand side term f (Se,i ) (the source term evaluated at Se,i ). For the first batch, since Rt and bt are initially empty, we directly perform QR decomposition on LΦ(Se,i ) and f (Se,i ) to initialize Rt and bt. For the subsequent batches, we construct the augmented matrix and right-hand side vector as follows: 
+
+A =
+
+ Rt
+
+LΦ( Se,i )
+
+
+
+∈ R(M +Ne,bs )×M , (15) and 
+
+b =
+
+ bt
+
+f (Se,i )
+
+
+
+∈ RM +Ne,bs . (16) We then perform QR decomposition on A and update Rt and bt. A key note: bt = ( QT b)[: M ] indicates that we only retain the first M elements of 
+
+QT b.After handling all interior point batches, we process the boundary points using a similar approach. Since Rt and bt already contain accumulated in-formation from the interior points, no separate initialization is needed. For the i-th boundary point batch Sb,i , we substitute it into the boundary oper-ator to compute BΦ(Sb,i ) (the action of the boundary operator B on Φ at 
+
+Sb,i ) and the right-hand side term g(Sb,i ). We then construct the augmented matrix and the right-hand side vector: 
+
+A =
+
+ Rt
+
+BΦ( Sb,i )
+
+
+
+∈ R(M +Nb,bs )×M , (17) and 
+
+b =
+
+ bt
+
+g(Sb,i )
+
+
+
+∈ RM +Nb,bs . (18) QR decomposition is then performed on A to update Rt and bt iteratively. After processing all interior and boundary batches, we obtain the final 
+
+Rt (an M × M upper triangular matrix) and bt (an M -dimensional vector). The coefficient vector w is solved via the least squares method. Finally the approximate solution is expressed as uM = Φ · w.
+
+3.3. Approximation Theory of MS-SFNN 
+
+The approximation properties of MS-SFNN can be rigorously analyzed from the perspective of kernel methods. Specifically, we define a feature 12 Algorithm 1: Batched QR decomposition algorithm 
+
+Step 1: Define Ne and Nb as the number of points and construct the data sets Se and Sb for the domain and boundary. Let M be the number of basis functions. 
+
+Step 2: Let Ne,bs be the batch size of the points in the domain Ω
+
+and Nb,bs be the batch size of the points on the boundary ∂Ω.
+
+Step 3: Compute the number of batches: Ne,b and Nb,e .
+
+Step 4: Let Rt ∈ RM ×M and bt ∈ RM .
+
+for i = 1 , 2, · · · , N e,b do 
+
+Obtain Ne,bs points from the batches and form a data set Se,i .
+
+if i = 1 then 
+
+Substitute the data set Se,i into LΦ to obtain matrix 
+
+A = LΦ(Se,i ) ∈ RNe,bs ×M .Substitute the data set Se,i into f to obtain the right term 
+
+b = f (Se,i ).
+
+end else 
+
+Substitute the data set Se,i into LΦ to obtain matrix 
+
+A =
+
+ Rt
+
+LΦ( Se,i )
+
+
+
+∈ R(M +Ne,bs )×M .Substitute the data set Se,i into f to obtain the right term 
+
+b =
+
+ bt
+
+f (Se,i )
+
+
+
+.
+
+end 
+
+Q, R = QR _decomposition (A). Let Rt = R, bt = ( QT b)[: M ].
+
+end for i = 1 , 2, · · · , N b,b do 
+
+Obtain Nb,bs points from the batches and form a data set Sb,i .Substitute the data set Sb,i into BΦ to obtain matrix 
+
+A =
+
+ Rt
+
+BΦ( Sb,i )
+
+
+
+∈ R(M +Nb,bs )×M .Substitute the data set Sb,i into f to obtain the right term 
+
+b =
+
+ bt
+
+g(Sb,i )
+
+
+
+.
+
+Q, R = QR _decomposition (A). Let Rt = R, bt = ( QT b)[: M ].
+
+end 
+
+w = least _sqaures _method (Rt, bt).13 map ϕθ : Ω → R as ϕθ(x) = Qdj=1 cos  ρj (wj xj + bj ), where θ = ( w, b ) ∈
+
+Θ = Rd × Rd with distribution μ = U nif orm (( −√3, √3) 2d). This induces a positive definite kernel k : Ω × Ω → R given by k(x, y) = Eθ∼μ[ϕθ(x)ϕθ(y)] .Leveraging existing theoretical results, we can establish strong approx-imation guarantees for MS-SFNN. By analogy with the analysis in [56] on the uniform convergence of random Fourier features, one can derive uniform convergence of the MS-SFNN. Furthermore, following the framework in [57], which provides high probability bounds for approximations using random features in the associated reproducing kernel Hilbert space (RKHS), sim-ilar high probability bounds hold for MS-SFNN. In addition, it has been proven in Work [58] that the random feature method with random Fourier features exhibits spectral convergence when solving one-dimensional second-order elliptic equations. This result indirectly demonstrates the significance of incorporating Fourier features into the MS-SFNN. 
+
+4. Numerical Experiments 
+
+In this section, we present numerical experiments to demonstrate the applicability and accuracy of the proposed MS-SFNN. All experiments are conducted on a high-performance computing server running Debian 12. The server is equipped with an Intel Xeon Platinum 8358 CPU operating at 2.60 GHz, and an NVIDIA A100 GPU with 80 GB of memory. These robust hardware specifications provide the computational capacity required for the intensive operations involved in training and evaluating MS-SFNN. Moreover, to quantitatively evaluate the approximation capabilities of neural networks in the numerical experiments, the maximum absolute error (L∞ error) and the relative L2 error are defined as follows: 
+
+eL∞ = max  
+
+> 1≤i≤N
+
+|uM (xi) − uexact (xi)|, (19) 
+
+eL2 =
+
+sPNi=1 (uM (xi) − uexact (xi)) 2
+
+PNi=1 (uexact (xi)) 2 , (20) where uM and uexact represent the approximate and exact solutions, respec-tively, and xi (1 ≤ i ≤ N ) are the collocation points for error evaluation. 14 4.1. Heat Conduction Equations 
+
+We first select the one-dimensional heat conduction equation defined on spatiotemporal region, with governing equation: 
+
+
+
+ut − αu xx = 0 , (x, t ) in Ω × (0 , 1] ,u = g, on ∂Ω × (0 , 1] ,u = u0, x in Ω.
+
+(21) where Ω = ( −1, 1) , uexact = e−t sin( kx ), g = 0 , u0 = sin( kx ), α = 1 
+
+> k2
+
+and 
+
+k = 20 π,100 π,500 π.In this experiment, we set M = 10 , 000 . For k = 20 π, we use uniform grid points of Nx × Nt = 101 × 101 . For k = 100 π and 500 π, we use uniform grid points of Nx × Nt = 401 × 201 . These uniform grid points are divided into interior points, boundary points, and initial points as training data. Additionally, this is a time-dependent one-dimensional problem, so we treat time as an additional spatial dimension, thus handling it as a two-dimensional problem. Therefore, when constructing the MS-SFNN, two parameters ρ1
+
+and ρ2 need to be predefined. For k = 20 π, we set ρ1 = 20 π, ρ2 = 1 ; for 
+
+k = 100 π, we set ρ1 = 100 π, ρ2 = 1 ; and for k = 500 π, ρ1 = 500 π, ρ2 = 1 .In Table 1, we compare the accuracy of the approximate solutions pro-vided by PINN, SV-PINN, and MS-SFNN, and present their respective L∞
+
+and L2 errors. SV-SNN is the Separated-Variable Spectral Neural Networks introduced by Xiong et al. [49] by integrating separation of variables with adaptive spectral methods. From the table, we can see that PINN can barely solve this problem at k = 20 π, but is completely unable to solve it at k = 100 π
+
+and k = 500 π. While SV-SNN can solve this problem, the accuracy of its approximate solution is far lower than that of MS-SFNN. From Figures 2, 3 and 4 respectively show the exact solution of the heat conduction equations, the approximate solution MS-SFNN, and the absolute error between them at k = 20 π, 100 π, and 500 π. It can be seen that MS-SFNN effectively solves this problem. 
+
+4.2. Two-Dimensional Helmholtz Equations 
+
+To test MS-SFNN’s performance in two-dimensional spatial high-frequency problems, we consider the two-dimensional Helmholtz equation with high-frequency oscillation modes with governing equation: 
+
+(−∆u − k2u = f, (x, y ) in Ω,u = 0 , on ∂Ω, (22) 15 Table 1: Heat conduction equations (21): Performance comparison of PINN, SV-SNN and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method k = 20 π k = 100 π k = 500 πeL∞ eL2 eL∞ eL2 eL∞ eL2
+
+PINN[1] 9.87E-01 9.99E-01 9.88E-01 1.00 1.03 9.95E-01 SV-SNN[49] 3.90E-04 2.56E-04 1.57E-02 5.82E-03 4.45E-02 3.75E-02 MS-SFNN 8.52E-13 5.44E-13 4.19E-12 1.95E-12 5.77E-04 1.59E-04 0.0 0.2 0.4 0.6 0.8 1.0            
+
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> True
+> 0.951
+> 0.679
+> 0.408
+> 0.136
+> 0.136
+> 0.408
+> 0.679
+> 0.951
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> Pred
+> 0.951
+> 0.679
+> 0.408
+> 0.136
+> 0.136
+> 0.408
+> 0.679
+> 0.951
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> Error
+> 0.000
+> 1.217
+> 2.435
+> 3.652
+> 4.869
+> 6.086
+> 7.304
+> 8.521
+> 1e 13
+
+Figure 2: Heat maps illustrate the heat conduction equation (21) with k = 20 π. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 0.0 0.2 0.4 0.6 0.8 1.0            
+
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> True
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> Pred
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> Error
+> 0.000
+> 0.598
+> 1.197
+> 1.795
+> 2.394
+> 2.992
+> 3.590
+> 4.189
+> 1e 12
+
+Figure 3: Heat maps illustrate the heat conduction equation (21) with k = 100 π. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+16 0.0 0.2 0.4 0.6 0.8 1.0           
+
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> True
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> Pred
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> Error
+> 0.0000000
+> 0.0000824
+> 0.0001648
+> 0.0002472
+> 0.0003297
+> 0.0004121
+> 0.0004945
+> 0.0005769
+
+Figure 4: Heat maps illustrate the heat conduction equation (21) with k = 500 π. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+where Ω = (0 , 1) × (0 , 1) , u = sin( kx ) sin( ky ), f = k2 sin( kx ) sin( ky ) and 
+
+k = 24 π, 48 π.When solving this two-dimensional Helmholtz equation, for both k = 24 π
+
+and k = 48 π, we use uniform grid points of Nx × Ny = 201 × 201 as training data. Additionally, we select the number of basis functions M = 10 , 000 .Similarly, since this is a two-dimensional problem, we need to predefine two scaling factors when constructing the MS-SFNN. For k = 24 π, ρ1 = ρ2 = 24 π.For k = 48 π, ρ1 = ρ2 = 48 π.In Table 2, we list the L∞ and L2 errors between the approximate so-lutions and exact solutions when using PINN, SV-SNN, and MS-SFNN to solve this Helmholtz equation (22). It can be observed that PINN fails to solve this problem for both k = 24 π and k = 48 π. While SV-SNN can solve this problem, its errors are on the order of 10 −2. MS-SFNN effectively solves this problem, particularly at k = 48 π, where the achieved L∞ and L2 errors are 9.65 × 10 −9 and 1.34 × 10 −9, respectively. In Figure 5 and 6, we present heat maps of the exact solutions of this two-dimensional Helmholtz equa-tions, the approximate solutions obtained by MS-SFNN, and the absolution errors between them at k = 24 π and k = 48 π. It can be seen that MS-SFNN effectively solves this problem with very small errors. 
+
+4.3. Complex Geometry Helmholtz Equations 
+
+Furthermore, we test MS-SFNN’s adaptability in complex geometric do-mains. Consider two-dimensional Helmholtz equation with internal cylin-17 Table 2: Two-dimensional Helmholtz equations (22): Performance comparison of PINN, SV-SNN and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method k = 24 π k = 48 πeL∞ eL2 eL∞ eL2
+
+PINN[1] 1.09 1.01 1.09 1.00 SV-SNN[49] 3.62E-02 1.33E-02 5.49E-02 3.99E-03 MS-SFNN 5.66E-11 2.71E-12 9.65E-09 1.34E-09 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+
+True      
+
+> 0.996
+> 0.711
+> 0.427
+> 0.142
+> 0.142
+> 0.427
+> 0.711
+> 0.996
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+
+Pred      
+
+> 0.996
+> 0.711
+> 0.427
+> 0.142
+> 0.142
+> 0.427
+> 0.711
+> 0.996
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+
+Error  
+
+> 0.000
+> 0.808
+> 1.616
+> 2.424
+> 3.232
+> 4.041
+> 4.849
+> 5.657
+> 1e 11
+
+Figure 5: Heat maps illustrate the two-dimensional Helmholtz equation (22) with k = 24 π.Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+
+True      
+
+> 0.996
+> 0.711
+> 0.427
+> 0.142
+> 0.142
+> 0.427
+> 0.711
+> 0.996
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+
+Pred      
+
+> 0.996
+> 0.711
+> 0.427
+> 0.142
+> 0.142
+> 0.427
+> 0.711
+> 0.996
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+
+Error  
+
+> 0.000
+> 1.379
+> 2.758
+> 4.137
+> 5.516
+> 6.895
+> 8.274
+> 9.653
+> 1e 9
+
+Figure 6: Heat maps illustrate the two-dimensional Helmholtz equation (22) with k = 48 π.Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+18 drical obstacles, defined on complex region Ω = (0 , 1) × (0 , 1) \Ωc, where 
+
+Ωc is cylindrical hold region, governing equation consistent with previous Helmholtz equation. Cylindrical obstacle configuration: center at (0 .5, 0.5) ,radius r = 0 .15 . Boundary conditions are u = 0 , where (x, y ) ∈ ∂Ωext and 
+
+u = sin( kx ) sin( ky ), where (x, y ) ∈ ∂Ωc. ∂Ωext denotes the external bound-ary. For the Helmholtz equation defined on this complex geometric configura-tion, we employ the governing equation and Dirichlet boundary conditions specified in Equation (22). In the training point selection process, we ini-tially generate a uniform grid comprising Nx × Ny = 201 × 201 lattice points. However, points located within the internal cylindrical obstacle and along the interior boundary must be systematically excluded to generate the required interior training points for the governing equation and the exterior boundary condition points. The interior boundary points are specifically sampled using 
+
+200 uniformly distributed points in polar coordinates. Regarding the number of basis functions, we set M = 10 , 000 . Notably, when k = 24 π, we assign 
+
+ρ1 = ρ2 = 24 π; correspondingly, when k = 48 π, we maintain ρ1 = ρ2 = 48 π.As presented in Table 3, the L∞ errors of PINN and SV-SNN in solving the problem with k = 24 π demonstrate that PINN still fails to resolve this problem, while SV-SNN achieves a limited error level of 1.24 × 10 −1. This in-dicates that even advanced neural networks struggle with this high-frequency problem. In stark contrast, the proposed MS-SFNN successfully resolves the complex geometry Helmholtz equation with exceptional accuracy, achieving error magnitudes down to 10 −10 . Figure 7 and 8 respectively show heat maps of the exact solution, the approximate solution of MS-SFNN, and the absolute error between them at k = 24 π and k = 48 π. It can be seen that MS-SFNN effectively solves this problem.       
+
+> Table 3: Complex geometry Helmholtz equations: Performance comparison of SV-SNN and MS-SFNN. The L∞errors and L2errors for each model configuration are presented.
+
+Method k = 24 π k = 48 πeL∞ eL2 eL∞ eL2
+
+PINN[1] 1.64 - - -SV-SNN[49] 1.24E-01 - - -MS-SFNN 1.08E-10 1.49E-11 9.81E-10 1.08E-10 19 0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> y
+
+True 
+
+0.996 
+
+0.711 
+
+0.427 
+
+0.142 
+
+0.142 
+
+0.427 
+
+0.711 
+
+0.996 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> y
+
+Pred 
+
+0.996 
+
+0.711 
+
+0.427 
+
+0.142 
+
+0.142 
+
+0.427 
+
+0.711 
+
+0.996 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> y
+
+Error 
+
+0.000 
+
+0.154 
+
+0.309 
+
+0.463 
+
+0.618 
+
+0.772 
+
+0.927 
+
+1.081 
+
+1e 10 Figure 7: Heat maps illustrate the two-dimensional complex geometry Helmholtz equation with k = 24 π. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> y
+
+True 
+
+0.996 
+
+0.711 
+
+0.427 
+
+0.142 
+
+0.142 
+
+0.427 
+
+0.711 
+
+0.996 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> y
+
+Pred 
+
+0.996 
+
+0.711 
+
+0.427 
+
+0.142 
+
+0.142 
+
+0.427 
+
+0.711 
+
+0.996 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> y
+
+Error 
+
+0.000 
+
+1.402 
+
+2.804 
+
+4.206 
+
+5.608 
+
+7.010 
+
+8.412 
+
+9.814 
+
+1e 10 
+
+Figure 8: Heat maps illustrate the two-dimensional complex geometry Helmholtz equation with k = 48 π. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+20 4.4. Complex Geometry Poisson Equations 
+
+To further verify MS-SFNN’s effectiveness in complex geometric domains, we consider two-dimensional Poisson equations on complex domains with multiple internal holes, with governing equations: 
+
+(−∆u = f, (x, y ) in Ω,u = g, on ∂Ω, (23) where Ω = ( −1, 1) 2, u = sin( μx ) sin( μy ), f = 2 μ2 sin( μx ) sin( μy ), g =
+
+u(x, y ), μ = 7 π. The complex domain configuration includes external bound-ary and multiple internal holes: domain contains three circular holes located at (−0.5, −0.5) , (0 .5, 0.5) , (0 .5, −0.5) with radius 0.1,0.2, 0.2, respectively and one ellipse with equation 16( x + 0 .5) 2 + 64( y − 0.5) 2 = 1 .When constructing the training data, we first take uniform grid points of 
+
+Nx ×Ny = 201 ×201 . After filtering out points in the interior holes and on the interior boundaries, the remaining points form the interior points and outer boundary points. For the internal holes, we uniformly select 200 boundary points on each of the boundaries using polar coordinates. We choose the number of basis functions M = 10 , 000 . Since this is a two-dimensional Poisson equation, tow scaling factors need to be predefined when constructing MS-SFNN, and they are set to 21 .As shown in Table 4, the L∞ error achieved by SV-SNN in solving this complex geometry Poisson equation reaches 3.45 × 10 −2, whereas MS-SFNN attains an error level of 1.18 × 10 −12 , which is far lower that the error of SV-SNN. In Figure 9, we present heat maps of the exact solution, the ap-proximate solution obtained by MS-SFNN, and the absolute error between them. It can be seen that despite the presence of 4 holes in the middle, MS-SFNN can still solve this problem with high accuracy.     
+
+> Table 4: Complex geometry Poisson equations (23): Performance comparison of SV-SNN and MS-SFNN. The L∞errors and L2errors for each model configuration are presented.
+
+Method eL∞ eL2
+
+SV-SNN[49] 3.45E-02 -MS-SFNN 1.18E-12 5.75E-13 21 1.0 0.5 0.0 0.5 1.0          
+
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> True
+> 1.000
+> 0.714
+> 0.428
+> 0.143
+> 0.143
+> 0.428
+> 0.714
+> 1.000
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> Pred
+> 1.000
+> 0.714
+> 0.428
+> 0.143
+> 0.143
+> 0.428
+> 0.714
+> 1.000
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> Error
+> 0.000
+> 0.169
+> 0.338
+> 0.507
+> 0.676
+> 0.845
+> 1.015
+> 1.184
+> 1e 12
+
+Figure 9: Heat maps illustrate the complex geometry Poisson equation (23). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+4.5. Complex Source Term Poisson Equations 
+
+In this section, we test MS-SFNN’s performance in handling high-frequency Poisson equations with complex source terms. We consider a two-dimensional Poisson equation with parameter μ = 15 , which has nonlinear source terms and high-frequency oscillation characteristics. The problem is defined on spatial region Ω = ( −1, 1) × (−1, 1) , with governing equation: 
+
+(−∆u = f, (x, y ) in Ω,u = g, on ∂Ω, (24) where u = sin( μx 2)+sin( μy 2), f = 4 μ2x2 sin( μx 2)−2μ cos( μx 2)+4 μ2y2 sin( μy 2)−
+
+2μ cos( μy 2).We employ a uniform grid of Nx × Ny = 201 × 201 points as the training data. When constructing MS-SFNN, the number of basis functions is M =10 , 000 , and the scaling factors are ρ1 = ρ2 = 50 .In Table 5, we list the L∞ and L2 errors of PINN, SV-SNN, and MS-SFNN for solving this problem. Clearly, PINN has a large error and completely fails to solve it. Although SV-SNN can solve this problem, its accuracy is not nearly as high as that of MS-SFNN. In Figure 10, we show heat maps of the exact solution, the approximate solution obtained by MS-SFNN, and the absolute error between them. It can be seen that MS-SFNN solves this problem well with very low error. 22 Table 5: Complex source term Poisson equations (24): Performance comparison of PINN, SV-SNN and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method eL∞ eL2
+
+PINN[1] 1.04 1.78 SV-SNN[49] 1.13E-02 4.73E-03 MS-SFNN 2.17E-11 5.75E-13 1.0 0.5 0.0 0.5 1.0          
+
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> True
+> 2.000
+> 1.429
+> 0.857
+> 0.286
+> 0.285
+> 0.857
+> 1.428
+> 1.999
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> Pred
+> 2.000
+> 1.429
+> 0.857
+> 0.286
+> 0.285
+> 0.857
+> 1.428
+> 1.999
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> Error
+> 0.000
+> 0.310
+> 0.620
+> 0.930
+> 1.241
+> 1.551
+> 1.861
+> 2.171
+> 1e 11
+
+Figure 10: Heat maps illustrate the complex source term Poisson equation (24). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+23 4.6. Three-Dimensional Helmholtz Equations 
+
+In this example, we consider the three-dimensional Helmholtz equation on the domain Ω = {(x, y, z )|x2 + y2 + z2 ≤ 1}, defined as follows: 
+
+(∆u + k2u = f, (x, y ) in Ω,u = 0 , on ∂Ω, (25) where the exact solution is given by uexact = sin( x2+y2+z2−1) cos(6 x) cos( ky )(z2 + 1) , k = 10 .5π, and the corresponding forcing term f can be obtained using the exact solution. In this three-dimensional test case, we consider a uniform grid of size 
+
+Nx × Ny × Nz = 101 × 101 × 101 . Points lying on or outside the spherical surface are excluded, and the remaining interior points are used as training data for the governing equation. The boundary training points are sampled on the spherical surface by uniformly selecting 500 × 500 points in spherical coordinates. The number of basis functions is set to M = 10 , 000 . Since this is a three-dimensional problem, three scaling factors are required in the MS-SFNN architecture, which are chosen as ρ1 = 6 , ρ2 = 10 .5π, and ρ3 = 1 .We compare MS-SFNN against PINN, SR-HFNN, and NR-HFNN [48], where SR-HFNN and NR-HFNN are two high-frequency enhanced neural networks recently proposed by Huang et al. As summarized in Tablle 6, we report the L2 errors of the approximate solutions obtained by PINN, SR-HFNN, and NR-HFNN, along with both the L∞ and L2 errors achieved by MS-SFNN. It is evident that PINN fails to solve this problem. In contrast, NR-HFNN and SR-HFNN attain L2 errors of 7.30 × 10 −3 and 9.04 × 10 −4,respectively. Remarkably, MS-SFNN achieves significantly higher accuracy, with the L∞ error of 2.27 × 10 −5 and the L2 error of 2.15 × 10 −5. This clearly demonstrates taht MS-SFNN solves the three-dimensional Helmholtz equaiton (25) with substantially greater precision. In Figure 11, we present a cross-sectional slice of 3D spherical domain at z = 0 .1. The results confirm that MS-SFNN accurately captures the solution structure, further validat-ing its superior performance. In Figure 12, we present a three-dimensional graphical representation of this three-dimensional problem, where the colors denote the values of the functions. The leftmost figure shows the true solu-tion, the middle figure displays the predicted solution by MS-SFNN, and the rightmost figure illustrates the absolute error between them. It is evident that the entire problem is defined within a spherical region. To provide a more detailed view of the prediction inside the region, we further exhibit heat 24 maps of three cross-sections after removing one-eighth of the sphere. These figures indicate that MS-SFNN effectively approximates the solution of the PDE. 
+
+Table 6: Three-dimensional Helmholtz equations (25): Performance comparison of PINN, SR-HFNN, NR-HFNN and MS-SFNN. The L∞ errors and L2 errors for each model con-figuration are presented. 
+
+Method eL∞ eL2
+
+PINN[1] - 2.87 SR-HFNN[48] - 9.04E-04 NR-HFNN[48] - 7.30E-03 MS-SFNN 2.27E-05 2.15E-05 1.0 0.5 0.0 0.5 1.0         
+
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> True
+> 0.844
+> 0.605
+> 0.366
+> 0.127
+> 0.112
+> 0.351
+> 0.589
+> 0.828
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> Pred
+> 0.844
+> 0.605
+> 0.366
+> 0.127
+> 0.112
+> 0.351
+> 0.590
+> 0.828
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> Error
+> 0.00000000
+> 0.00000325
+> 0.00000649
+> 0.00000974
+> 0.00001298
+> 0.00001623
+> 0.00001948
+> 0.00002272
+
+Figure 11: Heat maps illustrate the three-dimensional Helmholtz equation (25) with z =0.1. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+4.7. Two-Dimensional Flower-Shaped Problems with Dirichlet Boundary 
+
+Let Ω be the flower-shaped region and the boundary ∂Ω be parametrized by r = a − b cos( mθ ) with θ ∈ [0 , 2π] and (a, b, m ) = (0 .5, 0.1, 6) . The governing equations is defined as: 
+
+(∆u + k2u = f, (x, y ) in Ω,u = g, on ∂Ω, (26) where uexact = sin( k√2 x) sin( k√2 y) and the wave number k = 2πν f req 
+
+340 . νf req is the frequency and νf req = 1000 Hz, 10000 Hz. The corresponding source term 
+
+f and right term g can be obtained using the exact solution. 25 1.0  
+
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> z
+> True
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Value
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> z
+> Pred
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Value
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> y
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> z
+> Error
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Value
+> 1e 5
+
+Figure 12: Heat maps illustrate the three-dimensional Helmholtz equation (25). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+For the selection of training points, we first generate a uniform grid of size Nx × Ny = 201 × 201 . Points lying on or outside the flower-shaped domain are then excluded, and the remaining interior points are used as training data for the governing equation. The boundary training points are sampled by uniformly selecting 400 points along the flower-shaped boundary in polar coordinates. The number of basis functions is set to M = 10 , 000 .Additionally, the scaling factors in MS-SFNN are determined based on the value of vf req . When vf req = 1000 , we set ρ1 = ρ2 = k√2 . When vf req =10 , 000 , we set ρ1 = ρ2 = 130 .We compare MS-SFNN against two conventional numerical methods: the Finite Element Method (FEM) and the Learning-based Numerical Method (LbNM) [59, 60], the latter being a recently developed learning-enhanced solver specifically designed for high-frequency Helmholtz equations. As re-ported in Table 7, we list the L∞ errors of these methods when solving the flower-shaped domain problem. When vf req = 1000 , FEM achieves an L∞
+
+error of 2.60 × 10 −3, while LbNM improves this to 4.85 × 10 −6. In stark contrast, MS-SFNN attains drmatically higher accuracy, with the L∞ error of 2.41 × 10 −14 and the L2 error of 1.10 × 10 −14 . When vf req = 10 , 000 , FEM completely fails to produce a meaningful solution, whereas LbNM yields an 
+
+L∞ error of 7.05 × 10 −5. Remarkably, MS-SFNN still maitains exceptional precision, achieving an L∞ error of 7.08 ×10 −6 and an L2 error of 3.31 ×10 −7.These results clearly demonstrate that MS-SFNN significantly outperforms traditional numerical solvers in handling this high-frequency Helmholtz equa-tions (26). Figures 13 and 14 display heat maps for vf req = 1000 and 
+
+vf req = 10 , 000 , respectively, showing the exact solution, the approximate solution of MS-SFNN, and the absolute error between them. The visual-26 izations confirm that MS-SFNN accurately resolves the highly oscillatory problem. 
+
+Table 7: Two-dimensional flower-shaped problems with Dirichlet boundary (26): Perfor-mance comparison of LbNM and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method νf req = 1000 Hz νf req = 10000 Hz 
+
+eL∞ eL2 eL∞ eL2
+
+FEM 2.60E-03 - 3.81E -LbNM[60] 4.85E-06 - 7.05E-05 -MS-SFNN 2.41E-14 1.10E-14 7.08E-06 3.31E-07 0.6 0.4 0.2 0.0 0.2 0.4 0.6              
+
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+> True
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+> Pred
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+> Error
+> 0.000
+> 0.344
+> 0.688
+> 1.033
+> 1.377
+> 1.721
+> 2.065
+> 2.409
+> 1e 14
+
+Figure 13: Heat maps illustrate the two-dimensional flower-shaped problems with Dirichlet boundary (26) with νf req = 1000 Hz. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+4.8. Two-Dimensional Flower-Shaped Problems with Mixed Boundary 
+
+Further, we consider a two-dimensional flower-shaped problem with com-plex boundary conditions. The problem is given by: 
+
+
+
+∆u + k2u = f, (x, y ) in Ω,u = g1, on Γ1,un = g2, on Γ2,un + u = g3, on Γ3,
+
+(27) where Γ1, Ω2 and Γ3 are parameterized by r = a − b cos( mθ ) with θ ∈ [0 , 23 π),
+
+θ ∈ [23 π, 43 π), θ ∈ [43 π, 2π).27 0.6 0.4 0.2 0.0 0.2 0.4 0.6             
+
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+> True
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+> Pred
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+> Error
+> 0.000000000
+> 0.000001012
+> 0.000002025
+> 0.000003037
+> 0.000004049
+> 0.000005062
+> 0.000006074
+> 0.000007086
+
+Figure 14: Heat maps illustrate the two-dimensional flower-shaped problems with Dirichlet boundary (26) with νf req = 10000 Hz. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+In this flower-shaped Helmholtz equation with mixed boundary, we first generate a uniform grid of size Nx × Ny = 201 × 201 . Points lying on or outside the flower-shaped boundary are then excluded, and the remaining interior points are retained as training data for the governing equation. For the boundary training points, we uniformly sample 40 , 000 points along the flower-shaped boundary using polar coordinates. These boundary points are subsequently classified into three distinct subset, denoted as Γ1, Γ2, and Γ3,according to their respective boundary condition types. The number of basis functions is set to M = 10 , 000 . Additionally, the scaling factors in MS-SFNN are chosen as ρ1 = ρ2 = k√2 .In Table 8, we present the numerical results of FEM, LbNM [60], and MS-SFNN, listing the L∞ errors of the approximate solutions obtained by FEM and LbNM for this two-dimensional flower-shaped problem, as well as the L∞ and L2 errors of the approximate solutions obtained by MS-SFNN. When vf req = 1000 , the L∞ error achieved by FEM is 2.60 × 10 −3, the 
+
+L∞ error achieved by LbNM is 2.57 × 10 −6, while the L∞ and L2 errors achieved by MS-SFNN are 1.95 × 10 −14 and 5.33 × 10 −15 , respectively. When 
+
+vf eq = 10 , 000 , FEM cannot solve this problem, while LbNM can achieve the L∞ error of 2.66 × 10 −6, and MS-SFNN can achieve higher accuracy than traditional numerical methods when dealing with this high-frequency problem. In Figures 15 and 16, we plot heat maps of the exact solution, the approximate solution obtained by MS-SFNN, and the absolute error between them for vreq = 1000 and vf req = 10 , 000 . It can be seen that MS-SFNN solves this problem well. 28 Table 8: Two-dimensional flower-shaped problems with mixed boundary (27): Perfor-mance comparison of LbNM and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method νf req = 1000 Hz νf req = 10000 Hz 
+
+eL∞ eL2 eL∞ eL2
+
+FEM 2.60E-03 - 8.25E -LbNM[61] 2.57E-06 - 2.66E-06 -MS-SFNN 1.95E-14 5.33E-15 1.66E-06 8.37E-07 0.6 0.4 0.2 0.0 0.2 0.4 0.6 
+
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+
+True       
+
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+
+Pred       
+
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+
+Error  
+
+> 0.000
+> 0.278
+> 0.557
+> 0.835
+> 1.114
+> 1.392
+> 1.671
+> 1.949
+> 1e 14
+
+Figure 15: Heat maps illustrate the two-dimensional flower-shaped problems with mixed boundary (27) with νf req = 1000 Hz. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 0.6 0.4 0.2 0.0 0.2 0.4 0.6 
+
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+
+True       
+
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+
+Pred       
+
+> 1.000
+> 0.714
+> 0.429
+> 0.143
+> 0.143
+> 0.429
+> 0.714
+> 1.000
+> 0.6 0.4 0.2 0.0 0.2 0.4 0.6
+> x
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> y
+
+Error 
+
+> 0.000000000
+> 0.000000237
+> 0.000000473
+> 0.000000710
+> 0.000000947
+> 0.000001184
+> 0.000001420
+> 0.000001657
+
+Figure 16: Heat maps illustrate the two-dimensional flower-shaped problems with mixed boundary (27) with νf req = 10000 Hz. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+29 4.9. Nonlinear Elliptic Equations 
+
+To demonstrate MS-SFNN’s capability in handling nonlinear PDEs, we consider two-dimensional nonlinear elliptic equations. The problem is defined as: (∆u + u2 = f, (x, y ) in Ω,u = g, on ∂Ω, (28) where Ω = (0 , 1) × (0 , 1) , u = ( x + y) cos( kx ) sin( ky ), k = 10 and the corresponding source term f and right term g can be obtained using the exact solution. We begin by constructing the training data using a uniform grid of size 
+
+Nx × Ny = 101 × 101 , which serves as the set of collocation points for both the governing equation the the boundary condition. The number of basis functions is set to M = 10 , 000 . Since this is a two-dimensional problem, MS-SFNN requires two scaling factors, which are chosen as ρ1 = ρ2 = 10 .It should be noted that the underlying PDEs are nonlinear. Therefore, we employ Picard iteration to solve the resulting system. We now provide a detailed description of the Picard iteration procedure employed to solve this nonlinear elliptic equation (28). We begin by assuming an initial guess w0, which is randomly generated using the Xavier initializa-tion method [62]. This yields an initial approximate solution u0(x, y ) = 
+
+Φ(x, y ) · w0, where Φ(x, y ) denotes the vector of MS-SFNN basis functions evaluated at (x, y ). At each Picard iteration i, for i ≥ 1, the original nonlin-ear PDEs are linearized around the current approximation ui. Specifically, the nonlinear term is frozen using the previous iterate, resulting in the lin-earized governing equation ∆u + uiu = f . The linearized boundary-value problem is then solved using the MS-SFNN framework combined with a least squares method. This yields an update coefficient vector wi+1 and the cor-responding approximate solution ui+1 (x, y ) = Φ(x, y ) · wi+1 . The iterations proceeds until convergence is achieved. In our implementation, we set a maximum of 100 iterations. Convergence (or early termination) is triggered when the absolute difference between successive coefficient vectors satisfies 
+
+∥wi+1 − wi∥ ≤ 10 −16 . The final converged coefficient vector w∗ defines the desired high-accuracy approximate solution u∗(x, y ) = Φ(x, y ) · w∗ to the original nonlinear problem. In Table 9, we report the L∞ and L2 errors of the approximate solu-tions obtained by PINN, SV-SNN, and MS-SFNN for this nonlinear elliptic problem (28). Although PINN is able to produce a solution, its accuracy is 30 limited to an error level of approimxately 10 −1. SV-SNN improves upon this, achieving errors on the order of 10 −3. In stark contrast, MS-SFNN attains dramatically higher precision, with both L∞ and L2 errors reaching the or-der of 10 −13 . This clearly demonstrates that MS-SFNN is capable of solving this nonlinear elliptic equation with exceptional accuracy. Figure 17 presents heat maps of the exact solution, the approximate solution of MS-SFNN, and the absolute error between them. The visual comparison confirms that MS-SFNN recovers the solution with remarkable fidelity. Its approximation error is extremely small across the entire domain, further validating its superior performance in handling nonlinear PDEs. 
+
+Table 9: Nonlinear elliptic equations (28): Performance comparison of PINN, SV-SNN and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method eL∞ eL2
+
+PINN[1] 5.91E-01 3.40E-01 SV-SNN[49] 7.21E-03 4.05E-03 MS-SFNN 9.88E-13 4.51E-13 0.0 0.2 0.4 0.6 0.8 1.0            
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+> True
+> 1.733
+> 1.283
+> 0.832
+> 0.382
+> 0.069
+> 0.519
+> 0.970
+> 1.420
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+> Pred
+> 1.733
+> 1.283
+> 0.832
+> 0.382
+> 0.069
+> 0.519
+> 0.970
+> 1.420
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+> Error
+> 0.000
+> 1.411
+> 2.822
+> 4.233
+> 5.644
+> 7.055
+> 8.466
+> 9.877
+> 1e 13
+
+Figure 17: Heat maps illustrate the nonlinear elliptic equation (28). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+4.10. Taylor-Green Vortex 
+
+To verify MS-SFNN’s effectiveness in complex nonlinear fluid dynamics simulation, we consider the classical Taylor-Green vortex problem, which is a benchmark test case for incompressible Navier-Stokes equations. The problem is defined on spatiotemporal domain (two-dimensional case + time) 31 Ω × T = ( −π, π ) × (−π, π ) × (0 , 1) , with governing equations being incom-pressible Navier-Stokes equation system: 
+
+
+
+ut + uu x + vu y + px − 1
+
+Re (uxx + uyy) = 0 , (x, y, t ) in Ω × (0 , 1] ,vt + uv x + vv y + py − 1
+
+Re (vxx + vyy) = 0 , (x, y, t ) in Ω × (0 , 1] ,ux + vy = 0 , (x, y, t ) in Ω × (0 , 1] ,u = g1, on ∂Ω × (0 , 1] ,v = g2, on ∂Ω × (0 , 1] ,p = g3, on ∂Ω × (0 , 1] ,u(x, y, 0) = h1, in Ω,v(x, y, 0) = h2, in Ω,p(x, y, 0) = h3, in Ω,
+
+(29) where u = − cos( kx ) sin( ky ) exp( −2νt ), v = sin( kx ) cos( ky ) exp( −2νt ), p =
+
+−1/4(cos(2 kx ) + cos (2 ky )) exp( −4νt ). (u, v ) are velocity components, p is pressure, and Re is Reynolds number. The right-hand terms can be obtained using the exact solutions. In constructing the training data, we employ a uniform grid of size Nx ×
+
+Ny × Nt = 51 × 51 × 51 . These grid points are subsequently partitioned into three distinct subsets: interior points, boundary points, and initial points. The number of basis function is set to M = 10 , 000 . Although this is a time-dependent two-dimensional problem, we treat time as an additional spatial dimension, effectively reformulating it as a three-dimensional problem in the MS-SFNN. The solution consists of three variables u, v, and p. Accordingly, we assign three scaling factors in MS-SFNN, which may differ across variables to account for their distinct physical scales or spectral characteristics. The approximations for u, v, and p are then expressed as: 
+
+
+
+uM (x) = 
+
+> M
+
+X
+
+> i=1
+
+wu,i dY
+
+> j=1
+
+cos( ρu,j (wji xj + bij )) ,vM (x) = 
+
+> M
+
+X
+
+> i=1
+
+wv,i dY
+
+> j=1
+
+cos( ρv,j (wji xj + bij )) ,pM (x) = 
+
+> M
+
+X
+
+> i=1
+
+wp,i dY
+
+> j=1
+
+cos( ρp,j (wji xj + bij )) .
+
+(30) 32 From the above formulation, it is evident that our MS-SFNN accommo-dates three scaling factors, enabling the construction of distinct sets of scaled basis functions tailored to u, v, and p. Consequently, to fully parameterize the network for this multi-variable system, we define a total of nine scal-ing factors. For u, we set ρu, 1 = ρu, 2 = π and ρu, 3 = 1 . For v, we set 
+
+ρv, 1 = ρv, 2 = π and ρv, 3 = 1 . For p, we set ρp, 1 = ρp, 2 = 2 π and ρp, 3 = 1 .Since this problem is also nonlinear, we employ Picard iteration to solve it. Here, we briefly outline the linearization procedure. Assume that at the (i + 1) -th iteration ( i ≥ 0, we have obtained current approximations of the solution coefficients wu,i , wv,i , and wp,i , which yields the correspond-ing approximations ui(x, y, t ), vi(x, y, t ), and pi(x, y, t ). Using these known quantities from the previous iteration, the nonlinear terms in Equation (29) are frozen, resulting in a linearized system of the following form: 
+
+
+
+ut + uiux + viuy + px − 1
+
+Re (uxx + uyy) = 0 , (x, y, t ) in Ω × (0 , 1] ,vt + uivx + vivy + py − 1
+
+Re (vxx + vyy) = 0 , (x, y, t ) in Ω × (0 , 1] .
+
+(31) We compare the numerical performance of MS-SFNN against PINN and SV-SNN. As summarized in Table 10, we report the L∞ and L2 errors for each method across the three solutions u, v, and p. PINN struggles sig-nificantly with this nonlinear problem. In particular, the L2 error for the pressure filed p is as large as 1.67 , indicating a failure to capture the un-derlying physics accurately. SV-SNN shows improvement over PINN, yet its errors remain relatively high, which are on the order of 10 −2 to 10 −3. In stark contrast, MS-SFNN achieves exceptional accuracy, with errors consistently in tha range of 10 −11 to 10 −13 for all three variables. Figures 18, 19, and 20 present visual comparison for u, v, and p, respectively. Each figure includes the heat maps of the exact solution, the approximate solution of MS-SFNN, and the absolute error between them. The near-indistinguishable match be-tween exact and approximate solutions, and the uniformly negligible error magnitudes demonstrate that MS-SFNN resolves this challenging nonlinear system with remarkable precision. 
+
+4.11. Double-Cylinder Steady Navier-Stokes Equations 
+
+To further verify robustness of MS-SFNN in complex geometric domains and multi obstacle fluid mechanics problems, we consider steady Navier-Stokes equations with two cylindrical obstacles in a circular domain. The 33 Table 10: Taylor-Green vortex (29): Performance comparison of PINN, SV-SNN and MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method u v peL∞ eL2 eL∞ eL2 eL∞ eL2
+
+PINN[1] 7.31E-01 6.85E-01 7.32E-01 6.84E-01 7.29E-01 1.67 SV-SNN[49] 2.40E-03 1.52E-03 3.01E-03 5.82E-03 1.89E-03 3.75E-02 MS-SFNN 2.18E-11 1.11E-12 2.42E-12 5.74E-13 4.72E-11 4.29E-12 3 2 1 0 1 2 3             
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> True
+> 0.98
+> 0.70
+> 0.42
+> 0.14
+> 0.14
+> 0.42
+> 0.70
+> 0.98
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Pred
+> 0.98
+> 0.70
+> 0.42
+> 0.14
+> 0.14
+> 0.42
+> 0.70
+> 0.98
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Error
+> 0.000
+> 0.312
+> 0.625
+> 0.937
+> 1.250
+> 1.562
+> 1.875
+> 2.187
+> 1e 11
+
+Figure 18: Heat maps illustrate the u component of the nonlinear elliptic equation (28). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 3 2 1 0 1 2 3             
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> True
+> 0.98
+> 0.70
+> 0.42
+> 0.14
+> 0.14
+> 0.42
+> 0.70
+> 0.98
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Pred
+> 0.98
+> 0.70
+> 0.42
+> 0.14
+> 0.14
+> 0.42
+> 0.70
+> 0.98
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Error
+> 0.000
+> 0.345
+> 0.691
+> 1.036
+> 1.382
+> 1.727
+> 2.073
+> 2.418
+> 1e 12
+
+Figure 19: Heat maps illustrate the v component of the nonlinear elliptic equation (28). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+34 3 2 1 0 1 2 3             
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> True
+> 0.481
+> 0.343
+> 0.206
+> 0.069
+> 0.069
+> 0.206
+> 0.343
+> 0.481
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Pred
+> 0.4806
+> 0.3433
+> 0.2060
+> 0.0687
+> 0.0686
+> 0.2059
+> 0.3433
+> 0.4806
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Error
+> 0.000
+> 0.674
+> 1.349
+> 2.023
+> 2.698
+> 3.372
+> 4.047
+> 4.721
+> 1e 11
+
+Figure 20: Heat maps illustrate the pressure p of the nonlinear elliptic equation (28). Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+problem is defined within circular domain Ω = ( x, y ) : x2 + y2 ≤ 3.02\(Ω 1 ∪
+
+Ω2, with two cylindrical obstacles centered at (−1.0, 0.5) with radius r1 =0.3 and (1 .0, −0.5) with radius r2 = 0 .3. Governing equations are steady incompressible Navier-Stokes equation system: 
+
+
+
+uu x + vu y + 1
+
+ρpx − μρ (uxx + uyy) = S1, (x, y, t ) in Ω,uv x + vv y + 1
+
+ρpy − μρ (vxx + vyy) = S2, (x, y, t ) in Ω,ux + vy = 0 , (x, y, t ) in Ω × (0 , 1] ,u = g1, on ∂Ω,v = g2, on ∂Ω,p = g3, on ∂Ω,
+
+(32) where ρ = 1 .0 is density, μ = 1 .0 is dynamic viscosity. The source terms and right-hand terms are obtained using the exact solutions. Here, we take u = 1 /2 sin( x + y) + sin(2 x) cos(2 y) and v = −1/2 sin( x +
+
+y) − cos(2 x) sin(2 y). The exact solution of p is chosen as follows: 
+
+• case 1: p = 0 
+
+• case 2: p = sin(3 x − y) + sin( x − 3y)
+
+In this nonlinear problem, we begin by generating a uniform grid of size 
+
+Nx × Ny = 101 × 101 . Points lying on or inside the two cylindrical obsta-cles are removed, and the remaining points are used as training data for the governing equations and for enforcing the outer boundary conditions. On each of the two cylindrical obstacles, we sample 100 uniformly distributed 35 points using a polar-coordinate parametrization tailored to the circular ge-ometry. The number of basis functions is set to M = 10 , 000 . Although the MS-SFNN employs two scaling factors, and we have three solution vari-ables u, v, and p, we therefore specify a total of six scaling factors. They are assigned as ρu, 1 = ρu, 2 = 2 , ρv, 1 = ρv, 2 = 2 , and ρp, 1 = ρp, 2 = 3 . The linearization of this nonlinear problem (32) closely follows the same strategy used for the Taylor-Green vortex, namely, freezing the nonlinear terms us-ing solutions from the previous Picard iteration to yield a linear system at each step. Given this well-established analogy, we omit further details of the linearization procedure for brevity. In Table 11, we report the L2 errors of the approximate solutions of u,
+
+v and p obtained by PINN and SV-SNN under case 1 for the pressure field 
+
+p, along with the L∞ and L2 errors of MS-SFNN for the same variables. It is evident that the error magnitudes attained by MS-SFNN are orders of magnitude smaller than those produced by either PINN or SV-SNN. Figures 21 and 22 display heat maps for the velocity components u and v, respec-tively. Each figure includes the exact solution, the approximate solution of MS-SFNN, and the absolute error between them. The near-perfect visual agreement between the exact and predicted fields, clearly confirms that MS-SFNN accurately and robustly resolves this nonlinear problem.        
+
+> Table 11: Double-cylinder steady Navier-Stokes equations (32) with pis chosen as case 1:Performance comparison of PINN, SV-SNN and MS-SFNN. The L∞errors and L2errors for each model configuration are presented.
+
+Method u v peL∞ eL2 eL∞ eL2 eL∞ eL2
+
+PINN[1] - 9.45E-03 - 1.50E-02 - -SV-SNN[49] - 5.68E-04 - 4.06E-04 - -MS-SFNN 7.83E-14 3.40E-14 5.50E-14 2.28E-14 6.33E-14 -In Table 12, we present the L∞ and L2 errors for the approximations of u,
+
+v, and p obtained by MS-SFNN when solving case 2, where the pressure field 
+
+p is non-zero, thus increasing the complexity of the problem. The results show that MS-SFNN maintains a very high level of accuracy. Figures 23, 24 and 25 display heat maps for u, v, and p, respectively, which include the exact solution, the approximate solution of MS-SFNN, and the absolute error between them. The visualizations clearly indicate that despite the increased 36 3 2 1 0 1 2 3
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+True       
+
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Pred       
+
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Error  
+
+> 0.000
+> 1.120
+> 2.239
+> 3.359
+> 4.479
+> 5.599
+> 6.718
+> 7.838
+> 1e 14
+
+Figure 21: Heat maps illustrate the u component of the double-cylinder steady Navier-Stokes equations (32) with p is chosen as case 1. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 3 2 1 0 1 2 3
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+True       
+
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Pred       
+
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Error  
+
+> 0.000
+> 0.786
+> 1.572
+> 2.358
+> 3.144
+> 3.929
+> 4.715
+> 5.501
+> 1e 14
+
+Figure 22: Heat maps illustrate the v component of the double-cylinder steady Navier-Stokes equations (32) with p is chosen as case 1. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+37 difficulty due to the non-zero pressure term, MS-SFNN continues to provide highly accurate solutions. The minimal discrepancies shown in the absolute error plots further confirm that MS-SFNN is capable of achieving excellent precision across all three variables u, v, and p, demonstrating its robustness and effectiveness in handling nonlinear problems. 
+
+Table 12: Double-cylinder steady Navier-Stokes equations (32) with p is chosen as case 2:Performance of MS-SFNN. The L∞ errors and L2 errors for each model configuration are presented. 
+
+Method u v peL∞ eL2 eL∞ eL2 eL∞ eL2
+
+MS-SFNN 7.11E-14 3.84E-14 6.38E-14 2.53E-14 1.06E-14 2.33E-14 3 2 1 0 1 2 3             
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> True
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Pred
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+> Error
+> 0.000
+> 1.016
+> 2.032
+> 3.048
+> 4.064
+> 5.080
+> 6.096
+> 7.112
+> 1e 14
+
+Figure 23: Heat maps illustrate the u component of the double-cylinder steady Navier-Stokes equations (32) with p is chosen as case 2. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+4.12. Analysis of Effects of scale factors 
+
+To evaluate the effects of scale factors ρ, we solve the two-dimensional Helmholtz equations (22) with MS-SFNN, performing a grid search over 
+
+ρ1, ρ 2 ∈ [1 , 200] . The exact solution is selected from the following two cases: 
+
+• case 1: u = sin( k1x) sin( k2y), where k = 48 π and k1 = k2 = k,
+
+• case 2: u = sin( k1x) sin( k2y), where k = 48 π, k1 = k and k2 = k/ 2.In Figure 26, we present a heat map illustrating how the L∞ error of the approximate solution of MS-SFNN varies with respect to the scaling factors 
+
+ρ1 and ρ2. The colorbar uses a logarithmic scale, enabling clear visualization 38 3 2 1 0 1 2 3
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+True       
+
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Pred       
+
+> 1.380
+> 0.986
+> 0.591
+> 0.197
+> 0.197
+> 0.591
+> 0.986
+> 1.380
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Error  
+
+> 0.000
+> 0.912
+> 1.824
+> 2.736
+> 3.648
+> 4.560
+> 5.472
+> 6.384
+> 1e 14
+
+Figure 24: Heat maps illustrate the v component of the double-cylinder steady Navier-Stokes equations (32) with p is chosen as case 2. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 3 2 1 0 1 2 3
+
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+True       
+
+> 2.000
+> 1.428
+> 0.857
+> 0.286
+> 0.286
+> 0.857
+> 1.428
+> 2.000
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Pred       
+
+> 2.000
+> 1.428
+> 0.857
+> 0.286
+> 0.286
+> 0.857
+> 1.428
+> 2.000
+> 3210123
+> x
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> y
+
+Error  
+
+> 0.000
+> 0.152
+> 0.304
+> 0.456
+> 0.608
+> 0.760
+> 0.912
+> 1.064
+> 1e 13
+
+Figure 25: Heat maps illustrate the p component of the double-cylinder steady Navier-Stokes equations (32) with p is chosen as case 2. Left: the exact solution; Middle: the prediction solution of MS-SFNN; Right: the absolute error between them. 
+
+39 across many orders of magnitude in error. The left panel shows a heat map of the variation in the L∞ error when the exact solution is chosen to be case 
+
+1. The right panel shows a similar heat map but for case 2.In case 1, where k1 = k2, this indicates that the dimensions x and y have an equivalent scale of influence on the solution. This characteristic is reflected in the heat map shown in the left panel of Figure 26. The heat map displays a nearly symmetric pattern along the diagonal from the bottom-left to the top-right, suggesting that deviations from the symmetry axis ρ1 = ρ2 result in similar errors regardless of whether ρ1 or ρ2 adjusted. This symmetry implies that setting ρ1 = ρ2 is both the most straightforward and optimal choice for minimizing the L∞ error. In case 2, where k1̸ = k2, the dimensions x and y do not have the same scale of influence on the solution. This asymmetry is also evident in the heat map shown in the right panel of Figure 26. Specifically, the heat map reveals that for ρ1, the minimum error region is approached when ρ1 is around 100 ,and for ρ2, the minimum error region is reached when ρ2 is approximately 
+
+100 . This discrepancy highlights that ρ1 and ρ2 have unequal impacts on the accuracy of solution. Moreover, the observation that ρ1 should be larger than 
+
+ρ2 aligns with the condition k1 > k 2, indicating that different scaling factors are necessary to match the differing scales of influence in each dimension. These observations highlight a critical practical insight: without care-fully selecting an appropriate pair (ρ1, ρ 2), MS-SFNN may fail to recover a physically meaningful solution, producing errors so large that the result be-comes numerically unusable. Thus, proper tuning of the scaling factors is not merely beneficial, it is essential for the success of the method. 
+
+4.13. Comparison Experiments with Existing Methods 
+
+To fully demonstrate MS-SFNN’s advantages in solving high-frequency problems, we compare MS-SFNN with multiple advanced methods for solving the two-dimensional Helmholtz equations (22) with k = 24 π.In Table 13, we report the average value and standard deviation of the 
+
+L2 errors obtained by XPINN [63], FBPINN [64], FourierPINN [65], BsPINN [66], SV-SNN [49], and MS-SFNN when solving the two-dimensional Helmholtz equations 22 with k = 24 π, using 10 different random seeds for the initial-ization of neural networks to assess robustness. The results clearly demonstrate that XPINN, FBPINN, FourierPINN, and BsPINN achieve only modest accuracy, with average L2 errors on the 40 50 100 150 200    
+
+> ρ1
+> 50
+> 100
+> 150
+> 200
+> ρ2
+> 9.87
+> 7.20
+> 4.54
+> 1.88
+> 0.79
+> 3.45
+> 6.12
+> 8.78 50 100 150 200
+> ρ1
+> 50
+> 100
+> 150
+> 200
+> ρ2
+> 11.22
+> 8.43
+> 5.64
+> 2.85
+> 0.05
+> 2.74
+> 5.53
+> 8.32
+
+Figure 26: Left: the exact solution is selected as case 1. Right: the exact solution is selected as case 2. The heat map illustrates the variation of the L∞ error of u with respect to ρ1 and ρ2, where ρ1 and ρ2 each range from 1 to 200 . The colorbar is plotted on a logarithmic scale. 
+
+order of 10 −1. In stark contrast, MS-SFNN achieves L2 error on the or-der of 10 −12 , which is ten orders of magnitude more accurate than the best competing method, with a very small standard deviation across random ini-tializations. This overwhelming performance gap highlights that MS-SFNN is not only significantly more accurate but also highly reliable and robust in solving high-frequency Helmholtz equations. The consistent errors across multiple runs confirm that MS-SFNN effectively overcomes the spectral bias and optimization challenges that plague conventional PINNs in oscillatory regimes. 
+
+Table 13: Two dimensional Helmholtz equations (22) with k = 24 π: Performance compar-ison of XPINN, FBPINN, FourierPINN, BsPINN, SV-SNN and MS-SFNN. The average value and standard deviation of L2 errors for each model configuration are presented. 
+
+Method average eL2 std eL2
+
+XPINN[63] 9.44E-01 1.62E-01 FBPINN[64] 6.79E-01 3.28E-01 FourierPINN[65] 3.06E-01 8.17E-02 BsPINN[66] 1.74E-01 5.69E-01 SV-SNN[49] 1.27E-02 2.05E-02 MS-SFNN 2.61E-12 8.44E-13 41 5. Conclusions 
+
+In this work, we propose Multi-Scale Separable Fourier Neural Networks (MS-SFNN) for solving both linear and nonlinear high-frequency PDEs. The core idea of MS-SFNN is based on a separable representation. For a d-dimensional input, we employ d independent subnetworks, each processing one coordinate direction. The outputs of these subnetworks are then mul-tiplied element-wise to construct a set of separable basis functions. The solution to the PDEs is approximated as a linear combination of these basis functions, where the coefficients are determined by the least squares method. Importantly, the weights and biases in each subnetwork are initialized once using a uniform distribution with variance 1 and kept fixed thereafter. How-ever, such a fixed initialization alone provides limited representational capac-ity and may be insufficient for accurately resolving solutions across diverse scenarios, especially those involving high-frequency features. To overcome this limitation, we introduce a scaling factor in front of the fixed weights and biases within each subnetwork. This scaling factor effectively controls the frequency content of the resulting basis functions and significantly enhances the expressive power of the network. Since each subnetwork has its own scaling factor, the overall MS-SFNN architecture contains multiple scaling factors. Finally, to further enrich the spectral representation, we explicitly incorporate Fourier features by using the cosine function as the activation in the construction of the basis functions. This design endows MS-SFNN with strong capabilities in capturing oscillatory and high-frequency behav-ior,making it particularly well-suited for challenging high-frequency PDEs. When dealing with high-frequency PDEs or extending the problem from two to three dimensions, a large number of collocation points are required to accurately resolve the fine-scale oscillatory features. This dramatically increases memory demand and often leads to GPU memory exhaustion due to the storage and computation overhead of the full basis matrix and its derivatives. To address this challenge, we propose two key algorithmic in-novations. In stead of relying on automatic differentiation, which incurs significant memory and computational costs during backpropagation, we de-rive and use closed-form analytical expressions for all required spatial and temporal derivatives of basis function obtained from MS-SFNN. This elim-inates the need to store computational graphs and drastically reduce both memory footprint and evaluation time. To solve the resulting large-scale least-squares system without loading the entire basis matrix into GPU mem-42 ory, we develop a memory-efficient, batched QR decomposition algorithm. This approach process the collocation points in smaller chunks, incrementally building an orthogonal representation of the basis space while maintaining numerical stability. Together, these strategies significantly alleviate GPU memory pressure and enable MS-SFNN to scale effectively to high-frequency regimes and three-dimensional problems. As a result, MS-SFNN remains computationally feasible and highly accurate even in these demanding set-tings. Although the proposed MS-SFNN demonstrate outstanding performance in numerical experiments, several important limitations remain and point to promising directions to future research. The accuracy of MS-SFNN is highly dependent on the choice of scaling factors. Poorly selected values can lead to significant degradation in solution quality, sometimes by many orders of magnitude. While a brute-force grid search can be used to identify suit-able scaling factors, this approach is computational expensive and impracti-cal for high-dimensional and multi-variable problems. Therefore, developing an efficient and robust algorithm for automatically discovering near-optimal scaling factors is a critical next step. Furthermore, numerical results in-dicate that when the problem involves very high frequencies or extends to three dimensional high-frequency settings, the method exhibits a noticeable loss of precision. This suggests that the current basis construction may not fully resolve the most challenging spectral content. Future work should focus on designing enhanced basis architectures that can maintain high accuracy across ultra-high-frequency and three-dimensional scenarios. 
+
+Acknowledgment 
+
+This research is partially supported by the National Natural Science Foun-dation of China (No.U25A20200, No.12371434), and the National Key R & D Program of China (No.2022YFE03040002). 
+
+Data Availability Statement 
+
+The data that support the findings of this study are available from the corresponding author upon reasonable request. 43 References 
+
+[1] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving for-ward and inverse problems involving nonlinear partial differential equa-tions. Journal of Computational physics , 378:686–707, 2019. [2] Kazuo Ishihara. Convergence of the finite element method applied to the eigenvalue problem δu+ λu= 0. Publications of the Research Institute for Mathematical Sciences , 13(1):47–60, 1977. [3] Kazuo Ishihara. A mixed finite element method for the biharmonic eigenvalue problems of plate bending. Publications of the Research In-stitute for Mathematical Sciences , 14(2):399–414, 1978. [4] Donald G Truhlar. Finite difference boundary value method for solv-ing one-dimensional eigenvalue equations. Journal of Computational Physics , 10(1):123–132, 1972. [5] TE Simos and PS Williams. A finite-difference method for the numerical solution of the Schrödinger equation. Journal of Computational and Applied Mathematics , 79(2):189–205, 1997. [6] Diederik P Kingma. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. [7] Dong C Liu and Jorge Nocedal. On the limited memory BFGS method for large scale optimization. Mathematical programming , 45(1):503–528, 1989. [8] Lu Lu, Xuhui Meng, Zhiping Mao, and George Em Karniadakis. Deep-XDE: A deep learning library for solving differential equations. SIAM review , 63(1):208–228, 2021. [9] Guofei Pang, Lu Lu, and George Em Karniadakis. fPINNs: Fractional physics-informed neural networks. SIAM Journal on Scientific Comput-ing , 41(4):A2603–A2626, 2019. [10] Dongkun Zhang, Lu Lu, Ling Guo, and George Em Karniadakis. Quan-tifying total uncertainty in physics-informed neural networks for solv-ing forward and inverse stochastic problems. Journal of Computational Physics , 397:108850, 2019. 44 [11] Dongkun Zhang, Ling Guo, and George Em Karniadakis. Learning in modal space: Solving time-dependent stochastic PDEs using physics-informed neural networks. SIAM Journal on Scientific Computing ,42(2):A639–A665, 2020. [12] Yuyao Chen, Lu Lu, George Em Karniadakis, and Luca Dal Negro. Physics-informed neural networks for inverse problems in nano-optics and metamaterials. Optics express , 28(8):11618–11633, 2020. [13] Lu Lu, Raphael Pestourie, Wenjie Yao, Zhicheng Wang, Francesc Ver-dugo, and Steven G Johnson. Physics-informed neural networks with hard constraints for inverse design. SIAM Journal on Scientific Com-puting , 43(6):B1105–B1132, 2021. [14] Maziar Raissi, Alireza Yazdani, and George Em Karniadakis. Hidden fluid mechanics: Learning velocity and pressure fields from flow visual-izations. Science , 367(6481):1026–1030, 2020. [15] Alireza Yazdani, Lu Lu, Maziar Raissi, and George Em Karniadakis. Systems biology informed deep learning for inferring parameters and hidden dynamics. PLoS computational biology , 16(11):e1007575, 2020. [16] Francisco Sahli Costabal, Yibo Yang, Paris Perdikaris, Daniel E Hur-tado, and Ellen Kuhl. Physics-informed neural networks for cardiac activation mapping. Frontiers in Physics , 8:42, 2020. [17] Han Gao, Luning Sun, and Jian-Xun Wang. PhyGeoNet: Physics-informed geometry-adaptive convolutional neural networks for solving parameterized steady-state pdes on irregular domain. Journal of Com-putational Physics , 428:110079, 2021. [18] Zhiwei Fang. A high-efficient hybrid physics-informed neural networks based on convolutional neural network. IEEE Transactions on Neural Networks and Learning Systems , 33(10):5514–5526, 2021. [19] Nils Wandel, Michael Weinmann, Michael Neidlin, and Reinhard Klein. Spline-pinn: Approaching pdes without data using fast, physics-informed hermite-spline cnns. In Proceedings of the AAAI conference on artificial intelligence , volume 36, pages 8529–8538, 2022. 45 [20] Pu Ren, Chengping Rao, Yang Liu, Jian-Xun Wang, and Hao Sun. PhyCRNet: Physics-informed convolutional-recurrent network for solv-ing spatiotemporal PDEs. Computer Methods in Applied Mechanics and Engineering , 389:114399, 2022. [21] Arda Mavi, Ali Can Bekar, Ehsan Haghighat, and Erdogan Madenci. An unsupervised latent/output physics-informed convolutional-LSTM network for solving partial differential equations using peridynamic dif-ferential operator. Computer Methods in Applied Mechanics and Engi-neering , 407:115944, 2023. [22] Liu Yang, Dongkun Zhang, and George Em Karniadakis. Physics-informed generative adversarial networks for stochastic differential equa-tions. SIAM Journal on Scientific Computing , 42(1):A292–A317, 2020. [23] Yihang Gao and Michael K Ng. Wasserstein generative adversarial un-certainty quantification in physics-informed neural networks. Journal of Computational Physics , 463:111270, 2022. [24] Yizheng Wang, Jia Sun, Jinshuai Bai, Cosmin Anitescu, Moham-mad Sadegh Eshaghi, Xiaoying Zhuang, Timon Rabczuk, and Yinghua Liu. Kolmogorov–Arnold-Informed neural network: A physics-informed deep learning framework for solving forward and inverse problems based on Kolmogorov–Arnold Networks. Computer Methods in Applied Me-chanics and Engineering , 433:117518, 2025. [25] Fabricio Dos Santos, Tara Akhound-Sadegh, and Siamak Ravanbakhsh. Physics-informed transformer networks. In The Symbiosis of Deep Learning and Differential Equations III , 2023. [26] Zhiyuan Zhao, Xueying Ding, and B Aditya Prakash. Pinnsformer: A transformer-based framework for physics-informed neural networks. 
+
+arXiv preprint arXiv:2307.11833 , 2023. [27] Mohammad Amin Nabian, Rini Jasmine Gladstone, and Hadi Mei-dani. Efficient training of physics-informed neural networks via impor-tance sampling. Computer-Aided Civil and Infrastructure Engineering ,36(8):962–977, 2021. [28] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A com-prehensive study of non-adaptive and residual-based adaptive sampling 46 for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, 2023. [29] Kejun Tang, Xiaoliang Wan, and Chao Yang. DAS-PINNs: A deep adaptive sampling method for solving high-dimensional partial differen-tial equations. Journal of Computational Physics , 476:111868, 2023. [30] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mit-igating gradient flow pathologies in physics-informed neural networks. 
+
+SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. [31] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. [32] Zixue Xiang, Wei Peng, Xu Liu, and Wen Yao. Self-adaptive loss bal-anced physics-informed neural networks. Neurocomputing , 496:11–34, 2022. [33] Xi’an Li, Jiaxin Deng, Jinran Wu, Shaotong Zhang, Weide Li, and You-Gan Wang. Physical informed neural networks with soft and hard boundary constraints for solving advection-diffusion equations us-ing fourier expansions. Computers & Mathematics with Applications ,159:60–75, 2024. [34] Xi’an Li, Jinran Wu, Xin Tai, Jianhua Xu, and You-Gan Wang. Solving a class of multi-scale elliptic PDEs by Fourier-based mixed physics in-formed neural networks. Journal of Computational Physics , 508:113012, 2024. [35] Weilong Guan, Kaihan Yang, Yinsheng Chen, Shaolin Liao, and Zhong Guan. A dimension-augmented physics-informed neural network (DaP-INN) with high level accuracy and efficiency. Journal of Computational Physics , 491:112360, 2023. [36] Yongji Wang and Ching-Yao Lai. Multi-stage neural networks: Function approximator of machine precision. Journal of Computational Physics ,page 112865, 2024. [37] Ziad Aldirany, Régis Cottereau, Marc Laforest, and Serge Prudhomme. Multi-level neural networks for accurate solutions of boundary-value 47 problems. Computer Methods in Applied Mechanics and Engineering ,419:116666, 2024. [38] Suchuan Dong and Jielin Yang. On computing the hyperparameter of extreme learning machines: Algorithm and application to computational PDEs, and comparison with classical and high-order finite elements. 
+
+Journal of Computational Physics , 463:111290, 2022. [39] Suchuan Dong and Zongwei Li. Local extreme learning machines and do-main decomposition for solving linear and nonlinear partial differential equations. Computer Methods in Applied Mechanics and Engineering ,387:114129, 2021. [40] Jingrun Chen, Weinan E, and Yifei Sun. Optimization of random fea-ture method in the high-precision regime. Communications on Applied Mathematics and Computation , 6(2):1490–1517, 2024. [41] Jingrun Chen, Yixin Luo, et al. The random feature method for time-dependent problems. arXiv preprint arXiv:2304.06913 , 2023. [42] Jingrun Chen, Xurong Chi, and Zhouwang Yang. Bridging traditional and machine learning-based algorithms for solving PDEs: The random feature method. Journal of Machine Learning , 1(3):268–298, 2022. [43] Yong Shang, Fei Wang, and Jingbo Sun. Randomized neural network with Petrov–Galerkin methods for solving linear and nonlinear partial differential equations. Communications in Nonlinear Science and Nu-merical Simulation , 127:107518, 2023. [44] Yong Shang and Fei Wang. Randomized neural networks with Petrov– Galerkin methods for solving linear elasticity and navier–stokes equa-tions. Journal of Engineering Mechanics , 150(4):04024010, 2024. [45] Yong Shang and Fei Wang. Randomized neural networks with Petrov-Galerkin methods for solving linear elasticity problems. arXiv preprint arXiv:2308.03088 , 2023. [46] Fei Wang and Haoning Dang. Randomized neural network methods for solving obstacle problems. Banach Center Publications , 127:261–276, 2024. 48 [47] Naxian Ni and Suchuan Dong. Numerical computation of partial differ-ential equations by hidden-layer concatenated extreme learning machine. 
+
+Journal of Scientific Computing , 95(2):35, 2023. [48] Qilin Huang, Mingjin Fang, Dongsheng Cheng, Chunyuan Lu, and Tais-han Zeng. Sparse-regularized high-frequency enhanced neural network for solving high-frequency problems. Journal of Computational Physics ,523:113676, 2025. [49] Xiong Xiong, Zhuo Zhang, Rongchun Hu, Chen Gao, and Zichen Deng. Separated-variable spectral neural networks: a physics-informed learn-ing approach for high-frequency pdes. arXiv preprint arXiv:2508.00628 ,2025. [50] Jiachun Zheng, Yunqing Huang, Nianyu Yi, and Yunlei Yang. FG-PINNs: frequency-guided physics-informed neural networks for solving pdes with high frequency components. arXiv preprint arXiv:2511.12055 ,2025. [51] Abdul Hannan Mustajab, Hao Lyu, Zarghaam Rizvi, and Frank Wut-tke. Physics-informed neural networks for high-frequency and multi-scale problems using transfer learning. Applied Sciences , 14(8), 2024. [52] Xiong Xiong, Kang Lu, Zhuo Zhang, Zheng Zeng, Sheng Zhou, Rongchun Hu, and Zichen Deng. High-frequency flow field super-resolution via physics-informed hierarchical adaptive Fourier feature net-works. Physics of Fluids , 37(9):097111, 09 2025. [53] Shikai Fang, Madison Cooley, Da Long, Shibo Li, Mike Kirby, and Shan-dian Zhe. Solving high frequency and multi-scale PDEs with Gaussian processes. In The Twelfth International Conference on Learning Repre-sentations , 2024. [54] Qihong Yang, Zhijie Su, Yangtao Deng, and Qiaolin He. A novel Fourier feature network for solving partial differential equations. Communica-tions in Nonlinear Science and Numerical Simulation , 152:109274, 2026. [55] Jingrun Chen and Yifei Sun. pyRFM: A high-performance python im-plementation and applications of random feature methods. Journal On Numerical Methods and Computer Applications , pages 1–21. 49 [56] Ali Rahimi and Benjamin Recht. Random features for large-scale kernel machines. Advances in neural information processing systems , 20, 2007. [57] Ali Rahimi and Benjamin Recht. Uniform approximation of functions with random bases. In 2008 46th annual allerton conference on commu-nication, control, and computing , pages 555–561. IEEE, 2008. [58] Pingbing Ming and Hao Yu. Spectral connvergece of random feature method in one dimension. arXiv preprint arXiv:2507.07371 , 2025. [59] Yu Chen, Jin Cheng, Tingyue Li, and Yun Miao. A learning based numerical method for Helmholtz equations with high frequency. Journal of Computational Physics , 520:113478, 2025. [60] Tingyue Li, Yu Chen, Yun Miao, and Dingjiong Ma. Learning based numerical methods for acoustic frequency-domain simulation with high frequency. Engineering Analysis with Boundary Elements , 163:200–210, 2024. [61] Qilin Huang, Mingjin Fang, Dongsheng Cheng, Chunyuan Lu, and Tais-han Zeng. Sparse-regularized high-frequency enhanced neural network for solving high-frequency problems. Journal of Computational Physics ,523:113676, 2025. [62] Xavier Glorot and Yoshua Bengio. Understanding the difficulty of train-ing deep feedforward neural networks. In Proceedings of the thirteenth international conference on artificial intelligence and statistics , pages 249–256. JMLR Workshop and Conference Proceedings, 2010. [63] Ameya D Jagtap and George Em Karniadakis. Extended physics-informed neural networks (XPINNs): A generalized space-time domain decomposition based deep learning framework for nonlinear partial dif-ferential equations. Communications in Computational Physics , 28(5), 2020. [64] Ben Moseley, Andrew Markham, and Tarje Nissen-Meyer. Finite basis physics-informed neural networks (FBPINNs): a scalable domain de-composition approach for solving differential equations. Advances in Computational Mathematics , 49(4):62, 2023. 50 [65] Madison Cooley, Varun Shankar, Robert M Kirby, and Shandian Zhe. Fourier PINNs: from strong boundary conditions to adaptive Fourier bases. arXiv preprint arXiv:2410.03496 , 2024. [66] Yanzhi Liu, Ruifan Wu, and Ying Jiang. Binary structured physics-informed neural networks for solving equations with rapidly changing solutions. Journal of Computational Physics , 518:113341, 2024. 51

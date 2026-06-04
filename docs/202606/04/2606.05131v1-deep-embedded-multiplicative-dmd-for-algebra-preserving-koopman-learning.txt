@@ -1,0 +1,740 @@
+Title: Deep Embedded Multiplicative DMD for Algebra-Preserving Koopman Learning
+
+URL Source: https://arxiv.org/pdf/2606.05131v1
+
+Published Time: Thu, 04 Jun 2026 01:26:04 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Deep Embedded Multiplicative DMD for Algebra-Preserving Koopman Learning 
+
+Kelan Gray *1, Finlay Brown 1, Nicolas Boull´ e1, and Matthew J. Colbrook 2 
+
+> 1
+
+Department of Mathematics, Imperial College London, London, SW7 2AZ, UK.  
+
+> 2
+
+Department of Applied Mathematics and Theoretical Physics, University of Cam-bridge, Cambridge, CB3 0WA, UK. 
+
+Abstract. Koopman theory turns nonlinear dynamics into a linear spectral problem. In computation, however, everything depends on a hard finite-dimensional choice: the observables must be expressive, nearly invariant under the dynamics, and, ide-ally, compatible with composition. Deep Koopman methods learn flexible coordinates, whereas structure-preserving methods enforce operator identities on fixed dictionar-ies. We combine these ideas by introducing Deep Embedded Multiplicative Dynamic Mode Decomposition (DeepMDMD), a method that learns a latent space and a parti-tion of it, while enforcing the Koopman product rule as an exact algebraic constraint. Training alternates between an exact multiplicative operator update and a differen-tiable latent-clustering step that promotes Koopman closure. The result is a finite transition map on learned latent cells. Its nonzero spectrum lies on the unit circle, its dictionary is shaped by the dynamics rather than by ambient geometry, and fore-casts are made in latent coordinates before being decoded to physical space. Across Hamiltonian, chaotic, and fluid examples, DeepMDMD learns dictionaries that are far more compact and dynamically coherent than those produced by geometric MDMD partitions. It reduces spectral pollution, reveals richer continuous-spectrum structure, and gives stable forecasts under severe noise. In high-dimensional flows, including a 158,624-dimensional cylinder wake and a noisy Re = 20,000 lid-driven cavity, it pre-serves coherent structures and long-time spectral statistics where state-space MDMD fails. These results suggest a practical rule for Koopman learning: learn the coordi-nates, constrain the algebra. 
+
+AMS subject classifications : 37M10, 47A25, 47B33, 65J10, 65P99, 65T99 
+
+Key words : dynamical systems, Koopman operator, dynamic mode decomposition, autoencoders 
+
+> ∗
+
+Corresponding author. Email addresses: k.gray25@imperial.ac.uk , f.brown24@imperial.ac.uk ,
+
+n.boulle@imperial.ac.uk , m.colbrook@damtp.cam.ac.uk .     
+
+> arXiv:2606.05131v1 [cs.LG] 3 Jun 2026 2x
+> Figure 1: Schematic of the DeepMDMD pipeline: (a) the latent encodings z(m)and cluster centroids μnare jointly optimized to produce a dynamically coherent partition of the latent space
+
+Z; (b) the DeepMDMD algorithm yields a Koopman approximation supported on Z that enforces the multiplicative structure as a hard constraint; (c) forecasting is performed entirely in Z, with predictions decoded to the full state space X only at output time. 
+
+# 1 Introduction 
+
+We consider discrete-time dynamical systems 
+
+xn+1 = F(xn), n ≥ 0, (1.1) where x0 ∈X ⊂ Rd is the state space and F:X →X is the evolution map. In fluid mechanics [58], climate dynamics [27], neuroscience [13], and many other areas, d is large and the dynamics are nonlinear. Direct analysis of (1.1) is then often very difficult. A data-driven approach assumes instead a collection of snapshot pairs 
+
+{(x(m), y(m) = F(x(m))) }Mm=1, (1.2) and seeks to infer the dynamics from these data. The Koopman viewpoint [34, 35] moves the problem from states to observables, that is, functions of the state. The reward is lin-earity: observables evolve under a linear Koopman operator. The price is dimension: this operator is generally infinite-dimensional. Its spectrum encodes the dynamics. Eigenval-ues give growth rates and frequencies, while eigenfunctions reveal coherent structures. Thus numerical methods that approximate Koopman spectra accurately are central to data-driven dynamical systems [14, 15, 19, 33, 46, 48]. 3
+
+The standard computational tool is Extended Dynamic Mode Decomposition (EDMD) [64], a finite-dimensional Galerkin approximation of the Koopman operator. A central difficulty is the choice of dictionary. The chosen observables should span a space that is expressive, low-dimensional, and nearly closed under the Koopman action. These requirements are hard to reconcile. Structure-preserving variants of DMD [6, 10, 11, 16, 17, 25, 30, 38, 42, 51, 57] build known properties of the Koopman operator into the finite-dimensional problem. This often leads to better approximations and more efficient use of data. In this paper we focus on Multiplicative Dynamic Mode Decomposition (MDMD) [10]. The Koopman operator acts by composition, and therefore satisfies the product rule: 
+
+K( f g ) = ( K f )( Kg), which is enforced by MDMD as a constraint. This naturally leads to dictionaries of indicator functions. The resulting finite-dimensional operators respect the multiplicative structure of the Koopman operator and substantially reduce spectral pollution. For MDMD, dictionary selection becomes a partitioning problem. One must divide the state space into cells whose indicator functions form the dictionary. The parti-tion is no minor detail; it determines the approximation. Existing implementations typ-ically use k-means. This is simple and robust, but it is geometric rather than dynamical. It sees distances, not evolution. Consequently, accurate approximation may require large dictionaries. In high-dimensional systems the problem is worse: k-means suffers from the curse of dimensionality [9], and the resulting clusters, hence basis functions, may be poorly aligned with the dynamics. We propose Deep Embedded Multiplicative Dynamic Mode Decomposition (DeepMDMD) to replace this geometry-first step by a learned one. Instead of partitioning the state space 
+
+X , we partition the latent space of a pretrained autoencoder [8]. The latent representation and the clustering are then refined jointly to promote Koopman closure. The result is a compact, interpretable dictionary adapted to the dynamics, while multiplicativity of the Koopman approximation remains a hard algebraic constraint. Forecasts are computed in latent space and decoded only when physical-space output is needed. This makes long rollouts far cheaper than evolving in the full state space X . A schematic of the method is shown in Fig. 1. The rest of the paper is organized as follows. In Section 2 we review the necessary pre-liminaries and related work. In Section 3 we introduce DeepMDMD, including its joint training strategy and latent-space forecasting procedure. In Section 4 we test spectral accuracy, forecasting, flow statistics, and robustness to noise. We conclude in Section 5. 
+
+# 2 Preliminaries and related work 
+
+2.1 The Koopman operator 
+
+Let ω be a positive measure on X , and suppose that composition with F is well defined on L2(X ,ω). The Koopman operator is 
+
+K : L2(X ,ω) → L2(X ,ω), [Kg]( x) = g(F(x)) .4
+
+Thus the nonlinear dynamics in Eq. (1.1) induce a linear, generally infinite-dimensional, evolution of observables. This is the basis for spectral approaches to nonlinear dynamics [21, 23, 37, 46, 47]. A key property of K is multiplicativity [10]. Whenever f ,g ∈ L2(X ,ω) such that f g ∈
+
+L2(X ,ω),
+
+[K( f g )]( x) = [ K f ]( x)[ Kg]( x), x ∈ X . (2.1) Thus K preserves pointwise products wherever those products belong to the observable space. In particular, if λ1 and λ2 are Koopman eigenvalues with eigenfunctions ϕ1 and 
+
+ϕ2, then, whenever the product is admissible, 
+
+[K(ϕn 
+
+> 1
+
+ϕm 
+
+> 2
+
+)]( x) = λn 
+
+> 1
+
+λm 
+
+> 2
+
+ϕn 
+
+> 1
+
+(x)ϕm 
+
+> 2
+
+(x), n,m ∈ N. (2.2) This multiplicative closure is the algebraic source of the group structure seen in Koopman spectra. Throughout the paper we assume that K is unitary. Equivalently, the map F is in-vertible and measure preserving with respect to ω [26, Chap. 7]. Hence the spectrum lies on the unit circle T = {z ∈ C : |z| = 1}, and both the spectrum and the point spectrum are unions of subgroups of T [56]. This setting includes many systems of interest: Hamilto-nian dynamics [2], equilibrium physical systems [29], ergodic systems [63], and systems whose long-time behavior is well described by measure-preserving dynamics after tran-sients [46]. 
+
+2.2 Extended Dynamic Mode Decomposition 
+
+Let {ψ1,..., ψN } ⊂ L2(X ,ω) be a fixed dictionary, and set VN =span {ψ1,..., ψN }. Extended Dynamic Mode Decomposition (EDMD) uses the snapshot pairs (1.2) to approximate the compression of the Koopman operator to VN [64]. Define the row-vector feature map 
+
+Ψ(x) = [ ψ1(x),..., ψN (x)] ∈ C1×N ,so that any g ∈ V N can be written as g(x) = Ψ(x)g for some coefficient vector g ∈ CN .EDMD seeks a matrix KEDMD ∈ CN×N such that 
+
+[Kg]( x) = Ψ(F(x)) g ≈ Ψ(x)KEDMD g, g ∈ CN .From the data, form the matrices 
+
+ΨX =
+
+
+
+Ψ(x(1))
+
+...
+
+Ψ(x(M))
+
+ ∈ CM×N , ΨY =
+
+
+
+Ψ(y(1))
+
+...
+
+Ψ(y(M))
+
+ ∈ CM×N .To approximate the L2(X ,ω) inner product, we assign positive quadrature weights wm>0to the data points and write W = diag (w1,..., wM). The weighted EDMD problem is min 
+
+> K∈CN×N
+
+W1/2 (ΨY −ΨX K)C−1 2F , (2.3) 5
+
+where the nonsingular matrix C ∈ CN×N specifies the norm in which the residual is mea-sured. For the least-squares minimizer itself this choice is immaterial: the Moore–Penrose solution is 
+
+KEDMD = ( Ψ∗ 
+
+> X
+
+WΨX )† Ψ∗ 
+
+> X
+
+WΨY.The matrix C will, however, play an important role in the constructions below. For fixed 
+
+N, and under a convergent quadrature rule, KEDMD converges as M → ∞ to the Galerkin matrix of PVN K| VN , equivalently of PVN KP VN on L2(X ,ω) [36]. The effectiveness of EDMD depends strongly on the choice of VN . Spectral informa-tion is captured faithfully only when this space is close to invariant under the Koopman operator; exact invariance is rare in practice. Designing such dictionaries is especially difficult for complex or high-dimensional systems. A common example is a dictionary of radial basis functions, which requires choosing N centers in X . If n centers are placed in each coordinate direction on a tensor-product grid, then N = nd, exposing EDMD to the curse of dimensionality [39, 64]. Neural networks offer another route beyond fixed dictionaries. In EDMD with dictionary learning [39], the least-squares problem (2.3) is optimized over both the Koopman matrix and a parametrized dictionary. Related meth-ods learn nonlinear embeddings into latent coordinates in which the dynamics are ap-proximately linear [5, 43, 45, 52, 60, 66]. Typically an encoder maps the state to a latent representation, which is then advanced by a linear operator. Finally, recent works aimed to approximate the Koopman operator on an RKHS and used kernel feature maps as dictionary that can be optimized through a posteriori error estimates [12, 24]. These methods can be powerful, but their flexibility is also a weakness. The learned coordinates are often largely unconstrained and need not respect the algebraic or physical structure of the Koopman operator. This can obscure interpretation and impair general-ization. Our approach aims to retain the expressive power of a learned latent space while imposing the multiplicative structure used by MDMD. 
+
+2.3 Koopman mode decomposition 
+
+Let K ∈ CN×N be a finite-dimensional Koopman approximation, and suppose that it is diagonalizable: 
+
+K = VΛV−1, Λ = diag (λ1,..., λN ).The columns vj of V define approximate Koopman eigenfunctions 
+
+φj(x) = Ψ(x)vj.Thus any observable g ∈ V N , written as g(x) = Ψ(x)g, has the expansion 
+
+g(x) = Ψ(x)VΞ, Ξ = V−1g.The coefficients Ξ are the Koopman-mode coefficients of g in this eigenfunction basis. If 
+
+g /∈ V N , one first replaces g by its least-squares, or Galerkin, approximation in VN .6
+
+This representation gives the Koopman mode decomposition [46]. Along a trajectory, 
+
+g(xn) = [ Kn g]( x0) ≈ Ψ(x0)Kng = Ψ(x0)VΛnΞ. (2.4) The evolution is therefore separated into spatial structures φj, temporal factors λnj , and mode coefficients. A central example is the full-state observable g : x 7 → x. Applying Eq. (2.4) componen-twise gives the state forecast 
+
+xn ≈ Ψ(x0)VΛnΞ,where the Koopman modes Ξ ∈ CN×d are vectors in physical space. They are obtained from the data matrix 
+
+X = [ x(1),..., x(M)]⊤ ∈ RM×d
+
+by the least-squares fit 
+
+Ξ = ( ΨX V)†X.Once a factorization of ΨX V is available, forming this fit costs O(MNd ); the factoriza-tion itself adds the usual least-squares cost. Since N often grows rapidly with the state dimension d, full-state KMD can become expensive in high-dimensional problems. It is also sensitive to noise: perturbations in the snapshots can destabilize the computed spectral data and therefore the forecast [7]. 
+
+2.4 Multiplicative Dynamic Mode Decomposition 
+
+Multiplicative Dynamic Mode Decomposition (MDMD) constructs finite-dimensional Koop-man approximations that preserve the product rule (2.1) [10]. This requires an observable space closed under pointwise multiplication. A natural choice is given by indicator func-tions on a measurable partition. For {Sn}Nn=1 ∈ ΣN (X ), define 
+
+ψn(x) = 
+
+(
+
+1, x ∈ Sn,0, otherwise. These functions satisfy ψiψj = δij ψi, and hence their span is closed under multiplication. The admissible partitions are 
+
+ΣN (X ) = 
+
+(
+
+{Sn}Nn=1 ⊂ B (X ) : Sn ∩Sn′ = ∅ for n̸ = n′,
+
+> N[
+> n=1
+
+Sn = X
+
+)
+
+, (2.5) where B(X ) denotes the Borel σ-algebra. For this dictionary the feature vector is 
+
+Ψ(x) = [ ψ1(x),..., ψN (x)] ∈ C1×N .7
+
+If f ,g ∈ V N have coefficient vectors f,g ∈ CN , then the disjointness of the supports gives 
+
+f (x)g(x) = Ψ(x)( f⊙g), x ∈ X ,where ⊙ denotes componentwise multiplication. MDMD therefore seeks a matrix KMDMD ∈
+
+CN×N satisfying 
+
+KMDMD (f⊙g) = ( KMDMD f)⊙(KMDMD g), f,g ∈ CN . (2.6) The empirical inner product on VN is represented by the Gram matrix 
+
+G = Ψ∗ 
+
+> X
+
+WΨX.Since the supports are disjoint, G is diagonal: 
+
+G = diag (G1,..., GN ), Gn = ∑ 
+
+> x(m)∈Sn
+
+wm.We assume here that each cluster has positive empirical weight, so that G−1/2 is well defined. For a fixed partition {Sn}Nn=1 ∈ ΣN (X ), and with C = G1/2 in Eq. (2.3), MDMD solves min  
+
+> K∈CN×N
+> Ksatisfies Eq. (2.6)
+
+W1/2 (ΨY −ΨX K)G−1/2 2F . (2.7) The constraint (2.6) is highly restrictive. It forces KMDMD to have entries in {0,1 } and at most one nonzero entry in each row. Thus KMDMD defines a finite transition map on the clusters: a row with a one in column j sends the corresponding cluster to Sj, while a zero row represents a terminating state. Iteration of this finite map must eventually enter a cycle or terminate, decomposing the partition into cyclic and transient components. Consequently, the nonzero eigenvalues of KMDMD are roots of unity. They lie on the unit circle, while the remaining eigenvalues are zero, so MDMD rules out exponentially growing spectral components in the KMD rollout (2.4). For an indicator dictionary, the minimizer of Eq. (2.7) can be computed in O(M+ N2) operations; see [10] for details. The partition {Sn}Nn=1 ∈ΣN (X ) is often chosen by k-means clustering [40]. This places centroids {μn}Nn=1 ⊂ X and induces a Vorono¨ ı tessellation of the state space [4]. The difficulty is that k-means is geometric, not dynamical. It favors compact Vorono¨ ı cells rather than sets adapted to the action of F, and the resulting partition boundaries need not respect the dynamics [10, Fig. 4]. The corresponding indicator dictionary may then have poor closure under the Koopman operator, so accurate approximations can require many clusters. This difficulty is amplified in high dimensions, where k-means deteriorates under the curse of dimensionality. A common remedy is to first apply proper orthogonal decom-position (POD) and then cluster the reduced coordinates. But POD is a linear projection, and it may discard nonlinear features that are important for systems with complex or chaotic dynamics. 8
+
+# 3 Methodology 
+
+A key bottleneck in applying MDMD to high-dimensional systems is the choice of par-tition. One wants sets {Sn}Nn=1 with good closure properties under the dynamics, but constructing such a partition directly in X ⊂ Rd is difficult when d is large. DeepMDMD addresses this difficulty by learning a low-dimensional latent space Z ⊂ Rk, with k ≪ d,and placing the MDMD partition in Z rather than in X .Let z(m) and ez(m) denote the latent embeddings of x(m) and y(m), respectively. For a partition {Sn}Nn=1 ∈ ΣN (Z), let ΨZ and Ψ eZ denote the corresponding indicator dictionary evaluated at the current and forward latent snapshots. We seek both the partition and the finite-dimensional Koopman approximation by minimizing min     
+
+> K∈CN×N,{Sn}Nn=1∈ΣN(Z)
+> Ksatisfies Eq. (2.6)
+
+W1/2  Ψ eZ −ΨZ KG−1/2 2F . (3.1) The latent space is initialized with an autoencoder pretrained for reconstruction, and the initial partition is obtained by k-means in this space. Since reconstruction alone is not dynamical, these initial cells need not be coherent under the map. We therefore optimize Eq. (3.1) by alternating between two steps: 1. Operator update . With the partition fixed, compute K exactly by the MDMD algorithm. This preserves the multiplicative constraint. 2. Partition update . With K fixed, update the latent embeddings and centroids {μn}Nn=1
+
+by gradient descent. Because hard cluster assignments are nondifferentiable, we use a soft relaxation based on the Student t-kernel [44], and restore hard assignments at the next operator update. The result is a Koopman approximation acting on latent indicator functions. The partition is low-dimensional, hence less exposed to the curse of dimensionality, and it is shaped by the dynamics rather than fixed purely by geometry. After training, forecasts are computed in latent space and decoded only when physical-space output is required, making rollouts substantially cheaper than evolving in X .
+
+3.1 Autoencoder pretraining 
+
+We first construct a latent space Z ⊂ Rk, with k ≪ d, by training an autoencoder on the snapshot data (1.2). The encoder Eθ : X → Z and decoder Dθ : Z → X , with parameters θ,are chosen so that Dθ ◦Eθ approximates the identity on the data. Specifically, we minimize the weighted reconstruction loss 
+
+Lrec (θ) = 
+
+> M
+
+# ∑
+
+> m=1
+
+wm x(m) −Dθ
+
+
+
+Eθ (x(m))
+
+ 2
+
+.9
+
+Algorithm 1 The DeepMDMD algorithm  
+
+> 1:
+
+Input: Snapshots {(x(m),y(m))}Mm=1, weights W, clusters N, λ ≥ 0, Tupdate  
+
+> 2:
+
+Pretrain Eθ , Dθ by minimizing Lrec  
+
+> 3:
+
+Encode latent pairs {z(m), ˜ z(m)} 
+
+> 4:
+
+Initialize {μn}Nn=1 via k-means ++  
+
+> 5:
+
+repeat  
+
+> 6:
+
+Build dictionary matrices ΨZ, Ψ eZ on latent space from {μn}Nn=1 
+
+> 7:
+
+Compute Gram matrix G via Eq. (3.5) and K = MDMD (ΨZ,Ψ eZ,W) with Eq. (2.7)  
+
+> 8:
+
+for s = 1,..., Tupdate do  
+
+> 9:
+
+Form soft assignments QZ, Q eZ via Student’s t-kernel Eq. (3.6)  
+
+> 10:
+
+Update θ and {μn}Nn=1 by minimizing L = Lkoop +λLrec  
+
+> 11:
+
+end for  
+
+> 12:
+
+until convergence  
+
+> 13:
+
+Output: E θ , Dθ , {μn}Nn=1, K
+
+Here wm > 0 are the quadrature weights introduced in Section 2.2, used to approximate integration with respect to ω.After pretraining, we encode the snapshot pairs to obtain 
+
+{(z(m),ez(m))}Mm=1 = {(Eθ (x(m)),Eθ (y(m))) }Mm=1. (3.2) The initial partition {Sn}Nn=1 ∈ ΣN (Z) is then obtained by applying k-means to the latent states {z(m)}Mm=1. This yields centroids {μn}Nn=1 ⊂Rk and the corresponding Vorono¨ ı cells in Z.This initialization is geometric rather than dynamical. The loss Lrec ignores the pair-ing x(m) 7 →y(m), and hence gives the encoder no reason to align the cells with the induced latent dynamics. The resulting indicator dictionary may therefore have poor closure properties and may degrade the spectral approximation. The alternating operator and partition updates below address this by adapting the latent space and its partition to the dynamics. 
+
+3.2 Operator update 
+
+Given the current latent pairs {(z(m),ez(m))}Mm=1 and partition {Sn}Nn=1 ∈ ΣN (Z), we com-pute the Koopman matrix K ∈ CN×N by MDMD. Each latent point is assigned to its Vorono¨ ı cell, giving the indicator dictionary 
+
+ψn(z) = 
+
+(
+
+1, z ∈ Sn,0, otherwise, n = 1,..., N. (3.3) Although these cells are polyhedral in Z, the corresponding functions on the original state space are ψn◦Eθ , whose supports E−1 
+
+> θ
+
+(Sn) are generally nonlinear and non-polyhedral. 10 μ1 μ2
+
+0
+
+1
+
+x
+
+Hard assignment Soft assignment   
+
+> Figure 2: Comparison of hard and soft cell assignments in the latent space
+
+Z. Hard assignments (3.3) are indicator functions supported on disjoint cells of the partition {Sn}Nn=1 ∈ ΣN (Z). Soft assignments are induced by the Student’s t-kernel in Eq. (3.6), and relax the discrete partition constraint by allowing each embedding to contribute to multiple cells, enabling gradient-based optimization of Eθ and {μn}Nn=1.
+
+Thus the encoder shapes the effective indicator functions in X , and the subsequent par-tition update can move these sets by changing both the latent coordinates and the cen-troids. With 
+
+Ψ(z) = [ ψ1(z),..., ψN (z)] ∈ C1×N ,we form 
+
+ΨZ =
+
+
+
+Ψ(z(1))
+
+...
+
+Ψ(z(M))
+
+ ∈ CM×N , Ψ eZ =
+
+
+
+Ψ(ez(1))
+
+...
+
+Ψ(ez(M))
+
+ ∈ CM×N . (3.4) The empirical Gram matrix is diagonal, 
+
+G = diag (G1,..., GN ), Gn = ∑ 
+
+> z(m)∈Sn
+
+wm, (3.5) where Gn is the empirical mass of the nth latent cell. We assume that all cells have positive mass, so that G−1/2 is well defined. With ΨZ, Ψ eZ, and G fixed, the operator update is the MDMD solution of Eq. (3.1). The resulting matrix K satisfies the multiplicative constraint exactly and defines the cluster-to-cluster transition map for the latent dynamics. 
+
+3.3 Partition update 
+
+With K fixed, we update the encoder Eθ and the centroids {μn}Nn=1 to improve closure of the latent partition under the dynamics. Direct minimization of Eq. (3.1) over ΣN (Z) is not practical: the hard assignments in Eq. (3.3) are discrete, and hence nondifferentiable 11 
+
+with respect to both θ and the centroids. We therefore replace them by soft assignments defined by a Student t-kernel [44], 
+
+[Q]mn =
+
+
+
+1+∥z(m) −μn∥2/α
+
+−(α+1)/2 
+
+∑Nn′ =1
+
+ 1+∥z(m) −μn′ ∥2/α−(α+1)/2 , (3.6) where [Q]mn is the soft membership of z(m) in cluster n, and α > 0 is the degrees-of-freedom parameter. We use α = 1, giving the Cauchy kernel. Its heavy tails make the assignments less local than those from a Gaussian kernel, helping to alleviate the crowd-ing effects common in low-dimensional embeddings [44]. Hard and soft assignments are illustrated in Fig. 2. Replacing the indicator matrices in Eq. (3.1) by their soft counterparts, and holding K
+
+and G fixed, gives the Koopman-based clustering loss 
+
+Lkoop 
+
+ θ,{μn}Nn=1
+
+ = W1/2  Q eZ −QZ KG−1/2 2F . (3.7) Here QZ,Q eZ ∈ RM×N are the soft assignment matrices, defined by Eq. (3.6) and evalu-ated at the latent snapshot pairs (3.2). The factor G−1/2 normalizes the residual by the empirical masses of the clusters. Minimizing Eq. (3.7) over the encoder parameters and centroids encourages a latent partition for which forward soft assignments are predicted by the finite Koopman transition matrix K.The fine-tuning objective is 
+
+L θ,{μn}Nn=1
+
+ = Lkoop 
+
+ θ,{μn}Nn=1
+
++λLrec (θ), λ > 0. (3.8) The reconstruction term keeps the latent variables decodable and regularizes the geome-try of the embedding [28]. Unlike approaches that train directly on multi-step prediction error [43], this objective does not fit rollouts explicitly. It instead shapes the latent space so that cluster memberships evolve according to the multiplicative Koopman model, while preserving enough information for reconstruction and forecasting. Choosing λ is nontrivial. As in other deep clustering methods [55, 61, 65], there is no ground-truth partition against which to tune it; in the present setting, an ideal par-tition would be one adapted to the Koopman dynamics. We therefore use fixed values throughout: λ = 0 in low-dimensional experiments, where reconstruction is unnecessary, and λ=0.25 in high-dimensional experiments, where it gives stable behavior of both loss terms; see Fig. 8. We optimize θ and {μn}Nn=1 using Adam [32]. The updated embeddings and centroids are then passed to the next operator update, where the hard assignments in Eq. (3.3) are restored. To reduce cost, this update is performed only every Tupdate gradient steps, allowing the latent geometry to adjust before recomputing K. Empirically, the alternating scheme converges stably in our experiments; a theoretical analysis is not pursued here. The full procedure is summarized in Algorithm 1. 12 
+
+Algorithm 2 DeepMDMD Forecasting  
+
+> 1:
+
+Input: Koopman operator K, dictionary ΨZ, data {x(m)}Mm=1, encoder Eθ , decoder Dθ ,time horizon T 
+
+> 2:
+
+Encode and stack: Z = [ Eθ (x(1)),..., Eθ (x(M))] ⊤ ∈ RM×k 
+
+> 3:
+
+Compute eigendecomposition K = VΛV−1 
+
+> 4:
+
+Compute latent modes Ξ = ( ΨZV)†Z 
+
+> 5:
+
+for t = 1,..., T do  
+
+> 6:
+
+Evolve latents ˆ zM+t = Ψ(zM)VΛtΞ 
+
+> 7:
+
+Decode ˆ xM+t = Dθ ( ˆzM+t) 
+
+> 8:
+
+end for  
+
+> 9:
+
+Output: { ˆxM+t}Tt=1
+
+3.4 Latent-space forecasting 
+
+After training, forecasts are performed in the latent space rather than in the d-dimensional state space. We use the latent full-state observable g : z 7 → z. Suppose that the learned Koopman matrix K ∈ CN×N is diagonalizable, 
+
+K = VΛV−1, Λ = diag (λ1,..., λN ),where V contains the right eigenvectors. Let 
+
+Z = [ z(1),..., z(M)]⊤ ∈ RM×k
+
+be the matrix of latent codes. The latent Koopman modes are 
+
+Ξ = ( ΨZ V)†Z ∈ CN×k.These modes live in the latent space, replacing the physical-space modes in CN×d. Once a factorization of ΨZ V is available, forming the modes costs O(MNk ) rather than O(MNd ).In addition, the partition is constructed in Z ⊂ Rk, so the dictionary size is governed by the latent dimension rather than the ambient dimension d. This mitigates the curse of dimensionality when k ≪ d.The latent representation also provides a degree of robustness. In full-state KMD, measurement noise may perturb all d coordinates and hence the computed modes. Here the forecast is restricted to the learned latent representation, which can attenuate noise components not captured by the encoder. For a rollout initialized at a latent state z0, the KMD forecast is ˆzt = Ψ(z0)VΛtΞ, t ≥ 0. (3.9) Here Ψ(z0) encodes the cluster assignment of the initial latent state. When forecasting from the last observed state, we take z0 = Eθ (xM). Since the decoder is retained during fine-tuning through Eq. (3.8), latent forecasts can be mapped back to physical space by ˆxt = Dθ ( ˆzt). The full forecasting procedure is summarized in Algorithm 2. 13 
+
+> Table 1: Training hyperparameters for each experiment.
+
+Hyperparameter Pendulum Lorenz 96 Cylinder Wake Lid-Driven Cavity 
+
+Dict. size N 100/1000 1000 80 500 State-space dim. d 2 9 158,624 4225 Latent dim. k 10 3 3 3Architecture [d,128,64, k] [d,128,64, k] [d,256,128,64, k] [d,256,128,64, k]
+
+Activation tanh tanh relu tanh 
+
+Decoder weight λ 0 0.25 0.25 0.25 Pretrain epochs 20 250 500 500 Fine-tune epochs 20 100 250 250 Pretrain LR 10 −3 10 −3 10 −3 10 −3
+
+Fine-tune LR 10 −3 10 −3 10 −4 10 −4
+
+Dropout 0 0 0 0.1          
+
+> Figure 3: The nonlinear pendulum system in Eq. (4.1). Left: Example trajectories. Middle: DeepMDMD optimized partition. Right: MDMD partition initialized using k-means. The dictionary size is set to N=100 .
+
+# 4 Numerical Experiments 
+
+We compare DeepMDMD with MDMD, the natural multiplicative baseline, on four sys-tems: the nonlinear pendulum, used as a low-dimensional benchmark; the Lorenz 96 system; and two high-dimensional fluid examples, the cylinder wake and the lid-driven cavity, both considered in the noisy regime. 
+
+Implementation details. Unless otherwise stated, the quadrature weights are uniform, 
+
+wm = 1/ M. DeepMDMD is implemented in PyTorch [53] using symmetric encoder– decoder architectures. Latent centroids are initialized by the k-means++ algorithm [3] using scikit-learn [54]. Operator updates are performed every Tupdate =20 gradient steps, and all experiments use batch size 256. Experiment-specific hyperparameters are listed in Table 1. Code and data for reproducing the numerical results are available at https: //github.com/kelangray/DeepMDMD .14 10 1 10 2 10 3   
+
+> Dictionary Size N
+> 10 2
+> 10 1
+> 10 0
+> Relative  L2 Error
+
+One-step predictions        
+
+> MDMD
+> DeepMDMD
+> Figure 4: Nonlinear pendulum. relative L2error of one-step predictions for the Hamiltonian has a function of dictionary size N, comparing MDMD and DeepMDMD averaged over 50 random seeds.
+
+4.1 Nonlinear pendulum 
+
+We begin with the nonlinear pendulum, a two-dimensional test problem used here to assess partition optimization rather than dimension reduction. The state x = ( x1,x2) sat-isfies ˙x1 = x2, ˙x2 = −sin (3x1), (x1,x2) ∈ X = [ −π/3, π/3 ]per ×R. (4.1) We draw 400 initial conditions uniformly from the box [−0.6,0.6 ]2, for which the resulting trajectories remain in [−1,1 ]2 over the integration window. The system is advanced by a fourth-order Runge–Kutta method with time step ∆t = 0.1 up to final time 10, producing 
+
+M = 4×10 4 snapshot pairs for the time-∆t map associated with (4.1). The Hamiltonian 
+
+h(x1,x2) = 12 x22 − 13 cos (3x1)
+
+is conserved along trajectories. Hence h is a Koopman eigenfunction with eigenvalue 
+
+λ=1. The remaining nontrivial spectral content is continuous on the unit circle, reflecting the energy-dependent oscillation frequencies of the pendulum. We apply DeepMDMD with dictionary size N=100 and latent dimension k=10. Since this example is already low-dimensional, we set λ = 0 during fine-tuning, removing the reconstruction term and isolating the effect of partition optimization. The results are shown in Fig. 3. The right panel shows the k-means++ partition used to construct the MDMD dictionary. Its boundaries cut across trajectories, giving an indicator space with poor closure under the time-∆t map. By contrast, the DeepMDMD partition in the middle panel aligns with the trajectories and localizes the basis functions on coherent regions of phase space. This improves both closure and interpretability. 15 
+
+(a) (b) 
+
+Figure 5: Eigenfunctions for the pendulum system along with the corresponding eigenvalues calculated using (a) DeepMDMD and (b) MDMD. 
+
+To quantify this effect, we compute the empirical relative L2 error 
+
+∥K h−ΨKh ∥L2
+
+∥K h∥L2
+
+,estimated by quadrature over the snapshot data. Here h denotes the coefficient vector 16 1.0 0.5 0.0 0.5 1.0 
+
+> Re( )
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> Im( )
+
+DeepMDMD     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Re( )
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> Im( )
+
+MDMD     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Re( )
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> Im( )
+
+EDMD                            
+
+> 0100 200 300 400 500
+> Index of singular value
+> 10 17
+> 10 12
+> 10 7
+> 10 2
+> 10 3
+> Singular value
+> 0100 200 300 400 500
+> Index of singular value
+> 10 17
+> 10 12
+> 10 7
+> 10 2
+> 10 3
+> Singular value
+> 0200 400 600 800 1000
+> Index of singular value
+> 10 17
+> 10 12
+> 10 7
+> 10 2
+> 10 3
+> Singular value
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Residual
+
+Figure 6: Top row: eigenvalues of the finite-dimensional Koopman approximation for the pendulum system 
+
+(4.1) , computed using DeepMDMD (left), MDMD (middle), and EDMD with the DeepMDMD dictionary (right), colored by residual with zero eigenvalues omitted. The unit circle (black) indicates the true spectrum of 
+
+K. Bottom row: singular values of the matrix R for DeepMDMD (left), MDMD (middle) and EDMD (right), quantifying the number of principal eigenfunctions resolved by each method. 
+
+obtained by projecting the Hamiltonian h onto the indicator dictionary. Since h is con-served, this error measures how well the finite-dimensional Koopman approximation preserves the invariant Hamiltonian. In Fig. 4 we plot the error against dictionary size 
+
+N, with DeepMDMD averaged over 50 random seeds. Compared with MDMD using k-means++ partitions, DeepMDMD achieves comparable accuracy with roughly an order of magnitude fewer basis functions. We next examine the spectral content of DeepMDMD. In Fig. 5 we show represen-tative eigenfunctions associated with a finite cyclic subgroup of T, computed by Deep-MDMD and by MDMD with N = 1000 basis functions. For the nonlinear pendulum, the L2 point spectrum contains no eigenvalues other than λ = 1; the nontrivial spectral content is continuous. Nevertheless, finite-dimensional methods produce modes that may approximate generalized eigenfunctions. For this integrable Hamiltonian system, these generalized eigenfunctions are oscillatory modes supported on invariant energy levels [22,47]. DeepMDMD captures this geometry: its eigenfunctions are localized along Hamiltonian level sets. By contrast, the MDMD eigenfunctions leak across energy levels. We also compare the eigenvalues computed by DeepMDMD, MDMD, and EDMD, taking the EDMD dictionary to be the same as that learned by DeepMDMD. To distin-guish reliable spectral information from pollution, we compute the empirical residual of 17 
+
+each approximate eigenpair (λ,g). Let 
+
+A = Ψ∗ 
+
+> eZ
+
+WΨ eZ, B = Ψ∗ 
+
+> Z
+
+WΨ eZ, G = Ψ∗ 
+
+> Z
+
+WΨZ.We use res (λ,g) = g∗  A−λB∗ − ¯λB+|λ|2Ggg∗Gg 
+
+!1/2 
+
+,which is a data-driven approximation of 
+
+∥K g−λg∥∥g∥
+
+[20, 23]. The top row of Fig. 6 shows the computed eigenvalues, colored by this residual. EDMD, although using the same dictionary as DeepMDMD, produces spurious eigen-values inside the unit disk. This ablation shows that the multiplicative constraint is im-portant independently of dictionary quality. MDMD places its nonzero eigenvalues on 
+
+T, but they concentrate on low-order cyclic subgroups and leave much of the continuous spectrum unresolved. DeepMDMD also respects the unit circle, but resolves higher-order subgroups, giving denser coverage of the continuous spectrum. To quantify this coverage, we exploit the multiplicative structure in Eq. (2.2). Prod-ucts of principal eigenfunctions generate further eigenfunctions [49, 50], and taking loga-rithms turns products into sums. Thus, wherever ϕ1(x)ϕ2(x)̸ = 0, log ϕn 
+
+> 1
+
+(x)ϕm 
+
+> 2
+
+(x) = nlog |ϕ1(x)|+mlog |ϕ2(x)|.Eigenfunctions generated multiplicatively from existing ones therefore become linearly dependent in log-modulus coordinates. This motivates the sample matrix 
+
+R = log |ϕ1| ··· log |ϕN |,whose numerical rank gives an empirical measure of how many algebraically indepen-dent, or principal, eigenfunctions have been resolved. The bottom row of Fig. 6 plots the singular values of R for DeepMDMD, MDMD, and EDMD. DeepMDMD has substan-tially slower singular-value decay than MDMD, indicating that it resolves more princi-pal directions and therefore gives a richer approximation of the pendulum’s continuous spectrum. 
+
+4.2 Lorenz–96 attractors 
+
+We next test DeepMDMD on the d-dimensional Lorenz–96 system [41], focusing on its ability to learn a dynamically organized latent space and the associated Koopman spec-tral structure. The equations are 
+
+dx i
+
+dt = ( xi+1 −xi−2)xi−1 −xi + f , i = 1,..., d,18      
+
+> Figure 7: Koopman eigenfunctions of the Lorenz-96 system at successive bifurcations ( f=2.0,3.5,4.2 ), visualized on the DeepMDMD latent space. As fincreases, the latent embeddings develop increasingly complex structure, reflecting the transition from periodic to chaotic dynamics.
+
+with indices interpreted modulo d. We select d = 9 and consider the forcing values 
+
+f ∈ { 2.0,3.5,4.2 }, corresponding respectively to periodic, quasiperiodic, and chaotic dy-namics on the attractor [62]. From a random initial condition, we integrate with a fourth-order Runge–Kutta method and time step ∆t = 0.1, discarding the first 10 3 snapshots as transient. This gives M = 9×10 3 training snapshot pairs. For each value of f , we train DeepMDMD with N=1000 basis functions, latent dimen-sion k=3, and reconstruction weight λ=0.25. The encoder Eθ maps the nine-dimensional snapshots into Z ⊂ R3, where the MDMD partition and Koopman matrix are learned. 19 0 50 100 150 200 250    
+
+> Training iteration
+> 10 2
+> 10 1
+> 10 0
+
+Clustering Loss          
+
+> 050 100 150 200 250
+> Training iteration
+> 10 3
+> 10 2
+> 10 1
+
+Reconstruction Loss         
+
+> 050 100 150 200 250
+> Training iteration
+> 10 2
+> 10 1
+> 10 0
+
+Total loss 
+
+Figure 8: DeepMDMD training losses for the cylinder wake following the autoencoder warm-up, across alternat-ing operator and dictionary update steps. The operator update is performed every Tupdate = 20 gradient steps and the reconstruction loss is weighted by λ = 0.25 .2     
+
+> 6
+> 10
+> z1
+> 0
+> 5
+> 10
+> z2
+> 2
+> 2
+> 6
+> z3
+> Latent space trajectories
+> 0% noise
+> 20% noise
+> 40% noise
+> 020 40 60 80 100
+> Noise level (%)
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Relative  L2 error
+> Forecast error vs. noise
+> MDMD
+> DeepMDMD
+
+Figure 9: Cylinder wake with noise added after training. Left: DeepMDMD latent-space forecasts at different noise levels. Right: mean relative L2 forecast error over the test window for DeepMDMD and MDMD as a function of noise level. 
+
+In Fig. 7 we show the resulting latent spaces together with selected Koopman eigen-functions. Each latent point z(m) is colored by the eigenvector entry associated with its assigned cluster. As the forcing increases, the learned latent geometry changes from a closed curve to a torus-like set and then to a chaotic attractor, consistent with the bifurca-tion structure of the Lorenz–96 dynamics. 
+
+4.3 Noisy cylinder wake 
+
+We next consider a high-dimensional example: low-Reynolds-number flow past a circu-lar cylinder. The data are generated as in [18], using an incompressible two-dimensional lattice–Boltzmann solver [31,59]. Each snapshot is the vorticity field on an 800 ×200 grid. After masking the cylinder boundary, the state dimension is d = 158,624. The snapshots are standardized before training. At Re =100 the flow is periodic on the attractor, and the Koopman spectrum is pure point. We use the first M =80 snapshot pairs for training and the next 1000 snapshots for testing. We train DeepMDMD with dictionary size N = 80, latent dimension k = 3, and re-20   
+
+> Figure 10: Cylinder wake. One-step forecasts from DeepMDMD and MDMD with 40% Gaussian noise added after training.
+
+construction weight λ = 0.25. The reconstruction term keeps the decoder active during fine-tuning. In Fig. 8 we show the DeepMDMD training losses after autoencoder pre-training, illustrating stable convergence of the alternating scheme. As a baseline, we fit MDMD with the same dictionary size, using indicator functions obtained by k-means++ clustering of the leading k = 3 POD coordinates. To test robustness, we add Gaussian noise to the snapshots after training. This mod-els a deployment setting in which the learned operator is fixed but the measurements are corrupted. DeepMDMD forecasts are computed in latent space using Algorithm 2, whereas MDMD forecasts use the state-space KMD expansion (2.4). The results are summarized in Fig. 9. The left panel shows DeepMDMD latent tra-jectories over the full 1000-step forecast window. Even with noisy inputs, the trajectories remain close to the intrinsic limit cycle. The latent bottleneck filters components that 21            
+
+> Figure 11: Noisy cavity flow experiment. Top: vorticity profiles predicted at timestep t=100 . Bottom: absolute autocorrelation |A x(τ)|computed via (4.2) across lags τ=1,...,750 , displayed on a log color scale. Only spatial points whose time-averaged absolute vorticity exceeds a threshold of ϵ=0.25 are retained.
+
+are not represented by the learned low-dimensional manifold, reducing the effect of off-manifold noise on the rollout. The right panel shows the mean relative state-space L2
+
+error over the forecast window. After decoding, DeepMDMD gives substantially lower errors than MDMD, which operates directly in the high-dimensional state space and has no comparable denoising mechanism. Figure 10 shows representative one-step forecasts at 40% Gaussian noise, confirming the same behavior visually. 
+
+4.4 Noisy lid-driven cavity 
+
+Finally, we consider the two-dimensional lid-driven cavity. The system consists of an incompressible viscous fluid in a cavity whose upper lid moves tangentially. The data are taken from [1] and consist of vorticity snapshots on a 65 ×65 grid, giving state di-mension d = 4225. The Reynolds number is Re = 20,000, a regime with mixed Koopman spectral content, including both discrete and continuous components. The snapshots are mean-subtracted before training. The first M = 500 snapshot pairs are corrupted with 40% Gaussian noise and used for training; the next 1000 clean snapshots are reserved for testing. To assess whether the model captures the flow statistics, we compute autocorre-lations of the vorticity field. For an observable g ∈ L2(X ,ω), define 
+
+Ag(τ) = ⟨K τ g,g⟩, τ ≥ 1. (4.2) For a unitary Koopman operator, this sequence gives the trigonometric moments of the spectral measure associated with g, and hence provides a useful signature of the Koop-22 
+
+man spectrum [37]. We take g(x) = x and estimate (4.2) from the forecast trajectory using Birkhoff averages, applying the computation componentwise and summing over selected spatial degrees of freedom. To focus on dynamically active regions, we retain only grid points whose time-averaged absolute vorticity exceeds ϵ=0.25. In Fig. 11 we plot |A x(τ)|
+
+for the ground truth, DeepMDMD, and MDMD. DeepMDMD tracks the ground truth over most time lags, suggesting that it captures the dominant spectral statistics of the flow. MDMD, by contrast, does not reproduce the observed autocorrelation structure. 
+
+# 5 Conclusion 
+
+We have introduced Deep Embedded Multiplicative Dynamic Mode Decomposition, a method for learning structure-preserving Koopman approximations in a latent space. The central idea is to move the MDMD partition from the ambient state space to a learned latent representation, and then to shape this representation by the dynamics. The result-ing Koopman matrix is not merely fitted to data: it is constrained exactly to preserve the multiplicative structure of the Koopman operator. Thus DeepMDMD combines the flexibility of neural representations with the stability and spectral structure of MDMD. The numerical experiments show the value of both ingredients. On the nonlinear pendulum, DeepMDMD learns partitions aligned with invariant energy levels, leading to compact dictionaries, reduced spectral pollution, and a richer approximation of the continuous spectrum than standard MDMD. On the Lorenz–96 system, the learned la-tent spaces recover the transition from periodic to quasiperiodic and chaotic dynamics. On the cylinder wake and lid-driven cavity, DeepMDMD produces stable latent-space rollouts and accurate flow statistics in high-dimensional, noisy settings. These examples suggest that the method is most useful when geometry alone is a poor guide to the dy-namics: the partition must be learned, but the Koopman approximation must still respect structure. The main cost of DeepMDMD is training. This cost is front-loaded, however: once the latent space, partition, and Koopman matrix have been learned, forecasting takes place in the latent space and decoding is needed only for output. The method is there-fore especially attractive for high-dimensional systems, where full-state Koopman mode decompositions are expensive and sensitive to noise. Several directions remain open. One is to choose the latent dimension automatically, for example by estimating the in-trinsic dimension required by the dynamics [67]. Another is to combine deep latent rep-resentations with other structure-preserving Koopman approximations. More broadly, DeepMDMD points to a useful principle for data-driven Koopman learning: learn the coordinates, but constrain the operator. 23 
+
+# Acknowledgments 
+
+This work was supported by the UK Engineering and Physical Sciences Research Council (EPSRC) grant EP/Y034767/1. 
+
+References 
+
+[1] Hassan Arbabi and Igor Mezi´ c. Study of dynamics in post-transient flows using Koopman mode decomposition. Phys. Rev. Fluids , 2(12):124402, 2017. [2] Vladimir Igorevich Arnold, Karen Vogtmann, and Alan Weinstein. Mathematical methods of classical mechanics . Springer, 1989. [3] David Arthur and Sergei Vassilvitskii. k-means++ the advantages of careful seeding. In 
+
+ACM-SIAM Symp. Discret. algorithms , pages 1027–1035, 2007. [4] Franz Aurenhammer. Voronoi diagrams—a survey of a fundamental geometric data struc-ture. ACM Comput. Surv ., 23(3):345–405, 1991. [5] Omri Azencot, N Benjamin Erichson, Vanessa Lin, and Michael Mahoney. Forecasting se-quential data using consistent Koopman autoencoders. In Int. Conf. Mach. Learn ., pages 475–485, 2020. [6] Peter J Baddoo, Benjamin Herrmann, Beverley J McKeon, J Nathan Kutz, and Steven L Brun-ton. Physics-informed dynamic mode decomposition. Proc. Royal Soc. A: Math. Phys. Eng. Sci ., 479(2271), 2023. [7] Shervin Bagheri. Effects of weak noise on oscillating flows: Linking quality factor, Floquet modes, and Koopman spectrum. Phys. Fluids , 26(9), 2014. [8] Yoshua Bengio, Ian Goodfellow, and Aaron Courville. Deep learning . MIT Press, 2017. [9] Christopher M Bishop and Nasser M Nasrabadi. Pattern recognition and machine learning .Springer, 2006. [10] Nicolas Boull´ e and Matthew J Colbrook. Multiplicative dynamic mode decomposition. 
+
+SIAM J. Appl. Dyn. Syst ., 24(2):1945–1968, 2025. [11] Nicolas Boull´ e and Matthew J Colbrook. On the convergence of Hermitian dynamic mode decomposition. Phys. D: Nonlinear Phenom ., 472:134405, 2025. [12] Nicolas Boull´ e, Matthew J Colbrook, and Gustav Conradie. Convergent methods for Koop-man operators on reproducing kernel Hilbert spaces. arXiv preprint arXiv:2506.15782 , 2025. [13] Bingni W Brunton, Lise A Johnson, Jeffrey G Ojemann, and J Nathan Kutz. Extracting spatial–temporal coherent patterns in large-scale neural recordings using dynamic mode decomposition. J. Neurosci. Methods , 258:1–15, 2016. [14] Steven L. Brunton, Marko Budiˇ si´ c, Eurika Kaiser, and J. Nathan Kutz. Modern Koopman Theory for Dynamical Systems. SIAM Rev ., 64(2):229–340, 2022. [15] Marko Budiˇ si´ c, Ryan Mohr, and Igor Mezi´ c. Applied Koopmanism. Chaos , 22(4), 2012. [16] Ido Cohen, Omri Azencot, Pavel Lifshits, and Guy Gilboa. Mode decomposition for homo-geneous symmetric operators. Prepr. arXiv , 2020. [17] Matthew J Colbrook. The mpEDMD algorithm for data-driven computations of measure-preserving dynamical systems. SIAM J. Numer. Anal ., 61(3):1585–1608, 2023. [18] Matthew J Colbrook. Another look at residual dynamic mode decomposition in the regime of fewer snapshots than dictionary size. Phys. D: Nonlinear Phenom ., 469:134341, 2024. [19] Matthew J Colbrook. The multiverse of dynamic mode decomposition algorithms. In Handb. numerical analysis , volume 25, pages 127–230. Elsevier, 2024. 24 
+
+[20] Matthew J Colbrook, Lorna J Ayton, and M´ at´ e Sz˝ oke. Residual dynamic mode decomposi-tion: robust and verified Koopmanism. J. Fluid Mech ., 955:A21, 2023. [21] Matthew J Colbrook, Zlatko Drmaˇ c, and Andrew Horning. An Introductory Guide to Koop-man Learning. arXiv preprint arXiv:2510.22002 , 2025. [22] Matthew J Colbrook, Catherine Drysdale, and Andrew Horning. Rigged dynamic mode decomposition: Data-driven generalized eigenfunction decompositions for Koopman oper-ators. SIAM J. Appl. Dyn. Syst ., 24(2):1150–1190, 2025. [23] Matthew J Colbrook and Alex Townsend. Rigorous data-driven computation of spec-tral properties of Koopman operators for dynamical systems. Commun. Pure Appl. Math ., 77(1):221–283, 2024. [24] Gustav Conradie, Nicolas Boull´ e, Jean-Christophe Loiseau, Steven L Brunton, and Matthew J Colbrook. Trustworthy Koopman Operator Learning: Invariance Diagnostics and Error Bounds. arXiv preprint arXiv:2603.15091 , 2026. [25] Zlatko Drmaˇ c. Hermitian dynamic mode decomposition-numerical analysis and software solution. ACM Trans. Math. Softw ., 50(1):1–23, 2024. [26] Tanja Eisner, B´ alint Farkas, Markus Haase, and Rainer Nagel. Operator theoretic aspects of ergodic theory . Springer, 2015. [27] Gary Froyland, Dimitrios Giannakis, Benjamin R Lintner, Maxwell Pike, and Joanna Slaw-inska. Spectral analysis of climate dynamics with operator-theoretic approaches. Nat. Com-mun ., 12(1):6570, 2021. [28] Xifeng Guo, Long Gao, Xinwang Liu, and Jianping Yin. Improved deep embedded cluster-ing with local structure preservation. In IJCAI , volume 17, pages 1753–1759, 2017. [29] Terrell L Hill. An introduction to statistical thermodynamics . Courier Corporation, 2012. [30] Bowen Huang and Umesh Vaidya. Data-driven approximation of transfer operators: Nat-urally structured dynamic mode decomposition. In Annu. Am. Control. Conf ., pages 5659– 5664, 2018. [31] Tam´ as Istv´ an J ´ ozsa, M´ at´ e Sz˝ oke, Tom-Robin Teschner, L´ aszl ´ o K ¨ on ¨ ozsy, and Irene Moulitsas. Validation and verification of a 2D lattice Boltzmann solver for incompressible fluid flow. In 
+
+Eur. Congr. Comput. Methods Appl. Sci. Eng ., pages 1046–1060, 2016. [32] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In Int. Conf. for Learn. Represent ., 2015. [33] Stefan Klus, Peter Koltai, and Christof Sch ¨ utte. On the numerical approximation of the Perron-Frobenius and Koopman operator. J. Comput. Dyn ., 3(1):51–79, 2016. [34] Bernard O Koopman. Hamiltonian systems and transformation in Hilbert space. Proc. Natl. Acad. Sci ., 17(5):315–318, 1931. [35] Bernard O Koopman and J v Neumann. Dynamical systems of continuous spectra. Proc. Natl. Acad. Sci ., 18(3):255–263, 1932. [36] Milan Korda and Igor Mezi´ c. On convergence of extended dynamic mode decomposition to the Koopman operator. J. Nonlinear Sci ., 28(2):687–710, 2018. [37] Milan Korda, Mihai Putinar, and Igor Mezi´ c. Data-driven spectral analysis of the Koopman operator. Appl. Comput. Harmon. Anal ., 48(2):599–629, 2020. [38] Tim Krake, Daniel Kl ¨ otzl, Bernhard Eberhardt, and Daniel Weiskopf. Constrained dynamic mode decomposition. IEEE Trans. Vis. Comput. Graph ., 29(1):182–192, 2022. [39] Qianxiao Li, Felix Dietrich, Erik M Bollt, and Ioannis G Kevrekidis. Extended dynamic mode decomposition with dictionary learning: A data-driven adaptive spectral decomposition of the Koopman operator. Chaos , 27(10), 2017. [40] Stuart Lloyd. Least squares quantization in PCM. IEEE Trans. Inf. Theory , 28(2):129–137, 25 
+
+1982. [41] Edward N Lorenz. Deterministic nonperiodic flow. J. Atmos. Sci. , 20:130–141, 1963. [42] Hannah Lu and Daniel M Tartakovsky. Lagrangian dynamic mode decomposition for con-struction of reduced-order models of advection-dominated phenomena. J. Comput. Phys ., 407:109229, 2020. [43] Bethany Lusch, J Nathan Kutz, and Steven L Brunton. Deep learning for universal linear embeddings of nonlinear dynamics. Nat. Commun ., 9(1):4950, 2018. [44] Laurens van der Maaten and Geoffrey Hinton. Visualizing data using t-SNE. J. Mach. Learn. Res ., 9(Nov):2579–2605, 2008. [45] Andreas Mardt, Luca Pasquali, Hao Wu, and Frank No´ e. VAMPnets for deep learning of molecular kinetics. Nat. Commun ., 9(1):5, 2018. [46] Igor Mezi´ c. Spectral properties of dynamical systems, model reduction and decompositions. 
+
+Nonlinear Dyn ., 41(1):309–325, 2005. [47] Igor Mezic. Spectrum of the Koopman Operator, Spectral Expansions in Functional Spaces, and State-Space Geometry. J. Nonlinear Sci. , 30(5):2091–2145, 2020. [48] Igor Mezi´ c and Andrzej Banaszuk. Comparison of systems with complex behavior. Phys. D: Nonlinear Phenom ., 197(1-2):101–133, 2004. [49] Ryan Mohr and Igor Mezi´ c. Koopman principle eigenfunctions and linearization of diffeo-morphisms. arXiv preprint arXiv:1611.01209 , 2016. [50] Zahra Monfared, Saksham Malhotra, Sekiya Hajime, Ioannis Kevrekidis, and Felix Dietrich. On the algebra of Koopman eigenfunctions and on some of their infinities. arXiv preprint arXiv:2604.21825 , 2026. [51] Riccardo Morandin, Jonas Nicodemus, and Benjamin Unger. Port-Hamiltonian dynamic mode decomposition. SIAM J. Sci. Comput ., 45(4):A1690–A1710, 2023. [52] Samuel E Otto and Clarence W Rowley. Linearly recurrent autoencoder networks for learn-ing dynamics. SIAM J. Appl. Dyn. Syst ., 18(1):558–593, 2019. [53] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An imperative style, high-performance deep learning library. In Adv. Neural Inf. Process. Syst ., volume 32, 2019. [54] Fabian Pedregosa, Ga¨ el Varoquaux, Alexandre Gramfort, Vincent Michel, Bertrand Thirion, Olivier Grisel, Mathieu Blondel, Peter Prettenhofer, Ron Weiss, Vincent Dubourg, et al. Scikit-learn: Machine learning in Python. J. Mach. Learn. Res ., 12:2825–2830, 2011. [55] Yazhou Ren, Jingyu Pu, Zhimeng Yang, Jie Xu, Guofeng Li, Xiaorong Pu, Philip S Yu, and Lifang He. Deep clustering: A comprehensive survey. IEEE Trans. Neural Networks Learn. Syst ., 36(4):5858–5878, 2024. [56] William C Ridge. Spectrum of a composition operator. Proc. Am. Math. Soc ., 37(1):121–127, 1973. [57] Anastasiya Salova, Jeffrey Emenheiser, Adam Rupe, James P Crutchfield, and Raissa M D’Souza. Koopman operator and its approximations for systems with symmetries. Chaos ,29(9), 2019. [58] Peter J Schmid. Dynamic mode decomposition of numerical and experimental data. J. Fluid Mech ., 656:5–28, 2010. [59] M´ at´ e Sz˝ oke, Tamas Istvan Jozsa, ´ Ad´ am Kolesz´ ar, Irene Moulitsas, and L´ aszl ´ o K ¨ on ¨ ozsy. Per-formance evaluation of a two-dimensional lattice Boltzmann solver using CUDA and PGAS UPC based parallelisation. ACM Trans. Math. Softw ., 44(1):1–22, 2017. [60] Naoya Takeishi, Yoshinobu Kawahara, and Takehisa Yairi. Learning Koopman invariant 26 
+
+subspaces for dynamic mode decomposition. In Adv. Neural Inf. Process. Syst ., volume 30, 2017. [61] Laurens Van Der Maaten. Learning a parametric embedding by preserving local structure. In Artif. Intell. Stat ., pages 384–391, 2009. [62] Dirk L van Kekem and Alef E Sterk. Travelling waves and their bifurcations in the Lorenz-96 model. Phys. D: Nonlinear Phenom ., 367:38–60, 2018. [63] Peter Walters. An introduction to ergodic theory . Springer Science & Business Media, 2000. [64] Matthew O Williams, Ioannis G Kevrekidis, and Clarence W Rowley. A data–driven approx-imation of the Koopman operator: Extending dynamic mode decomposition. J. Nonlinear Sci ., 25(6):1307–1346, 2015. [65] Junyuan Xie, Ross Girshick, and Ali Farhadi. Unsupervised deep embedding for clustering analysis. In Int. Conf. Mach. Learn ., pages 478–487, 2016. [66] Enoch Yeung, Soumya Kundu, and Nathan Hodas. Learning deep neural network represen-tations for Koopman operators of nonlinear dynamical systems. In Am. Control. Conf ., pages 4832–4839, 2019. [67] Kevin Zeng, Carlos E Perez De Jesus, Andrew J Fox, and Michael D Graham. Autoencoders for discovering manifold dimension and coordinates in data from complex dynamical sys-tems. Mach. Learn. Sci. Technol ., 5(2):025053, 2024.

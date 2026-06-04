@@ -1,0 +1,830 @@
+Title: Koopman operator learning for predictive control via Khatri-Rao kernel regression
+
+URL Source: https://arxiv.org/pdf/2606.02938v1
+
+Published Time: Wed, 03 Jun 2026 00:19:11 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Koopman operator learning for predictive control via Khatri-Rao kernel regression 
+
+Mircea Lazar 
+
+Eindhoven University of Technology 
+
+Eindhoven, Netherlands m.lazar@tue.nl 
+
+Abstract —This paper develops a data-driven realization of the generalized Koopman operator (GeKo) [1], in which states and inputs are lifted independently and the dynamics are expressed as a tensor bilinear system. The first contribution is a time-sequenced multi-step Khatri–Rao kernel regression formulation that exposes the operator to evolved snapshots along trajec-tories rather than only single one-step pairs, which reduces compounded prediction error. Secondly, we develop a kernel-and input-agnostic structured SVD reduction that compresses the lifted state and input spaces while preserving the Khatri–Rao realization. We instantiate the framework with random Fourier features and describe a complete predictive-control pipeline, including a multi-step roll-out diagnostic that guides the choice of MPC horizon. The framework is validated on the chaotic Lorenz system, where the learned reduced-order GeKo model stabilizes an unstable equilibrium from a range of initial conditions. 
+
+Index Terms —Koopman operator theory for control, kernel re-gression, singular value decomposition, model predictive control 
+
+I. I NTRODUCTION 
+
+The Koopman operator framework [2], [3] casts a (possibly nonlinear) dynamical system as a linear operator acting on a function space of observables. Over the past decade, finite-dimensional approximations of the Koopman operator, e.g., Extended Dynamic Mode Decomposition (EDMD) [4] and its variants, have become a standard data-driven tool for system identification and control of nonlinear systems [3], [5]. The original Koopman operator, however, applies to au-tonomous systems. Extending the framework to controlled systems is non-trivial and has produced a proliferation of ap-proaches as follows. Lifted linear models , e.g. Dynamic Mode Decomposition with control (DMDc) [6] and linear-in-control Koopman [7], treat the input as an external linear forcing of the lifted state. The resulting linear MPC formulation is computa-tionally attractive, but neglects input nonlinearities and input– state coupling, which degrades closed-loop performance for non-input-affine systems [5]. Lifted bilinear models [7]–[9] introduce a separate lifted operator per input channel, which handles control-affine systems, but is challenged by strongly nonlinear input functions (e.g., saturations, dead-zones, non-monotonic actuation). Deep Koopman models [10] use neural-network encoders to learn the lifting, often with consistency or contrastive losses. They achieve good empirical performance, but lack rigorous convergence theory, and are susceptible to local minima during training. Recent works on Koopman MPC [11]–[15] provide formal closed–loop guarantees for linear- or bilinear-in-control data-driven Koopman models. A novel theoretical framework that generalizes the Koop-man operator to nonlinear systems with inputs was recently proposed in [1]: the generalized Koopman operator (GeKo) with a target space defined as the product Hilbert space 
+
+H = Hx ⊗H u formed by the state observable space Hx and an independently chosen input observable space Hu. The GeKo 
+
+K : Hx → H acts by composition with the dynamics mapping 
+
+F (x, u ), i.e., (Kψx)( x, u ) = ( ψx ◦ F )( x, u ), capturing any input nonlinearity natively, without structural restrictions. In a finite basis it yields the input–state separable Khatri–Rao realization zt+1 = K (zt ⊗ vt), with lifted state zt = Ψ x(xt),lifted input vt = Ψ u(ut), and operator matrix K. The GeKo realization is provably more general than the lifted linear and bilinear forms (which it recovers as special cases [1]), opening a promising route to data-driven predictive control of complex nonlinear systems. While [1] introduces the Khatri–Rao kernel regression and illustrates its performance in MPC for a specific example, it does not further investigate how the data-driven learning of GeKo models can be optimized for usage in MPC (which requires low-complexity models with high accuracy). This is the subject of the present paper. 
+
+Remark 1: An alternative recent extension of the Koopman operator to control is the Koopman Control Family (KCF) approach [16], defined as the family of Koopman operators associated with all constant-input dynamics. Both KCF and GeKo encompass the lifted linear- and bilinear-in-control Koopman forms as special cases. The two points of view are complementary: KCF arrives at a separable Koopman form in the state and input through a family of operators indexed by constant inputs, while GeKo lifts the input directly via Ψu and produces a unique linear operator on a product Hilbert space, which is separable by construction. 
+
+Problem statement and contributions 
+
+Given trajectory state–input data from a nonlinear control system, we seek a finite-dimensional GeKo realization that is suitable for MPC, i.e., (i) accurate over multi-step horizons ,not just one-step; (ii) convergent and well-posed under re-duction , so that the inevitable rank deficiency of large kernel dictionaries can be exploited to compress the model without losing the structure of the GeKo realization. 
+
+> arXiv:2606.02938v1 [math.OC] 1 Jun 2026
+
+The contributions in this paper address the above goals as follows. After briefly recalling the GeKo framework [1] in Section II, Section III develops a multi-step optimized Khatri-Rao kernel regression formulation over horizontally stacked, time-shifted snapshot pairs drawn from trajectories, which sharply reduces the compounded prediction error in multi-step roll-outs. Section IV then derives a structured SVD reduction, applied independently on the state lifting z = Ψ x(x) and the input lifting v = Ψ u(u), that compresses the model to the effective rank of the data while preserving the Khatri– Rao GeKo realization. Section V instantiates the framework with random Fourier features and presents the complete iden-tification and predictive-control pipeline. Section VI validates the framework on the chaotic Lorenz system, stabilized at an unstable equilibrium from multiple initial states. 
+
+Basic notation 
+
+R, C, N denote the sets of real, complex and non-negative integer numbers. For a matrix A ∈ Rm×n, A⊤ is the transpose, 
+
+A† the Moore–Penrose pseudoinverse, ∥A∥F the Frobenius norm, ∥A∥2 the spectral norm, and rank( A) the rank. A ⊗ B
+
+denotes the Kronecker product and A ⊙ B the Khatri–Rao (column-wise Kronecker) product. span(Ψ) denotes the linear span of the elements of a vector-valued function Ψ. For a positive-semidefinite matrix Q, ∥x∥2 
+
+> Q
+
+:= x⊤Qx .II. T HE GENERALIZED KOOPMAN OPERATOR AND ITS 
+
+KHATRI –R AO REALIZATION 
+
+In this section we recall the generalized Koopman operator of [1] and its finite-dimensional Khatri–Rao realization that will serve as the prediction model in the data-driven MPC pipeline developed in this paper. We consider discrete-time nonlinear control systems of the form 
+
+xt+1 = F (xt, u t), xt ∈ X ⊆ Rnx , u t ∈ U ⊆ Rnu , (1) where F : X × U → X is, in general, neither linear in the state nor affine in the input. To lift (1) into an operator-theoretic representation, let Hx ⊆ L2(X, μ x) and Hu ⊆ L2(U, μ u) be the Hilbert spaces of state and input observables, and choose finite (truncated) bases 
+
+Ψx : X → Rnz , Ψu : U → Rnv , (2) that span subspaces of Hx and Hu respectively. The corre-sponding product Hilbert space is H = Hx ⊗ H u, equipped with the tensor-product basis Ψ := Ψ x ⊗ Ψu. On this space, the generalized Koopman operator (GeKo) of [1] is defined for any ψx ∈ H x as 
+
+K : Hx → H , (Kψx)( x, u ) = ( ψx ◦ F )( x, u ). (3) As shown in [1], defining the lifted state and input as zt := Ψx(xt) and vt := Ψ u(ut), respectively, the finite-dimensional realization of (3) in the chosen basis takes the input–state separable form 
+
+zt+1 = K  zt ⊗ vt
+
+, K ∈ Rnz ×nz nv , (4) where ⊗ is the Kronecker product. We refer to (4) as the 
+
+Khatri–Rao realization of the GeKo: the matrix K linearly combines the bilinear state–input features zt ⊗ vt to produce the next lifted state. To fit the matrix K from data, suppose we have a snapshot data set {(xi, u i, x + 
+
+> i
+
+)}Mi=1 with x+ 
+
+> i
+
+= F (xi, u i), and define the data matrices 
+
+Z = [Ψ x(x1), . . . , Ψx(xM )] ∈ Rnz ×M ,Z+ = [Ψ x(x+1 ), . . . , Ψx(x+ 
+
+> M
+
+)] ∈ Rnz ×M , (5) 
+
+V = [Ψ u(u1), . . . , Ψu(uM )] ∈ Rnv ×M .
+
+The Khatri–Rao feature matrix is the column-wise Kronecker product 
+
+Φ = Z ⊙ V ∈ Rnz nv ×M , Φ(: , i ) = zi ⊗ vi. (6) The standard one-step EDMD-type estimator of K is then the ridge-regularized least-squares solution 
+
+ˆK = arg min  
+
+> K
+
+Z+−KΦ 2 
+
+> F
+
++γ∥K∥2 
+
+> F
+
+= Z+Φ⊤ ΦΦ ⊤+γI −1
+
+(7) with ridge parameter γ > 0.While (7) provides a closed-form estimate of the GeKo, it is well known [7], [17], [18] that minimizing the one-step residual does not imply small multi-step prediction error, since the roll-out predictor compounds errors through the bilinear feature update. This compounding is more severe in the Khatri–Rao realization (4) than in the autonomous Koop-man setting due to the bilinearity in (z, v ). The next section addresses this issue by developing a multi-step regression that exposes K to evolved snapshot pairs drawn along trajectories. III. T IME -S EQUENCED MULTI -S TEP KHATRI –R AO 
+
+KERNEL REGRESSION 
+
+In this section we develop a regression scheme that fits the finite-dimensional operator K of (4) from trajectories 
+
+rather than from isolated one-step snapshot pairs, by horizon-tally stacking time-shifted residuals into a single regression problem. We then introduce a multi-step roll-out diagnostic, evaluated both on the lifted state and on the original state, that quantifies the long-horizon prediction quality of the identified model and guides the choice of MPC prediction horizon. Suppose we have L training trajectories of the system (1), each generated by exciting the system with a rich (e.g. multi-frequency) input signal, 
+
+Dℓ = (x(ℓ) 
+
+> t
+
+, u (ℓ) 
+
+> t
+
+) : t = 0 , . . . , T ℓ , ℓ = 1 , . . . , L. (8) Pick a horizon Nd ∈ N and define, for each starting time 
+
+t ∈ { 0, . . . , T ℓ − Nd} in a trajectory ℓ, the time-sequenced snapshot window 
+
+Wℓ,t = (z(ℓ)
+
+> t+k
+
+, v (ℓ)
+
+> t+k
+
+, z (ℓ)
+
+> t+k+1
+
+) : k = 0 , . . . , N d − 1 , (9) where z(ℓ) 
+
+> t
+
+= Ψ x(x(ℓ) 
+
+> t
+
+) and v(ℓ) 
+
+> t
+
+= Ψ u(u(ℓ) 
+
+> t
+
+) for all t ≥ 0. Let 
+
+S = (ℓi, t i) : i = 1 , . . . , M abe a representative set of Ma such windows, where ℓi and ti
+
+denote the trajectory index and starting time of the i-th selected window. In practice, S is constructed by window-aware k-means clustering: each window is summarized by the con-catenation of three anchor snapshots [z(ℓ) 
+
+> t
+
+; z(ℓ)
+
+> t+⌊Nd/2⌋
+
+; z(ℓ) 
+
+> t+Nd
+
+]
+
+– its start, midpoint, and end – and one window nearest to each cluster centroid is retained. Using all three anchors rather than the start z(ℓ) 
+
+> t
+
+alone keeps windows that share a starting point but diverge along the trajectory (a common case for complex or chaotic systems) as distinct clusters, ensuring broad coverage of the data manifold. For each time-shift 
+
+k ∈ { 0, 1, . . . , N d − 1}, define the shifted snapshot blocks 
+
+Φk ∈ Rnz nv ×Ma , Wk ∈ Rnz ×Ma , (10) whose i-th columns are, respectively, Φk(: , i ) = z(ℓi) 
+
+> ti+k
+
+⊗ v(ℓi)
+
+> ti+k
+
+and Wk(: , i ) = z(ℓi)
+
+> ti+k+1
+
+. Stacking these blocks horizontally yields the augmented data matrices 
+
+Φ := [Φ 0, Φ1, . . . , ΦNd−1], W := [ W0, W 1, . . . , W Nd−1],
+
+(11) with Φ ∈ Rnz nv ×Maug , W ∈ Rnz ×Maug , and Maug := NdMa.The time-sequenced multi-step Khatri–Rao kernel regres-sion estimator is defined by 
+
+ˆK := arg min  
+
+> K∈Rnz ×nz nv
+> Nd−1
+
+X
+
+> k=0
+
+Wk − KΦk 
+
+> 2
+> F
+
++ γ∥K∥2 
+
+> F
+
+. (12) By the block structure of (11), we show next that problem (12) is equivalent to the single ridge regression 
+
+ˆK = arg min  
+
+> K∈Rnz ×nz nv
+
+W − K Φ 2 
+
+> F
+
++ γ∥K∥2 
+
+> F
+
+, (13) with closed-form solution 
+
+ˆK = W Φ⊤ ΦΦ ⊤ + γI −1. (14) 
+
+Lemma 1 (Frobenius decomposition of block-stacked least squares): Let Φk, W k, k = 0, . . . , N d − 1, be the shifted snapshot blocks defined in (10), and let Φ, W denote their horizontal concatenations as in (11). Then for any matrix 
+
+K ∈ Rnz ×nz nv and any γ ≥ 0,
+
+> Nd−1
+
+X
+
+> k=0
+
+∥Wk − KΦk∥2 
+
+> F
+
++ γ∥K∥2 
+
+> F
+
+= ∥W − KΦ∥2 
+
+> F
+
++ γ∥K∥2 
+
+> F
+
+.
+
+(15) 
+
+Proof: For any matrices A0, . . . , A N −1 with the same row dimension, the definition of the Frobenius norm as the sum of squared entries gives ∥[A0, . . . , A N −1]∥2 
+
+> F
+
+=
+
+PN −1 
+
+> k=0
+
+∥Ak∥2 
+
+> F
+
+. Since K multiplies each block independently, 
+
+[W0 − KΦ0, . . . , W N −1 − KΦN −1] = W − KΦ, and (15) fol-lows. The ridge term γ∥K∥2 
+
+> F
+
+is identical in both expressions. For Nd = 1 the time-sequenced multi-step Khatri-Rao regression collapses to the standard one-step EDMD estima-tor (7); for Nd > 1, the regression averages the one-step residual across all Nd time-shift positions of each window, exposing K to evolved snapshots drawn from along the trajectories rather than only window-start states. 
+
+Remark 2 (Multi-step Koopman learning overview): Fitting a Koopman operator using more than a single time step has been explored before in the lifted linear-in-control setting. [7] uses a multi-step prediction loss to identify the input matrix of a lifted linear predictor, after the autonomous part has been fixed. In [12] the observables are parameterized as a neural network and the multi-step output prediction error is minimized during training. Then the horizon-stacked prediction matrices of the linear multi-step Koopman model therein are directly refited by least squares. Recently, [19] de-velops an alternative multi-step learning framework for linear Koopman models in which the condensed horizon-dependent state-input mappings are fitted independently per prediction step, preserving a convex per-step least-squares structure and supporting parallel computation and ℓ1-regularized dictionary pruning. The common feature of these approaches is that they trade the recursive Koopman operator structure for a fixed-horizon stacked predictor: error compounding is avoided by design, but the resulting model is no longer a single Koopman operator iterable at arbitrary horizon. In contrast with the above approaches the estimator (14) fits a single matrix K valid across all time shifts, preserves the closed-form convex ridge solution despite bilinear lifted dy-namics (a major advantage compared to multi-step Koopman deep learning, which is typically non–convex), and remains usable at arbitrary horizons within the recursive prediction using (4). To quantify multi-step prediction quality and to guide the choice of MPC horizon, we evaluate two complementary relative error profiles over the set S of Ma selected windows. Let ˆz(i) 
+
+> k
+
+denote the k-step roll-out of the identified Khatri– Rao model from z(i)0 = Ψ x(x(i)0 ) using the true input sequence 
+
+{u(i)0: k−1} of window i, let z(i) 
+
+> k
+
+be the corresponding true lifted state, and let D be the linear decoder ˆx = Dz (constructed in Section IV). Collecting the ensemble at step k into matrices 
+
+ˆZk = [ ˆ z(i) 
+
+> k
+
+]i∈S and Zk = [ z(i) 
+
+> k
+
+]i∈S , we define the lifted-state and decoded-state relative errors as the relative Frobenius-norm errors 
+
+rzk = ∥ ˆZk − Zk∥F
+
+∥Zk∥F
+
+=
+
+vuutP 
+
+> i∈S
+
+∥ˆz(i) 
+
+> k
+
+− z(i) 
+
+> k
+
+∥2
+
+P 
+
+> i∈S
+
+∥z(i) 
+
+> k
+
+∥2 ,rxk = ∥D ˆZk − DZ k∥F
+
+∥DZ k∥F
+
+=
+
+vuutP 
+
+> i∈S
+
+∥Dˆz(i) 
+
+> k
+
+− Dz (i) 
+
+> k
+
+∥2
+
+P 
+
+> i∈S
+
+∥Dz (i) 
+
+> k
+
+∥2 ,
+
+(16) for k = 1 , . . . , N . We normalize by the signal norm rather than reporting an absolute error because the states of a dynamical system may differ substantially in magnitude and because the lifted-feature and decoded-state errors carry different units; the normalization renders both profiles dimensionless and mutu-ally comparable, and lets a single scale-independent threshold (1% , 5% ) drive horizon selection. Aggregating the squared error and the squared signal norm separately over S – rather than averaging per-window ratios – prevents low-magnitude windows from dominating the metric. The lifted profile rzkmeasures error growth in the full nz -dimensional feature space natural to the Koopman operator, while the decoded profile rxk
+
+measures growth in the original state space, relevant to MPC performance. In our experiments, rxk is consistently smaller than rzk and degrades more gracefully with k, as many feature directions that drift over time are projected out by D when only the state contributes to the controller objective. We thus use rxk
+
+as the primary horizon-selection diagnostic and report rzk as a secondary check. Given a tolerance ϵ ∈ (0 , 1) , the MPC prediction horizon can be chosen based on the threshold 
+
+Nmpc ≤ max  k ∈ { 1, . . . , N d} : rxk ≤ ϵ . (17) IV. D ATA GENERATION AND STRUCTURED SVD REDUCTION 
+
+Next we specify the input excitation used to generate the trajectories (8) and then develop a kernel-agnostic structured SVD reduction of the state and input liftings Ψx, Ψu that compresses the model while preserving the GeKo form (4). 
+
+Trajectory data generation 
+
+We generate the L training trajectories from initial con-ditions {x(ℓ)0 }Lℓ=1 drawn to cover X (e.g., uniformly on a bounding box, or by clustering of a pilot run). Each trajectory is excited with a multi-frequency input 
+
+u(ℓ) 
+
+> k
+
+= sat U
+
+
+
+> nf
+
+X
+
+> j=1
+
+αj sin  ωj kT s + φ(ℓ)
+
+> j
+
+ , (18) with k ∈ N the sample index and Ts the sampling time (so that 
+
+kT s is the elapsed time), frequencies {ωj }nf 
+
+> j=1
+
+chosen to span the dynamic system bandwidth, amplitudes αj tuned so that the input saturates only occasionally, phases φ(ℓ) 
+
+> j
+
+randomized per trajectory, and sat U(·) the saturation enforcing u ∈ U.
+
+Structured SVD reduction 
+
+Random or kernel-based dictionaries are intentionally over-parameterized: with random Fourier features (Section V), the recommended dictionary size nz scales with the desired kernel approximation quality [20] and is typically much larger than the effective dimension of the data manifold. As a conse-quence, the lifted state matrix Z has numerical rank far below 
+
+nz , and the Khatri–Rao feature matrix Φ = Z ⊙ V inherits and amplifies this rank deficiency. We therefore reduce both liftings to their effective ranks via SVD, independently in z
+
+and v.For the state lifting, let ¯Z := [ Z Z+] ∈ Rnz ×2M collect all lifted state samples (current and next), and consider the eigendecomposition of the symmetric positive semidefinite Gram matrix 
+
+Gz := ¯Z ¯Z⊤ = Uz Σ2 
+
+> z
+
+U ⊤ 
+
+> z
+
+, (19) with Uz ∈ Rnz ×nz orthonormal and Σz = diag( σz 
+
+> 1
+
+, . . . , σ znz )
+
+sorted in decreasing order. Choose the truncation rank rz ≤ nz
+
+as the smallest index such that σzrz +1 ≤ τz σz 
+
+> 1
+
+for a relative tolerance τz > 0, and let Uz,r z := Uz (: , 1: rz ). The reduced state lifting is then 
+
+˜Ψx(x) := U ⊤ 
+
+> z,r z
+
+Ψx(x) ∈ Rrz , (20) and we write ˜z := U ⊤ 
+
+> z,r z
+
+z. The same construction applied to the input data Gram matrix Gv := V V ⊤ = Uv Σ2 
+
+> v
+
+U ⊤ 
+
+> v
+
+yields a truncation rank rv and a reduced input lifting 
+
+˜Ψu(u) := U ⊤ 
+
+> v,r v
+
+Ψu(u) ∈ Rrv , (21) with ˜v := U ⊤ 
+
+> v,r v
+
+v. The tolerances τz and τv are selected by a coarse bisection on the multi-step feature-prediction score 
+
+rzN of (16), evaluated on the selected windows: among the candidate tolerances whose score lies within a small relative band ( 5% ) of the best, the one yielding the smallest rank is retained, trading a negligible loss in prediction accuracy for a lower-dimensional model and faster online optimization. After the reduction step we obtain the following reduced order Khatri–Rao GeKo realization: 
+
+˜zt+1 = ˜K ˜zt ⊗ ˜vt
+
+,
+
+˜K = U ⊤ 
+
+> z,r z
+
+K  Uz,r z ⊗ Uv,r v
+
+ ∈ Rrz ×rz rv . (22) 
+
+Remark 3 (Refit vs. projection): In practice, ˜K is not computed via the projection formula in (22) but rather refit 
+
+by multi-step ridge regression in the reduced space, apply-ing (14) with the projected matrices ˜Φk := ( U ⊤ 
+
+> z,r z
+
+⊗ U ⊤ 
+
+> v,r v
+
+)Φ k
+
+and ˜Wk := U ⊤ 
+
+> z,r z
+
+Wk. By orthonormality of Uz,r z , U v,r v the projection and refit estimates coincide in the noiseless infinite-data limit; in finite samples the refitted estimate is optimal in the reduced space and is therefore preferred. 
+
+Remark 4 (Kernel-agnostic): The developed structured SVD reduction does not use the specific form of Ψx or Ψu. The two-stage SVD reduction therefore applies to any choice of state and input lifting dictionary – random Fourier features, wavelet bases, neural-network encoders, or time-delay embeddings – and preserves the Khatri–Rao GeKo realization in each case. 
+
+Linear decoder 
+
+The reduced lifted state ˜z is paired with a linear decoder 
+
+ˆx = D˜z, where D ∈ Rnx×rz is identified by ridge regression on the training data, 
+
+D = X ˜Z⊤  ˜Z ˜Z⊤ + γI −1, (23) with X = [x(ℓ) 
+
+> t
+
+] and ˜Z = U ⊤ 
+
+> z,r z
+
+[Ψ x(x(ℓ) 
+
+> t
+
+)] collecting all training state–snapshot pairs. The corresponding lifted MPC weight is Q˜z := D⊤QxD, so that the cost on ˜z penalizes only the linear combinations that decode to the physical state. V. R ANDOM FOURIER FEATURES REALIZATION AND 
+
+PREDICTIVE CONTROL FORMULATION 
+
+The framework of Sections III–IV is agnostic to the choice of Ψx and Ψu. In this section we instantiate it with random Fourier features (RFF), summarize the complete learning pipeline, and formulate the resulting predictive controller. Random Fourier feature lifting 
+
+We lift the state with the random Fourier feature map of [20], which approximates a shift-invariant kernel by sam-pling frequencies from its spectral density. For the Gaussian (RBF) kernel of length scale σx, the frequencies are drawn 
+
+ω1, . . . , ω nz
+
+> iid
+
+∼ N (0 , σ −2 
+
+> x
+
+I) and the biases bi
+
+> iid
+
+∼ Unif[0 , 2π],giving 
+
+Ψx(x) = 
+
+q 2
+
+> nz
+
+ cos( ω⊤ 
+
+> 1
+
+x + b1), . . . , cos( ω⊤ 
+
+> nz
+
+x + bnz )⊤.
+
+(24) The input lifting Ψu(u) ∈ Rnv is constructed analogously with frequency samples ω′ 
+
+> j
+
+∼ N (0 , σ −2 
+
+> u
+
+I) and uniform biases b′ 
+
+> j
+
+,for j = 1 , . . . , n v .The frequency spreads σx, σ u play the role of RBF kernel length scales and are set on the order of range( x) and 
+
+range( u) respectively; the dictionary sizes nz , n v are inten-tionally oversized, since the SVD reduction of Section IV compresses them to the effective rank of the data manifold. 
+
+Predictive control formulation 
+
+Letting ∆uk := uk − uk−1, at each time instant k, MPC solves 
+
+min 
+
+> u0: Nmpc −1
+> Nmpc
+
+X
+
+> k=0
+
+∥D˜zk − xref ∥2 
+
+> Qx
+
++
+
+> Nmpc −1
+
+X
+
+> k=0
+
+(∥uk∥2 
+
+> Ru
+
++ ∥∆uk∥2
+
+> R∆u
+
+)
+
+s.t. ˜zk+1 = ˜K ˜zk ⊗ ˜vk
+
+, ˜vk = ˜Ψu(uk),
+
+˜z0 = U ⊤ 
+
+> z,r z
+
+Ψx(xt), uk ∈ U, k = 0 , . . . , N mpc − 1.
+
+(25) The first input u⋆ 
+
+> 0
+
+of the optimal sequence is applied to the plant, the state is measured at the next sampling instant, and the optimization is repeated. The input-rate penalty promotes smooth control and dampens chattering. The Algorithm 1 summarizes the GeKo MPC pipeline driven by data from end-to-end. VI. V ALIDATION ON THE CHAOTIC LORENZ SYSTEM 
+
+We consider the controlled Lorenz system 
+
+˙x1 = σ (x2 − x1),
+
+˙x2 = x1(ρ − x3) − x2 + u, 
+
+˙x3 = x1x2 − β x 3,
+
+(26) with the canonical chaotic parameters σ = 10 , ρ =28 , β = 8/3, and a single scalar input u entering the second state equation. 1 The uncontrolled flow possesses the two symmetric unstable equilibria ± x⋆ with x⋆ = p β(ρ − 1) , pβ(ρ − 1) , ρ − 1⊤ ≈ (8 .49 , 8.49 , 27) ⊤,around which a typical trajectory orbits chaotically, as shown in Figure 1. The control objective is to stabilize the equilibrium 
+
+x⋆, i.e. xref = x⋆ in (25). The continuous dynamics are sampled at Ts = 0 .01 , giving the discrete-time plant on which the GeKo model and the predictive controller (25) operate. We generate L = 8 training trajectories of 5000 samples each ( 50 s of data, 4 × 10 4 state–input pairs total). Each   
+
+> 1Actuation on ˙x2follows the chaos-control formulation of [21].
+
+Algorithm 1 Data-driven Generalized Koopman MPC  
+
+> 1:
+
+Generate L training trajectories with the multi-frequency excitation (18).  
+
+> 2:
+
+Sample RFF parameters {(ωi, b i)}nz 
+
+> i=1
+
+and {(ω′ 
+
+> j
+
+, b ′ 
+
+> j
+
+)}nv
+
+> j=1
+
+as in (24).  
+
+> 3:
+
+Lift the trajectories to {z(ℓ) 
+
+> t
+
+}, {v(ℓ) 
+
+> t
+
+} and compute the SVD reductions Uz,r z , U v,r v per (20)–(21), with the truncation tolerances chosen by bisection on the multi-step score rxN
+
+of (16).  
+
+> 4:
+
+Project the lifted trajectories, ˜zt = U ⊤ 
+
+> z,r z
+
+zt, ˜vt = U ⊤ 
+
+> v,r v
+
+vt. 
+
+> 5:
+
+Collect time-shifted snapshot windows (9) and select a representative subset S of size Ma by k-means clustering of windows of initial states.  
+
+> 6:
+
+Build the augmented matrices ˜Φ, ˜W as in (11) (in the reduced space, cf. Remark 3) and solve the multi-step ridge regression (14) for ˜K. 
+
+> 7:
+
+Fit the linear decoder D per (23) and form Q˜z =
+
+D⊤QxD. 
+
+> 8:
+
+Compute the multi-step profile {rxk }Nd 
+
+> k=1
+
+and choose the MPC horizon Nmpc via (17).  
+
+> 9:
+
+Deploy the predictive controller (25). 
+
+Fig. 1: Uncontrolled ( u = 0 ) trajectory of the Lorenz sys-tem (26), tracing the chaotic attractor about the two unstable equilibria ± x⋆ (green) and the origin (black). trajectory is initialized from a point drawn uniformly from the box x1, x 2 ∈ [−20 , 20] , x3 ∈ [−5, 55] that covers the attractor, and is forced by the multi-frequency excitation (18) 
+
+u(ℓ) 
+
+> k
+
+= sat [−30 ,30] 
+
+ P6 
+
+> m=1
+
+a sin( ωmkT s + ϕ(ℓ) 
+
+> m
+
+)
+
+
+
+, (27) with amplitude a = 6, fixed angular frequencies 
+
+ωm ∈ { 0.3, 0.7, 1.1, 1.9, 3.1, 5.3} rad/s, and phases ϕ(ℓ) 
+
+> m
+
+∼
+
+Unif[0 , 2π] resampled per trajectory; the excitation is saturated to the deployment bound U = [ −30 , 30] , so that the training data exercise the full admissible input range. Trajectories are 0 2 4 6 8 10 12 14 16 18 20 
+
+> Rollout step k
+> 10 -4
+> 10 -3
+> 10 -2
+> 10 -1
+> 10 0
+> RRMSE (relative, log)
+> Multi-step state vs feature RRMSE (training data)
+> State RRMSE r k
+> Feature RRMSE 1%% threshold 5%% threshold
+
+Fig. 2: Multi-step open-loop prediction error of the reduced GeKo model for the Lorenz system. integrated with an adaptive Runge–Kutta scheme ( ode45 ,relative and absolute tolerances 10 −8, 10 −10 ); inside the MPC loop the plant is advanced with a fixed-step RK4 using four substeps per Ts, which reproduces the adaptive solution within 
+
+2 × 10 −8 accuracy on the attractor at a fraction of the cost. The state is lifted with nz = 400 random Fourier fea-tures (24) of length scale σx = 10 , and the scalar input with nv = 20 features of length scale σu = 7 .5. Because the data manifold is only three-dimensional, the lifted state features are highly redundant; the SVD reduction (20) with the bisection tolerance rule of Section IV compresses nz = 400 →
+
+rz = 150 while keeping the multi-step score (16) within 
+
+5% of its minimum, and the input reduction (21) compresses 
+
+nv = 20 → rv = 13 . All subsequent regression and control are carried out in the reduced coordinates ˜z = U ⊤ 
+
+> z,r z
+
+Ψx(x),
+
+˜v = U ⊤ 
+
+> v,r v
+
+Ψu(u).We form time-shifted windows of length Nd = 20 (9), retain a representative subset of Ma windows by k-means clus-tering on the concatenated anchor snapshots [˜ z0; ˜ zNd/2; ˜ zNd ]
+
+(window-aware selection, so that windows sharing a start point but diverging on the attractor are kept distinct), and solve the multi-step ridge regression (14) with γ = 10 −4 for the reduced Khatri–Rao operator ˜K ∈ Rrz ×rz rv (150 × 1950 ). The linear decoder D is fit by (23) and induces the lifted state weight 
+
+Q˜z = D⊤QxD used in (25). As shown in Figure 2, the multi-step state profile {rxk }
+
+of (16) stays below 1% relative error out to k = 19 steps and below 5% through k = 20 , so the horizon rule (17) admits any Nmpc ≤ 20 ; we use Nmpc = 12 in the closed-loop study below. The MPC controller solves (25) with state weight Qx = I3, input weight Ru = 10 −2, a small input-rate penalty R∆u = 10 −3, and the box constraint U = [ −30 , 30] .The lifted reference is ˜zref = U ⊤ 
+
+> z,r z
+
+Ψx(x⋆), recomputed once offline. At each step the reduced Koopman bilinear model 
+
+˜zk+1 = ˜K(˜ zk ⊗ ˜vk) with ˜vk = U ⊤ 
+
+> v,r v
+
+Ψu(uk) is used as the prediction model. The resulting nonlinear program is 0 0.5 1 1.5 2 2.5 3 3.5 4-20 020                 
+
+> x1
+> MPC [trajectory]: stabilise to xstar=[8.49,8.49,27.00]
+> IC#1 IC#2 IC#3 IC#4 IC#5 IC#6 IC#7 IC#8 IC#9 IC#10
+> 00.5 11.5 22.5 33.5 4-20 020
+> x2
+> 00.5 11.5 22.5 33.5 4
+> Time [s]
+> 020 40 60
+> x3
+
+Fig. 3: Closed-loop state trajectories under GeKo-MPC from the 10 initial conditions and the target x⋆ (dashed black lines). 
+
+Fig. 4: Phase-space view of the 10 closed-loop trajectories. solved with MATLAB’s fmincon (SQP algorithm, optimality tolerance 10 −4, at most 100 iterations per step), warm-started at each step with the shifted previous solution [ u⋆ 
+
+> 1: N−1
+
+; 0 ] .We assess closed-loop performance from 10 initial condi-tions (ICs): the nominal x0 = (1 , 1, 25) ⊤ together with 9
+
+reproducible draws (fixed seed) from the training box x1, x 2 ∈
+
+[−20 , 20] , x3 ∈ [−5, 55] . The resulting closed-loop state trajectories over time, the trajectories in state space, and the input signals are reported in Figures 3, 4, and 5, respectively. Averaged over the ten initial conditions, the controller drives the state to a final error of ∥x(T ) − x⋆∥ = 8 × 10 −3, with a mean per-step solve time of 101 ms (maximum 147 ms across all runs) and an input that respects the bound |u| ≤ 30 
+
+throughout. Every run stabilizes the common target x⋆ in less than 2 s, despite starting from both attractor lobes and from off-attractor 0 0.5 1 1.5 2 2.5 3 3.5 4
+
+> Time [s]
+> -30 -20 -10 010 20 30
+> u
+> MPC [trajectory] inputs
+> IC#1 IC#2 IC#3 IC#4 IC#5 IC#6 IC#7 IC#8 IC#9 IC#10
+
+Fig. 5: MPC control inputs for the 10 closed-loop runs. states, which demonstrates the effectiveness of the developed data-driven Koopman learning framework for MPC. It is worth mentioning that we could not find another data-driven Koopman MPC study validated on the Lorenz system with both a learned decoder and a genuine Koopman operator; the closest data-driven MPC alternative validated on the Lorenz system, SINDy-MPC [22], instead actuates the first state channel and relies on a sparsely identified nonlinear model in the classical sense rather than a lifted Koopman model and decoder. A comparison with the Lorenz system set-up of [22] is left for future work. In terms of computational cost, the per-step optimization averaged 101 ms and never exceeded 147 ms across all runs; while this is not yet real-time compatible with the 0.01 ssampling time, it is promising given that a generic MATLAB SQP solver was used on a nonconvex program. VII. C ONCLUSIONS 
+
+In this paper we presented a data-driven framework for learning finite-dimensional approximate generalized Koopman operator models for predictive control. Firstly, we recalled the specific form of the generalized Koopman operator for control, which yields a Khatri–Rao regression problem. Then we developed a time-sequenced multi-step method to reduce the multi-step prediction error of the model fitted via ker-nel regression. To reduce the dimension of the generalized Koopman model we used a structured SVD approach which eliminates redundant features. Finally, the complete framework was implemented in an MPC pipeline and validated on the chaotic Lorenz system, using random Fourier features. Future work will deal with further optimizing GeKo models for MPC and tailored efficient solvers. REFERENCES [1] M. Lazar, “From product Hilbert spaces to the generalized Koop-man operator and the nonlinear fundamental lemma,” arXiv preprint arXiv:2508.07494 , 2026. [2] B. O. Koopman, “Hamiltonian systems and transformation in Hilbert space,” Proceedings of the National Academy of Sciences , vol. 17, no. 5, pp. 315–318, 1931. [3] A. Mauroy, Y. Susuki, and I. Mezi´ c, Koopman Operator in Systems and Control . Springer, 2020. [4] M. O. Williams, I. G. Kevrekidis, and C. W. Rowley, “A data-driven approximation of the Koopman operator: Extending dynamic mode decomposition,” Journal of Nonlinear Science , vol. 25, no. 6, pp. 1307– 1346, 2015. [5] R. Str¨ asser, K. Worthmann, I. Mezi´ c, J. Berberich, M. Schaller, and F. Allg¨ ower, “An overview of Koopman-based control: From error bounds to closed-loop guarantees,” Annual Reviews in Control , vol. 61, p. 101035, 2026. [6] J. L. Proctor, S. L. Brunton, and J. N. Kutz, “Dynamic mode decom-position with control,” SIAM Journal on Applied Dynamical Systems ,vol. 15, no. 1, pp. 142–161, 2016. [7] M. Korda and I. Mezi´ c, “Linear predictors for nonlinear dynamical sys-tems: Koopman operator meets model predictive control,” Automatica ,vol. 93, pp. 149–160, 2018. [8] S. Peitz, S. E. Otto, and C. W. Rowley, “Data-driven model predictive control using interpolated Koopman generators,” SIAM Journal on Applied Dynamical Systems , vol. 19, no. 3, pp. 2162–2193, 2020. [9] D. Goswami and D. A. Paley, “Bilinearization, reachability, and opti-mal control of control-affine nonlinear systems: A Koopman spectral approach,” IEEE Transactions on Automatic Control , vol. 67, no. 6, pp. 2715–2728, 2022. [10] B. Lusch, J. N. Kutz, and S. L. Brunton, “Deep learning for universal linear embeddings of nonlinear dynamics,” in Nature Communications ,vol. 9, 2018, p. 4950. [11] K. Worthmann, R. Str¨ asser, M. Schaller, J. Berberich, and F. Allg¨ ower, “Data-driven MPC with terminal conditions in the Koopman frame-work,” in 63rd IEEE Conference on Decision and Control (CDC) , 2024, pp. 1–7. [12] T. de Jong, V. Breschi, M. Schoukens, and M. Lazar, “Koopman data-driven predictive control with robust stability and recursive feasibility guarantees,” in 63rd IEEE Conference on Decision and Control (CDC) ,2024, pp. 140–145. [13] I. Schimperna, L. Bold, and K. Worthmann, “Offset-free nonlinear MPC with Koopman-based surrogate models,” in IFAC Conference on Nonlinear Model Predictive Control (NMPC) , 2024. [14] L. Bold, F. M. Philipp, M. Schaller, and K. Worthmann, “Kernel-based Koopman approximants for control: Flexible sampling, error analysis, and stability,” SIAM Journal on Control and Optimization , vol. 63, no. 6, pp. 4044–4071, 2025. [15] R. Str¨ asser, M. Schaller, K. Worthmann, J. Berberich, and F. Allg¨ ower, “SafEDMD: A Koopman-based data-driven controller design framework for nonlinear dynamical systems,” Automatica , vol. 185, p. 112732, 2026. [16] M. Haseli and J. Cort´ es, “Modeling nonlinear control systems via Koopman Control Family: Universal forms and subspace invariance proximity,” Automatica , vol. 185, p. 112722, 2026. [17] M. Haseli, J. Cort´ es, and J. W. Burdick, “Control forward-backward con-sistency: Quantifying the accuracy of Koopman control family models,” 
+
+arXiv preprint arXiv:2603.27548 , 2026. [18] J. Conradie, N. Boull´ e, J.-C. Loiseau, S. L. Brunton, and M. J. Colbrook, “Trustworthy Koopman operator learning: Invariance diagnostics and error bounds,” arXiv preprint arXiv:2603.15091 , 2026. [19] L. Wu, W. G. Y. Tan, L. Zhou, R. D. Braatz, and J. Drgoˇ na, “A least-squares multi-step Koopman operator for model predictive control,” 
+
+arXiv preprint arXiv:2601.11901 , 2026. [20] A. Rahimi and B. Recht, “Random features for large-scale kernel machines,” in Advances in Neural Information Processing Systems (NeurIPS) , 2007, pp. 1177–1184. [21] S.-K. Yang, C.-L. Chen, and H.-T. Yau, “Control of chaos in lorenz system,” Chaos, Solitons & Fractals , vol. 13, no. 4, pp. 767–780, 2002. [22] E. Kaiser, J. N. Kutz, and S. L. Brunton, “Sparse identification of nonlinear dynamics for model predictive control in the low-data limit,” 
+
+Proceedings of the Royal Society A , vol. 474, no. 2219, p. 20180335, 2018.

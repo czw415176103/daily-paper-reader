@@ -1,0 +1,5187 @@
+Title: Predictive Moving Sample Method for Physics-Informed Neural Solvers of Time-Dependent PDEs
+
+URL Source: https://arxiv.org/pdf/2605.26745v1
+
+Published Time: Wed, 27 May 2026 01:02:07 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# PREDICTIVE MOVING SAMPLE METHOD FOR 
+
+# PHYSICS -I NFORMED NEURAL SOLVERS OF TIME -D EPENDENT 
+
+# PDE S
+
+Beining Xu ⋆, Bocheng Zhang ⋆
+
+The School of Information Science and Technology and the Institute of Mathematical Sciences ShanghaiTech University Shanghai 201210, China 
+
+{xubn2024, zhangbch2023 }@shanghaitech.edu.cn 
+
+Haijun Yu 
+
+SKLMS & LSEC, Institute of Computational Mathematics and Scientific/Engineering Computing Academy of Mathematics and Systems Science, Chinese Academy of Sciences Beijing 100190, China School of Mathematical Sciences University of Chinese Academy of Sciences Beijing 100049, China 
+
+hyu@lsec.cc.ac.cn 
+
+Zhao Zhang 
+
+Research Center for Mathematics and Interdisciplinary Sciences Shandong University Qingdao, Shandong Province, 266237, China Frontiers Science Center for Nonlinear Expectations, Minister of Education Shandong University Qingdao, Shandong Province, 266237, China 
+
+zhaozhang@sdu.edu.cn 
+
+Jiayu Zhai †
+
+The Institute of Mathematical Sciences ShanghaiTech University Shanghai 201210, China 
+
+zhaijy@shanghaitech.edu.cn 
+
+ABSTRACT 
+
+Time-dependent partial differential equations (PDEs) often develop sharp fronts, localized peaks, and other moving structures that occupy only a small portion of the space–time domain but dominate the approximation error. This makes fixed or uniformly sampled collocation strategies inefficient for physics-informed neural networks (PINNs), especially in high dimensions and over long-time prediction intervals. We propose the predictive moving sample method (PMSM), which builds on the moving sample method (MSM) in [1] by replacing its full time domain iterative training with a progressive time-stepping strategy and simplifying the velocity-field loss to further reduce the per-step cost. To improve practicality for long-time prediction, we further introduce the windowed-reset predictive moving sample method (WR-PMSM), which restricts extension training to an active time  
+
+> ⋆
+
+Co-first authors listed alphabetically.  
+
+> †
+
+Corresponding author. 
+
+> arXiv:2605.26745v1 [math.NA] 26 May 2026
+
+window and periodically resets the reference state, thereby reducing the growth of optimization cost while preserving global consistency through a final refinement stage. Across four representative benchmarks, PMSM consistently outperforms both standard PINNs and the original MSM under matched collocation budgets. These results suggest that transporting samples according to residual dynamics provides an effective and practical route to neural network solvers for time-dependent PDEs. 
+
+Keywords Partial differential equations · Physics-informed neural networks · Transport equation ·
+
+Adaptive sampling · Optimal transport 
+
+1 Introduction 
+
+Partial differential equations (PDEs) provide a standard mathematical framework for describing various physical phe-nomena, such as fluid dynamics, heat conduction, and wave propagation. In recent years, physics-informed neural networks (PINNs) have developed rapidly. By directly embedding physical PDEs and initial or boundary conditions into the training process of neural networks and utilizing automatic differentiation in machine learning frameworks, PINNs conveniently train neural network solution approximations at the sampled collocation points in the computa-tional domain [2]. As a mesh-free method, PINNs avoid mesh construction and numerical differentiation and provide a flexible framework for solving both forward and inverse high-dimensional problems. However, this brings a new problem: when the equations involve both high dimensionality and moving singularities, the sampling strategy of the training collocation points becomes a key factor determining the training efficiency and solution quality. Vanilla PINNs usually just use uniformly sampled collocation points most of which are not able to capture singu-larity characteristics of the solution, so that the neural network cannot learn these characteristics. Starting from [3], adaptive sampling strategies were introduced to overcome this difficulty for neural network solvers. As a counterpart of adaptive mesh refinement in traditional numerical methods such as finite element method (FEM), most adaptive sampling methods are designed with ideas from adaptive mesh refinement. In [4], an adaptive sampling method were explained as a variance reduction technique through importance sampling, which can be considered as a starting point of theoretical study of adaptive sampling method. In [5], adaptive sampling is considered as an optimal collocation distribution selection for integrating the differential equation, and the convergence of the method and the adaptivity of the samples are proved with optimal transport theory. The aforementioned methods mainly deal with stationary equations, which means the singularities stay in local re-gions. However, a major difficulty in solving time-dependent PDEs is that these equations are not complex over the entire spatio-temporal domain and their local singularities move over time. Then the training collocation points need to capture the dynamics of the moving singularities, so that the neural network can focus on learning them efficiently, while spending less effort on relatively smoother regions. Regarding this characteristic of time-dependent PDEs, some works have studied the evolution of samples over time. For example, active learning and particle dynamics in the neural Galerkin direction [6, 7], and the normalized residual distribution at discrete time steps is treated as the invari-ant distribution of stochastic differential equations (SDEs), then these SDEs are used to generate adaptive samples. Similarly, [8, 9] also use SDEs to sample moving collocation points. However, SDE samplers need to subdivide time steps into sub-intervals, which requires the numerical SDE scheme to generate transient samples converging to the residual distribution fast (see [10]). In [11], MCMC is used to regenerate adaptive samples at each time step, but this causes a huge computational cost and relies on the design of the MCMC to avoid high rejection rates, particularly for high singularities and high dimensionalities of the problem. In [12], a moving sampling PINNs inspired by mov-ing mesh PDEs is introduced, but it is significantly different from our approach. Our approach is based on moving sample method (MSM) [1], which can be considered as the probabilistic version of the moving mesh method. To be specific, the dynamics of the adaptive samples are driven by a gradient ordinary differential equation (ODE) system whose potential is learned from a governing equation. In [1], a probabilistic version of equidistribution property is both theoretically proved and numerically verified for MSM. Although MSM can efficiently capture the dynamics of singularities with the coupled gradient system, it still needs to learn the time-dependent potential over the entire time interval. This makes the learning for the ODE sampler expensive if the time interval is long and difficult for MSM to make long-time prediction. To address this we propose the predictive moving sample method (PMSM). Instead of training the potential on all Nt time steps, PMSM introduces a progressive time-stepping strategy. To be specific, PMSM trains on only N init  
+
+> t
+
+time steps initially, where N init  
+
+> t
+
+is a relatively small integer. Then it extends on the time dimension one step at a time: using the current velocity field to predict temporary samples for the new time step, training the PINNs, updating the velocity field with the new residuals, and finally evolving the adaptive samples with the updated velocity field. This progressive strategy allows the method to iterate over longer time domains and improves the capacity to capture long-term solution trajectories. 2At the same time, when the time step is chosen small enough, we can assume the residual is approximately constant. Then the governing equation for the adaptive sample distribution is significantly simplified without the global integral-normalization term at each time step in the original MSM loss. The local velocity learning and simplified loss together reduce the overall computational cost and make long-time prediction possible. After the extension stage, the velocity networks will be dropped and only the adaptive samples over the entire time domain are collected. Then a final refinement stage trains the solution network on the full set of collected samples. To make this method more practical for long-time prediction, we further develop the windowed-reset predictive mov-ing sample method (WR-PMSM). Because the simplified velocity-field loss no longer depends on a global residual integral, we can restrict extension-stage PINNs training to an active time window and periodically reset the temporal reference point for the initial condition. At each reset, the current PINNs is frozen as a reference model that supplies the initial-condition supervision for the next window, while the velocity network continues to track singular regions on local time slices. After all samples have been collected, a global refinement stage restores consistency over the entire time domain. This strategy inhibits the growth of per-step training complexity with respect to the time-domain size, improving the usability of PMSM on problems with long evolution times. The remaining part of this paper is organized as follows. Section 2 introduces preliminaries, including moving mesh methods, PINNs, collocation distributions and residual-based adaptivity, probability transport and sample flows, HMC-based initial sampling, and a review of the MSM formulation and algorithm. Section 3 presents the PMSM method design, covering the simplified velocity-field loss, the progressive time-extension strategy, and the WR-PMSM variant. Section 4 reports numerical results. Section 5 concludes the paper. 
+
+2 Preliminaries 
+
+This section sets the notation and mathematical background for PMSM. We first review the moving-mesh idea that motivates sample dynamics for MSM, then recall the residual formulation of PINNs for time-dependent PDEs, discuss how the choice of collocation distribution affects the empirical residual loss, summarize the probability-transport viewpoint used to connect moving samples with evolving residual distributions, describe the Hamiltonian Monte Carlo (HMC) initialization used to seed the adaptive trajectories, and finally provide a systematic review of the moving sample method (MSM) formulation and algorithm as the foundation on which PMSM builds. 
+
+2.1 Moving mesh PDE methods (MMPDE) 
+
+Moving mesh methods provide a classical paradigm for dynamic resource allocation in numerical PDEs. It lies the equidistribution principle [13, 14]: mesh density should be controlled by a positive monitor function M (x) that measures local computational demand. In one dimension, the coordinate mapping x = x(ξ) from a computational coordinate ξ ∈ [0 , 1] to the physical domain satisfies 
+
+M (x(ξ)) ∂x ∂ξ = C, (1) where C is a constant independent of ξ, determined by boundary conditions so that the total number of mesh points remains fixed. A larger monitor value implies finer physical mesh spacing. Typical choices of M rely on local error indicators, gradients, curvature, or residual information. For time-dependent problems, MMPDE relocate grid points by continuously evolving the coordinate mapping in time. A common construction starts from a mesh-energy functional [15]: 
+
+I[ξ] = 12
+
+Z
+
+> Ω
+> d
+
+X
+
+> i=1
+
+∇ξTi M −1 
+
+> i
+
+∇ξidx, (2) where each Mi is a symmetric positive-definite monitor matrix. The gradient-flow relaxation 
+
+∂ξ
+
+∂t = − PτδI δξ , (3) uses a parameter τ > 0 to control the response time of mesh motion and an operator P to select a specific MMPDE form [16]. Near the steady state of the energy, this yields 
+
+∂ξi
+
+∂t = Pτ ∇ · (M −1 
+
+> i
+
+∇ξi). (4) 3In one dimension, a standard instance of MMPDE is given by 
+
+∂x ∂t = 1
+
+τ∂∂ξ 
+
+
+
+M ∂x ∂ξ 
+
+
+
+. (5) The moving-mesh viewpoint separates two concerns: the monitor function identifies where computational resolution is needed, while the mesh dynamics describe how degrees of freedom should move. MSM [1] bears a similar spirit: the PDE residual plays the role of a monitor, while the adaptive collocation points move according to a learned velocity field rather than a prescribed mesh equation. 
+
+2.2 Introduction to physics-informed neural networks 
+
+Physics-informed neural networks (PINNs) [2] have emerged as a novel deep learning framework for solving partial differential equations. By embedding the governing physical laws into the loss function, PINNs enforce consistency between the network output and the underlying PDE constraints. This integration enables the method to leverage both data and physics, offering a flexible alternative to traditional numerical solvers. The general form of the problem is a time-dependent PDE in Ω × [0 , T ]:
+
+
+
+Lu(x, t ) = f (x, t ), (x, t ) ∈ Ω × [0 , T ],
+
+Iu(x, 0) = u0(x), x ∈ Ω,
+
+Bu(x, t ) = ub(x, t ), (x, t ) ∈ ∂Ω × [0 , T ].
+
+(6) Here L denotes the differential operator of the governing equation, while I and B denote the initial and boundary operators. In PINNs, the unknown solution u(x, t ) is approximated by a parameterized deep neural network, which is usually implemented as a fully connected feedforward neural network uθ (x, t ) with L layers. Let θ denote the collection of all trainable parameters. Denoting the input as h(0) = ( x, t ), the network computes 
+
+h(l) = σ W (l)h(l−1) + b(l), l = 1 , . . . , L − 1,uθ (x, t ) = W (L)h(L−1) + b(L),
+
+where W (l) and b(l) are the weight matrix and bias vector of layer l, and σ(·) is a nonlinear activation function. The interior residual is 
+
+rθ (x, t ) = Luθ (x, t ) − f (x, t ). (7) For notational convenience, we write rt(x) as a shorthand for rθ (x, t ) at a fixed time t throughout the paper. The initial and boundary residuals are 
+
+r0 
+
+> θ
+
+(x) = Iuθ (x, 0) − u0(x), rb 
+
+> θ
+
+(x, t ) = Buθ (x, t ) − ub(x, t ). (8) The overall PINNs objective is a weighted residual minimization problem. With positive weights β0 and βb, a standard continuous loss takes the form 
+
+JPINNs (θ) = 
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+|rθ (x, t )|2 dxdt + β0
+
+Z
+
+> Ω
+
+|r0 
+
+> θ
+
+(x)|2 dx
+
++ βb
+
+Z T
+
+> 0
+
+Z
+
+> ∂Ω
+
+|rb 
+
+> θ
+
+(x, t )|2 dS dt. (9) In practice, the integrals in (9) are replaced by Monte Carlo averages over interior, initial, and boundary point sets. Thus the empirical training objective depends not only on the network architecture and optimizer, but also on the probability measures from which the collocation points are drawn. This dependence is crucial in the present work, because our goal is to replace a fixed interior sampling measure by a time-dependent adaptive measure. 
+
+2.3 Collocation distributions and residual-based adaptivity 
+
+The distribution of residual points determines which regions dominate the empirical PDE loss. If the interior points are sampled uniformly from Ω × [0 , T ], the empirical loss approximates an average residual over the whole domain. Such averaging is efficient for smooth solutions but can be ineffective when the solution contains localized fronts, peaks, or high-gradient layers. In those cases, the complex region may occupy a very small volume, so its contribution 4to the global average can be diluted even when its local error is large. This sampling effect is one of the reasons why standard PINNs can fail or train slowly on convection-dominated and strongly time-dependent problems [17, 18]. Residual-based adaptive sampling addresses this issue by changing the point distribution according to information obtained during training. Existing strategies include residual-based refinement, adaptive residual distributions, active learning, failure-informed sampling, generative sampling, and optimal-transport-based sampling [3, 11, 19, 4, 5]. A common abstraction behind these methods is to construct a residual-induced density [1], for example 
+
+ρt(x) = |rt(x)|2 + ε
+
+R
+
+> Ω
+
+(|rt(y)|2 + ε) dy , (10) where rt(x) is the PDE residual at time t (as defined in Section 2.2) and ε > 0 provides a uniform background sampling while preventing degeneracy. Sampling from ρt allocates more points to high-residual regions and therefore increases their influence in the empirical loss. For time-dependent PDEs, however, residual-based adaptivity should account for temporal motion as well as spatial concentration. A high-residual region at time t may move, deform, or disappear at a later time. Repeatedly resampling independent point sets at each time slice can respond to the current residual, but it does not preserve the trajectories of previously informative points, nor does it exploit the continuity of the solution structures between adjacent time steps. MSM [1] addresses this by treating adaptive collocation as the evolution of a sample distribution: adaptive points are viewed as particles transported by a velocity field, continuously following the residual structures rather than being regenerated at each time slice. We adopt the same perspective in this work. 
+
+2.4 Probability transport and sample flows 
+
+In MSM, moving samples are described as a particle system transported by a velocity field [1]. Let Φt : Ω → Ω be a flow map and let V(x, t ) be a velocity field satisfying 
+
+∂Φt
+
+∂t (x) = V(Φ t(x), t ), Φ0(x) = x. (11) If the initial sample density is ρ0 and ρt denotes the density induced by the pushforward of ρ0 through Φt, then ρt
+
+satisfies the continuity equation 
+
+∂ρ t
+
+∂t + ∇ · (ρtVt) = 0 . (12) Conversely, under suitable regularity assumptions, solutions of (12) describe the density evolution generated by the particle flow (11) [20]. This equation is the probability analogue of conservation of mass: the probability density changes because samples are transported by the velocity field. It serves as the theoretical foundation for the sample evolution in both MSM and the proposed PMSM. 
+
+2.5 Initial adaptive sampling by Hamiltonian Monte Carlo 
+
+Before the sample flow is evolved, the initial adaptive particles should already resolve the important structures of the initial condition. Uniform initialization is simple, but it can place too few particles near narrow peaks, transition layers, or high-gradient fronts at t = 0 . We therefore generate the initial point set by sampling from an initial-condition-induced density. For a generic nonnegative initial profile, we use 
+
+π0(x) = |u0(x)| + ε
+
+R
+
+> Ω
+
+(|u0(y)| + ε) dy , (13) where ε > 0 is a small stabilizing constant. For Burgers-type traveling-front problems, sampling directly from u0
+
+would overemphasize the plateau of the sigmoid initial condition. In these cases, we instead use the gradient-energy monitor 
+
+πB0 (x) = ∥∇ u0(x)∥22 + ε
+
+R
+
+> Ω
+
+(∥∇ u0(y)∥22 + ε) dy , (14) which concentrates samples around the initial wave front. Both densities allocate more points to regions where the solution has stronger localized structure. We approximate samples from (13) or (14) by Hamiltonian Monte Carlo (HMC), an MCMC method [21]. Its proposal is corrected by the Metropolis–Hastings accept-reject rule [22, 23]. The target log probability is 
+
+ℓ0(x) = 
+
+
+
+log( |u0(x)| + ε), x ∈ Ω for generic initial profiles ,
+
+log( ∥∇ u0(x)∥22 + ε), x ∈ Ω for Burgers-type equations ,
+
+−∞ , x /∈ Ω.
+
+(15) 5Given a current state x and an auxiliary momentum p, HMC simulates leapfrog steps for the Hamiltonian 
+
+H(x, p) = − log π0(x) + 12 ∥p∥22, (16) and accepts the proposal (x′, p′) with probability 
+
+α(x, x′) = min {1, exp[ −H(x′, p′) + H(x, p)] }. (17) In the implementation, multiple chains are initialized in parallel, a burn-in phase is used to adapt the step size toward a target acceptance probability, and the resulting samples are shuffled and filtered to keep only points inside the computational domain. The accepted MCMC samples provide two point sets: the first part is used in C0 for the initial loss, while the remaining part is used as the seed set Z0 for the moving adaptive trajectories. We additionally mix a small number of uniformly sampled initial points into C0 to keep the initial-condition penalty globally anchored. 
+
+2.6 Moving sample method (MSM) 
+
+The core idea of moving sample method (MSM) [1] is to replace the fixed uniform sampling in standard PINNs with a time-evolving collocation measure νt, where νt is determined by the velocity field network trained by the transport equation (12). By setting an appropriate target distribution, sampling points can be clustered in regions with high singularity. Based on transport equation, MSM typically chooses r2 
+
+> t
+
+as the unnormalized target sampling distribution. This choice is consistent with the squared-residual objective of PINNs: regions that contribute more to the PDE loss should receive higher collocation density. MSM employs two fully connected neural networks: a solution network uθ (x, t ) and a scalar potential network 
+
+ψω (x, t ), with the velocity field obtained as Vω = ∇ψω . The solution network is trained with the standard PINNs residual loss, except that the measure of collocation points is replaced by the dynamic measure νt, ν0 and νb. The loss of uθ is given by 
+
+Ju(θ) = 
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+|L uθ − f |2 νt(dx)dt + λ0
+
+Z
+
+> Ω
+
+|I uθ − u0|2ν0(dx)+ λb
+
+Z T
+
+> 0
+
+Z
+
+> ∂Ω
+
+|B uθ − ub|2 νb(dx)dt, (18) where λ0, λ b > 0 are balancing weights. For the velocity network Vω , applying the logarithmic form of the continuity equation to the target density yields the constraint that the velocity field Vt should satisfy: 
+
+2 ∂r t
+
+∂t + 2 ∇rt · Vt + rt ∇ · Vt − rt
+
+R 
+
+> Ω
+
+r2 
+
+> t
+
+dx Gt = 0 , Gt := ddt 
+
+Z
+
+> Ω
+
+r2 
+
+> t
+
+dx. (19) Equation (19) alone does not determine Vt uniquely, as it constrains only the divergence of the velocity field. By the Helmholtz decomposition [24], the solenoidal component does not affect density evolution and thus constitutes a degree of freedom. MSM therefore restricts Vt to a pure gradient form, parameterized through a scalar potential network ψω , i.e. Vω = ∇ψω , which reduces the output dimensionality of the network ψω .Substituting Vω = ∇ψω into (19) and converting to a least-squares objective gives the loss of velocity network ψω :
+
+J MSM  
+
+> V
+
+(ω) = 
+
+Z T
+
+> 0
+
+Z
+
+> Ω
+
+
+
+2 ∂r t
+
+∂t + 2 ∇rt · ∇ ψω + rt∆ψω − rt
+
+R 
+
+> Ω
+
+r2 
+
+> t
+
+dx Gt
+
+2
+
+dx dt, (20) where Gt is approximated by 
+
+Gt = ddt 
+
+Z
+
+> Ω
+
+r2 
+
+> t
+
+dx ≈
+
+R 
+
+> Ω
+
+r2 
+
+> ti+1
+
+− r2 
+
+> ti
+
+dx
+
+ti+1 − ti
+
+.
+
+The MSM algorithm can be summarized as three stages: pretrain the network uθ on uniform sampling points to get a velocity field Vt firstly; then, for several iterations, add new collocation points by using the current velocity field to evolve the samples over all Nt time steps and retrain both networks; finally, after all iterations, perform a final refinement training of the solution network on the collected samples. 6MSM provides an elegant probability-transport framework for adaptive sampling in PINNs for solving time-dependent PDEs. However, it can be inefficient when dealing with some dynamical systems with long evolution times, for the following two reasons: (1) The loss function of the velocity field Vt requires significant computational resources. Since Gt contains the time derivative with respect to the integral, time slices need to be passed in pairs during computation. This affects computational efficiency to some extent. Furthermore, the original method is also difficult to solve the evolution of dynamical systems over long time periods. When time T is large (corresponding to a large number of time steps Nt), the collocation set C = {(x(i)Ω , t (i))}N ×Nt 
+
+> i=1
+
+grows linearly with Nt, causing memory consumption and computation time to increase steadily per iteration. (2) Re-evolving the adaptive samples on all time steps from the initial points at every iteration reduces efficiency for long-time prediction. MSM resamples Z0 from π0 at each iteration, then evolves samples over all Nt time steps with the newly trained velocity field. This is reasonable for problems over short time domains—it allows each round to re-evolve the adaptive trajectories using an improved solution estimate. In long-time scenarios, however, information from the initial time t = 0 has limited influence on residuals near t = T , so the benefit of repeatedly evolving all time steps from scratch diminishes while the computational cost continues to grow. Moreover, J MSM  
+
+> V
+
+involves a double integral over the full spatial and temporal domains; recomputing this global quantity at every iteration adds considerable overhead. 
+
+3 Predictive moving sample method (PMSM) 
+
+Building upon the probability transport framework of Moving sample method (MSM), we introduce an improved method named Predictive moving sample method (PMSM). The main modifications can be summarized in the fol-lowing two aspects. First, the extension stage adopts a progressive time-stepping strategy, which focuses on the local evolution of adaptive collocation points without requiring a fully trained solution and velocity network over the entire time domain at every iteration. Second, and in connection with this, the velocity field loss is simplified: the time integral is restricted to the current time slice, and the global normalization term is dropped under a small timestep approximation. 
+
+3.1 Loss simplification for velocity field 
+
+For J MSM  
+
+> V
+
+in equation (20), the Gt involves computationally demanding operations, which significantly affect the efficiency of the algorithm. Since Gt involves taking the time derivative of a spatial integral of r2 
+
+> t
+
+, its evaluation requires a discrete approximation, which makes the loss of Vt more complex. Computing the loss at a given time 
+
+t1 requires access to the residual at the next time step t2, so the loss input (x, t ) is replaced by (x, (t1, t 2)) in MSM and evaluates the residuals at both times. Although we currently adopt a fixed time step ∆t, this dependency still introduces a computational burden, which becomes particularly pronounced in long-time simulations. Motivated by the above issue, we seek to simplify the term Gt. A natural observation is that the residuals at two adjacent time typically do not vary significantly, an effect that becomes even more pronounced when the time step 
+
+∆t is small enough. This property can be further strengthened through appropriate algorithmic design, enabling us to neglect this term under suitable conditions. Therefore the computation of the full time-domain integral in J MSM  
+
+> V
+
+(20) reduces to computation on the current time slice. Concretely, PMSM assumes that the global normalization term rtR   
+
+> Ωr2
+> tdx
+
+Gt (where Gt = ddt 
+
+R 
+
+> Ω
+
+r2 
+
+> t
+
+dx) is small enough, since under the small timestep hypothesis the variation of the normalization constant is small compared with the local residual variation. Compared with the original MSM, PMSM no longer requires numerical evaluation of the derivative terms with respect to the integral in the JV, which significantly reduces the training time. In summary, the simplified PMSM velocity-field loss is 
+
+J PMSM  
+
+> V
+
+(ω) = 
+
+Z
+
+> Ω
+
+
+
+2 ∂∂t rt + 2 ∇rt · Vω + rt∇ · Vω
+
+2
+
+dx
+
+=
+
+Z
+
+> Ω
+
+
+
+2 ∂∂t rt + 2 ∇rt · ∇ ψω + rt∆ψω
+
+2
+
+dx. (21) 
+
+3.2 Progressive time extension strategy 
+
+The core innovation of PMSM is a progressive time-extension strategy that replaces MSM’s full-time-domain syn-chronous iteration with step-by-step time marching. For boundary and initial conditions, the collocation points are 7fixed spatial point sets repeated over all time steps, following the same approach as MSM. For the adaptive collocation points used in the PDE loss, we propose a new training procedure, detailed below. The first stage is the initial stage for uθ and Vω . PMSM trains on only the first N init  
+
+> t
+
+time steps rather than total time steps. The initial time grid is given by 
+
+T 0global = {t0, t 1, . . . , t N init  
+
+> t−1
+
+}. (22) On this initial block, the solution network uθ is trained first, followed by the potential network ψω . Finally, the adaptive seeds Z0 are pushed forward by the learned velocity field to form the initial adaptive trajectories over T 0global .This stage essentially corresponds to one iteration of the MSM algorithm, except that it is carried out fewer shorter time steps. This stage provides PMSM with its initial solution model, initial adaptive sample set on T 0global , and initial velocity field. The second stage is the extension stage, which iterates several times, each time extending the computational time domain of the network by a certain length. In the experiments presented in Section 4, we prolong the time domain by exactly one time step per iteration. For each newly introduced time step ti, PMSM follows a predict–train–update cycle: 1. Temporary sampling. The solution network uθ and velocity field Vω are already available on [t0, t i−1].Using the velocity field from the previous iteration, we can advance the existing adaptive trajectories from 
+
+ti−1 to ti, producing temporary sampling points at the newly added time slice ti.2. Training for solution network uθ . These temporary samples are combined with the existing adaptive collo-cation set as the training set for this round. The solution network uθ is trained on [t0, t i], maintaining global validity of the solution while obtaining residual information at ti.3. VNN update and samples finalization. The velocity network ψω is trained using the residuals obtained on 
+
+[ti−1, t i]. The updated velocity field is then used to formally advance the adaptive trajectories to ti, yielding the final adaptive sampling points for that time step, which are added to the adaptive collocation set. In the implementation, PMSM maintains two time axes: Tglobal records all predicted time steps and is used for tra-jectory rollout, evaluation, and final global refinement; Ttrain ⊆ T global is the active training window, on which the PINNs collocation points are built during the extension stage. In the basic PMSM, Ttrain = Tglobal , i.e., all extended time steps are used. The WR-PMSM variant in Section 3.3 will further reduce the extension-stage cost by limiting the size of Ttrain .During the extension stage, we deliberately limit the extent of solution network training, using fewer epochs in practice. This is because the goal of solution-network updates at this stage is to produce a residual field that is sufficiently informative for training the velocity network, rather than to fully converge the solution at every newly added time step. After uθ update, the velocity network is trained on the recent time slice, and the updated velocity field is used to formally advance the adaptive trajectories. The ultimate purpose of the extension stage is to collect adaptive samples across the entire time domain, ensuring that adaptive points correspond to high-residual regions, while keeping the intermediate optimization local and computationally affordable. In this stage, we assume that when the time interval ∆t is sufficiently small, the variation of the velocity field between two consecutive time is limited. Under this assumption, the temporary sampling points generated are meaningful, as they can partially cover regions with strong singularities. This design also enables us to iterate the algorithm using loss 21 for long time, since the temporary sampling points at ti reduce the discrepancy between the residual integrals at ti−1 and ti, there by diminishing the error introduced by the assumption underlying our simplified loss formulation. The third stage after initial and extension is final global refinement. Once all extension rounds have finished, we reconstruct collocation points over the complete time grid Tglobal . The final PDE training set contains both the uniform spatial points repeated over all global time steps and the adaptive trajectories collected during the extension stage. Boundary samples are also rebuilt over the entire time domain. The solution network is then trained once more on this complete set, using a larger final training budget than an individual extension round. Algorithm 1 summarizes the base PMSM procedure at the step of method design. 
+
+3.3 Windowed-reset strategy for long time prediction 
+
+For long time prediction, the basic PMSM appends only one new time step per extension round, but each round trains on the entire Tglobal (Ttrain = Tglobal , see Section 3.2), so the computational cost still accumulates as Tglobal grows. To eliminate this growth, we introduce the WR-PMSM variant, which restricts extension stage training to a fixed size active window. 8Algorithm 1 Base PMSM training procedure 
+
+Input: Initial networks uθ , Vω , the initial uniform collocation points for PDE loss Su = {(x(i)Ω , t (i))}Nu×N init  
+
+> t
+> i=1
+
+, initial training set S0 = {x(i)0 }N0
+
+> i=1
+
+, boundary training set Sbdry = {(x(i)
+
+> ∂Ω
+
+, t (i))}Nb×N init  
+
+> t
+> i=1
+
+, the number of training iteration 
+
+Kext , training epochs Ku, K w for uθ , Vω in each iteration. 
+
+1: Train uθ and Vω on Su, S 0, S bdry using PMSM. 
+
+2: Draw initial adaptive seeds Z0 from π0 by HMC with a Metropolis–Hastings correction, then evolve them to Φt
+
+for t = 1 , 2, . . . , N init  
+
+> t
+
+− 1, and let Sadaptive = {(x(i)
+
+> adaptive
+
+, t (i))}N ×N init  
+
+> t
+> i=1
+
+.
+
+3: for j = 1 , 2, . . . , K ext do 
+
+4: Evolve temporary adaptive samples X′   
+
+> Ninit
+> t−1+ j
+
+based on Vω , concatenate X′   
+
+> Ninit
+> t−1+ j
+
+with the existing adaptive points to obtain (temporary) Sadaptive = {(x(i)
+
+> adaptive
+
+, t (i))}N ×(N init   
+
+> t+j)
+> i=1
+
+. Add the same boundary sampling points at t = ( N init  
+
+> t
+
+− 1 + j)∆ t, update Sbdry = {(x(i)
+
+> ∂Ω
+
+, t (i))}Nb×(N init   
+
+> t+j)
+> i=1
+
+.
+
+5: Update model uθ for Ku epochs by descending the stochastic gradient of Ju (18) on Su ∪ Sadaptive , S 0, S bdry .
+
+6: Update model Vω for Kw epochs by descending the stochastic gradient of JV (21) on Su.
+
+7: Evolve adaptive samples XN init   
+
+> t−1+ j
+
+based on new Vω , concatenate XN init   
+
+> t−1+ j
+
+with the existing adaptive points to obtain adaptive set Sadaptive = {(x(i)
+
+> adaptive
+
+, t (i))}N ×(N init   
+
+> t+j)
+> i=1
+
+.
+
+8: end for 
+
+9: Train uθ for Kf inal epochs on Su ∪ Sadaptive , S 0, S bdry (final refinement). 
+
+Output: uθ , S adaptive .In WR-PMSM, the two time axes Tglobal and Ttrain introduced in Section 3.2 are explicitly separated: collocation points during the extension stage are rebuilt only on Ttrain , while Tglobal is used only for trajectory rollout and final evaluation. We adopt a fixed size window policy: only the most recent W time steps are retained. When a window reset is triggered, the current solution network uθ is cloned as a reference model bu. In the next extension stage, the initial loss switches from the analytic initial condition u0(x) to the reference model’s output at the window start, bu(x, t start ), where tstart = min Ttrain . This means that as Ttrain advances and discards earlier time slices, the solution network is no longer required to refer directly back to the analytic initial condition at t = 0 . Instead, it is required to remain consistent with the previously learned solution at the entrance of the new window. This design preserves temporal continuity while enabling local training within each window. After all extension rounds, the collocation points are rebuilt on the full Tglobal , and the solution network is trained with the analytic initial condition to restore full time-domain consistency. Algorithm 2 gives WR-PMSM as used in the long-time experiments. 
+
+4 Numerical Experiments 
+
+In this section, we evaluate PMSM on four representative time-dependent PDEs. The first benchmark is a 2D Burgers’ problem with a narrow traveling front. The second is a 2D parabolic problem whose Gaussian peak moves along a curved trajectory while its amplitude grows and saturates. The third is a 3D Fokker–Planck problem whose proba-bility density remains concentrated near a moving shell. And the fourth is a 6D variable-speed Burgers’ problem, which combines high-dimensional sparsity with a decelerating front. Together these benchmarks test whether moving samples can track localized structures across different geometries and levels of difficulty. 
+
+4.1 Experimental setup 
+
+In terms of network architecture, the solution network for PMSM, MSM and PINNs adopts the same fully connected feedforward structure with three hidden layers. Each hidden layer has 64 neurons. The layout from the input layer to the output layer is [d + 1 , 64 , 64 , 64 , 1] , where d is the spatial dimension, with an additional time dimension. For the velocity potential network used in both PMSM and MSM, a single hidden layer configuration of [d + 1 , 256 , 1] is employed. Experiments indicate that this shallow network already possesses sufficient expressive capacity to represent the velocity field, while also offering improved training stability and reduced optimization cost. 9Algorithm 2 WR-PMSM for long-time prediction 
+
+Input: Solution network uθ , velocity network Vω , the initial uniform collocation points for PDE loss Su =
+
+{(x(i)Ω , t (i))}Nu×N init  
+
+> t
+> i=1
+
+, initial training set S0 = {x(i)0 }N0
+
+> i=1
+
+, boundary training set Sbdry = {(x(i)
+
+> ∂Ω
+
+, t (i))}Nb×N init  
+
+> t
+> i=1
+
+,initial adaptive seeds Z0 drawn from π0, initial time grid Tglobal = {t0, t 1, . . . , t N init  
+
+> t−1
+
+}, window size W , exten-sion rounds Kext , training epochs Ku, K w for uθ , Vω in each round. 
+
+1: Set Ttrain = Tglobal .
+
+2: Train uθ for Ku epochs on Su, S 0, S bdry by descending Ju (18). 
+
+3: Train Vω for Kw epochs on Su by descending JV (21). 
+
+4: Evolve Z0 to Φt for t = t1, . . . , t N init   
+
+> t−1
+
+and construct Sadaptive = {(x(i)
+
+> adaptive
+
+, t (i))}N ×N init  
+
+> t
+> i=1
+
+on Tglobal .
+
+5: for j = 1 , 2, . . . , K ext do 
+
+6: Append new time step tN init   
+
+> t−1+ j
+
+to Tglobal and Ttrain .
+
+7: Drop the earliest time step if |T train | > W .
+
+8: Build temporary samples X′   
+
+> Ninit
+> t−1+ j
+
+at the new step from the current Vω and build Stemporary  
+
+> adaptive
+
+= Sadaptive ∪
+
+X′   
+
+> Ninit
+> t−1+ j
+
+.
+
+9: if min Ttrain has changed then 
+
+10: Clone uθ as a frozen reference model bu.
+
+11: In Ju, replace the analytic initial condition u0(x) with bu(x, t start ) at tstart = min Ttrain , applied to the initial loss on Ttrain .
+
+12: end if 
+
+13: Rebuild Su, S bdry on Ttrain ; update Stemporary  
+
+> adaptive
+
+to retain only the trajectories on Ttrain .
+
+14: Update uθ for Ku epochs on Su ∪ Stemporary 
+
+> adaptive
+
+, S 0, S bdry by descending Ju (18). 
+
+15: Update Vω for Kw epochs on Su by descending JV (21). 
+
+16: Evolve XN init   
+
+> t−1+ j
+
+from the updated Vω and concatenate to Sadaptive on Tglobal .
+
+17: end for 
+
+18: Rebuild Su, S adaptive , S bdry on the full Tglobal .
+
+19: Train uθ for Kf inal epochs on Su ∪ Sadaptive , S 0, S bdry with analytic initial condition u0(x) (final refinement). 
+
+Output: uθ and Sadaptive on Tglobal .The main accuracy metrics are the relative L2 error 
+
+EL2 = ∥upred − u∥2
+
+∥u∥2
+
+,
+
+and the absolute L∞ error 
+
+EL∞ = max  
+
+> x,t
+
+|upred (x, t ) − u(x, t )|,
+
+where upred denotes the predicted solution from the network, and u denotes the analytical solution. For all four experiments, the initial time is taken as t0 = 0 , and the time step is ∆t = 0 .05 . The initial rollout N init  
+
+> t
+
+= 2 
+
+for Experiments 4.2, 4.5 and 4.3, and N init  
+
+> t
+
+= 6 for 4.4. Since each extension round appends one new time step, the number of extension iterations is computed as 
+
+Kext = T − N init  
+
+> t
+
+× ∆t − t0
+
+∆t + 1 .
+
+When comparing different methods, we follow the training strategy of PMSM by partitioning the temporal dimension into uniform intervals of size ∆t, and adopting the same number of collocation points at each time step. Specifically, PMSM and MSM each employ N adaptive points and Nu uniform PDE points, while PINNs uses N +Nu fixed points. MSM is also configured with the same network architectures, and total epochs as PMSM, and the only difference lies in the training procedure (iterative training over the full time domain for MSM versus progressive time extension for PMSM). In Experiments 4.2 and 4.5, a Neumann boundary condition is additionally imposed during the training of the velocity network ψω . Since the Burgers’ equations feature infinitely long steep front structures, the samples may flow out of the computational domain Ω without boundary constraints, leading to a reduction of effective samples inside the domain at later times. To address this, we add a boundary penalty term to the loss function of the velocity potential network: 
+
+J bc  
+
+> V
+
+(ω) = 
+
+Z
+
+> ∂Ω
+
+ ∂ψ ω
+
+∂n
+
+2
+
+dS =
+
+Z
+
+> ∂Ω
+
+(∇ψω · n)2 dS, 
+
+10 where n is the outward unit normal vector on the boundary. This penalty term alleviates the issue of sampling points drifting out of the computational domain to some extent, allowing most of samples to concentrate within the interior. To present the results in a clear and concise manner, we adopt a plotting interval of 0.1, which differs from the computational time step ∆t = 0 .05 . This means that not all adaptive sampling points at every time level are displayed, yet the selected results are sufficient to demonstrate the effectiveness of our method. Table 1 summarizes the best results of various methods across all experiments, highlighting the improvements achieved by our enhanced approach. Detailed descriptions of the experiments and comprehensive results are provided in the respective subsections. Table 1: Error comparison among PINNs, MSM, and PMSM across four benchmark problems.                                                                                   
+
+> Problem Method Relative L2error L∞error 2D Burgers’ PINNs 1.359 ×10 −33.611 ×10 −2
+> MSM 1.292 ×10 −31.305 ×10 −2
+> PMSM 3.878 ×10 −45.403 ×10 −3
+> 2D parabolic PINNs 1.115 ×10 −13.694 ×10 −1
+> MSM 8.118 ×10 −22.068 ×10 −1
+> PMSM 4.338 ×10 −25.618 ×10 −2
+> 3D Fokker–Planck PINNs 2.507 ×10 −17.735 ×10 −1
+> MSM 1.495 ×10 −21.157 ×10 −1
+> PMSM 7.267 ×10 −33.127 ×10 −2
+> 6D Burgers’ PINNs 6.476 ×10 −32.303 ×10 −1
+> MSM 7.243 ×10 −41.835 ×10 −2
+> PMSM 2.456 ×10 −41.053 ×10 −2
+
+4.2 2D Burgers’ equation 
+
+Consider the following 2D Burgers’ equation: 
+
+ 
+
+> ∂u ∂t
+
+= α( ∂2u∂x 2 + ∂2u∂y 2 ) − u( ∂u ∂x + ∂u ∂y ), in Ω × [0 , T ],u(x, y, 0) = 11+ e x+y
+
+> 2α
+
+, in Ω,u(x, y, t ) = 11+ e x+y−t
+
+> 2α
+
+, on ∂Ω × [0 , T ].
+
+(23) The exact solution is 
+
+u(x, y, t ) = 11 + e x+y−t
+
+> 2α
+
+.
+
+In this experiment, we set α = 0 .001 , T = 1 .05 , and Ω = [ −1, 1] 2, so the front location is given by x + y = t.This equation combines nonlinear convection with diffusion, whose solution develops sharper gradients and stronger nonlinear features as the diffusion parameter α decreases, thereby increasing the difficulty of approximation. Since the region with steep fronts is very small, the complex area is confined to a thin transition layer. Because of its limited size, uniform sampling hardly covers this region, leading to poor approximation of the solution around there. PMSM and MSM use N = 500 adaptive points and Nu = 1000 uniform PDE points per time step, while the PINNs uses 1500 fixed interior points. With ∆t = 0 .05 , we perform 20 iterations in total, resulting in the final training time scale {0, 0.05 , . . . , 1.05 }. We set the network uθ to be trained for 7500 + 20 × 1500 + 15000 = 52500 epochs in our method, where the three terms correspond to pretraining, extension-stage iterations, and final refinement, respectively. The PINNs and MSM baselines train the solution network for the same epochs. Under the above parameter settings, the relative L2 error decreases from 1.359 × 10 −3 for PINNs to 3.878 × 10 −4 for PMSM, and the L∞ error decreases from 3.611 × 10 −2 to 5.403 × 10 −3. The errors of MSM have improved compared to PINNs, but it is still higher than that of PMSM. This pattern is consistent with the geometry of the problem: the main benefit of PMSM is not a uniform improvement over the whole domain, but a more accurate and persistent resolution of the narrow traveling front, and the progressive extension strategy of PMSM amplifies this benefit. Figure 1 presents the results obtained by our method for this example together with the corresponding pointwise error, where one can observe that the error remains small even in regions with strong singularities. Figure 2 shows 11 1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.00 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.00 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.10 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.10 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.20 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.20 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.30 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.30 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.40 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.40 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.50 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.50 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.60 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.60 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.70 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.70 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.80 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.80 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.90 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.90 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Value 
+
+0.000 
+
+0.001 
+
+0.002 
+
+0.003 
+
+0.004 
+
+Error 
+
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors Figure 1: PMSM predicted solution and absolute error heatmaps for the 2D Burgers’ equation (23) 1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+> X2
+
+t = 0.00 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.10 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.20 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.30 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.40 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+> X2
+
+t = 0.50 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.60 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.70 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.80 
+
+1 0 1
+
+X1 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+t = 0.90 
+
+Figure 2: PMSM adaptive sample trajectories for the 2D Burgers’ equation (23) 12 the adaptive sampling points obtained by our method, which at all time concentrate around the theoretical wavefront 
+
+x + y = t, ensuring accurate approximation in this region despite its narrow extent. These results demonstrate that our method achieves accurate approximation of the linear velocity field even under strongly singular conditions, further ensuring that the solution exhibits excellent accuracy. 1.0 0.5 0.0 0.5 1.0 
+
+> X1
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> X2
+
+t=0.00     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> X2
+
+t=0.00     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.10     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.10     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.20     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.20     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.30     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.30     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.40     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.40     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> X2
+
+t=0.50     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> X2
+
+t=0.50     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.60     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.60     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.70     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.70     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.80     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.80     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.90     
+
+> 1.0 0.5 0.0 0.5 1.0
+> X1
+
+t=0.90 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Value
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> 0.020
+> 0.025
+> 0.030
+> Error
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors 
+
+Figure 3: PINNs solution and absolute error heatmaps for the 2D Burgers’ equation (23) Figure 3 and 4 shows the results obtained by PINNs and MSM respectively. Although the global approximations look similar, the L∞ errors are significantly different, which means the location of the wavefront is not accurate for PINNs (see the left figure in Figure 5). Note that this result obtained by PINNs is the best selected from several runs, since we know the result. So uniformly sampled collocation points in the vanilla PINNs can not capture the key structure of the solution stably. In contrast, both MSM and PMSM yield more stable and accurate results, with PMSM exhibiting a better performance (see the right figure in Figure 5). 
+
+4.3 2D parabolic equation 
+
+Consider a 2D parabolic equation with a moving Gaussian peak whose amplitude grows and saturates: 
+
+
+
+∂u ∂t − ∂2u∂x 2 − ∂2u∂y 2 = f (x, y, t ), in Ω × [0 , T ],u(x, y, t ) = ub(x, y, t ), on ∂Ω × [0 , T ],u(x, y, 0) = C0e− x2+y2 
+
+> α
+
+, in Ω.
+
+(24) The exact solution is 
+
+u(x, y, t ) = 
+
+
+
+C∞ − (C∞ − C0)e−βt 
+
+e− (x−t)2+( y−t2)2 
+
+> α
+
+, β > 0.
+
+13 1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.00 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.00 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.10 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.10 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.20 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.20 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.30 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.30 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.40 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.40 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.50 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> X2
+
+t=0.50 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.60 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.60 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.70 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.70 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.80 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.80 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.90 
+
+1.0 0.5 0.0 0.5 1.0 
+
+X1 
+
+t=0.90 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Value 
+
+0.0000 
+
+0.0005 
+
+0.0010 
+
+0.0015 
+
+0.0020 
+
+0.0025 
+
+0.0030 
+
+0.0035 
+
+0.0040 
+
+Error 
+
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors Figure 4: MSM solution and absolute error heatmaps for the 2D Burgers’ equation (23) 1.000 0.995 0.990 0.985 0.980 
+
+X
+
+0.9800 
+
+0.9825 
+
+0.9850 
+
+0.9875 
+
+0.9900 
+
+0.9925 
+
+0.9950 
+
+0.9975 
+
+1.0000 
+
+> Y
+
+PINNs | u_pred 
+
+Theoretical wavefront 
+
+0.120 0.125 0.130 0.135 
+
+X
+
+0.9100 
+
+0.9125 
+
+0.9150 
+
+0.9175 
+
+0.9200 
+
+0.9225 
+
+0.9250 
+
+0.9275 
+
+> Y
+
+MSM | u_pred 
+
+Theoretical wavefront 
+
+0.980 0.985 0.990 0.995 1.000 
+
+X
+
+0.8075 
+
+0.8050 
+
+0.8025 
+
+0.8000 
+
+0.7975 
+
+0.7950 
+
+0.7925 
+
+0.7900 
+
+> Y
+
+PMSM | u_pred 
+
+Theoretical wavefront 
+
+1.000 0.995 0.990 0.985 0.980 
+
+X
+
+0.9800 
+
+0.9825 
+
+0.9850 
+
+0.9875 
+
+0.9900 
+
+0.9925 
+
+0.9950 
+
+0.9975 
+
+1.0000 
+
+> Y
+
+PINNs | u_err 
+
+Theoretical wavefront 
+
+0.120 0.125 0.130 0.135 
+
+X
+
+0.9100 
+
+0.9125 
+
+0.9150 
+
+0.9175 
+
+0.9200 
+
+0.9225 
+
+0.9250 
+
+0.9275 
+
+> Y
+
+MSM | u_err 
+
+Theoretical wavefront 
+
+0.980 0.985 0.990 0.995 1.000 
+
+X
+
+0.8075 
+
+0.8050 
+
+0.8025 
+
+0.8000 
+
+0.7975 
+
+0.7950 
+
+0.7925 
+
+0.7900 
+
+> Y
+
+PMSM | u_err 
+
+Theoretical wavefront 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Value 
+
+0.005 
+
+0.010 
+
+0.015 
+
+0.020 
+
+0.025 
+
+0.030 
+
+Error 
+
+Figure 5: Enlarged views around the regions of maximum absolute error for the 2D Burgers’ equation (23) obtained by PINNs (left), MSM (middle) and PMSM (right) 14 We use Ω = [ −0.2, 2.5] 2, T = 1 .55 , α = 0 .01 , C∞ = 4 .0, C0 = 1 .0, and β = 2 .0. The peak center moves along the curved trajectory (x, y ) = ( t, t 2), its direction changes continuously with time, and its amplitude also varies. Compared with the Burgers’ equations, this problem is less about following a thin front and more about keeping the complex region covered while its position, orientation, and magnitude evolve together. This is a different kind of examination for sample motion: points that are well placed at an early time still need to bend with the trajectory and remain useful when the peak becomes larger at later times. For this experiment, PMSM and MSM use N = 500 adaptive points and Nu = 500 uniform PDE points per time step, while the PINNs uses 1000 fixed interior points. The rollout covers t = 0 , 0.05 , . . . , 1.55 , corresponding to 30 
+
+extension rounds. Since this experiment uses 30 extension rounds, the total epochs is 7500 + 30 × 1500 + 15000 = 67500 for uθ in PMSM. The PINNs and MSM baselines are trained for the same total number of solution network epochs. On this problem, MSM yields only a marginal improvement over PINNs: the relative L2 error stays at 
+
+8.118 × 10 −2 (versus 1.115 × 10 −1 for PINNs), and the L∞ error drops from 3.694 × 10 −1 to 2.068 × 10 −1. This limited gain reflects the difficulty of the full-time-domain iterative strategy when the peak simultaneously changes its position, direction, and amplitude. Re-evolving samples from t = 0 at each iteration may not adapt quickly enough to the combined variation. By contrast, PMSM reduces the relative L2 error to 4.338 × 10 −2 and the L∞ error to 
+
+5.618 × 10 −2. The progressive time extension strategy, which advances one time step at a time and updates the velocity field using local residual information, is better able to follow the curved trajectory and respond to the growing peak amplitude. Figure 6 shows that the dominant error is concentrated near the peak trajectory and in later times where the amplitude becomes larger. Figure 7 shows that PMSM keeps a high-density sample cloud near the moving peak and gradually reshapes that cloud as the trajectory bends and the amplitude grows. For comparison, Figure 8 shows the results obtained by PINNs. For PINNs method, the absolute error is noticeably large (see the bottom figure in Figure 8), indicating that it lacks sufficient accuracy in fitting the example with nonlinear moving and growing singularity. In Figure 9, we present a comparison at t = 1 .55 , showing the heatmaps of the solutions obtained by PMSM and MSM, together with their respective errors and the corresponding adaptive sampling points. Since MSM computes the velocity field over the entire time interval, numerical errors may accumulate when evolving the samples with this fixed velocity field. Moreover, the training of a potential field network with time-dependent magnitude and nontrivial variation inherently poses further challenges. As a result, the sampling points fail to move along with the singularity for large t, which in turn affects the overall solution quality and stability to a certain extent. However, PMSM performs better and still keeps a certain number of collocation points in the singularity region. This example therefore highlights that PMSM performs better for singularities with more complicated time dependence. 
+
+4.4 3D Fokker-Planck equation 
+
+Consider the following 3D SDE 
+
+
+
+dx = ( −4( x − e−t)(( x − e−t)2 + ( y − e−t)2 + ( z − e−t)2 − r2) − e−t)dt + σdW 1,dy = ( −4( y − e−t)(( x − e−t)2 + ( y − e−t)2 + ( z − e−t)2 − r2) − e−t)dt + σdW 2,dz = ( −4( z − e−t)(( x − e−t)2 + ( y − e−t)2 + ( z − e−t)2 − r2) − e−t)dt + σdW 3,
+
+(25) where W1, W 2, W 3 denote independent Wiener processes. The corresponding Fokker-Planck equation is 
+
+∂u ∂t = Lu = −∇ · (f u ) + ∇2(Du ), (26) where f =
+
+−4( x − e−t)(( x − e−t)2 + ( y − e−t)2 + ( z − e−t)2 − r2) − e−t
+
+−4( y − e−t)(( x − e−t)2 + ( y − e−t)2 + ( z − e−t)2 − r2) − e−t
+
+−4( z − e−t)(( x − e−t)2 + ( y − e−t)2 + ( z − e−t)2 − r2) − e−t
+
+ , D = σ2 
+
+> 2
+
+I. The initial condition is 
+
+u(x, y, z, 0) = 1
+
+K e− 2 
+
+> σ2(( x−1) 2+( y−1) 2+( z−1) 2−r2)2
+
+,
+
+where 
+
+K =
+
+y
+
+e− 2 
+
+> σ2(( x−1) 2+( y−1) 2+( z−1) 2−r2)2
+
+dxdydz. 
+
+The exact solution is therefore 
+
+u(x, y, z, t ) = 1
+
+K e− 2 
+
+> σ2(( x−e−t)2+( y−e−t)2+( z−e−t)2−r2)2
+
+,
+
+and the Dirichlet boundary condition is imposed from this analytical solution. 15 0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.20 
+
+0 1 2
+
+X1 
+
+t=1.20 
+
+0 1 2
+
+X1 
+
+t=1.30 
+
+0 1 2
+
+X1 
+
+t=1.30 
+
+0 1 2
+
+X1 
+
+t=1.40 
+
+0 1 2
+
+X1 
+
+t=1.40 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+3.5 
+
+Value 
+
+0.01 
+
+0.02 
+
+0.03 
+
+0.04 
+
+0.05 
+
+Error 
+
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors Figure 6: PMSM predicted solution (top) and absolute error (bottom) heatmaps for the 2D parabolic equation (24) with a moving and amplifying Gaussian peak 16 0 1 2                                        
+
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> X2
+> t = 0.00
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.10
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.20
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.30
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.40
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> X2
+> t = 0.50
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.60
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.70
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.80
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 0.90
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> X2
+> t = 1.00
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 1.10
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 1.20
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 1.30
+> 012
+> X1
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 t = 1.40
+
+Figure 7: PMSM adaptive sample trajectories for the 2D parabolic equation (24) This equation describes the evolution of a probability density under a 3D Fokker-Planck operator, where the drift field f induces a nonlinear transport toward a moving spherical structure. As time evolves, the shell center moves from (1 , 1, 1) toward the origin along the diagonal direction, while the density remains strongly localized around the radius-r surface. The main numerical difficulty is therefore not only the three-dimensionality of the domain, but also the fact that the informative region occupies a small fraction of the volume and has a nontrivial hollow geometry. Uniform collocation tends to waste many points in low density interior and exterior regions, and boundary data alone do not resolve where the probability mass should sit inside the domain. An adaptive method should instead keep concentrating samples near the moving high-probability shell throughout the evolution. In this experiment, we use σ = 0 .1, r = 1 .0, Ω = [0 , 2.1] 3 and T = 1 .15 . With ∆t = 0 .05 , the rollout starts from 
+
+6 initial time steps and appends one new time step at each of the 18 extension rounds. Under this rollout, the PMSM solution network is trained for 30000 + 18 × 6000 + 60000 = 198000 epochs. The PINNs and MSM baselines are trained for the same 198000 epochs. PMSM uses N = 1000 adaptive points and Nu = 2500 uniform PDE points per time step, together with N0 = 1000 adaptive initial-condition points, MSM uses the same as PMSM, while PINNs uses 3500 fixed interior points and the same 1000 initial points. As in the previous examples, MSM yields errors between those of PINNs and PMSM. PMSM reduces the relative L2
+
+error to 7.267 × 10 −3 and the L∞ error to 3.127 × 10 −2, compared with 2.507 × 10 −1 and 7.735 × 10 −1 for PINNs. The gain is meaningful in view of the shell geometry: a large L∞ error typically indicates that the learned density fails to place mass accurately near the narrow concentration surface, while the smaller PMSM error suggests that the moving samples are able to follow that surface more reliably. Figure 10 shows that the dominant approximation error is concentrated near the narrow moving shell, while the rest of the domain contributes comparatively little to the overall difficulty. Figure 11 shows that PMSM responds by transporting the adaptive points together with the shell-shaped high density region instead of leaving large numbers of points in the low density interior and exterior. This behavior is consistent with the strong reduction in both relative L2
+
+and L∞ errors, and it further illustrates that PMSM can adapt not only to fronts and peaks, but also to more intricate moving geometric structures. The results of PINNs and MSM are shown in Figure 12 and 13, while the adaptive samples obtained by MSM are given in Figure 14. PINNs cannot accurately fit the distribution over the entire spherical surface, showing significant errors both at the initial time and for larger t, and the quantitative error for PINNs is significantly large, with the maximum absolute error reaching 7.735 × 10 −1 (see the right figure in Figure 12). In comparison, MSM yields a clear improvement: its sample trajectories are able to follow the moving shell region (see Figure 14). However, because the solution and velocity field are learned across the entire time domain and the equation undergoes rapid changes during the initial period, the MSM error becomes sensitive to the weighting of the loss function and is still noticeable in the 17 0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.20 
+
+0 1 2
+
+X1 
+
+t=1.20 
+
+0 1 2
+
+X1 
+
+t=1.30 
+
+0 1 2
+
+X1 
+
+t=1.30 
+
+0 1 2
+
+X1 
+
+t=1.40 
+
+0 1 2
+
+X1 
+
+t=1.40 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+Value 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+Error 
+
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors Figure 8: PINNs solution (top) and absolute error (bottom) heatmaps for the 2D parabolic equation (24) 18 0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+3.5 
+
+Value 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+0.25 
+
+Error 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+> X2
+
+PMSM | u_pred 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+> X2
+
+PMSM | error 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+> X2
+
+PMSM | samples 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+> X2
+
+MSM | u_pred 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+> X2
+
+MSM | error 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+X1 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+> X2
+
+MSM | samples 
+
+PMSM vs MSM for parabolic at t=1.55 Figure 9: PMSM (top) and MSM (bottom) solution heatmaps (left), absolute error heatmaps (middle) and adaptive sample trajectories (right) at t = 1 .55 for the 2D parabolic equation (24) 0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+t=0.05 
+
+0 1 2
+
+X1 
+
+t=0.05 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.15 
+
+0 1 2
+
+X1 
+
+t=0.15 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.25 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.25 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.35 
+
+0 1 2
+
+X1 
+
+t=0.35 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.45 
+
+0 1 2
+
+X1 
+
+t=0.45 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+t=0.55 
+
+0 1 2
+
+X1 
+
+t=0.55 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.65 
+
+0 1 2
+
+X1 
+
+t=0.65 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.75 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.75 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.85 
+
+0 1 2
+
+X1 
+
+t=0.85 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.95 
+
+0 1 2
+
+X1 
+
+t=0.95 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+t=1.05 
+
+0 1 2
+
+X1 
+
+t=1.05 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.15 
+
+0 1 2
+
+X1 
+
+t=1.15 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Value
+> 0.0000
+> 0.0025
+> 0.0050
+> 0.0075
+> 0.0100
+> 0.0125
+> 0.0150
+> 0.0175
+> Error
+
+Heatmaps of network predictions and errors 
+
+Figure 10: PMSM two-dimensional heatmap of the solution on the slice z = 0 (left) and absolute error (right) visualizations for the 3D Fokker–Planck equation (26) 19 0 1 2
+
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+
+t = 0.00   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.05   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.10   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.15   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.20   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+
+t = 0.25   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.30   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.35   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.40   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.45   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+
+t = 0.50   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.55   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.60   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.65   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.70   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+
+t = 0.75   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.80   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.85   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.90   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 0.95   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+
+t = 1.00   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 1.05   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 1.10   
+
+> 012
+> X1
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+
+t = 1.15 Figure 11: Projection of adaptive sampling trajectories for the 3D Fokker–Planck equation (26) generated by PMSM in two dimensions. For better visualization, the plotting domain is enlarged compared with the computational domain first several time steps. PMSM further reduces this early error through the progressive time-stepping strategy, which resolves the initial transient more carefully before extending to later times. To be specific, in Figure 15, we present a comparison at t = 0 .1, z = 0 .5, showing the heatmaps of the solutions, errors and the projection of corresponding adaptive sampling points obtained by PMSM and MSM, where the projection is taken over samples with z ∈ [0 .3, 0.7] .In contrast, even with similarly distributed sample points, our method begins training over shorter time intervals and gradually extends the temporal domain. This strategy alleviates the difficulties of training at early time and leads to a noticeable improvement in accuracy. 
+
+4.5 Higher-Dimensional Burgers’ equation 
+
+We next consider a variable-speed d-dimensional Burgers’ equation and instantiate it in six dimensions: 
+
+
+
+∂u ∂t = g′(t) α
+
+dX
+
+i=1 
+
+∂2u∂x 2
+
+i
+
+− u
+
+dX
+
+i=1 
+
+∂u ∂x i
+
+!
+
+, in Ω × [0 , T ],u(x, 0) = 11 + exp 
+
+ Pdi=1 xi− d
+
+2 g(0) 2α
+
+ , in Ω,u(x, t ) = 11 + exp 
+
+ Pdi=1 xi− d
+
+2 g(t)2α
+
+ , on ∂Ω × [0 , T ],
+
+(27) 20 0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+t=0.05 
+
+0 1 2
+
+X1 
+
+t=0.05 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.15 
+
+0 1 2
+
+X1 
+
+t=0.15 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.25 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.25 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.35 
+
+0 1 2
+
+X1 
+
+t=0.35 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.45 
+
+0 1 2
+
+X1 
+
+t=0.45 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+t=0.55 
+
+0 1 2
+
+X1 
+
+t=0.55 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.65 
+
+0 1 2
+
+X1 
+
+t=0.65 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.75 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.75 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.85 
+
+0 1 2
+
+X1 
+
+t=0.85 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.95 
+
+0 1 2
+
+X1 
+
+t=0.95 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+t=1.05 
+
+0 1 2
+
+X1 
+
+t=1.05 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.15 
+
+0 1 2
+
+X1 
+
+t=1.15 
+
+0.2 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Value 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+Error 
+
+Heatmaps of network predictions and errors Figure 12: PINNs two-dimensional heatmap of the 3D solution on the slice z = 0 (left) and absolute error (right) visualizations for the 3D Fokker–Planck equation (26) 0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.00 
+
+0 1 2
+
+X1 
+
+t=0.05 
+
+0 1 2
+
+X1 
+
+t=0.05 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.10 
+
+0 1 2
+
+X1 
+
+t=0.15 
+
+0 1 2
+
+X1 
+
+t=0.15 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+t=0.20 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.25 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.25 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.30 
+
+0 1 2
+
+X1 
+
+t=0.35 
+
+0 1 2
+
+X1 
+
+t=0.35 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.40 
+
+0 1 2
+
+X1 
+
+t=0.45 
+
+0 1 2
+
+X1 
+
+t=0.45 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.50 
+
+0 1 2
+
+X1 
+
+t=0.55 
+
+0 1 2
+
+X1 
+
+t=0.55 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.60 
+
+0 1 2
+
+X1 
+
+t=0.65 
+
+0 1 2
+
+X1 
+
+t=0.65 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+t=0.70 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.75 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=0.75 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.80 
+
+0 1 2
+
+X1 
+
+t=0.85 
+
+0 1 2
+
+X1 
+
+t=0.85 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.90 
+
+0 1 2
+
+X1 
+
+t=0.95 
+
+0 1 2
+
+X1 
+
+t=0.95 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+0
+
+1
+
+2
+
+> X2
+
+t=1.00 
+
+0 1 2
+
+X1 
+
+t=1.05 
+
+0 1 2
+
+X1 
+
+t=1.05 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.10 
+
+0 1 2
+
+X1 
+
+t=1.15 
+
+0 1 2
+
+X1 
+
+t=1.15 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Value
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> Error
+
+Heatmaps of network predictions and errors 
+
+Figure 13: MSM two-dimensional heatmap of the 3D solution on the slice z = 0 (left) and absolute error (right) visualizations for the 3D Fokker–Planck equation (26) 21 1 0 1 2                                                                     
+
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+> t = 0.00
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.05
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.10
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.15
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.20
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+> t = 0.25
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.30
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.35
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.40
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.45
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+> t = 0.50
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.55
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.60
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.65
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.70
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+> t = 0.75
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.80
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.85
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.90
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 0.95
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> X2
+> t = 1.00
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 1.05
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 1.10
+> 1012
+> X1
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> t = 1.15
+
+Figure 14: Projection of adaptive sampling trajectories for the 3D Fokker–Planck equation (26) generated by MSM in two dimensions. For better visualization, the plotting domain is enlarged compared with the computational domain where g is continuously differentiable and monotonically increasing with respect to t. Its exact solution is 
+
+u(x, t ) = 11 + exp 
+
+ Pdi=1 xi− d 
+
+> 2
+
+g(t)2α
+
+ .
+
+In this experiment, we use d = 6 , Ω = [ −3, 3] 6, T = 1 .05 , α = 0 .01 , and the rational deceleration law 
+
+g(t) = t
+
+1 + t , g′(t) = 1(1 + t)2 .
+
+The front therefore satisfies P6
+
+i=1 xi = 3 g(t) and moves quickly at early times before gradually slowing down. This equation represents a high-dimensional generalization of the Burgers equation, where the dynamics are governed simultaneously by nonlinear convection and diffusion across d spatial directions. In six dimensions, the front is a high-dimensional transition surface, yet its neighborhood occupies an even smaller fraction of the ambient volume. The singularity region is therefore sparse from the viewpoint of random collocation, and a large portion of fixed points can fall far away from the part of the solution that determines the error. The rational law g(t) adds a second difficulty: the theoretical velocity field is no longer uniform but exhibits nonlinear variations, so a useful sampler must learn the pace of the motion, not only its direction. PMSM addresses both aspects by retaining adaptive trajectories near the front and updating their motion through the residual time evolution. We use N = 500 adaptive points and Nu = 1000 uniform PDE points for PMSM and MSM, while 1500 fixed interior points for the PINNs. We follow the same training setup as in the 2D Burgers experiment 4.2. 22 0.0                         
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Value
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> 0.07
+> Error
+> 0.0 0.5 1.0 1.5 2.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Y
+> PMSM | u_pred
+> 0.0 0.5 1.0 1.5 2.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Y
+> PMSM | error
+> 0.0 0.5 1.0 1.5 2.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Y
+> PMSM | samples
+> 0.0 0.5 1.0 1.5 2.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Y
+> MSM | u_pred
+> 0.0 0.5 1.0 1.5 2.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Y
+> MSM | error
+> 0.0 0.5 1.0 1.5 2.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> Y
+> MSM | samples
+
+PMSM vs MSM for Fokker-Planck at t=0.10, z=0.5 slice Figure 15: PMSM (top) and MSM (bottom) solution heatmaps (left), absolute error heatmaps (middle) and projection of adaptive sample trajectories (right) at t = 0 .1, z = 0 .5 slice for the 3D Fokker–Planck equation (26) Under this high-dimensional and nonuniform setting, the relative L2 error decreases from 6.476 × 10 −3 for PINNs to 2.456 × 10 −4 for PMSM. The L∞ error decreases from 2.303 × 10 −1 to 1.053 × 10 −2. The errors of MSM are like the previous example, between that of PINNs and PMSM. These are consistent with the geometric difficulty of the problem: the moving front occupies a small part of the six-dimensional domain, and transported samples provide denser coverage of that region. Since our PMSM does not train the velocity field over the entire time interval [0 , T ]
+
+like MSM, but instead computes the field between two adjacent time at each extension step, the training becomes more efficient and accurate. Since the full six-dimensional sample points cannot be visualized directly, Figure 16 and 18 show a 2D slice of the predicted solution and the corresponding error obtained by PMSM and PINNs, where x3 = x4 = x5 = x6 = 0 . The figure again confirms that the dominant error remains concentrated near the moving front. Figure 17 further shows that PMSM is able to keep the adaptive points close to the decelerating front trajectory rather than transporting them with a fixed speed. This behavior is precisely what the residual time derivative is intended to capture. MSM achieves comparable results, but PMSM exhibits better stability and solution accuracy. In this example, we demonstrate that PMSM is also capable of effectively solving high-dimensional problems. 
+
+4.6 Effect of WR-PMSM 
+
+We next examine the practical effect of WR-PMSM in Algorithm 2. The goal of this variant is to keep the extension stage training problem local in time while the adaptive trajectories continue to be rolled out over the global time axis. In all four runs reported in Table 2, we use a fixed active window with W = 10 .Table 2: Comparison between PMSM and WR-PMSM. WR-PMSM uses a fixed active window with W = 10 .
+
+Problem Schedule Relative L2 L∞ Memory 2D Burgers’ PMSM 3.878 × 10 −4 5.403 × 10 −3 0.636 GiB WR-PMSM 3.797 × 10 −4 8.155 × 10 −3 0.304 GiB 2D parabolic PMSM 4.338 × 10 −2 5.618 × 10 −2 0.643 GiB WR-PMSM 8.674 × 10 −2 8.994 × 10 −2 0.216 GiB 3D Fokker–Planck PMSM 7.267 × 10 −3 3.127 × 10 −2 2.414 GiB WR-PMSM 9.853 × 10 −3 3.029 × 10 −2 1.064 GiB 6D Burgers’ PMSM 2.456 × 10 −4 1.053 × 10 −2 1.595 GiB WR-PMSM 4.160 × 10 −4 1.701 × 10 −2 0.759 GiB 
+
+23 2 0 2
+
+X1 
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+> X2
+
+t=0.00 
+
+2 0 2
+
+X1 
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+> X2
+
+t=0.00 
+
+2 0 2
+
+X1 
+
+t=0.10 
+
+2 0 2
+
+X1 
+
+t=0.10 
+
+2 0 2
+
+X1 
+
+t=0.20 
+
+2 0 2
+
+X1 
+
+t=0.20 
+
+2 0 2
+
+X1 
+
+t=0.30 
+
+2 0 2
+
+X1 
+
+t=0.30 
+
+2 0 2
+
+X1 
+
+t=0.40 
+
+2 0 2
+
+X1 
+
+t=0.40 
+
+2 0 2
+
+X1 
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+> X2
+
+t=0.50 
+
+2 0 2
+
+X1 
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+> X2
+
+t=0.50 
+
+2 0 2
+
+X1 
+
+t=0.60 
+
+2 0 2
+
+X1 
+
+t=0.60 
+
+2 0 2
+
+X1 
+
+t=0.70 
+
+2 0 2
+
+X1 
+
+t=0.70 
+
+2 0 2
+
+X1 
+
+t=0.80 
+
+2 0 2
+
+X1 
+
+t=0.80 
+
+2 0 2
+
+X1 
+
+t=0.90 
+
+2 0 2
+
+X1 
+
+t=0.90 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+Value 
+
+0.0000 
+
+0.0005 
+
+0.0010 
+
+0.0015 
+
+0.0020 
+
+0.0025 
+
+0.0030 
+
+0.0035 
+
+0.0040 
+
+Error 
+
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors | slice: x3...xn=0 Figure 16: PMSM predicted solution (top) and absolute error (bottom) slice heatmaps for the 6D variable-speed Burgers’ equation (27). The visualization uses the slice x3 = x4 = x5 = x6 = 0 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> |u+v-target|
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+> Sum of second half dims: v
+
+t = 0.00 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.10 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.20 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.30 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.40 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+> Sum of second half dims: v
+
+t = 0.50 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.60 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.70 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.80 
+
+5.0 2.5 0.0 2.5 
+
+Sum of first half dims: u 
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+t = 0.90 
+
+Figure 17: Projected adaptive sample trajectories generated by PMSM for the 6D variable-speed Burgers’ equation (27). The projection uses u = x1 + x2 + x3 and v = x4 + x5 + x6
+
+24 2 0 2                                      
+
+> X1
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> X2
+> t=0.00
+> 202
+> X1
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> X2
+> t=0.00
+> 202
+> X1
+> t=0.10
+> 202
+> X1
+> t=0.10
+> 202
+> X1
+> t=0.20
+> 202
+> X1
+> t=0.20
+> 202
+> X1
+> t=0.30
+> 202
+> X1
+> t=0.30
+> 202
+> X1
+> t=0.40
+> 202
+> X1
+> t=0.40
+> 202
+> X1
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> X2
+> t=0.50
+> 202
+> X1
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> X2
+> t=0.50
+> 202
+> X1
+> t=0.60
+> 202
+> X1
+> t=0.60
+> 202
+> X1
+> t=0.70
+> 202
+> X1
+> t=0.70
+> 202
+> X1
+> t=0.80
+> 202
+> X1
+> t=0.80
+> 202
+> X1
+> t=0.90
+> 202
+> X1
+> t=0.90
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Value
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.14
+> 0.16
+> Error
+> Prediction Absolute Error
+
+Heatmaps of predictions and errors | slice: x3...xn=0 Figure 18: PINNs solution (top) and absolute error (bottom) slice heatmaps for the 6D variable-speed Burgers’ equa-tion (27). The visualization uses the slice x3 = x4 = x5 = x6 = 0 
+
+Table 2 reports the results and memory usage of PMSM and WR-PMSM across the four examples. We can observe that WR-PMSM significantly reduces computational resource consumption, while the loss in accuracy remains minor. The difference between these two methods is most relevant for long time training, where the base extension stage repeatedly revisits an increasingly long time axis. To display this effect, Figure 19 compares the extension stage TensorFlow peak memory on the 3D Fokker–Planck problem. Without an effective reset, the active time range grows with the rollout and the peak memory increases from 0.736 GiB to 2.413 GiB. With the fixed window, the same quantity stabilizes near 1.060 GiB after the active window is filled. Our tests confirm that this fixed-window configuration preserves solution accuracy while substantially lowering mem-ory and computational cost for long time predictions. As a result, the total computational cost scales linearly with the prediction length, in contrast to the quadratic growth exhibited by the base algorithm without windowing. 
+
+5 Conclusion 
+
+This paper proposes the predictive moving sample method (PMSM) for numerically solving time-dependent partial dif-ferential equations that feature moving singular structures. PMSM is built upon the probabilistic transport framework of the moving sample method (MSM), inheriting its dual-network architecture and the core idea of residual-driven transport of the sampling distribution. To accommodate long-time prediction scenarios, two key improvements are introduced. First, we replace the full-time-domain synchronous iteration of MSM with a stepwise progressive time-extension strategy. This strategy decouples the training scale of the extension phase from the total prediction duration, mak-25 0 2 4 6 8 10 12 14 16 18 
+
+> Extension iteration
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> 2.25
+> TensorFlow peak memory (GiB)  Base PMSM
+> WR-PMSM
+
+Figure 19: Extension stage TensorFlow peak memory on the 3D Fokker–Planck problem. The PMSM run uses an inactive reset setting, while WR-PMSM uses a fixed active window with W = 10 . The experimental parameter settings are as described in Subsection 4.4 ing long-time prediction computationally feasible. Second, we simplify the velocity field loss function. Under the approximation that the time interval is sufficiently small, we remove the full-domain time integration and the global normalization term from the original MSM loss, so that the velocity field training at each step relies only on the local residual information of the current time slice, thereby substantially reducing the per-step training cost. We further propose a variant, WR-PMSM, which employs an active training window strategy and periodic resets of the initial condition reference. By confining the optimization in the extension phase to a fixed-size time window, WR-PMSM allows the computational cost to grow nearly linearly with the prediction duration. Experimental results on four representative benchmark equations demonstrate that, under a comparable budget of interior collocation points, PMSM consistently achieves lower relative L2 and L∞ errors than both standard PINNs and the original MSM. WR-PMSM maintains comparable solution accuracy while substantially reducing memory consumption and computational overhead in long-time scenarios. Several directions are worth exploring in future work. First, the method’s sensitivity to the quality of the initial sample set should be reduced. In high-dimensional problems, the initial adaptive sample set may not adequately cover difficult regions, so the effectiveness of subsequent sample transport is bounded by the information content of the initial seeds. Second, more explicit sample quality control and online rejection mechanisms can be designed, such as identifying and discarding sample points that have become invalid or have drifted away from the target region during training, preventing them from being recurrently propagated and misleading the velocity field updates. Third, a tighter coupling between adaptive sample collection and error estimation of the solution network can be investigated, for example, by adaptively determining the number of new samples added in each round according to local error estimates, instead of using a fixed per-round sampling budget. 
+
+Acknowledgment 
+
+This work is partly supported by the Strategic Priority Research Program of the Chinese Academy of Sciences under grant number XDA0480504, by NSFC under Grant No. 12571471 and 12494543, by the Natural Science Foundation of Shandong Province (Grant No. ZR2024MA057), and by Open Foundation of the State Key Laboratory of Math-ematical Sciences (Grant No. SLMS-2025-KFKT-TD-11) J. Zhai is also partially supported by the ShanghaiTech Faculty Start-Up Fund. 
+
+Code Availability 
+
+The source code for this study is available at https://github.com/pmsm-pinn/pmsm-pinn 
+
+26 References 
+
+[1] Beining Xu, Haijun Yu, Jiayu Zhai, Kejun Tang, and Xiaoliang Wan. Moving sample method for solving time-dependent partial differential equations. arXiv preprint arXiv:2601.18575 , 2026. [2] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [3] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechan-ics and Engineering , 403:115671, 2023. [4] Kejun Tang, Xiaoliang Wan, and Chao Yang. DAS-PINNs: A deep adaptive sampling method for solving high-dimensional partial differential equations. Journal of Computational Physics , 476:111868, 2023. [5] Kejun Tang, Jiayu Zhai, Xiaoliang Wan, and Chao Yang. Adversarial adaptive sampling: Unify PINN and optimal transport for the approximation of pdes. In International Conference on Learning Representations ,volume 2024, pages 54641–54656, 2024. [6] Joan Bruna, Benjamin Peherstorfer, and Eric Vanden-Eijnden. Neural galerkin schemes with active learning for high-dimensional evolution equations. Journal of Computational Physics , 496:112588, 2024. [7] Yuxiao Wen, Eric Vanden-Eijnden, and Benjamin Peherstorfer. Coupling parameter and particle dynamics for adaptive sampling in neural galerkin schemes. Physica D: Nonlinear Phenomena , 462:134129, 2024. [8] Rouhan Wang and Dan Hu. Non-uniform random walk for adaptive sampling. Journal of Computational Physics ,538:114160, 2025. [9] Shiqin Liu, Shiyu Zhao, Yana Di, and Haijun Yu. A gradient-oriented diffusion sampling method for deep partial differential equation solvers. preprint , 2025. [10] Matthew Dobson, Yao Li, and Jiayu Zhai. Using coupling methods to estimate sample quality of stochastic differential equations. SIAM/ASA Journal on Uncertainty Quantification , 9(1):135–162, 2021. [11] Wenhan Gao and Chunmei Wang. Active learning based sampling for high-dimensional nonlinear partial differ-ential equations. Journal of Computational Physics , 475:111848, 2023. [12] Yu Yang, Qihong Yang, Yangtao Deng, and Qiaolin He. Moving sampling physics-informed neural networks induced by moving mesh pde. Neural Networks , 180:106706, 2024. [13] Carl de Boor. Good approximation by splines with variable knots. In A. Meir and A. Sharma, editors, Spline Functions and Approximation Theory , volume 21 of International Series of Numerical Mathematics , pages 57– 72. Birkh¨ auser, 1973. [14] Andrew B White, Jr. On selection of equidistributing meshes for two-point boundary-value problems. SIAM Journal on Numerical Analysis , 16(3):472–502, 1979. [15] Weizhang Huang and Robert D Russell. Adaptive moving mesh methods , volume 174. Springer Science & Business Media, 2010. [16] Weizhang Huang, Yuhe Ren, and Robert D. Russell. Moving mesh partial differential equations (MMPDEs) based on the equidistribution principle. SIAM Journal on Numerical Analysis , 31(3):709–730, 1994. [17] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael Mahoney. Characterizing possi-ble failure modes in physics-informed neural networks. In Advances in Neural Information Processing Systems ,volume 34, pages 26548–26560, 2021. [18] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. [19] Zhiwei Gao, Liang Yan, and Tao Zhou. Failure-informed adaptive sampling for PINNs. SIAM Journal on Scientific Computing , 45(4):A1971–A1994, 2023. [20] Luigi Ambrosio, Nicola Gigli, and Giuseppe Savare. Gradient Flows: In Metric Spaces and in the Space of Probability Measures . Springer Science & Business Media, 2008. [21] Simon Duane, A. D. Kennedy, Brian J. Pendleton, and Duncan Roweth. Hybrid Monte Carlo. Physics Letters B ,195(2):216–222, 1987. [22] Nicholas Metropolis, Arianna W Rosenbluth, Marshall N Rosenbluth, Augusta H Teller, and Edward Teller. Equation of state calculations by fast computing machines. The journal of chemical physics , 21(6):1087–1092, 1953. 27 [23] W Keith Hastings. Monte Carlo sampling methods using markov chains and their applications. Biometrika ,57(1):97–109, 1970. [24] George B Arfken, Hans J Weber, and Frank E Harris. Helmholtz’s theorem. In Mathematical methods for physicists: a comprehensive guide , pages 95–100. Academic press, 2011. 28

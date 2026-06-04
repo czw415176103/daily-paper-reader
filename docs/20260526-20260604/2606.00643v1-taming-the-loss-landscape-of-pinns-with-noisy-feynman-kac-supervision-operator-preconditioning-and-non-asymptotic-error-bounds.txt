@@ -1,0 +1,4315 @@
+Title: Taming the Loss Landscape of PINNs with Noisy Feynman-Kac Supervision: Operator Preconditioning and Non-Asymptotic Error Bounds
+
+URL Source: https://arxiv.org/pdf/2606.00643v1
+
+Published Time: Tue, 02 Jun 2026 00:54:50 GMT
+
+Number of Pages: 59
+
+Markdown Content:
+# Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision: Operator Preconditioning and Non-Asymptotic Error Bounds 
+
+Nathanael Tepakbong 1 Hanyu Hu 2 Chengyu Liu 1 Xiang Zhou 2
+
+## Abstract 
+
+Physics-Informed Neural Networks (PINNs) often train slowly or fail to converge on challenging partial differential equations (PDEs), a behavior recently linked to severely ill-conditioned loss landscapes inherited from the underlying differential operator. We study PINNs augmented with a pointwise data-fidelity term, added at a few points in the domain to the standard residual and boundary losses. We show that this supervision term acts as an operator-level preconditioner: for suitable weights, our comparison bounds guarantee a substantially smaller condition number than under the standard PINN loss, independently of how the pointwise labels are obtained. For a broad class of PDEs admitting a Feynman-Kac (FK) representation, we generate such labels by Monte Carlo averages of the FK functional, resulting in what we call “FK-PINNs”, and using the excess risk decomposition approach, we derive non-asymptotic L2(Ω) -error bounds for FK-PINNs with tanh activation trained by finitely many steps of gradient descent. Along the way, we establish pseudo-dimension bounds for first- and second-order derivatives of tanh neural networks, which are of independent interest and, to the best of our knowledge, new. Numerical experiments on Poisson, Schr ¨odinger, mean exit time, and committor problems corroborate the theory, and show that FK-PINNs can successfully solve PDEs for which standard PINNs exhibit severe failure modes. 
+
+## 1. Introduction 
+
+Partial differential equations (PDEs) underpin much of computational science and engineering. While classical numerical methods, such as finite elements, are mature and accurate, their cost grows quickly with dimension and geometric complexity, making large-scale or high-resolution simulations prohibitively difficult in numerous practical scenarios. Physics-informed neural networks (PINNs) offer a mesh-free alternative: a neural network uθ approximates the solution, and training is driven by a loss that penalizes PDE residuals and boundary-condition violations at sampled collocation points (Raissi et al., 2019). PINNs have been investigated in a variety of settings, including forward and inverse problems, parameter estimation, and coupled multi-physics models (Cuomo et al., 2022). Although the idea of enforcing physical constraints within expressive neural networks is conceptually appealing, many studies report severe training pathologies. For moderately stiff or high-frequency problems, optimization can be extremely slow and may fail to reduce the residual even with expressive architectures (Krishnapriyan et al., 2021; Wang et al., 2021). Moreover, the training dynamics are highly sensitive to hyperparameters, sampling strategies, and loss weights, hence small changes in either of these can lead to vastly different outcomes. Various heuristics, such as adaptive sampling, curriculum training, residual/gradient-based re-weighting or domain decomposition have been proposed to alleviate these issues (Wu et al., 2023; Krishnapriyan et al., 2021). Although such approaches have been shown to help in specific cases, there is still no generally reliable way to obtain well-conditioned, robust PINN objectives. 
+
+1.1. An Operator-Conditioning Perspective on PINN Training 
+
+Recent work investigates this issue through an operator-conditioning and loss landscape lens. In particular, De Ryck et al. (2024) analyze gradient descent on PINN objectives and relate the dynamics to the spectrum of the Hermitian square L∗L
+
+> 1
+
+Department of Data Science, City University of Hong Kong, 83 Tat Chee Ave, Hong Kong 2Department of Mathematics, City University of Hong Kong, 83 Tat Chee Ave, Hong Kong. Correspondence to: Nathanael Tepakbong <ntepakbo-c@my.cityu.edu.hk >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+1
+
+> arXiv:2606.00643v1 [stat.ML] 30 May 2026 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision
+
+of the underlying PDE operator L. Closely related analyses likewise tie PINN training difficulty to the conditioning of PDE-induced operators, their associated kernels, or PINN loss Hessians, and explain through theoretical and numerical results the resulting optimization pathologies (Rathore et al., 2024; Wang et al., 2022; Chen et al., 2024; Wang et al., 2026). In this view, a “Hessian-like” operator governs training: when it is ill-conditioned—with widely spread eigenvalues and nearly null modes—some parameter directions evolve orders of magnitude more slowly than others, leading to stagnation and failure to fit the residual even when the target solution lies well within the hypothesis class. This operator-centric view suggests that successful training of PINNs is not just a matter of expressive networks or dense collocation sampling, but also of constructing losses and optimization schemes whose associated operators are well conditioned. Several prior works have indeed proposed to modify the traditional gradient-based neural network training algorithms by schemes which take into account the natural function space geometry associated with PINNs (M ¨uller & Zeinhofer, 2023; Schwencke & Furtlehner, 2025; Chen et al., 2025; Wang et al., 2022; 2026). In many cases, these modified training schemes can be interpreted as applying a preconditioning on the operator (De Ryck et al., 2024). Complementary to these optimizer-based approaches, we instead propose to modify the training objective itself: we design preconditioned PINN losses that augment the standard residual and boundary terms with lightweight “mass” or data-anchoring penalties, which effectively precondition the operator governing the training dynamics. Such data could be obtained in a number of manners, through e.g. coarse FEM computations, experimental data or any kind of numerical simulation. In this work, we propose constructing these penalties using probabilistic representations of PDE solutions via the Feynman–Kac formula, yielding a simple, scalable, and mesh-free modification of the PINN loss that is completely agnostic to architecture and optimizer choice. 
+
+1.2. Feynman–Kac Supervision as Operator Preconditioning 
+
+For a broad class of linear second-order elliptic and parabolic PDEs, the Feynman–Kac (FK) formula represents the solution 
+
+u⋆(x) as the expectation of a functional of a stochastic process (Xt)t≥0 solving a certain SDE (Øksendal, 2003; Karatzas & Shreve, 2014). For an appropriate choice of SDE and stopping time, u⋆(x) is given by an expectation over trajectories of Xt
+
+started at x, with the functional involving source terms, potentials, and boundary data along the path. Approximating this expectation by simulating finitely many time-discretized trajectories from x and averaging the corresponding FK functional yields a natural Monte Carlo estimator of u⋆(x).Classical probabilistic numerical methods for PDEs exploit this idea by simulating many trajectories at spatial points of interest to approximate the solution field (Sabelfeld, 1991; Billaud-Friess et al., 2018). In contrast, we use FK only as a 
+
+sparse source of supervision: we incorporate a small number of Monte Carlo FK estimates into the PINN loss as anchors, augmenting the standard residual and boundary terms with a penalty on discrepancies between uθ and these estimates at a few interior points. We refer to the resulting model as a Feynman–Kac-Preconditioned Physics-Informed Neural Network 
+
+(FK-PINN), and show that the added term acts as an operator preconditioner, contributing a mass-like component that improves conditioning and stabilizes gradient descent even for relatively small FK budgets. 
+
+1.3. Contributions 
+
+This paper makes the following contributions: 1. Feynman–Kac-Preconditioned PINN objective. We introduce FK-PINNs, which augment the standard PINN loss with a data-fidelity term based on Monte Carlo FK estimates of the solution at a small set of interior domain points. The objective is mesh-free and acts as a simple drop-in replacement compatible with standard PINN architectures and training pipelines. 2. Operator-preconditioning analysis. Building on the operator-conditioning framework of De Ryck et al. (2024) and Rathore et al. (2024), we rigorously show in Theorem 5.4 that adding a suitable data-fidelity term to the standard PINN loss leads to a bounded and substantially improved condition number for the resulting loss. As a consequence, we deduce vastly improved convergence guarantees for gradient descent performed on this augmented objective. This regularizing effect is agnostic to the source of “supervised data” and is thus applicable to FK supervision as well as any other such method. 3. Learning-theoretic error decomposition. We develop in Theorem 6.2 a learning-theoretic analysis of FK-PINNs trained by gradient descent. Under standard regularity assumptions, we derive high-probability L2-error bounds 2Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+between the true solution u⋆ and an FK-PINN after T steps of gradient descent. The bounds are non-asymptotic and depend explicitly on the problem parameters. 4. Empirical illustrations on canonical PDE problems. We complement our theory with experiments on Poisson, Schr ¨odinger, mean exit time, and committor problems. FK-PINNs exhibit improved training dynamics, better-conditioned operator spectra, lower solution error, and remain stable on instances where baseline PINNs suffer catastrophic optimization failures, all while using relatively small FK budgets. Detailed numerical results are reported in Appendix E. 
+
+## 2. Background and Problem Setup 
+
+2.1. PDE Setting and Function Spaces 
+
+We consider linear second-order elliptic and parabolic PDEs on a bounded Lipschitz domain Ω ⊂ Rd with Dirichlet boundary conditions. Let L be a linear second-order differential operator with bounded measurable coefficients, and consider 
+
+Lu(x) = f (x), x ∈ Ω, (2.1) with boundary condition 
+
+u(x) = g(x), x ∈ ∂Ω. (2.2) We assume that L is uniformly elliptic or parabolic in the usual sense, and that g is sufficiently regular. Under these standard assumptions, there exists a unique weak solution u⋆ ∈ H1(Ω) with u⋆|∂Ω = g (Evans, 2022). In later sections, we will restrict our attention to operators L for which the solution u⋆ admits a Feynman–Kac representation in terms of an associated stochastic differential equation (SDE) (Øksendal, 2003). This class covers many important PDE models used in applications (E et al., 2021). We also note that our construction has natural analogues for broader classes of nonlinear PDEs that admit similar stochastic representations (E et al., 2017). We defer a more detailed discussion to Section 3 and Appendix A. 
+
+2.2. Standard PINN Approximation of PDE Solutions 
+
+Let {uθ : θ ∈ Θ} be a parametric class of functions implemented by a fully connected neural network with depth L,layer-wise widths (mℓ)Lℓ=0 and activation σ ≡ tanh , mapping x ∈ Ω ⊂ Rd to uθ (x) ∈ R. Physics-informed neural networks (PINNs) approximate u⋆ by minimizing a loss that penalizes PDE residuals in the interior and violations of boundary conditions (Raissi et al., 2019). Let {xint  
+
+> i
+
+}Nint  
+
+> i=1
+
+⊂ Ω be interior collocation points and {x∂Ω 
+
+> j
+
+}N∂Ω 
+
+> j=1
+
+⊂ ∂Ω boundary collocation points, drawn i.i.d. from the uniform distribution on Ω and ∂Ω. We define the empirical PDE and boundary losses 
+
+RPDE (θ) := 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Luθ (xint  
+
+> i
+
+) − f (xint  
+
+> i
+
+) 2, (2.3) 
+
+R∂Ω(θ) := 1
+
+N∂Ω
+
+> N∂Ω
+
+X
+
+> j=1
+
+uθ (x∂Ω 
+
+> j
+
+) − g(x∂Ω 
+
+> j
+
+) 2. (2.4) The standard PINN objective is 
+
+RPINN (θ) := RPDE (θ) + λ∂Ω R∂Ω(θ), (2.5) where λ∂Ω > 0 balances PDE residuals and boundary accuracy. In practice, LPINN is minimized using (stochastic) gradient-based optimizers (e.g., Adam), with automatic differentiation to compute Luθ (x).
+
+2.3. Operator-Conditioning View of PINN Training 
+
+Recent work analyzes PINN training through the conditioning of the local quadratic model induced by the underlying differential operator (Rathore et al., 2024; De Ryck et al., 2024). We follow this viewpoint. Let H denote a positive semidefinite curvature matrix for RPINN at a local minimizer θ⋆ (for instance the empirical Gauss–Newton matrix). In a neighborhood of θ⋆, the loss is approximately quadratic and gradient descent is well approximated by a linear iteration 3Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+governed by H, so components along eigendirections with small eigenvalues decay very slowly, leading to the optimization pathologies observed in practice (Wang et al., 2022; De Ryck et al., 2024; Rathore et al., 2024). In this work, we augment the standard PINN objective with a (noisy) pointwise data-fidelity term. This adds an additional positive semidefinite curvature contribution M , so that the resulting curvature becomes 
+
+HFK := H + λFK M, (2.6) with λFK > 0 a weight. Building on the operator-conditioning analyses of Rathore et al. (2024); De Ryck et al. (2024), we study in Section 5 how the spectrum and conditioning of HFK compare to those of H.
+
+2.4. Related Work Mitigating the failure modes of PINNs. Ever since their introduction by Raissi et al. (2019), a growing body of work documents a number of severe training difficulties when training PINNs, including spectral bias, failure to minimize residuals, and sensitivity to sampling and loss weights (Krishnapriyan et al., 2021; Cuomo et al., 2022). Finding methods to mitigate these issues is an active field of research, and proposed methods include adaptive collocation, residual-based reweighting, domain decomposition, and specialized architectures (Wang et al., 2021; Wu et al., 2023; Wang et al., 2024). While the augmentation of the PINN loss with supervised data has been shown empirically to help mitigate these failure modes (Heldmann et al., 2023; Bensoussan et al., 2023), the theoretical underpinnings of this phenomenon have remained largely unexplored. 
+
+Operator- and loss-landscape-based analyses. A complementary line of work analyzes PINN training through the operators induced by the PDE and the loss, relating gradient descent dynamics and convergence rates to the spectrum and conditioning of L∗L or NTK-like operators (Wang et al., 2022; De Ryck et al., 2024). Recent such studies (Rathore et al., 2024; Chen et al., 2024; Wang et al., 2026) further show how ill-conditioned differential operators translate into ill-conditioned PINN objectives and motivate preconditioned or second-order optimization schemes. Our work adopts this operator-centric viewpoint but improves conditioning by modifying the PINN objective itself. 
+
+Feynman-Kac and Monte Carlo methods for PDEs. Classical probabilistic numerical methods exploit Feynman–Kac representations to compute PDE solutions via Monte Carlo simulation of associated SDEs (Sabelfeld, 1991; Billaud-Friess et al., 2018; Yu & Mascagni, 2022). Recent works have combined these ideas with the expressive power of neural networks, resulting in FK-based neural PDE solvers (Han et al., 2020; Beck et al., 2021; Han et al., 2026). All of these approaches aim at directly computing pointwise estimates of u⋆(x), with controllable bias and variance. This differs to the way we use the Feynman–Kac Monte Carlo data only as a supervision term for PINNs, and analyze its effect on both the conditioning of the loss landscape and the resulting generalization error. 
+
+## 3. Feynman–Kac Representation and Monte Carlo Supervision 
+
+3.1. Feynman–Kac Representation for Linear PDEs 
+
+We briefly recall the celebrated Feynman–Kac (FK) representation at the core of our Monte Carlo supervision. Consider the boundary value problem (2.1) –(2.2) for the operator L introduced in Section 2. Under conditions ensuring that (2.1) –(2.2) admits a Feynman–Kac representation (Øksendal, 2003; Karatzas & Shreve, 2014), there exists a diffusion process (Xt)t≥0
+
+with generator L and exit time τ := inf {t ≥ 0 : Xt /∈ Ω}, such that for every x ∈ Ω,
+
+u⋆(x) = Ex
+
+ Z τ
+
+> 0
+
+r(Xt) dt + h Xτ
+
+
+
+, (3.1) where r is a running functional and h is a terminal functional determined by the coefficients of L and the data (f, g ). Explicit expressions for r and h, together with analogous stochastic representation formulas for more general PDE families are detailed in Appendix A. This probabilistic representation is classical in the theory of diffusion processes and underlies many probabilistic numerical methods for elliptic and parabolic PDEs (Pavliotis, 2014). It naturally covers, for example, mean exit time problems and committor functions describing transition probabilities between metastable sets in stochastic dynamics (E & Vanden-Eijnden, 2006). 4Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Algorithm 1 Monte Carlo Feynman–Kac estimator at a point x
+
+Require: Point x ∈ Ω; number of trajectories NMC ; time step ∆t; truncation time Tmax ; drift b and diffusion σ; running and terminal functionals r, h . 
+
+> 1:
+
+for m = 1 , . . . , N MC do  
+
+> 2:
+
+Initialize X(m)0 ← x, S(m) ← 0, n ← 0. 
+
+> 3:
+
+while X(m) 
+
+> n
+
+∈ Ω and n∆t < T max do  
+
+> 4:
+
+Sample ∆W (m) 
+
+> n
+
+∼ N (0 , ∆t I). 
+
+> 5:
+
+Update X(m) 
+
+> n+1
+
+← X(m) 
+
+> n
+
++ b X(m)
+
+> n
+
+ ∆t + σ X(m)
+
+> n
+
+ ∆W (m) 
+
+> n
+
+. 
+
+> 6:
+
+Update S(m) ← S(m) + r X(m)
+
+> n
+
+ ∆t. 
+
+> 7:
+
+Increment n ← n + 1 . 
+
+> 8:
+
+end while  
+
+> 9:
+
+Set ˆτ (m) ← n and update S(m) ← S(m) + h X(m)ˆτ (m)
+
+. 
+
+> 10:
+
+end for  
+
+> 11:
+
+return buMC (x) ← 1
+
+NMC 
+
+> NMC
+
+X
+
+> m=1
+
+S(m).
+
+3.2. Monte Carlo Estimator of the FK Functional 
+
+To obtain pointwise supervision values for the PINN, we approximate the FK functional in (3.1) by Monte Carlo (MC) simulation of the associated diffusion. Starting from a point x ∈ Ω, we simulate NMC independent trajectories with a time step ∆t > 0, using a standard Euler–Maruyama scheme (Gobet, 2016), and stop each trajectory when it exits Ω or when a truncation time Tmax > 0 is reached. Let X(m) 
+
+> n
+
+denote the n-th point along the m-th simulated trajectory, and let ˆτ (m) be the corresponding (discrete) stopping index. Our Monte Carlo approximation of u⋆(x) is 
+
+buMC (x) = 1
+
+NMC 
+
+> NMC
+
+X
+
+> m=1
+
+ ˆτ (m)−1X
+
+> n=0
+
+r X(m)
+
+> n
+
+ ∆t + h X(m)ˆτ (m)
+
+
+
+. (3.2) In words, along each trajectory we approximate the FK integral by a simple time Riemann sum of r, add the terminal term 
+
+h at the (possibly truncated) exit point, and then average across all trajectories. Algorithm 1 summarizes the simulation procedure. Under mild conditions on the diffusion and on (∆ t, T max ), the estimator buMC (x) has variance Var[ buMC (x)] = O(1 /N MC )
+
+and a bias controlled by ∆t and Tmax . Precise bias–variance bounds and tail estimates for buMC (x) are proved in Appendix C (see in particular Propositions C.11 and 6.1). 
+
+3.3. Selection of Supervision Points and Budget 
+
+We evaluate (3.2) at a relatively small set of Feynman–Kac supervision points {xFK  
+
+> k
+
+}NFK  
+
+> k=1
+
+⊂ Ω. These points can be selected by simple generic strategies, such as uniform sampling over Ω, low-discrepancy sequences, or an adaptive second pass that concentrates points in regions where an initial PINN exhibits large residuals. Given a fixed computational budget, there is a natural trade-off between the number of supervision points NFK and the number of trajectories per point NMC : increasing NFK improves spatial coverage, whereas increasing NMC reduces the Monte Carlo variance at each point. Concrete parameter choices and additional implementation details for our numerical experiments are deferred to Appendix E. 
+
+## 4. Feynman–Kac-Preconditioned PINNs (FK-PINNs) 
+
+We now formulate explicitly how supervised data obtained from Algorithm 1 is used to train PINNs in our framework. Naturally, one could apply this same methodology with supervised data coming from any other source. Indeed, as we will see in Section 5 below, the improved conditioning due to supervised data is agnostic to the data source. 5Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+4.1. Augmented Loss with FK Supervision 
+
+Given FK supervision points {xFK  
+
+> k
+
+}NFK  
+
+> k=1
+
+⊂ Ω and corresponding Monte Carlo estimates buMC Γ (xFK  
+
+> k
+
+) of the Feynman–Kac functional (3.1), we define the FK supervision loss 
+
+RFK (θ) = 1
+
+NFK 
+
+> NFK
+
+X
+
+> k=1
+
+ uθ (xFK  
+
+> k
+
+) − buMC Γ (xFK  
+
+> k
+
+)2. (4.1) Here Γ collects the Monte Carlo parameters (number of trajectories, time step, truncation time, etc.), as described in Algorithm 1. The full FK-PINN objective augments the standard PINN loss with (4.1): 
+
+RFK -PINN (θ, ϕ ) = λPDE (ϕ) RPDE (θ) + λ∂Ω(ϕ) R∂Ω(θ)+ λFK (ϕ) RFK (θ), (4.2) where RPDE and R∂Ω are the empirical PDE residual and boundary losses defined in Section 2, and ϕ denotes the task-weighting parameters introduced below. When λFK (ϕ) = 0 and the remaining weights are fixed, (4.2) reduces to the standard PINN objective. 
+
+4.2. Adaptive Weighting of Loss Components 
+
+The objective (4.2) couples three losses with different noise levels: RPDE , R∂Ω, and RFK . We adopt the uncertainty-based weighting scheme of Kendall et al. (2018), in the same form used for PINNs by Niu et al. (2025). In their formulation, for task losses {R j } with respective variances {σ2 
+
+> j
+
+}, the joint objective is 
+
+Rmulti = X
+
+> j
+
+ 12σ2
+
+> j
+
+Rj + log σj
+
+
+
+. (4.3) Motivated by this, for our three tasks j ∈ { PDE , ∂ Ω, FK } we introduce log-variances sj := log σ2 
+
+> j
+
+and define trainable weights λj (ϕ) := exp( −sj ) with ϕ := {sj }j . The three scalars in (4.2) , λPDE (ϕ), λ∂Ω(ϕ), and λFK (ϕ), are obtained in this way and are optimized jointly with θ. In practice, we initialize the sj so that the initial weights are of comparable magnitude and clip sj to a bounded interval to avoid degenerate solutions in which one loss (especially the noisy FK term) is effectively ignored. 
+
+4.3. Training Algorithm 
+
+FK-PINN training consists of an offline stage that generates FK supervision and an online stage that trains the network with the augmented loss (4.2). The full procedure is summarized in Algorithm 2. 
+
+## 5. Theoretical guarantees for supervision-based operator preconditioning 
+
+We now give an overview of our theoretical framework for supervision-based operator preconditioning. As we will see, the regularizing effect of supervised data on the loss landscape is completely agnostic to the source of such data, and our results are thus stated for generic data terms. Our presentation follows the PL ∗ framework of Liu et al. (2022) and its adaptation to finite-width PINNs by Rathore et al. (2024). Full assumptions and proofs are deferred to Appendix B. 
+
+5.1. Setup and PL ∗ framework 
+
+We analyze gradient descent on the PINN loss augmented with a squared supervision term of the form (4.1) , with fixed task weights, where the supervision targets may come from the Feynman–Kac construction or from any other data-labeling procedure. Throughout this section we fix constants λPDE > 0, λ∂Ω > 0, and λFK ≥ 0, and we consider the objectives 
+
+RPINN (θ) := λPDE RPDE (θ) + λ∂Ω R∂Ω(θ),
+
+RFK -PINN (θ) := RPINN (θ) + λFK RFK (θ),
+
+6Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Algorithm 2 Training a Feynman–Kac-Preconditioned PINN (FK-PINN) 
+
+Require: Domain Ω and boundary ∂Ω; PDE operator L and data (f, g ); neural network uθ ; task-weight parameters ϕ; FK Monte Carlo parameters Γ; number of FK points NFK ; numbers of interior and boundary collocation points.  
+
+> 1:
+
+Stage 1: Offline FK supervision generation  
+
+> 2:
+
+Choose FK supervision points {xFK  
+
+> k
+
+}NFK  
+
+> k=1
+
+⊂ Ω (e.g., uniform or low-discrepancy sampling).  
+
+> 3:
+
+for k = 1 , . . . , N FK do  
+
+> 4:
+
+Approximate u⋆(xFK  
+
+> k
+
+) by a Monte Carlo FK estimate buMC Γ (xFK  
+
+> k
+
+) using Algorithm 1 with parameters Γ. 
+
+> 5:
+
+end for  
+
+> 6:
+
+Form the FK dataset DFK = {(xFK  
+
+> k
+
+, buMC Γ (xFK  
+
+> k
+
+)) }NFK  
+
+> k=1
+
+. 
+
+> 7:
+
+Stage 2: PINN training with FK supervision  
+
+> 8:
+
+while stopping criterion not met do  
+
+> 9:
+
+Sample interior collocation points in Ω and boundary points on ∂Ω. 
+
+> 10:
+
+Compute RPDE (θ) and R∂Ω(θ) from the current collocation batches.  
+
+> 11:
+
+Sample a minibatch from DFK and compute RFK (θ) via (4.1).  
+
+> 12:
+
+Evaluate the total loss RFK -PINN (θ, ϕ ) in (4.2).  
+
+> 13:
+
+Update (θ, ϕ ) using (stochastic) gradient descent.  
+
+> 14:
+
+end while  
+
+> 15:
+
+return trained parameters (θ, ϕ ).where RPDE and R∂Ω are defined in Section 2.2, and, slightly abusing notation, RFK is a data supervision loss of the form (4.1), but with supervised data coming from any source. The standard PINN corresponds to λFK = 0 .To carry out our analysis, we will assume that the following holds: 
+
+Assumption 5.1 (Interpolation regime) . Both RPINN and RFK are optimized in an interpolation regime: each loss has minimum value 0, and every global minimizer attains zero loss. Assumption 5.1 is an expressivity assumption on the hypothesis class. It requires that each empirical loss can attain the value zero for at least one choice of network parameters, meaning that the training constraints are realizable. This is the standard interpolation setting used in (Liu et al., 2022; Rathore et al., 2024), and has been shown to hold even for moderately over-parametrized networks (Vardi et al., 2022; Madden, 2024). 
+
+Definition 5.1 (PL ∗ condition (Karimi et al., 2016)) . Let J be a loss function and let θ⋆ be any global minimizer of J . We say that J satisfies the PL ∗ condition in a neighborhood S of θ⋆ with constant μ > 0 if 
+
+J (θ) − J (θ⋆) ≤ 12μ ∥∇J (θ)∥2 for all θ ∈ S .This is the Polyak– Łojasiewicz (PL) inequality (Polyak, 1963), adapted to possibly non-isolated minimizers as in Karimi et al. (2016); Liu et al. (2022). Under Assumption 5.1 we have J (θ⋆) = 0 , so the PL ∗ condition directly controls the loss in terms of the gradient norm. 
+
+Definition 5.2 (Condition number for PL ∗ functions) . Let J be differentiable and L-smooth 1 on a set S, and assume that J
+
+satisfies a PL ∗ condition on S with constant μ > 0. We define the PL-based condition number of J on S as 
+
+κPL (J ; S) := Lμ .
+
+For the two objectives of interest, we fix a neighborhood S of the interpolation manifold and write κPINN := κPL (RPINN ; S)
+
+and κFK := κPL (RFK -PINN ; S), omitting the dependence on S when clear from context. For the losses considered here, the constants L and the PL ∗ constant μ are controlled by the largest and smallest nonzero eigenvalues of the linearized Gauss–Newton matrix, so κPL is comparable to the usual spectral condition number. As in Liu et al. (2022); Rathore et al. (2024), we assume that the empirical PINN objectives RPINN and RFK are L-smooth and satisfy a PL ∗ condition on a neighborhood S of the interpolation manifold.               
+
+> 1That is, ∇J is L-Lipschitz on S, meaning that ∥∇J (θ)− ∇J (θ′)∥ ≤ L∥θ−θ′∥holds for all θ, θ ′∈ S .
+
+7Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Theorem 5.3 (Rathore et al. (2024), Theorem 8.4) . Consider the standard PINN loss RPINN for a linear PDE and an interpolating minimizer θ⋆ as in Assumption 5.1. Let TK (θ⋆) be the associated kernel integral operator with eigenvalues 
+
+(λj )j≥1 satisfying λj ≤ Cj −β for some C > 0 and β > 1. Let κPINN denote the PL-based condition number of Definition 5.2 on a PL ∗ neighborhood of θ⋆. Then there exists a constant c > 0 such that, with high probability for all sufficiently large number N of collocation points, 
+
+κPINN ≥ c N β/ 2.
+
+Thus, in the PDE-only case the PL-based condition number of the PINN loss deteriorates polynomially as the residual (collocation) mesh is refined. 
+
+5.2. Effect of supervision on conditioning 
+
+Augmenting the loss with a data term adds curvature in parameter space, which can prevent the conditioning from deteriorating as the residual mesh is refined. The following theorem makes this effect precise by controlling the local PL ∗ and smoothness constants of the data-augmented objective. Before stating our result, we also require the following compatibility condition ensuring that the supervised data term is not “blind” to parameter directions that are relevant for satisfying the PDE constraints. 
+
+Assumption 5.2. Consider small parameter perturbations around the parameters of interest. Split such perturbations into those that change the supervised loss term and those that do not. We assume that the physics part of the objective remains well conditioned on the second class of perturbations, and that the interaction between the two classes is not too large. A precise formulation is given in Section B as Assumption B.1. We can now formulate our main result of this section: 
+
+Theorem 5.4 (Informal) . Assume the setting of Theorem 5.3, the regularity assumptions on the supervision term RFK in 
+
+(4.1) stated in Section B, and the compatibility condition of Assumption B.1. Then there exist constants μ0, L 0, C > 0,which may depend on the task weights and on the supervised data distribution but are independent of the number N of PDE collocation points, such that with high probability, the data-augmented objective RFK -PINN is L0-smooth and satisfies a PL ∗ condition with constant μ0 on a neighborhood S of the interpolation manifold. In particular, 
+
+κFK = κPL (RFK -PINN ; S) ≤ C
+
+uniformly in N .
+
+A detailed statement and proof are given in Section B (see in particular Theorem B.9). Combining Theorems 5.3 and 5.4 yields a sharp contrast between the two objectives: while for the standard PINN loss, the PL-based condition number κPINN deteriorates polynomially with the number of collocation points , the data-augmented loss’ condition number κFK remains uniformly bounded as the mesh is refined, provided the supervised data points satisfy the compatibility requirements stated in Assumption 5.2. This explains why the data-supervision term can effectively enable PINNs to overcome training pathologies due to large collocation sample size. 
+
+Implications for gradient descent. Under the PL ∗ framework, Liu et al. (2022) show that gradient descent on an L-smooth loss J satisfying a PL ∗ condition with constant μ converges linearly to a global minimizer, with iteration complexity 
+
+TJ (ε) = O κPL (J ; S) log(1 /ε ), κ PL (J ; S) = L(J ; S)
+
+μ ,
+
+where L(J ; S) is the Lipschitz constant of ∇J on S. For the standard PINN loss this gives TPINN (ε) =
+
+O κPINN log(1 /ε ), and Theorem 5.3 suggests that TPINN (ε) grows like N β/ 2 log(1 /ε ) as N increases. In contrast, Theorem 5.4 shows that κFK stays bounded in N , so TFK (ε) = O log(1 /ε ), i.e., reaching error ε costs about a factor 
+
+N β/ 2 more iterations for the standard PINN than for the data-enhanced PINN. 
+
+## 6. Error Analysis of FK-PINNs 
+
+6.1. Setting and regime 
+
+We complement the operator-level PL ∗ analysis from Section 5 with learning-theoretic error bounds for FK-PINNs. The analysis, which relies in part on explicit control of the error and noise induced by the Monte Carlo approximation scheme, is 8Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+specific to FK-PINNs, and an extension to other supervised data generation processes would require a separate case-specific study. As per Section 2, we consider the hypothesis class F of fully connected networks uθ with depth L, layer-wise widths 
+
+(mℓ)Lℓ=0 and tanh activation in all layers except for a linear output neuron. As described in Algorithm 2, the neural networks in F are trained to minimize the loss RFK -PINN (4.1), which serves as an empirical risk. We sample NFK FK points xFK  
+
+> i
+
+, Nint interior points xint  
+
+> i
+
+, and N∂Ω boundary points x∂Ω 
+
+> i
+
+independently and uniformly on their respective domains. At each FK point xFK  
+
+> i
+
+, a Monte Carlo approximation of the FK functional provides a supervision label buMC (xFK  
+
+> i
+
+), as described in Algorithm 1. Under the assumptions collected in Appendix D, we establish non-asymptotic L2(Ω) error bounds for trained FK-PINNs via an approximation–estimation–optimization decomposition. To our knowledge, these are the first non-asymptotic learning-error guarantees for PINNs with tanh activation—a widely used choice in practice—contrasting with, e.g., earlier asymptotic convergence results in similar settings (Doum `eche et al., 2025), data-independent a posteriori error bounds (Hillebrecht & Unger, 2023), or non-asymptotic results restricted to piecewise polynomial activations (Jiao et al., 2022; Lu et al., 2022; Lei et al., 2025). 
+
+6.2. Non-asymptotic error bound 
+
+Our first result establishes that, with the Monte Carlo estimator described by Algorithm 1, each fidelity label in RFK -PINN 
+
+is a pointwise approximation of u⋆ with a deterministic bias of order √∆t plus an exponentially small term in Tmax and with sub-exponential Monte Carlo noise. 
+
+Proposition 6.1 (Sub-exponential FK noise) . Suppose that the FK data in RFK -PINN is generated by simulating the diffusion with the Euler–Maruyama scheme described in Algorithm 1, with time step 0 < ∆t ≤ ∆t0, truncation horizon 
+
+Tmax ∈ (0 , ∞] and a fixed number of Monte Carlo paths NMC per point, where ∆t0 > 0 is a constant depending only on the problem data (as in Appendix C). Then each FK datum admits a decomposition 
+
+Y FK  
+
+> i
+
+= u⋆(XFK  
+
+> i
+
+) + b(XFK  
+
+> i
+
+) + ζi,
+
+where {(XFK  
+
+> i
+
+, Y FK  
+
+> i
+
+)}NFK  
+
+> i=1
+
+are i.i.d., the bias satisfies 
+
+|b(x)| ≤ Cbias 
+
+√∆t + CT e−κT max for all x ∈ Ω,
+
+for constants Cbias , C T , κ > 0 independent of ∆t, NFK and NMC , with the convention e−κT max = 0 when Tmax = ∞, and, conditional on XFK  
+
+> i
+
+, the fluctuation ζi is mean-zero and sub-exponential with parameters that do not depend on NFK or 
+
+NMC . A proof is given in Appendix C. 
+
+We can now state our main learning-theoretic estimates. 
+
+Theorem 6.2 (Error analysis for depth-3 FK-PINNs) . Assume the setting of Section 6 and the PDE, regularity and PL ∗
+
+conditions of Appendix D. Let s ≥ 3 and suppose that u⋆ ∈ W s, ∞(Ω) and set β := ( s − 2) /(2 d + 4( s − 2)) . Consider FK-PINNs with depth L = 3 and width m, trained, according to Algorithm 2, by T steps of gradient descent on RFK -PINN 
+
+with sufficiently small step size. Denote by εbias := Cbias 
+
+√∆t + CT e−κT max the bias term from Proposition 6.1. Lastly, suppose that the max layer width m ≍ N d/ (4 d+8( s−2)) FK , and that Nint , N ∂Ω ≳ NFK . Then, for any δ ∈ (0 , 1) , there exist constants C, c opt > 0, independent of (Nint , N ∂Ω, N FK , T ), such that with probability at least 1 − δ,
+
+∥uθT − u⋆∥L2(Ω) ≤ C N −β 
+
+> FK
+
++ e−copt T + εbias + ε1/2bias 
+
+, (6.1) 
+
+up to logarithmic factors in NFK and in the sample sizes. 
+
+Corollary 6.3 (Rate for the FK-PINN algorithm) . In the setting of Theorem 6.2, define εbias and choose the width m as in the theorem, and run gradient descent for 
+
+T ≳ log NFK 
+
+iterations. Let ˆu denote the resulting depth-3 FK-PINN. Then, up to logarithmic factors in NFK and in the sample sizes, there exists a constant C > 0, independent of NFK , such that with probability at least 1 − N −10 FK ,
+
+∥ˆu − u⋆∥L2(Ω) ≤ C  N −β 
+
+> FK
+
++ εbias + ε1/2bias 
+
+, (6.2) 
+
+where β := ( s − 2) /(2 d + 4( s − 2)) . See Appendix D, Corollary D.25 for proofs. 
+
+9Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+This result shows that, when NFK grows and the width is tuned as in Theorem 6.2, FK-PINNs achieve the expected rate in terms of NFK , in line with the convergence theory of PINNs with dense physics sampling (Doum `eche et al., 2025). In contrast, in the genuinely sparse FK regime where NFK is fixed while Nint and N∂Ω increase, the error bound is saturated by the FK term and cannot vanish uniformly, which quantifies the statistical “cost” paid for the improved conditioning brought by FK supervision. 
+
+## 7. Numerical experiments 
+
+7.1. An Illustrative Example 
+
+We now illustrate our theoretical results by comparing the FK-PINNs against the standard PINN baseline on a representative PDE: a steady-state Schr ¨odinger-type equation. Further extensive numerical experiments on a wider range of problems, together with implementation details are provided in Appendix E. For a stationary system defined on a bounded domain Ω ⊂ Rd, we consider the following non-homogeneous Schr ¨odinger-type equation: 
+
+− 12 ∆ψ (x) + V (x) ψ  x = f (x) x ∈ Ω,ψ (x) = 0 x ∈ ∂Ω,
+
+(7.1) where ψ(x) represents the response wavefunction, V (x) denotes a prescribed potential function, and f (x) constitutes a given source term. The multi-scale nature of this Schr ¨odinger-type equation, notably for oscillatory, high-frequency potentials, poses a significant challenge for conventional PINNs. We set the domain Ω as Ω = [ −1, 1] × [−1, 1] , while the potential V (x) is that of a periodic crystalline lattice, defined as 
+
+V (x) = −V0[cos( kx 1) + cos( kx 2)] , (7.2) where V0 = 5 is the potential depth and k = 2 π/a with lattice constant a = 0 .5. This periodic structure induces strong local confinement and sharp gradients in the wavefunction ψ(x). W further introduce a high-frequency external forcing term: 
+
+f (x) = A sin( Kx 1) sin( Kx 2), (7.3) where A = 50 and K = 5 .Figure 1 illustrates the potential V , forcing term f and corresponding wavefunction ψ. We report respectively in Figures 2 and 3 the wavefunctions learned by a standard PINN, and an FK-PINN, with both identical architecture training parameters and schedule, after 30000 + 15000 steps of Adam + L-BFGS. As the results clearly illustrate, while the standard PINN completely fails at learning the solution structure, due to the high-frequency oscillations making the loss landscape intractable, the proposed FK-PINNs effectively mitigates the underlying stiffness of the PDE and succesfully recovers the intended solution profile.         
+
+> Figure 1. Data for the Schr¨ odinger-type equation (7.1). From left to right: potential V(x), source f(x), and FEM reference ψ.
+
+10 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision                        
+
+> Figure 2. Numerical results for the standard PINN on the Schr ¨odinger-type equation (7.1) .Left side: PINN prediction Right side:
+> absolute errors |ψ−uθ|
+> Figure 3. Numerical results for the FK-PINN on the Schr ¨odinger-type equation (7.1) .Left side: FK-PINN prediction Right side: absolute errors |ψ−uθ|
+
+7.2. Summary table 
+
+We now showcase the performance of FK-PINNs when compared to standard PINNs on a number of canonical PDEs. As we can see, the ability of this supervised approach to overcome the failure modes of PINNs is clear. We refer the reader to Appendix E for further experimental details and background on the PDEs under consideration. 
+
+Model Metric Poisson (E.2.2) Schr¨ odinger-type (7) Mean Escape Time (E.2.3) Committor (E.2.4) PINNs L2 Abs Err 1.333 ± 0.616 0.475 ± 0.148 16 .56 ± 0.055 1.028 ± 0.283 
+
+L2 Rel Err 0.322 ± 0.149 0.624 ± 0.195 1.007 ± 0.003 0.839 ± 0.661 
+
+H1 Abs Err 12 .42 ± 4.345 2.893 ± 0.415 43 .55 ± 0.039 3.154 ± 0.794 
+
+H1 Rel Err 0.171 ± 0.061 0.512 ± 0.073 1.002 ± 0.001 0.547 ± 0.074 
+
+FK-PINNs L2 Abs Err 0.761 ± 0.011 0.073 ± 0.008 1.755 ± 0.093 0.791 ± 0.039 
+
+L2 Rel Err 0.1184 ± 0.003 0.096 ± 0.010 0.107 ± 0.006 0.030 ± 0.008 
+
+H1 Abs Err 7.822 ± 0.412 1.043 ± 0.083 1.755 ± 0.093 1.495 ± 0.105 
+
+H1 Rel Err 0.108 ± 0.006 0.185 ± 0.015 0.395 ± 0.051 0.153 ± 0.049   
+
+> Table 1. Performance comparison between standard PINNs and FK-PINNs on various problems. All results are averaged over 5 independent runs with different random seeds.
+
+11 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+## 8. Conclusion 
+
+In this work, we’ve established that enriching the standard PINN loss with pointwise approximate solution data can provably regularize the loss landscape and enhance the convergence of gradient descent. Furthermore, we’ve proposed an easily implementable and flexible algorithm based on a Monte Carlo approximation of the Feynman–Kac representation of certain elliptic and parabolic PDEs to compute such approximate solution data, resulting in what we’ve referred to as FK-PINNs. Using a learning-theoretic framework together with tight error bounds on the Monte Carlo tails, we have derived non-asymptotic, end-to-end L2(Ω) a priori error bounds for FK-PINNs using tanh activation trained with finitely many steps of gradient descent. Those estimates are based on pseudo-dimension bounds for first- and second-order derivatives of 
+
+tanh networks, which are of independent interest. Numerical experiments confirm our theoretical findings, showing more stable optimization, faster training, and lower solution error than baseline PINNs, even with modest Monte Carlo budgets. 
+
+## Acknowledegments 
+
+N.T. acknowledges support from the Hong Kong PhD Fellowship Scheme. X.Z. acknowledges support from the Hong Kong General Research Funds (Grants No. 11304525, No. 11318522, and No. 11308323). 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here. 
+
+## References 
+
+Agarwal, A. and Claisse, J. Branching diffusion representation of semi-linear elliptic pdes and estimation using monte carlo method. Stochastic Processes and their Applications , 130(8):5006–5036, 2020. Agmon, S., Douglis, A., and Nirenberg, L. Estimates near the boundary for solutions of elliptic partial differential equations satisfying general boundary conditions. i. Communications on pure and applied mathematics , 12(4):623–727, 1959. Anthony, M. and Bartlett, P. L. Neural network learning: Theoretical foundations . cambridge university press, 2009. Applebaum, D. L´ evy processes and stochastic calculus . Cambridge university press, 2009. Beck, C., Becker, S., Cheridito, P., Jentzen, A., and Neufeld, A. Deep splitting method for parabolic pdes. SIAM Journal on Scientific Computing , 43(5):A3135–A3154, 2021. Bensoussan, A., Han, J., Yam, S. C. P., and Zhou, X. Value-gradient based formulation of optimal control problem and machine learning algorithm. SIAM Journal on Numerical Analysis , 61(2):973–994, 2023. Billaud-Friess, M., Macherey, A., Nouy, A., and Prieur, C. Stochastic methods for solving high-dimensional partial differential equations. In International Conference on Monte Carlo and Quasi-Monte Carlo Methods in Scientific Computing , Cham, 2018. Springer International Publishing. Bouchard, B. and Touzi, N. Discrete-time approximation and monte-carlo simulation of backward stochastic differential equations. Stochastic Processes and their applications , 111(2):175–206, 2004. Bouchard, B., Geiss, S., and Gobet, E. First time to exit of a continuous it ˆo process: general moment estimates and L1-convergence rate for discrete time approximations. Bernoulli , 23(3):1631–1662, 2017. Chen, C., Zhou, Q., Yang, Y., Xiang, Y., and Luo, T. Quantifying training difficulty and accelerating convergence in neural network-based pde solvers. arXiv preprint arXiv:2410.06308 , 2024. Chen, C., Yang, Y., Xiang, Y., and Hao, W. Learn singularly perturbed solutions via homotopy dynamics. In Forty-second International Conference on Machine Learning , 2025. URL https://openreview.net/forum?id= OqutBNEEjz .12 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Cheridito, P., Soner, H. M., Touzi, N., and Victoir, N. Second-order backward stochastic differential equations and fully nonlinear parabolic pdes. Communications on Pure and Applied Mathematics: A Journal Issued by the Courant Institute of Mathematical Sciences , 60(7):1081–1110, 2007. Cuomo, S., Di Cola, V. S., Giampaolo, F., Rozza, G., Raissi, M., and Piccialli, F. Scientific machine learning through physics–informed neural networks: Where we are and what’s next. Journal of Scientific Computing , 92(3):88, 2022. De Ryck, T., Lanthaler, S., and Mishra, S. On the approximation of functions by tanh neural networks. Neural Networks ,143:732–750, 2021. De Ryck, T., Bonnet, F., Mishra, S., and de Bezenac, E. An operator preconditioning perspective on training in physics-informed machine learning. In The Twelfth International Conference on Learning Representations , 2024. URL https: //openreview.net/forum?id=WWlxFtR5sV .Doum` eche, N., Biau, G., and Boyer, C. On the convergence of pinns. Bernoulli , 31(3):2127–2151, 2025. Dynkin, E. A probabilistic approach to one class of nonlinear differential equations. Probability theory and related fields ,89(1):89–115, 1991. Dynkin, E. B. Markov processes. In Markov Processes: Volume 1 , pp. 77–104. Springer, 1965. E, W. and Vanden-Eijnden, E. Towards a theory of transition paths. Journal of Statistical Physics , 123(3), 2006. E, W., Han, J., and Jentzen, A. Deep learning-based numerical methods for high-dimensional parabolic partial differential equations and backward stochastic differential equations. Communications in Mathematics and Statistics , 5(4):349–380, 2017. E, W., Han, J., and Jentzen, A. Algorithms for solving high dimensional pdes: from nonlinear monte carlo to machine learning. Nonlinearity , 35(1):278, 2021. El Karoui, N., Peng, S., and Quenez, M. C. Backward stochastic differential equations in finance. Mathematical finance , 7 (1):1–71, 1997. Ethier, S. N. and Kurtz, T. G. Markov processes: characterization and convergence . John Wiley & Sons, 2009. Evans, L. C. Partial differential equations , volume 19. American mathematical society, 2022. Fleming, W. H. and Soner, H. M. Controlled Markov processes and viscosity solutions . Springer, 2006. Glasserman, P. Monte Carlo methods in financial engineering , volume 53. Springer, 2004. Gobet, E. Weak approximation of killed diffusion using euler schemes. Stochastic processes and their applications , 87(2): 167–197, 2000. Gobet, E. Monte-Carlo methods and stochastic processes: from linear to non-linear . Chapman and Hall/CRC, 2016. Gobet, E. and Menozzi, S. Stopped diffusion processes: boundary corrections and overshoot. Stochastic Processes and Their Applications , 120(2):130–162, 2010. Han, J., Nica, M., and Stinchcombe, A. R. A derivative-free method for solving elliptic partial differential equations with deep neural networks. Journal of Computational Physics , 419:109672, 2020. Han, J., Hu, W., Long, J., and Zhao, Y. Deep picard iteration for high-dimensional nonlinear pdes. SIAM Journal on Scientific Computing , 48(1):C1–C24, 2026. Heldmann, F., Berkhahn, S., Ehrhardt, M., and Klamroth, K. Pinn training using biobjective optimization: The trade-off between data loss and residual loss. Journal of Computational Physics , 488:112211, 2023. Henry-Labord `ere, P., Oudjane, N., Tan, X., Touzi, N., and Warin, X. Branching diffusion representation of semilinear pdes and monte carlo approximation. In Annales de l’Institut Henri Poincar ´e-Probabilit ´es et Statistiques , volume 55, pp. 184–210, 2019. 13 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Hillebrecht, B. and Unger, B. Rigorous a posteriori error bounds for pde-defined pinns. IEEE Transactions on Neural Networks and Learning Systems , 36(1):1583–1593, 2023. Horn, R. A. and Johnson, C. R. Matrix analysis . Cambridge university press, 2012. Jiao, Y., Lai, Y., Li, D., Lu, X., Wang, F., Wang, Y., and Yang, J. Z. A rate of convergence of physics informed neural networks for the linear second order elliptic pdes. Communications in Computational Physics , 31(4):1272–1295, Mar. 2022. doi: 10.4208/cicp.OA-2021-0186. URL https://global-sci.com/index.php/cicp/article/view/7063 .Karatzas, I. and Shreve, S. Brownian motion and stochastic calculus . springer, 2014. Karimi, H., Nutini, J., and Schmidt, M. Linear convergence of gradient and proximal-gradient methods under the polyak-łojasiewicz condition. In Joint European conference on machine learning and knowledge discovery in databases , pp. 795–811. Springer, 2016. Karpinski, M. and Macintyre, A. Polynomial bounds for vc dimension of sigmoidal and general pfaffian neural networks. 
+
+Journal of Computer and System Sciences , 54(1):169–176, 1997. Kendall, A., Gal, Y., and Cipolla, R. Multi-task learning using uncertainty to weigh losses for scene geometry and semantics. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , June 2018. Kloeden, P. E. and Platen, E. Numerical Solution of Stochastic Differential Equations , volume 23 of Stochastic Modelling and Applied Probability . Springer Berlin Heidelberg, 1992. doi: 10.1007/978-3-662-12616-5. Krishnapriyan, A., Gholami, A., Zhe, S., Kirby, R., and Mahoney, M. W. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems , 34:26548–26560, 2021. Ledoux, M. and Talagrand, M. Probability in Banach Spaces: isoperimetry and processes . Springer Science & Business Media, 2013. Lei, G., Lei, Z., Shi, L., Zeng, C., and Zhou, D.-X. Solving pdes on spheres with physics-informed convolutional neural networks. Applied and Computational Harmonic Analysis , 74:101714, 2025. Li, H., Xu, Z., Taylor, G., Studer, C., and Goldstein, T. Visualizing the loss landscape of neural nets. Advances in neural information processing systems , 31, 2018. Liu, C., Zhu, L., and Belkin, M. Loss landscapes and optimization in over-parameterized non-linear systems and neural networks. Applied and Computational Harmonic Analysis , 59:85–116, 2022. Lu, Y., Chen, H., Lu, J., Ying, L., and Blanchet, J. Machine learning for elliptic PDEs: Fast rate generalization bound, neural scaling law and minimax optimality. In International Conference on Learning Representations , 2022. URL 
+
+https://openreview.net/forum?id=mhYUBYNoGz .Madden, L. Interpolation with deep neural networks with non-polynomial activations: necessary and sufficient numbers of neurons. arXiv preprint arXiv:2405.13738 , 2024. M ¨uller, J. and Zeinhofer, M. Achieving high accuracy with pinns via energy natural gradient descent. In International Conference on Machine Learning , pp. 25471–25485. PMLR, 2023. Niu, P., Guo, J., Chen, Y., Zhou, Y., Feng, M., and Shi, Y. Improved physics-informed neural network in mitigating gradient-related failures. Neurocomputing , 638:130167, 2025. Øksendal, B. Stochastic differential equations. In Stochastic differential equations: an introduction with applications , pp. 38–50. Springer, 2003. Pardoux, E. and Peng, S. Adapted solution of a backward stochastic differential equation. Systems & control letters , 14(1): 55–61, 1990. Pavliotis, G. A. Stochastic processes and applications. Texts in applied mathematics , 60, 2014. Pinsky, R. G. Positive harmonic functions and diffusion , volume 45. Cambridge university press, 1995. 14 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Polyak, B. T. Gradient methods for minimizing functionals. Zhurnal vychislitel’noi matematiki i matematicheskoi fiziki , 3 (4):643–653, 1963. Raissi, M., Perdikaris, P., and Karniadakis, G. E. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378: 686–707, 2019. Rathore, P., Lei, W., Frangella, Z., Lu, L., and Udell, M. Challenges in training pinns: A loss landscape perspective. In 
+
+International Conference on Machine Learning , pp. 42159–42191. PMLR, 2024. Sabelfeld, K. K. Monte Carlo Methods: In Boundary Value Problems . Scientific Computation. Springer Berlin Heidelberg, 1991. ISBN 3540530010. Schwencke, N. and Furtlehner, C. ANaGRAM: A natural gradient relative to adapted model for efficient PINNs learning. In 
+
+The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/ forum?id=o1IiiNIoaA .Vanden-Eijnden, E. et al. Transition-path theory and path-finding algorithms for the study of rare events. Annual review of physical chemistry , 61:391–420, 2010. Vardi, G., Yehudai, G., and Shamir, O. On the optimal memorization power of reLU neural networks. In International Conference on Learning Representations , 2022. URL https://openreview.net/forum?id=MkTPtnjeYTV .Vershynin, R. High-dimensional probability: An introduction with applications in data science , volume 47. Cambridge university press, 2018. Wainwright, M. J. High-dimensional statistics: A non-asymptotic viewpoint , volume 48. Cambridge university press, 2019. Wang, S., Teng, Y., and Perdikaris, P. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. Wang, S., Yu, X., and Perdikaris, P. When and why pinns fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. Wang, S., Li, B., Chen, Y., and Perdikaris, P. Piratenets: Physics-informed deep learning with residual adaptive networks. 
+
+Journal of Machine Learning Research , 25(402):1–51, 2024. Wang, S., bhartari, A. K., Li, B., and Perdikaris, P. Gradient alignment in physics-informed neural networks: A second-order optimization perspective. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. URL 
+
+https://openreview.net/forum?id=iweeVl1RHU .Wu, C., Zhu, M., Tan, Q., Kartha, Y., and Lu, L. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, 2023. Yu, W. and Mascagni, M. Monte Carlo Methods for Partial Differential Equations With Applications to Electronic Design Automation . Springer Nature, 2022. Zhao, Z., Ding, X., and Prakash, B. A. PINNsformer: A transformer-based framework for physics-informed neural networks. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/ forum?id=DO2WFXU1Be .15 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+## A. More on Feynman–Kac Representations and Probabilistic PDE Solutions 
+
+This appendix collects standard probabilistic representations for linear and nonlinear parabolic and elliptic PDEs. By a Feynman–Kac (FK) representation we mean a formula of the form (3.1) expressing the solution u as the expectation of a running and terminal functional of a suitable Markov process with generator L. This structure underlies the Monte Carlo supervision term and FK-PINN loss introduced in Section 3, but the discussion here is self-contained. The following subsections present representative examples—diffusion and jump–diffusion generators, semilinear and fully nonlinear equations, branching diffusions, and stochastic control/HJB problems—to illustrate that PDEs admitting such stochastic (Feynman–Kac-type) representations form a large and mathematically rich class. We refer the interested readers to (Dynkin, 1965; Ethier & Kurtz, 2009; Karatzas & Shreve, 2014) for background on Markov processes and classical FK formulas. 
+
+A.1. Linear parabolic and elliptic equations with diffusion generators 
+
+Let B be a d-dimensional Brownian motion and consider the Itˆ o SDE 
+
+dX s = b(Xs) ds + σ(Xs) dB s, Xt = x ∈ Rd, (A.1) where b : Rd → Rd and σ : Rd → Rd×d satisfy standard Lipschitz and linear growth conditions (Karatzas & Shreve, 2014). The associated generator L acts on smooth test functions φ as 
+
+(Lφ)( x) = b(x) · ∇ φ(x) + 12 Tr  a(x)D2φ(x), a(x) := σ(x)σ(x)⊤. (A.2) A prototypical linear parabolic Cauchy problem on [0 , T ] × Rd is 
+
+(∂tu(t, x ) + ( Lu(t, ·))( x) − V (t, x )u(t, x ) + f (t, x ) = 0 , (t, x ) ∈ [0 , T ) × Rd,u(T, x ) = g(x), x ∈ Rd, (A.3) with bounded (or suitably integrable) data V, f, g . Under standard regularity assumptions on b, σ, V, f, g (e.g. Dynkin, 1965; Karatzas & Shreve, 2014), the classical Feynman–Kac formula yields 
+
+u(t, x ) = Et,x h
+
+e− R Tt V (s,X s) ds g(XT ) + 
+
+Z Tt
+
+e− R st V (r,X r ) dr f (s, X s) ds 
+
+i
+
+, (A.4) where X solves (A.1) with initial condition Xt = x.Elliptic boundary value problems such as Poisson, mean exit time, or committor equations arise by dropping the time derivative in (A.3) . For a bounded C2 domain D ⊂ Rd, define the exit time τD := inf {s ≥ 0 : Xt+s /∈ D}. Under standard conditions, the Dirichlet problem 
+
+((Lu)( x) − V (x)u(x) + f (x) = 0 , x ∈ D, u(x) = g(x), x ∈ ∂D, (A.5) admits the representation 
+
+u(x) = ExhZ τD
+
+> 0
+
+e− R s     
+
+> 0V(Xr)dr
+
+f (Xs) ds + e− R τD     
+
+> 0V(Xr)dr
+
+g(XτD )
+
+i
+
+, (A.6) and analogous formulas hold for Neumann and Robin boundary conditions in terms of reflected diffusions and boundary local time (cf. Dynkin, 1965; Fleming & Soner, 2006). For the boundary value problem (2.1) – (2.2) considered in Section 3, the operator L and data (f, g ) fit into the elliptic template (A.5) (with V encoding any zeroth-order term). In particular, in the Poisson, mean exit time, and committor benchmarks of the main text one typically has V ≡ 0, so that (A.6) reduces to 
+
+u(x) = ExhZ τD
+
+> 0
+
+f (Xs) ds + g XτD
+
+i
+
+,
+
+which is of the form (3.1) , with running and terminal functionals r and h determined (up to the sign convention for L)by the source term f and boundary data g. In the algorithms of the main text, expectations such as (A.4) and (A.6) are approximated by simulating time-discretized trajectories of (A.1) (e.g. Euler–Maruyama) and averaging over samples. Weak and strong error estimates for such schemes can be found in (Kloeden & Platen, 1992; Glasserman, 2004). 16 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+A.2. Linear equations with nonlocal generators 
+
+Let X be a L ´evy process in Rd with L ´evy triplet (b, a, ν ), where b ∈ Rd, a ∈ Rd×d is symmetric nonnegative definite, and 
+
+ν is a L´ evy measure. Its generator L acts on C2 
+
+> c
+
+(Rd) as 
+
+(Lφ)( x) = b · ∇ φ(x) + 12 Tr  aD 2φ(x)
+
++
+
+Z
+
+> Rd\{ 0}
+
+h
+
+φ(x + y) − φ(x) − 1{| y|≤ 1} y · ∇ φ(x)
+
+i
+
+ν(dy ), (A.7) see, for instance, (Applebaum, 2009). Linear parabolic and elliptic equations with the nonlocal operator L in (A.7) have the same abstract form as (A.3) and (A.5) .Under suitable conditions on (b, a, ν ) and the data, the solution u admits a Feynman–Kac representation identical to (A.4) ,with X now a L ´evy (or more generally a L ´evy-type) process (see, e.g., Dynkin, 1965; Applebaum, 2009). Monte Carlo approximation then proceeds by simulating jump–diffusion paths (using standard jump-adapted schemes) and averaging the corresponding functionals (Glasserman, 2004). In principle, FK-PINNs could be extended to this setting by supervising the network with such L´ evy paths instead of pure diffusions. 
+
+A.3. Semilinear parabolic equations and BSDE representations 
+
+Consider the semilinear parabolic PDE 
+
+(∂tu(t, x ) + ( Lu(t, ·))( x) + F  t, x, u (t, x ), σ (x)⊤∇u(t, x ) = 0 , (t, x ) ∈ [0 , T ) × Rd,u(T, x ) = g(x), x ∈ Rd, (A.8) where L is the diffusion generator (A.2) , F is Lipschitz in (y, z ) with linear growth, and g is bounded and Lipschitz. Let X
+
+solve (A.1) and consider the forward–backward system 
+
+dX s = b(Xs) ds + σ(Xs) dB s, Xt = x, (A.9) 
+
+Ys = g(XT ) + 
+
+Z Ts
+
+F  r, X r , Y r , Z r
+
+ dr −
+
+Z Ts
+
+Zr dB r , s ∈ [t, T ]. (A.10) Under the above assumptions, there exists a unique adapted solution (Y, Z ) to (A.10) (Pardoux & Peng, 1990; El Karoui et al., 1997), and the nonlinear Feynman–Kac formula identifies 
+
+u(t, x ) = Y t,x t , (A.11) where (Xt,x , Y t,x , Z t,x ) denotes the solution of (A.9) – (A.10) with Xt,x t = x. Conversely, if u is a sufficiently regular solution of (A.8) , then (Ys, Z s) = ( u(s, X s), σ (Xs)⊤∇u(s, X s)) solves (A.10) (Pardoux & Peng, 1990; El Karoui et al., 1997). Monte Carlo approximations for (A.8) discretize the forward SDE and the BSDE and estimate the conditional expectations in the backward recursion by regression-based methods (Bouchard & Touzi, 2004). In the present paper we only need the linear case where F (t, x, y, z ) = −V (t, x ) y + f (t, x ), which reduces to the classical FK form in Section 3.1, but the nonlinear Feynman–Kac formula suggests a natural path to extending FK-PINNs to general semilinear problems by coupling PINNs with Monte Carlo BSDE solvers. 
+
+A.4. Semilinear equations with polynomial nonlinearities and branching diffusions 
+
+Branching diffusion processes provide representations for semilinear equations of reaction–diffusion type. A prototype is 
+
+∂tu(t, x ) = ( Lu(t, ·))( x) + λ u(t, x )p − u(t, x ), u(0 , x ) = u0(x), (A.12) with λ > 0, integer p ≥ 2, and L the diffusion generator (A.2) . Under appropriate integrability and non-explosion conditions, the solution of (A.12) can be written as 
+
+u(t, x ) = Exh NtY
+
+> i=1
+
+u0
+
+ X(i)
+
+> t
+
+i
+
+, (A.13) 17 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+where (X(i) 
+
+> t
+
+)1≤i≤Nt are the positions of particles in a branching diffusion system with spatial motion governed by L and binary or p-ary branching at rate λ (see, e.g., Dynkin, 1991). More general semilinear PDEs with polynomial nonlinearities in u and ∇u admit representations in terms of marked branching diffusions (Henry-Labord `ere et al., 2019; Agarwal & Claisse, 2020). Monte Carlo evaluation of (A.13) proceeds by simulating the associated random branching tree and averaging the weight functional, provided the variance is controlled (Henry-Labord` ere et al., 2019). 
+
+A.5. Hamilton–Jacobi–Bellman equations from stochastic control 
+
+Let A be a compact metric control set. For an A-valued progressively measurable control process α, consider the controlled diffusion 
+
+dX t,x,α s = b Xt,x,α s , α s
+
+ ds + σ Xt,x,α s , α s
+
+ dB s, Xt,x,α t = x, (A.14) with running cost ℓ : [0 , T ] × Rd × A → R and terminal cost g : Rd → R. The value function is 
+
+u(t, x ) := sup 
+
+> α
+
+Et,x,α hZ Tt
+
+ℓ s, X t,x,α s , α s
+
+ ds + g Xt,x,α T
+
+i
+
+, (A.15) where the supremum ranges over all admissible controls. Writing La for the diffusion generator associated with the frozen control a ∈ A, the corresponding Hamilton–Jacobi–Bellman equation is 
+
+
+
+∂tu(t, x ) + sup 
+
+> a∈A
+
+(Lau(t, ·))( x) + ℓ(t, x, a ) = 0 , (t, x ) ∈ [0 , T ) × Rd,u(T, x ) = g(x), x ∈ Rd.
+
+(A.16) Under standard compactness, measurability, and regularity assumptions, u is the unique bounded viscosity solution of (A.16) and coincides with (A.15) (see Fleming & Soner, 2006). Stochastic representations of the form (A.15) can be approximated numerically by simulation-based dynamic programming and related Monte Carlo methods for controlled diffusions; see (Fleming & Soner, 2006) for an overview. For high-dimensional parabolic PDEs and BSDEs, including HJB-type equations from stochastic control, deep learning-based methods can approximate the gradient of the value function (interpreted as a feedback control or policy) by a neural network and train it via Monte Carlo simulation of the underlying diffusion; see, for example, (E et al., 2017). While FK-PINNs in the present work are restricted to linear operators, the HJB representation suggests a possible extension in which the neural network is supervised by Monte Carlo estimates of value functions under sampled controls. 
+
+A.6. Fully nonlinear parabolic equations and second-order BSDEs 
+
+Consider a fully nonlinear parabolic PDE of the form 
+
+−∂tu(t, x ) + F  t, x, u (t, x ), Du (t, x ), D 2u(t, x ) = 0 , u(T, x ) = g(x), (A.17) where F is nonlinear in the Hessian D2u and satisfies suitable ellipticity, monotonicity, and regularity conditions ensuring a comparison principle and well-posedness in the viscosity sense. Second-order backward SDEs (2BSDEs) provide pathwise representations of solutions to (A.17) (Cheridito et al., 2007). Roughly speaking, given a forward diffusion X, one considers an adapted quadruple (Y, Z, Γ, A ) solving a 2BSDE whose first component satisfies 
+
+Y t,x t = u(t, X t,x t ), (A.18) and conversely any such 2BSDE solution identifies the unique viscosity solution u of (A.17) (Cheridito et al., 2007). Numerical schemes discretize both the forward diffusion and the 2BSDE and approximate conditional expectations by Monte Carlo in an enlarged state space, providing a probabilistic route to numerical solutions of fully nonlinear equations (Cheridito et al., 2007). Extending FK-PINNs to this 2BSDE setting is an interesting direction for future research but lies beyond the scope of this paper. 
+
+A.7. Summary table 
+
+For convenience, Table 2 summarizes the PDE classes discussed above, the corresponding operators, the probabilistic objects, and some standard references. 18 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+PDE class Schematic form Probabilistic object Representation / references 
+
+Linear parabolic / el-liptic (diffusion) 
+
+∂tu + Lu − V u + f = 0 , or 
+
+Lu − V u + f = 0 in D
+
+Diffusion X with gener-ator L, exit time τD
+
+Feynman–Kac expectations such as (A.4) , (A.6) ; see (Dynkin, 1965; Karatzas & Shreve, 2014) Linear nonlocal (L ´evy / jump–diffusion) 
+
+∂tu + Lu − V u + f = 0 with 
+
+L as in (A.7) L ´evy or L ´evy-type pro-cess X
+
+Same Feynman–Kac structure as in the diffusion case with nonlocal generator (Dynkin, 1965; Apple-baum, 2009) Semilinear parabolic (BSDE) 
+
+∂tu + Lu +
+
+F (t, x, u, σ ⊤∇u) = 0 
+
+Forward diffusion X +
+
+BSDE (Y, Z )
+
+Nonlinear Feynman–Kac: 
+
+u(t, x ) = Y t,x t as in (A.11) (Par-doux & Peng, 1990; El Karoui et al., 1997) Semilinear (polyno-mial) 
+
+∂tu + Lu = Φ( t, x, u, ∇u), Φ
+
+polynomial (Marked) branching dif-fusion system Branching representations such as (A.13) (Dynkin, 1991; Henry-Labord `ere et al., 2019; Agarwal & Claisse, 2020) HJB (stochastic con-trol) 
+
+∂tu + sup a∈A{L au +
+
+ℓ(t, x, a )} = 0 
+
+Controlled diffusion Xα Value function representation (A.15) (Fleming & Soner, 2006) Fully nonlinear parabolic 
+
+−∂tu +
+
+F (t, x, u, Du, D 2u) = 0 
+
+Forward diffusion X +
+
+2BSDE (Y, Z, Γ, A )
+
+Fully nonlinear Feynman–Kac via 2BSDE, u(t, x ) = Y t,x t as in (A.18) (Cheridito et al., 2007)           
+
+> Table 2. PDE classes covered by standard probabilistic representations. Here Ldenotes a (possibly nonlocal) Markov generator, Xthe corresponding Markov or controlled process, and expectations Et,x [·]are taken with respect to the law of Xstarted from (t, x ). The FK-PINNs studied in the main text use the first (linear diffusion) row, but the same Monte Carlo supervision principle could in principle be adapted to the other classes.
+
+19 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+## B. Preconditioning Effect of the FK data term 
+
+We now prove the conditioning result stated informally as Theorem 5.4. The idea of the proof is to compare the empirical Gauss–Newton matrix of the PDE-only objective with that of the FK-augmented objective, and to show that the supervised FK term prevents the smallest nonzero eigenvalues from collapsing as the residual mesh is refined. We write LPDE+BC (θ) for the empirical PDE residual plus Dirichlet boundary loss and Ldata (θ) for a supervised data loss, and we consider 
+
+Lλ(θ) := LPDE+BC (θ) + λ L data (θ).
+
+This is the same structure as the fixed-weight FK-PINN objective in Section 5, with Ldata playing the role of the FK supervision term and λ corresponding to λFK .The proof combines the residual ill-conditioning mechanism in (De Ryck et al., 2024; Rathore et al., 2024) described by Proposition B.2, with the local PL ∗ control for supervised least squares from (Liu et al., 2022). In an overparameterized regime, the data Gauss–Newton matrix is typically low rank, so adding it does not automatically bound the smallest eigenvalue of the sum. We therefore impose a compatibility condition, Assumption B.1, which ensures that every direction relevant to the PDE and boundary terms is also seen by the data term. Under this condition, the smallest nonzero eigenvalues of the combined Gauss–Newton matrix are uniformly bounded below, which yields the PL ∗ constant and the condition-number bound in Theorem B.9. 
+
+B.1. PINN objective with noisy data 
+
+We consider a linear PDE with Dirichlet boundary conditions on a bounded domain Ω ⊂ Rd,
+
+L[u]( x) = f (x), x ∈ Ω,u(x) = g(x), x ∈ ∂Ω, (B.1) where L is a linear differential operator, and f and g are given functions. We assume that (B.1) is well-posed in the sense that there exists a unique solution u⋆ in an appropriate function space. Let θ ∈ Rp denote the PINN parameter vector, and let u(·; θ) be a neural network parameterization of u. We distinguish three types of training points: • Residual points {xres  
+
+> i
+
+}nres  
+
+> i=1
+
+⊂ Ω.• Boundary points {xbc  
+
+> j
+
+}nbc  
+
+> j=1
+
+⊂ ∂Ω.• Data points {xd 
+
+> i
+
+}nd 
+
+> i=1
+
+⊂ Ω.RESIDUAL AND BOUNDARY TERMS 
+
+The empirical residual and boundary losses are defined by 
+
+LPDE+BC (θ) := 12nres 
+
+> nres
+
+X
+
+> i=1
+
+ L[u(xres  
+
+> i
+
+; θ)] − f (xres  
+
+> i
+
+)2 + 12nbc 
+
+> nbc
+
+X
+
+> j=1
+
+ u(xbc  
+
+> j
+
+; θ) − g(xbc  
+
+> j
+
+)2. (B.2) NOISY DATA TERM 
+
+We additionally observe (possibly noisy) function values at the data points, 
+
+yi = u⋆(xd 
+
+> i
+
+) + ξi, i = 1 , . . . , n d,
+
+where the noise variables ξi are independent across i and satisfy E[ξi] = 0 .The data-supervision term with weight λ ≥ 0 is 
+
+Ldata (θ) := 12nd
+
+> nd
+
+X
+
+> i=1
+
+ u(xd 
+
+> i
+
+; θ) − yi
+
+2. (B.3) 20 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+The full PINN objective is then 
+
+Lλ(θ) := LPDE+BC (θ) + λ L data (θ). (B.4) We denote by Θ⋆λ the set of global minimizers of Lλ:
+
+Θ⋆λ := arg min  
+
+> θ∈Rp
+
+Lλ(θ).
+
+STACKED FEATURE MAP AND GAUSS –N EWTON MATRIX .To streamline notation, define the residual, boundary, and data feature maps 
+
+Fres (θ) := 1
+
+√nres 
+
+ L[u(xres 1 ; θ)] − f (xres 1 ), . . . , L[u(xres  
+
+> nres
+
+; θ)] − f (xres  
+
+> nres
+
+)⊤,Fbc (θ) := 1
+
+√nbc 
+
+ u(xbc 1 ; θ) − g(xbc 1 ), . . . , u (xbc  
+
+> nbc
+
+; θ) − g(xbc  
+
+> nbc
+
+)⊤,Fdata (θ) := 1
+
+√nd
+
+ u(xd1 ; θ) − y1, . . . , u (xd 
+
+> nd
+
+; θ) − ynd
+
+⊤.
+
+Then 
+
+LPDE+BC (θ) = 12 Fres (θ) 22 + 12 Fbc (θ) 22, Ldata (θ) = 12 Fdata (θ) 22.
+
+We introduce the stacked feature map 
+
+Fλ(θ) := 
+
+
+
+Fres (θ)
+
+Fbc (θ)√λ F data (θ)
+
+ ∈ Rnλ , nλ := nres + nbc + nd, (B.5) so that Lλ(θ) = 12 ∥Fλ(θ)∥22. Let JFλ (θ) ∈ Rnλ×p denote the Jacobian of Fλ at θ. The associated empirical Gauss–Newton matrix is 
+
+Gλ(θ) := JFλ (θ)⊤JFλ (θ) ∈ Rp×p.
+
+Its eigenvalues describe the local curvature of Lλ in parameter space, and will provide the link between operator conditioning and PL-based optimization guarantees. From this point on, the conditioning question is reduced to bounding the smallest and largest eigenvalues of Gλ(θ) in the region where the PL ∗ argument is applied. 
+
+Definition B.1. Let A ∈ Rp×p be symmetric and positive semidefinite. We write λ+min (A) for the smallest strictly positive eigenvalue of A.
+
+B.2. Tangent function space and population Gauss–Newton (PDE-only) 
+
+We now recall the operator-theoretic interpretation of the PDE-only population Gauss–Newton matrix from De Ryck et al. (2024). This section mostly summarizes their construction in the finite-width setting, to make our later use of their results self-contained. The only reason to introduce the tangent space H(θ), the map T (θ), and the operator K∞(θ) is to express Gauss–Newton curvature in a form where the differential operator L appears as A = L∗L. This will allow us to directly see which “directions” are poorly controlled by residual sampling and how a supervised term changes those directions. Let θ ∈ Rp be a parameter vector. For j = 1 , . . . , p , we define the tangent functions 
+
+ϕj (x; θ) := ∂∂θ j
+
+u(x; θ), x ∈ Ω.
+
+The ϕj (·; θ)’s span the corresponding tangent function space 
+
+H(θ) := span {ϕ1(·; θ), . . . , ϕ p(·; θ)} ⊂ L2(Ω , μ ),
+
+where μ is the reference sampling measure on Ω (i.e., the distribution used to draw residual and data points). 21 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+We then introduce the linear map 
+
+T (θ) : Rp → H (θ), T (θ)v := 
+
+> p
+
+X
+
+> j=1
+
+vj ϕj (·; θ),
+
+and its adjoint 
+
+T (θ)∗ : L2(Ω , μ ) → Rp,  T (θ)∗f  
+
+> j
+
+:= 
+
+Z
+
+> Ω
+
+f (x) ϕj (x; θ) dμ (x).
+
+We then define the naturally associated (population) kernel integral operator as: 
+
+K∞(θ) := T (θ)T (θ)∗ : L2(Ω , μ ) → H (θ). (B.6) Here H(θ) is the tangent function space spanned by {ϕj (·; θ)}, and K∞(θ) = T (θ)T (θ)∗ is the corresponding (finite-width) neural tangent kernel operator in the sense of De Ryck et al. (2024); Rathore et al. (2024). POPULATION PDE OBJECTIVE AND GAUSS –N EWTON MATRIX .For simplicity, we ignore the boundary term in this subsection. It contributes an additional positive semidefinite Gauss– Newton term, so keeping it separate can only strengthen the spectral lower bounds used later. With this simplification, the population counterpart of the residual loss is given by: 
+
+L∞,PDE (θ) := 12
+
+Z
+
+> Ω
+
+ L[u(x; θ)] − f (x)2 dμ (x). (B.7) Define A := L∗L, where L∗ denotes the adjoint of L with respect to the L2(Ω , μ ) inner product. The population Gauss–Newton matrix for (B.7) is 
+
+G∞,PDE (θ) := 
+
+Z
+
+> Ω
+
+L[∇θ u(x; θ)] L[∇θ u(x; θ)] ⊤ dμ (x),
+
+where ∇θ u(x; θ) ∈ Rp is the gradient of u with respect to θ. A direct computation shows that 
+
+G∞,PDE (θ) = T (θ)∗AT (θ). (B.8) By (De Ryck et al., 2024), the finite-width population Gauss–Newton matrix G∞,PDE (θ) has the same non-zero eigenvalues as the compact, self-adjoint operator 
+
+A ◦ K ∞(θ) : H(θ) → H (θ), (A ◦ K ∞(θ)) f := A T (θ)T (θ)∗f ,
+
+and hence 
+
+λj
+
+ G∞,PDE (θ) = λj
+
+ A ◦ K ∞(θ), κ G∞,PDE (θ) = κ A ◦ K ∞(θ), (B.9) for j = 1 , . . . , p . We refer to De Ryck et al. (2024, Thm. 2.4) for the derivation, which is a finite-dimensional analogue of the fact that S∗S and SS ∗ have the same non-zero eigenvalues for any bounded operator S between Hilbert spaces. 
+
+B.3. Population Gauss–Newton with FK data 
+
+We now incorporate the Feynman-Kac supervision term into the population analysis. For simplicity, we assume that residual and data points are sampled from the same measure μ on Ω, but the more general case follows from the same argument. The population counterpart of the full loss (B.4) is 
+
+L∞,λ (θ) := 12
+
+Z
+
+> Ω
+
+ L[u(x; θ)] − f (x)2 dμ (x) + λ
+
+2
+
+Z
+
+> Ω
+
+ u(x; θ) − u⋆(x)2 dμ (x). (B.10) The first term yields the Gauss–Newton matrix T (θ)∗AT (θ) as in (B.8). The data term contributes 
+
+G∞,data (θ) := λ
+
+Z
+
+> Ω
+
+∇θ u(x; θ) ∇θ u(x; θ)⊤ dμ (x) = λ T (θ)∗T (θ),
+
+22 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+since T (θ)v = Ppj=1 vj ϕj (·; θ) and ∇θ u(x; θ) = ( ϕ1(x; θ), . . . , ϕ p(x; θ)) ⊤.Thus the combined population Gauss–Newton matrix for L∞,λ is 
+
+G∞,λ (θ) := G∞,PDE (θ) + G∞,data (θ) = T (θ)∗(A + λI ) T (θ). (B.11) Exactly as in the PDE-only case, G∞,λ (θ) is the matrix representation (in the basis {ϕj (·; θ)}pj=1 ) of the compact, self-adjoint operator 
+
+(A + λI ) ◦ K ∞(θ) : H(θ) → H (θ),
+
+and we obtain from De Ryck et al. (2024, Thm. 2.4) that their non-zero spectra and condition numbers coincide: 
+
+λj
+
+ G∞,λ (θ) = λj
+
+ (A + λI ) ◦ K ∞(θ), κ G∞,λ (θ) = κ (A + λI ) ◦ K ∞(θ). (B.12) Intuitively, adding the data term simply replaces A by A + λI in the operator-theoretic framework of De Ryck et al. (2024), thereby lifting the small eigenvalues associated with ill-conditioned PDE directions. This is the population analogue of Tikhonov regularization or ridge regression, but applied at the level of the PDE operator A composed with the tangent kernel K∞(θ). This population calculation motivates what we look for empirically: if the data term contributes a matrix with eigenvalues bounded below independently of the number of residual points, then the sum Gλ = Gres + Gbc + λG data 
+
+should inherit a uniform lower bound once λ > 0 is fixed. 
+
+B.4. Finite-sample Gauss–Newton matrices and effective conditioning 
+
+We now move from the population operators in (B.8) and (B.11) to their empirical counterparts, and study how the data term affects the spectrum of Gλ built from finitely many residual, boundary, and data points. EMPIRICAL GAUSS –N EWTON MATRICES 
+
+The empirical residual and data Gauss–Newton matrices at a parameter θ are given by 
+
+Gres (θ) := 1
+
+nres 
+
+> nres
+
+X
+
+> i=1
+
+L[∇θ u(xres  
+
+> i
+
+; θ)] L[∇θ u(xres  
+
+> i
+
+; θ)] ⊤, (B.13) 
+
+Gdata (θ) := 1
+
+nd
+
+> nd
+
+X
+
+> i=1
+
+∇θ u(xd 
+
+> i
+
+; θ) ∇θ u(xd 
+
+> i
+
+; θ)⊤. (B.14) The boundary Gauss–Newton term Gbc (θ) is defined analogously to Gres (θ), replacing L[u] − f by u − g on ∂Ω.The full empirical Gauss–Newton matrix for Lλ at θ is then 
+
+Gλ(θ) = Gres (θ) + Gbc (θ) + λ G data (θ). (B.15) In what follows, we focus on the behavior of Gλ(θ) at a global minimizer θ⋆λ ∈ Θ⋆λ, although the analysis applies more generally to any parameter θ in a region of interest. POLYNOMIAL SPECTRAL DECAY FOR THE PDE PART 
+
+We assume that at the parameter of interest θ⋆λ the population operator A ◦ K ∞(θ⋆λ) has polynomially decaying eigenvalues: 
+
+λj
+
+ A ◦ K ∞(θ⋆λ) ≤ C j −2α, j = 1 , 2, . . . , (B.16) for some constants C > 0 and α > 1/2. This type of decay is typical for elliptic operators on smooth domains, possibly combined with smoothness properties of the tangent kernel K∞(θ⋆λ) (see (De Ryck et al., 2024) for some examples). Theorem 5.3 in the main text is proved in (Rathore et al., 2024, Theorem 8.4) in the same linear PDE and interpolation setting considered here. We will use the following finite-sample spectral scaling for the residual Gauss–Newton matrix at θ⋆λ,stated in the notation of Section B.4. 23 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Proposition B.2. There exist constants cres > 0, ΛPDE < ∞ and α > 1/2 such that, for every δ ∈ (0 , 1) , there is 
+
+nmin res (δ) ∈ N with the following property: for all nres ≥ nmin res (δ), with probability at least 1 − δ over the sampling of the residual points, 
+
+λmin 
+
+ Gres (θ⋆λ) ≥ cres n−α 
+
+> res
+
+, λmax 
+
+ Gres (θ⋆λ) ≤ ΛPDE .
+
+Proof. This is a restatement of (Rathore et al., 2024, Theorem 8.4) in the notation of (B.13), with N = nres .Proposition B.2 captures the deterioration of the residual contribution under mesh refinement, as established in (Rathore et al., 2024). We now turn to the supervised term and its effect on the combined spectrum. DATA PL ∗ CONDITION AND FINITE -SAMPLE CONCENTRATION 
+
+The beneficial effect of the data term on conditioning requires that the tangent features at the data points are sufficiently rich and non-degenerate. Following the PL ∗ viewpoint of (Liu et al., 2022), we encode this via a finite-width PL ∗ result for the data term, Proposition B.3, which yields a uniform spectral bound on the data tangent kernel and its associated empirical Gauss–Newton matrix. Informally, this proposition states that for a sufficiently wide network, the empirical data tangent kernel stays uniformly well conditioned in a ball around initialization, so that the supervised data loss satisfies a uniform PL ∗ inequality with constants independent of nd.
+
+Proposition B.3. Consider the fully-connected network, initialization scheme, and fixed data points {xd 
+
+> i
+
+}nd 
+
+> i=1
+
+⊂ Ω in the setting of Liu et al. (2022, Section 4), and define the rescaled data feature map 
+
+Fdata (θ) := 1
+
+√nd
+
+ u(xd1 ; θ) − y1, . . . , u (xd 
+
+> nd
+
+; θ) − ynd
+
+ ∈ Rnd .
+
+Let θ0 be the random initialization and define the associated tangent kernel Kdata by 
+
+Kdata (θ) := DFdata (θ) DFdata (θ)⊤ ∈ Rnd×nd ,
+
+where DFdata (θ) ∈ Rnd×p is the Jacobian matrix, and denote λ0 := λmin 
+
+ Kdata (θ0). Fix any radius R > 0, target 
+
+μdata ∈ (0 , λ 0), and confidence level δ ∈ (0 , 1) . Then there exists a universal constant C > 0 such that, if the neural network’s width m satisfies 
+
+m ≥ C nd R6L+2 
+
+ λ0 − μdata 
+
+2 log 
+
+ 2nd
+
+δ
+
+
+
+, (B.17) 
+
+then the following holds with probability at least 1 − δ over the random initialization, simultaneously for all θ ∈ B(θ0, R ):
+
+μdata ≤ λmin 
+
+ Kdata (θ) ≤ λmax 
+
+ Kdata (θ) ≤ Mdata , (B.18) 
+
+for some Mdata < ∞ independent of nd. In particular, the empirical data loss Ldata (θ) = 12 Fdata (θ) 22 satisfies a 
+
+μdata –PL ∗ inequality on B(θ0, R ). Moreover, Gdata (θ) = DFdata (θ)⊤DFdata (θ) and Kdata (θ) have the same nonzero eigenvalues, hence the nonzero eigenvalues of Gdata (θ) lie in [μdata , M data ]. Equivalently, λ+min 
+
+ Gdata (θ) ≥ μdata and 
+
+λmax 
+
+ Gdata (θ) ≤ Mdata .Proof sketch. This is the specialization of Liu et al. (2022, Theorem 4) to F = Fdata , together with the identification of the 
+
+PL ∗ constant with λmin 
+
+ Kdata (θ) (Liu et al., 2022, Theorem 1) and the fact that Gdata (θ) and Kdata (θ) have the same non-zero eigenvalues. Fix a confidence level δinit ∈ (0 , 1) and choose the width m so that (B.17) holds with δ = δinit . Let Einit denote the corresponding high-probability initialization event. By Proposition B.3, on Einit the following uniform spectral bounds hold on B(θ0, R ):
+
+λ+min 
+
+ Gdata (θ) ≥ μdata and λmax 
+
+ Gdata (θ) ≤ Mdata for all θ ∈ B(θ0, R ). (B.19) When p > n d, one typically has λmin 
+
+ Gdata (θ) = 0 , so the relevant notion is the conditioning of Gdata (θ) restricted to its range, quantified by λ+min 
+
+ Gdata (θ).24 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+At this stage we have a uniform lower bound on the nonzero curvature provided by the data term through (B.19) . To ensure that this conditioning transfers to the combined Gauss–Newton matrix, we need a compatibility condition describing how the PDE term acts on directions that are poorly constrained (or unconstrained) by the data tangent features. In particular, we rule out nearly-flat PDE curvature on the data-orthogonal subspace and control the coupling between data-visible and 
+
+data-invisible directions. This the object of Assumption B.1 that we now introduce. In what follows, we will let, for any θ ∈ Rp, Pθ ∈ Rp×p denote the projection matrix onto the range of Gdata (θ), and 
+
+I ∈ Rp×p the identity. For x ∈ Rp and A ∈ Rp×p, we will also slightly abuse notation and respectively denote by 
+
+∥x∥ := 
+
+q
+
+x21 + . . . + x2 
+
+> p
+
+and ∥A∥ := sup v∈Rp:∥v∥=1 ∥Av ∥ their Euclidean and operator norm. 
+
+Assumption B.1. Fix a set S ⊂ B(θ0, R ). There exist constants δ′, μ ⊥ > 0 and ρ ≥ 0, such that with probability at least 1 − δ′ over the initialization θ0 and the random sampling of the collocation, boundary and supervised data points, the following holds for every θ ∈ S :• λ+min 
+
+ (I − Pθ )GPDE (θ)( I − Pθ ) ≥ μ⊥, (B.20) • ∥Pθ GPDE (θ)( I − Pθ )∥ ≤ ρ. (B.21) 
+
+Remark B.4 . If the supervised data is not random (e.g., coarse finite element grid), one can formulate Assumption B.1 in a completely analogous manner and reach the same conclusion. Assumption B.1 allows to bound from below the smallest eigenvalue of Gλ(θ) on S by an explicit quantity γ(λ), as we will now establish. 
+
+Proposition B.5. Assume that the conditions of Proposition B.3 are satisfied with radius R > 0 and confidence level δinit ,and let S ⊂ B(θ0, R ) be a set on the corresponding initialization event. Assume also that Assumption B.1 holds on S. Then, with probability 1 − δinit − δ′ ≡ 1 − δ we have for every λ > 0 and θ ∈ S ,
+
+λ+min 
+
+ Gλ(θ) ≥ γ(λ), (B.22) 
+
+where 
+
+γ(λ) := (λμ data + μ⊥) − p(λμ data − μ⊥)2 + 4 ρ2
+
+2 .
+
+In particular, if ρ2 < λμ data μ⊥, then γ(λ) > 0 uniformly over θ ∈ S .Proof. Fix θ ∈ S . Decompose any v ∈ Rp as v = v1 + v2 with v1 = Pθ v and v2 = ( I − Pθ )v. Using Range( Pθ ) = Range( Gdata (θ)) and (B.19), 
+
+v⊤(λG data (θ)) v = λv ⊤ 
+
+> 1
+
+Gdata (θ)v1 ≥ λμ data ∥v1∥2.
+
+Similarly, by (B.20), for v2 orthogonal to the kernel of (I − Pθ )GPDE (θ)( I − Pθ ), we have 
+
+v⊤ 
+
+> 2
+
+GPDE (θ)v2 = v⊤(I − Pθ )GPDE (θ)( I − Pθ )v ≥ μ⊥∥v2∥2.
+
+For the cross term, by (B.21), 
+
+2v⊤ 
+
+> 1
+
+GPDE (θ)v2 ≥ − 2∥Pθ GPDE (θ)( I − Pθ )∥ ∥ v1∥ ∥ v2∥ ≥ − 2ρ ∥v1∥ ∥ v2∥.
+
+Putting these together, 
+
+v⊤Gλ(θ)v ≥
+
+∥v1∥∥v2∥
+
+⊤ λμ data −ρ
+
+−ρ μ⊥
+
+  ∥v1∥∥v2∥
+
+
+
+.
+
+Minimizing over ∥v∥ = 1 yields the smallest eigenvalue of the displayed 2 × 2 matrix, which equals γ(λ). By the variational formulation of the smallest non-zero eigenvalue, the claimed lower bound on λ+min (Gλ(θ)) follows. 
+
+Remark B.6 . Note that although we did not include it for simplicity, the boundary loss term has the same least-squares form as a supervised data term, so its Gauss–Newton contribution Gbc (θ) is positive semidefinite and can be handled in an analogous manner. More specifically, in Proposition B.5 and Theorem B.9 we can include the boundary term while assuming that Gbc (θ) satisfies Assumption B.1 as well. The analogous conclusion then follows by mirroring the current argument. 25 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+B.5. PL constant, condition number, and gradient descent 
+
+We now translate the spectral bounds from Proposition B.5 into a Polyak– Łojasiewicz ( PL ) constant and condition number for Lλ, and derive implications for gradient descent. PL INEQUALITY AND PL-BASED CONDITION NUMBER 
+
+Let S ⊂ Rp be a set containing θ⋆λ. We say that Lλ satisfies a PL ∗ inequality with constant μλ > 0 on S if 
+
+∇Lλ(θ) 22
+
+2μλ
+
+≥ Lλ(θ) − Lλ(θ⋆λ), ∀ θ ∈ S . (B.23) Let βLλ denote a smoothness constant on S, i.e. an upper bound on the operator norm of the Hessian, 
+
+βLλ ≥ sup 
+
+> θ∈S
+
+HLλ (θ) .
+
+The PL -based condition number of Lλ on S is then defined by 
+
+κLλ (S) := βLλ
+
+μλ
+
+. (B.24) We will use the following Lemma, which is nothing more than (Liu et al., 2022, Theorem 1) reformulated in our setup. 
+
+Lemma B.7. Let L(θ) = 12 ∥F (θ)∥22, where F : Rp → Rn is differentiable on a set S. Suppose there exists θ⋆ ∈ S with 
+
+F (θ⋆) = 0 . Define the sample tangent kernel KF (θ) := JF (θ) JF (θ)⊤. If there exists μ > 0 such that λmin (KF (θ)) ≥ μ
+
+holds for every θ ∈ S , then L satisfies the PL ∗ inequality on S with constant μ.Proof. For θ ∈ S , ∇L(θ) = JF (θ)⊤F (θ), hence ∥∇ L(θ)∥22 = F (θ)⊤KF (θ)F (θ). The assumed bound gives ∥∇ L(θ)∥22 ≥
+
+μ∥F (θ)∥22 = 2 μL (θ). Since L(θ⋆) = 0 , this is the claimed PL ∗ inequality. From basic linear algebra, we have the following relationship between the non-zero spectrum of KF and that of GF :
+
+Lemma B.8. Let F : Rp → Rn be differentiable at θ, with Jacobian JF (θ). Define GF (θ) := JF (θ)⊤JF (θ) and 
+
+KF (θ) := JF (θ)JF (θ)⊤. Then GF (θ) and KF (θ) have the same nonzero eigenvalues. If JF (θ) has full row rank, then 
+
+KF (θ) is positive definite and λmin 
+
+ KF (θ) = λ+min 
+
+ GF (θ).
+
+BOUNDING THE PL CONSTANT AND CONDITION NUMBER 
+
+Lemma B.7 applied to Fλ shows that it suffices to control the smallest eigenvalue of the stacked sample kernel KFλ (θ) on 
+
+S to obtain a PL ∗ inequality. Lemma B.8 on the other hand shows that this smallest eigenvalue is equal to the non-zero such eigenvalue of Gλ. Combining these facts with Proposition B.5, which gives a lower bound on λ+min (Gλ) yields the following uniform bound on the PL-based condition number, which is our main result. 
+
+Theorem B.9. Fix confidence levels δinit ∈ (0 , 1) and δ′ ∈ (0 , 1) . Choose the width m so that Proposition B.3 holds with 
+
+δ = δinit , and let S ⊂ B(θ0, R ) be any set containing a global minimizer θ⋆λ of Lλ satisfying Fλ(θ⋆λ) = 0 . Assume that Assumption B.1 holds on S with confidence parameter δ′, and let γ(λ) be as in Proposition B.5. Assume that JFλ is Lipschitz on S with constant LJ > 0. Assume also that JFλ (θ⋆λ) has full row rank, and define 
+
+sλ := σmin 
+
+ JFλ (θ⋆λ), rλ := sλ
+
+2LJ
+
+, and Sλ := S ∩ B(θ⋆λ, r λ).
+
+Lastly, assume that there exist finite constants BF , B J > 0 such that sup θ∈S λ ∥Fλ(θ)∥2 ≤ BF and sup θ∈S λ ∥JFλ (θ)∥ ≤ 
+
+BJ .Then, with probability at least 1 − δinit − δ′ ≡ 1 − δ, the loss Lλ satisfies a PL ∗ inequality on Sλ with constant μλ obeying 
+
+μλ ≥ γ(λ). (B.25) 
+
+Moreover, Lλ is βLλ -smooth on Sλ with βLλ ≤ B2 
+
+> J
+
++ LJ BF , and its PL -based condition number on Sλ satisfies 
+
+κLλ (Sλ) ≤ B2 
+
+> J
+
++ LJ BF
+
+γ(λ) . (B.26) 26 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Proof. Work on the intersection of the initialization event from Proposition B.3 with δ = δinit and the event in As-sumption B.1 on S. This intersection event has probability at least 1 − δinit − δ′, and on it Proposition B.5 gives 
+
+λ+min 
+
+ Gλ(θ) ≥ γ(λ) for every θ ∈ S .We next propagate full row rank from θ⋆λ to Sλ. For any θ ∈ S λ, Weyl’s inequalities for singular value perturbations (Horn & Johnson, 2012) yields 
+
+σmin 
+
+ JFλ (θ) ≥ σmin 
+
+ JFλ (θ⋆λ) − JFλ (θ) − JFλ (θ⋆λ) ≥ sλ − LJ ∥θ − θ⋆λ∥ ≥ sλ
+
+2 .
+
+Therefore JFλ (θ) has full row rank for every θ ∈ S λ. Lemma B.8 then implies that λmin 
+
+ KFλ (θ) = λ+min 
+
+ Gλ(θ) holds for every θ ∈ S λ, hence λmin 
+
+ KFλ (θ) ≥ γ(λ) on Sλ. Applying Lemma B.7 to Lλ(θ) = 12 ∥Fλ(θ)∥22 and Fλ(θ⋆λ) = 0 
+
+yields the PL ∗ inequality on Sλ with constant μλ ≥ γ(λ), which is (B.25). For smoothness on Sλ, use ∇Lλ(θ) = JFλ (θ)⊤Fλ(θ) to write, for θ, θ ′ ∈ S λ,
+
+∇Lλ(θ) − ∇ Lλ(θ′) =  JFλ (θ) − JFλ (θ′)⊤Fλ(θ) + JFλ (θ′)⊤ Fλ(θ) − Fλ(θ′).
+
+The first term is bounded by LJ ∥θ − θ′∥ ∥ Fλ(θ)∥2 ≤ LJ BF ∥θ − θ′∥. For the second term, the mean value inequality gives ∥Fλ(θ) − Fλ(θ′)∥2 ≤ sup ξ∈S λ ∥JFλ (ξ)∥ ∥ θ − θ′∥ ≤ BJ ∥θ − θ′∥, hence the second term is bounded by B2 
+
+> J
+
+∥θ − θ′∥.Altogether, 
+
+∥∇ Lλ(θ) − ∇ Lλ(θ′)∥ ≤ (B2 
+
+> J
+
++ LJ BF ) ∥θ − θ′∥ for all θ, θ ′ ∈ S λ.
+
+Therefore Lλ is βLλ -smooth on Sλ with βLλ ≤ B2 
+
+> J
+
++ LJ BF . Combining this with (B.25) and the definition (B.24) yields (B.26). In the PDE-only case λ = 0 , Proposition B.2 gives μ0 ≍ n−α 
+
+> res
+
+, so the PL based condition number κL0 (S) grows like nα
+
+> res
+
+.In contrast, (B.25) – (B.26) show that if λ > ρ 2/(μdata μ⊥) is fixed independently of nres , then μλ is bounded away from zero and κLλ (S) remains bounded as more residual points are added. GRADIENT DESCENT CONVERGENCE UNDER UNIFORM CONDITIONING 
+
+Consider gradient descent on Lλ,
+
+θk+1 = θk − η ∇Lλ(θk),
+
+with a fixed step size η ∈ (0 , 1/β Lλ ], and assume that the iterates stay in Sλ. Under the setting of Theorem B.9, the result of Liu et al. (2022, Theorem 6) gives 
+
+Lλ(θk+1 ) − Lλ(θ⋆λ) ≤  1 − ημ λ
+
+   Lλ(θk) − Lλ(θ⋆λ).
+
+Choosing η = 1 /β Lλ and using (B.24)–(B.26), we obtain 
+
+Lλ(θk+1 ) − Lλ(θ⋆λ) ≤
+
+
+
+1 − 1
+
+κLλ (S)
+
+  Lλ(θk) − Lλ(θ⋆λ).
+
+Thus the number of iterations required to reach Lλ(θk) − Lλ(θ⋆λ) ≤ ε is 
+
+O κLλ (S) log(1 /ε ).
+
+In particular, in virtue of Theorem B.9, we see that this iteration complexity is bounded uniformly in nres when λ > 0 is fixed. 27 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+## C. Monte Carlo Feynman–Kac label noise 
+
+This section provides the probabilistic error analysis for the Monte Carlo Feynman–Kac estimator used to construct the FK supervision labels in RFK -PINN . Our goal is to justify Proposition 6.1 in the main text, namely that each FK datum can be written as a noisy point evaluation of the true solution u⋆ with sub-exponential noise whose parameters do not depend on the number of FK points. Throughout this section, we fix a spatial point x ∈ Ω and study the error of the Monte Carlo Feynman–Kac estimator at this point. All constants may depend on the model data (domain, coefficients, source and boundary terms) and, when a truncation horizon Tmax is present, on Tmax . They do not depend on the Monte Carlo sample size NMC and they do not depend on the time step ∆t once ∆t is restricted to be smaller than a suitable threshold. 
+
+C.1. Setting and numerical scheme 
+
+We recall the diffusion setting that underlies the Feynman–Kac representation. Let Ω ⊂ Rd be a bounded domain with C2 boundary ∂Ω. Let b : Rd → Rd and σ : Rd → Rd×m be globally Lipschitz functions. We assume that σ is uniformly elliptic, i.e. there exist constants 0 < λ ≤ λ < ∞ such that 
+
+λ |v|2 ≤ v⊤(σσ ⊤)( x)v ≤ λ |v|2, for all x, v ∈ Rd.
+
+Let (Wt)t≥0 be an m-dimensional Brownian motion on some filtered probability space (Ω , F, (Ft)t≥0, P).The diffusion process X = ( Xt)t≥0 is the unique strong solution of 
+
+dX t = b(Xt) dt + σ(Xt) dW t, X0 = x ∈ Ω. (C.1) We denote by 
+
+τ := inf {t ≥ 0 : Xt /∈ Ω}
+
+the first exit time of the diffusion from Ω, and assume τ < ∞ almost surely for all starting points x ∈ Ω.Let f : Ω → R, g : ∂Ω → R and V : Ω → R be bounded measurable functions. In the main text these correspond to the source term, boundary data and zeroth-order potential of the elliptic boundary value problem. The associated (continuous-time) Feynman–Kac payoff is 
+
+Y := 
+
+Z τ
+
+> 0
+
+exp 
+
+
+
+−
+
+Z t
+
+> 0
+
+V (Xs) ds 
+
+
+
+f (Xt) dt + exp 
+
+
+
+−
+
+Z τ
+
+> 0
+
+V (Xs) ds 
+
+
+
+g(Xτ ). (C.2) Under standard regularity and well-posedness assumptions (Evans, 2022), the elliptic boundary value problem admits a unique solution u⋆, and one has the Feynman–Kac representation 
+
+u⋆(x) = Ex[Y ],
+
+where Ex denotes expectation for the diffusion (C.1) started at X0 = x.For the numerical approximation we fix a time step ∆t > 0 and define the Euler–Maruyama scheme (X∆tk )k∈N0 by 
+
+X∆t 
+
+> 0
+
+= x, X∆tk+1 = X∆tk + b(X∆tk ) ∆ t + σ(X∆tk ) ∆ Wk, (C.3) where ∆Wk := W(k+1)∆ t − Wk∆t. The corresponding discrete exit time is 
+
+τ∆t := inf {k∆t : X∆tk /∈ Ω}, (C.4) with the convention inf ∅ = ∞. Writing 
+
+N∆t := inf {k ∈ N0 : X∆tk /∈ Ω},
+
+we have τ∆t = N∆t∆t.28 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+The discretized payoff functional is 
+
+Y ∆t := 
+
+> N∆t−1
+
+X
+
+> k=0
+
+exp 
+
+
+
+−∆t
+
+> k−1
+
+X
+
+> j=0
+
+V (X∆tj )
+
+
+
+f (X∆tk ) ∆ t + exp 
+
+
+
+−∆t
+
+> N∆t−1
+
+X
+
+> j=0
+
+V (X∆tj )
+
+
+
+g(X∆tN∆t ). (C.5) The associated time-discretized value at x is 
+
+u∆t(x) := Ex[Y ∆t].
+
+Given NMC ∈ N, we consider i.i.d. copies (Y ∆t, (i))NMC  
+
+> i=1
+
+of Y ∆t and define the Monte Carlo estimator (for fixed x and ∆t)
+
+buMC (x) := 1
+
+NMC 
+
+> NMC
+
+X
+
+> i=1
+
+Y ∆t, (i). (C.6) In practice Algorithm 1 simulates trajectories until they exit Ω or until a truncation horizon Tmax ∈ (0 , ∞] is reached. For 
+
+Tmax = ∞ this reduces to the infinite horizon estimator buMC (x) defined above. For a finite truncation horizon we set 
+
+NT := ⌊Tmax /∆t⌋ and define the truncated discrete stopping index 
+
+κTmax  
+
+> ∆t
+
+:= min {N∆t, N T },
+
+together with the truncated payoff 
+
+Y ∆t,T max :=  
+
+> κTmax ∆t−1
+
+X
+
+> k=0
+
+exp 
+
+
+
+−∆t
+
+> k−1
+
+X
+
+> j=0
+
+V (X∆tj )
+
+
+
+f (X∆tk ) ∆ t + exp 
+
+
+
+−∆t 
+
+> κTmax ∆t−1
+
+X
+
+> j=0
+
+V (X∆tj )
+
+
+
+g(X∆tκTmax ∆t
+
+). (C.7) We write uTmax  
+
+> ∆t
+
+(x) := Ex[Y ∆t,T max ] for the corresponding truncated value. For Tmax = ∞ we adopt the convention 
+
+Y ∆t, ∞ := Y ∆t and u∞
+
+> ∆t
+
+(x) := u∆t(x) so that the notation covers both finite and infinite horizons. Our aim is to control the tails of FK estimators of the form buMC (x) and of their truncated counterparts, and hence show that the resulting FK labels behave like noisy point evaluations of u⋆ with sub-exponential noise. 
+
+C.2. Exit time estimates and exponential moments 
+
+We first establish exponential moments for the continuous exit time τ and the discrete exit time τ∆t. These are the key inputs for controlling the tails of the payoffs Y and Y ∆t and hence the Monte Carlo error. C.2.1. C ONTINUOUS EXIT TIME 
+
+Theorem C.1 (Exponential moments of the continuous exit time) . Suppose that Ω ⊂ Rd is a bounded C2 domain and that the diffusion X defined by (C.1) has globally Lipschitz coefficients and is uniformly elliptic. Then there exist constants 
+
+λc > 0 and Cc < ∞ such that 
+
+sup 
+
+> y∈Ω
+
+Ey eλcτ  ≤ Cc.
+
+In particular, the law of τ has exponential tails uniformly over starting points y ∈ Ω.Proof. Under these assumptions, the generator L of X with homogeneous Dirichlet boundary conditions on ∂Ω admits a discrete spectrum with strictly positive first eigenvalue λ1 > 0 (Pinsky, 1995). The killed semigroup (P Ω 
+
+> t
+
+)t≥0 therefore satisfies 
+
+∥P Ω 
+
+> t
+
+∥L∞(Ω) →L∞(Ω) ≤ Ce −λ1t, for all t ≥ 0
+
+for some constant C < ∞. It follows that 
+
+sup 
+
+> y∈Ω
+
+Py (τ > t ) = sup 
+
+> y∈Ω
+
+P Ω 
+
+> t
+
+1(y) ≤ Ce −λ1t, for all t ≥ 0.
+
+Fix any λc ∈ (0 , λ 1). Then, integrating the tail bound, 
+
+Ey eλcτ  = 1 + 
+
+Z ∞
+
+> 0
+
+λceλctPy (τ > t ) dt ≤ 1 + Cλ c
+
+Z ∞
+
+> 0
+
+e−(λ1−λc)t dt < ∞,
+
+with the bound uniform in y ∈ Ω. This proves the claim for a suitable constant Cc.29 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+C.2.2. D ISCRETE EXIT TIME 
+
+We next recall moment estimates for the discrete exit time τ∆t. We rely on the results of Bouchard et al. (2017). 
+
+Theorem C.2 (Moments of continuous and discrete exit times) . Assume that Ω ⊂ Rd is a bounded C2 domain with non-characteristic boundary, and that the coefficients b, σ in (C.1) are globally Lipschitz and of linear growth. Let τ be as above and τ∆t be defined by (C.4) . Then, for each integer p ≥ 1, there exist finite constants Cp < ∞ and ∆tp > 0 such that for all 0 < ∆t ≤ ∆tp,
+
+sup 
+
+> y∈Ω
+
+Ey [τ p] ≤ Cp,
+
+sup 
+
+> y∈Ω
+
+Ey [τ p
+
+> ∆t
+
+] ≤ Cp,
+
+sup 
+
+> y∈Ω
+
+Ey |τ∆t − τ |p ≤ Cp ∆tp/ 2.
+
+Proof. This is a specialization of the main results in Bouchard et al. (2017). See in particular Theorems 3.1 there, specialized to globally Lipschitz coefficients and a bounded C2 domain. The non-characteristic boundary condition is implied by uniform ellipticity. Collecting the corresponding bounds yields the stated result. Combining Theorems C.1 and C.2, one can show that τ∆t admits exponential moments uniformly over ∆t small enough by a standard renewal argument. We sketch this in the next two lemmas. 
+
+Lemma C.3 (Uniform exit in finite time) . Under the standing assumptions, there exist constants T∗ > 0 and p0 ∈ (0 , 1) 
+
+such that 
+
+inf 
+
+> y∈Ω
+
+Py (τ ≤ T∗) ≥ p0.
+
+Moreover, there exist ∆t0 > 0 and p ∈ (0 , 1) such that for all 0 < ∆t ≤ ∆t0,
+
+inf 
+
+> y∈Ω
+
+Py (τ∆t ≤ T∗) ≥ p. 
+
+Proof sketch. For the continuous exit time, Theorem C.1 yields sup y∈Ω Py (τ > t ) ≤ Cce−λct, hence, choosing T∗ large enough that Cce−λcT∗ ≤ 1/2 gives 
+
+inf 
+
+> y∈Ω
+
+Py (τ ≤ T∗) ≥ 1/2 =: p0.
+
+By Theorem C.2, for some p ≥ 1 we have sup y∈Ω Ey |τ∆t − τ |p → 0 as ∆t → 0, hence, for any ε > 0,
+
+sup 
+
+> y∈Ω
+
+Py  |τ∆t − τ | > ε  ≤ ε−p sup 
+
+> y
+
+Ey |τ∆t − τ |p → 0,
+
+so τ∆t → τ in probability, uniformly in y. Since the law of τ has a density (see, e.g., Pinsky (1995)), we have Py (τ =
+
+T∗) = 0 for all y, and thus Py (τ∆t ≤ T∗) −→ Py (τ ≤ T∗) uniformly in y ∈ Ω as ∆t → 0. Hence for ∆t small enough we still have 
+
+inf 
+
+> y∈Ω
+
+Py (τ∆t ≤ T∗) ≥ p0/2 =: p ∈ (0 , 1) .
+
+Proposition C.4 (Exponential moments of the discrete exit time) . Under the standing assumptions, there exist constants 
+
+λd > 0, Cd < ∞ and ∆t0 > 0 such that 
+
+sup  
+
+> y∈Ω,0<∆t≤∆t0
+
+Ey eλdτ∆t  ≤ Cd.
+
+Proof sketch. Let T∗ > 0, p ∈ (0 , 1) and ∆t0 > 0 be as in Lemma C.3. In particular, inf y Py (τ∆t ≤ T∗) ≥ p, so 
+
+sup y Py (τ∆t > T ∗) ≤ 1 − p for all 0 < ∆t ≤ ∆t0.30 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Consider the continuous-time interpolation of the Euler scheme, which is a time-homogeneous Markov process. By the (strong) Markov property at times kT ∗,
+
+Py (τ∆t > (k + 1) T∗) = Ey 1{τ∆t>kT ∗}PX∆tkT ∗ (τ∆t > T ∗) ≤ (1 − p)Py (τ∆t > kT ∗).
+
+Iterating this inequality gives sup y∈Ω Py (τ∆t > kT ∗) ≤ (1 − p)k for all k ∈ N, 0 < ∆t ≤ ∆t0. For any t ≥ 0 with 
+
+kT ∗ ≤ t < (k + 1) T∗, we have {τ∆t > t } ⊂ { τ∆t > kT ∗}, so the same bound holds with t in place of kT ∗.Proceeding as in the proof of Theorem C.1, we use the representation Ey [eλτ ∆t] = 1 + R ∞ 
+
+> 0
+
+λe λt Py (τ∆t > t ) dt , and split the integral over the intervals [kT ∗, (k + 1) T∗), yielding a geometric series upper bound by the previous paragraph. Choosing λd > 0 so small that eλdT∗ (1 − p) < 1, the series in question converges and its sum is finite and independent of y
+
+and ∆t ∈ (0 , ∆t0]. This gives the claimed bound with some finite constant Cd.
+
+C.3. Exponential moments and tails for the payoff 
+
+We now transfer the exponential-moment bounds for τ and τ∆t to the payoffs Y and Y ∆t.
+
+Lemma C.5 (Deterministic bound for Y ∆t). Assume that f and g are bounded and that V ≥ 0 on Ω. Then there exist constants Cf , C g ≥ 0 such that respectively for all x ∈ Ω, z ∈ ∂Ω, we have |f (x)| ≤ Cf , |g(z)| ≤ Cg , and 
+
+|Y ∆t| ≤ Cf τ∆t + Cg almost surely .
+
+Proof. By boundedness of f and g there exist Cf , C g ≥ 0 with the stated properties. Since V ≥ 0, all exponential factors in (C.5) are bounded by one. Thus 
+
+|Y ∆t| ≤ 
+
+> N∆t−1
+
+X
+
+> k=0
+
+|f (X∆tk )| ∆t + |g(X∆tN∆t )|≤ Cf N∆t∆t + Cg = Cf τ∆t + Cg .
+
+A similar argument yields a deterministic bound for Y in terms of τ :
+
+Lemma C.6 (Deterministic bound for Y ). Under the same assumptions as in Lemma C.5, one has 
+
+|Y | ≤ Cf τ + Cg almost surely .
+
+Combining these bounds with Theorem C.1 and Proposition C.4, we obtain exponential moments for the payoffs. 
+
+Proposition C.7 (Exponential moments for Y and Y ∆t). Under the standing assumptions and assuming in addition that 
+
+V ≥ 0 on Ω, there exist constants λY > 0, CY < ∞ and ∆t0 > 0 such that 
+
+sup 
+
+> y∈Ω
+
+Ey eλY |Y | ≤ CY ,
+
+and 
+
+sup  
+
+> y∈Ω,0<∆t≤∆t0
+
+Ey eλY |Y ∆t| ≤ CY .
+
+Proof. By Lemma C.5, 
+
+eλ|Y ∆t| ≤ eλC g eλC f τ∆t ,
+
+and by Lemma C.6, 
+
+eλ|Y | ≤ eλC g eλC f τ .
+
+Using Theorem C.1 and Proposition C.4, choose λY > 0 small enough that λY Cf < λ c and λY Cf < λ d. Then the stated bounds follow immediately, with 
+
+CY := eλY Cg max {Cc, C d}.
+
+31 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Remark C.8 (Sub-exponential character of Y and Y ∆t). A real-valued random variable Z is sub-exponential if there exists 
+
+α > 0 with E[eλZ ] < ∞ for all |λ| < α . Proposition C.7 shows that Y and Y ∆t are sub-exponential, with sub-exponential norms bounded uniformly in ∆t for ∆t ≤ ∆t0.
+
+C.4. Concentration for the Monte Carlo estimator at fixed ∆t
+
+We now derive non-asymptotic tail bounds for the Monte Carlo estimator buMC (x) at a fixed time step ∆t ≤ ∆t0. The key tool is a Bernstein-type inequality for sub-exponential random variables. C.4.1. A B ERNSTEIN INEQUALITY FOR SUB -EXPONENTIAL VARIABLES 
+
+Theorem C.9 (Bernstein inequality for sub-exponential variables) . Let Z1, . . . , Z N be i.i.d. real-valued random variables with E[Zi] = 0 and suppose there exist constants ν2, b > 0 satisfying 
+
+EeλZ i  ≤ exp 
+
+ ν2λ2
+
+2
+
+
+
+for all |λ| < 1/b. 
+
+Then there exists a universal constant c > 0 such that, for all t > 0,
+
+P
+
+ 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Zi > t 
+
+
+
+≤ 2 exp 
+
+
+
+− cN min 
+
+ t2
+
+ν2 , tb
+
+ 
+
+.
+
+Proof. See, for example, (Vershynin, 2018, Theorem 2.9.1). C.4.2. A PPLICATION TO THE EULER PAYOFF 
+
+We apply Theorem C.9 to the centered Euler payoff Y ∆t − u∆t(x).
+
+Lemma C.10 (Sub-exponential parameters for Y ∆t − u∆t(x)). Under the standing assumptions, there exist constants 
+
+ν > 0, b > 0 and ∆t0 > 0 such that, for all ∆t ≤ ∆t0, the centered random variable Z∆t := Y ∆t − u∆t(x) satisfies 
+
+EeλZ ∆t  ≤ exp 
+
+ ν2λ2
+
+2
+
+
+
+for all |λ| < 1/b. 
+
+The constants ν and b depend only on the model data and can be chosen independent of ∆t ≤ ∆t0.Proof. Proposition C.7 guarantees that there exist λY > 0 and CY < ∞ such that 
+
+sup 
+
+> 0<∆t≤∆t0
+
+EeλY |Y ∆t| ≤ CY .
+
+This implies that the moment generating function E[eλY ∆t
+
+] is finite on (−λY , λ Y ) uniformly in ∆t ≤ ∆t0. Since 
+
+Z∆t = Y ∆t − u∆t(x) differs from Y ∆t by a constant shift, the same holds for Z∆t.A standard argument (see Vershynin (2018, Section 2.7)) shows that there exist parameters (ν, b ) depending only on the exponential-moment bounds of Y ∆t such that 
+
+EeλZ ∆t  ≤ exp 
+
+ ν2λ2
+
+2
+
+
+
+for all |λ| < 1/b, 
+
+uniformly over ∆t ≤ ∆t0. We refer the reader to said reference for details. Combining Lemma C.10 with Theorem C.9 yields the following concentration inequality. 
+
+Proposition C.11 (Concentration for the Monte Carlo error at fixed ∆t). Under the standing assumptions, there exist constants c > 0, ν > 0, b > 0 and ∆t0 > 0 such that for all ∆t ≤ ∆t0, all NMC ∈ N and all t > 0,
+
+P
+
+
+
+|buMC (x) − u∆t(x)| > t 
+
+
+
+≤ 2 exp 
+
+
+
+− cN MC min 
+
+ t2
+
+ν2 , tb
+
+ 
+
+.
+
+32 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Proof. For fixed x, ∆t and NMC , define Z∆ti := Y ∆t, (i) − u∆t(x) for i = 1 , . . . , N MC . These variables are i.i.d. with zero mean, and by Lemma C.10 they satisfy the moment generating function condition of Theorem C.9 with parameters (ν, b )
+
+independent of ∆t ≤ ∆t0. Since 
+
+buMC (x) − u∆t(x) = 1
+
+NMC 
+
+> NMC
+
+X
+
+> i=1
+
+Z∆ti ,
+
+Theorem C.9 yields the stated inequality. 
+
+Remark C.12 (sub-Gaussian vs exponential regimes) . The bound in Proposition C.11 has two regimes. For deviations 
+
+0 < t ≤ ν2/b , the quadratic term dominates and the tails behave essentially like exp( −cN MC t2/ν 2). For larger deviations, the linear term dominates and the decay is of order exp( −cN MC t/b ). In both cases the constants are independent of NMC 
+
+and of ∆t for ∆t ≤ ∆t0.
+
+C.5. Discretization bias 
+
+We next bound the bias u∆t(x) − u⋆(x) of the time-discretized FK value. 
+
+Theorem C.13 (Weak error for killed Euler schemes) . Assume that Ω ⊂ Rd is a bounded C2 domain with non-characteristic boundary, that the coefficients b, σ in (C.1) are C4 
+
+> b
+
+with bounded derivatives up to order 4, and that f, g, V are bounded with bounded derivatives up to the necessary order. Then there exist constants Cbias < ∞ and ∆t0 > 0 such that, for all 
+
+0 < ∆t ≤ ∆t0,
+
+|u∆t(x) − u⋆(x)| ≤ Cbias 
+
+√∆t. 
+
+Proof. This is a specialization of the weak error estimates for killed Euler schemes in (Gobet, 2000, Theorem 2.4) and (Gobet & Menozzi, 2010, Theorem 17). Our assumptions on the regularity of b, σ, f, g, V and on the geometry of Ω
+
+are stronger than those in the cited papers, so their hypotheses are satisfied. The functional Y ∆t in (C.5) matches the discretization considered there. The stated bound follows, with a constant Cbias independent of ∆t for ∆t small enough. 
+
+Lemma C.14 (Bias due to time truncation) . Assume the standing assumptions of this appendix and those of Lemma C.5. Then there exist constants ˜λ > 0, CT < ∞ and ∆t0 > 0 such that, for all x ∈ Ω, all 0 < ∆t ≤ ∆t0 and all Tmax > 0,
+
+|uTmax  
+
+> ∆t
+
+(x) − u∆t(x)| ≤ CT e−˜λT max .
+
+Proof. On the event {τ∆t ≤ Tmax } the discrete trajectory exits Ω before the truncation horizon and κTmax  
+
+> ∆t
+
+= N∆t, hence 
+
+Y ∆t,T max = Y ∆t. On the complement {τ∆t > T max } the payoffs Y ∆t and Y ∆t,T max differ only through the contribution of the running functional f after time Tmax and through the terminal term that involves g. Using the representation (C.5) and the definition (C.7) , together with boundedness of f and g and the fact that all exponential factors are at most one, we obtain 
+
+|Y ∆t − Y ∆t,T max | ≤ Cf τ∆t1{τ∆t>T max } + 2 Cg 1{τ∆t>T max },
+
+with the constants Cf and Cg from Lemma C.5. Taking expectations and using Proposition C.4, for any λ ∈ (0 , λ d),
+
+Px(τ∆t > t ) ≤ e−λt Exeλτ ∆t  ≤ Cde−λt ,
+
+and therefore 
+
+Exτ∆t1{τ∆t>T max }
+
+ =
+
+Z ∞
+
+> Tmax
+
+Px(τ∆t > u ) du ≤ Cd
+
+λ e−λT max ,
+
+as well as 
+
+Px(τ∆t > T max ) ≤ Cde−λT max .
+
+Combining these bounds yields 
+
+|uTmax  
+
+> ∆t
+
+(x) − u∆t(x)| = |ExY ∆t,T max − Y ∆t| ≤ 
+
+ Cf Cd
+
+λ + 2 Cg Cd
+
+
+
+e−λT max .
+
+The claim follows by setting ˜λ := λ and CT := Cf Cd 
+
+> λ
+
++ 2 Cg Cd, and by choosing ∆t0 as in Proposition C.4. These bounds summarize the non-asymptotic behavior of the infinite horizon Monte Carlo FK estimator at a fixed point x.For the learning-theoretic analysis we only need that, for each fixed x, the FK label produced by Algorithm 1 behaves like a noisy point evaluation of u⋆(x) with sub-exponential noise whose parameters do not depend on the number of FK labels or on the Monte Carlo budget. This is precisely the content of Proposition 6.1 in the main text, whose proof we now provide. 33 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Proof of Proposition 6.1. Fix x ∈ Ω and consider the FK estimator produced at this spatial point by Algorithm 1, with time step 0 < ∆t ≤ ∆t0, truncation horizon Tmax ∈ (0 , ∞] and Monte Carlo budget NMC . For each trajectory we simulate a payoff Y ∆t,T max as in (C.7). The FK label at x is the empirical average of NMC independent copies of Y ∆t,T max , that is 
+
+buTmax (x) := 1
+
+NMC 
+
+> NMC
+
+X
+
+> i=1
+
+Y ∆t,T max ,(i).
+
+Step 1: sub-exponential Monte Carlo fluctuations. 
+
+We distinguish the cases Tmax < ∞ and Tmax = ∞.If Tmax < ∞, then at most NT = ⌊Tmax /∆t⌋ time steps are accumulated before truncation. Boundedness of f and g and nonnegativity of V imply (as in Lemma C.5) the deterministic bound 
+
+|Y ∆t,T max | ≤ Cf Tmax + Cg almost surely, uniformly in x and 0 < ∆t ≤ ∆t0. Hence, for each fixed x, the centered variable 
+
+Z∆t,T max := Y ∆t,T max − uTmax  
+
+> ∆t
+
+(x)
+
+is bounded and therefore sub-exponential, with parameters that depend only on Cf , Cg and Tmax and do not depend on NMC or on the number of FK points. Standard properties of sub-exponential variables (see, e.g., Vershynin (2018, Section 2.7)) imply that empirical averages of i.i.d. sub-exponential variables are again sub-exponential, and the sub-exponential parameters can be chosen independently of the sample size. Thus, conditional on X0 = x,
+
+buTmax (x) − uTmax  
+
+> ∆t
+
+(x) = 1
+
+NMC 
+
+> NMC
+
+X
+
+> i=1
+
+Z∆t,T max ,(i)
+
+is mean-zero and sub-exponential with parameters depending only on the problem data and on Tmax , and not on NMC .If Tmax = ∞, then Y ∆t, ∞ = Y ∆t and u∞
+
+> ∆t
+
+(x) = u∆t(x). Proposition C.7 yields constants λY > 0, CY < ∞ and ∆t0 > 0
+
+such that 
+
+sup  
+
+> y∈Ω,0<∆t≤∆t0
+
+Ey eλY |Y ∆t| ≤ CY .
+
+In particular, for each fixed x and 0 < ∆t ≤ ∆t0, the centered variable 
+
+Z∆t := Y ∆t − u∆t(x)
+
+is sub-exponential with parameters depending only on CY and λY and independent of ∆t, NMC and the number of FK points, as per Lemma C.10. As in the finite-horizon case, empirical averages of i.i.d. copies of Z∆t are again sub-exponential, with parameters that can be chosen independent of NMC . Thus bu∞(x) − u∆t(x) is mean-zero and sub-exponential with parameters depending only on the model data. In both cases we may therefore write 
+
+buTmax (x) = uTmax  
+
+> ∆t
+
+(x) + ζ(x),
+
+where, conditional on X0 = x, the fluctuation ζ(x) is mean-zero and sub-exponential with parameters that do not depend on 
+
+NMC or on the number of FK points (and are uniform over 0 < ∆t ≤ ∆t0). 
+
+Step 2: discretization and truncation bias. 
+
+We now decompose the bias of the (possibly truncated) FK value. Adding and subtracting u∆t(x) and u⋆(x) yields 
+
+buTmax (x) = u⋆(x) +  u∆t(x) − u⋆(x) +  uTmax  
+
+> ∆t
+
+(x) − u∆t(x) + ζ(x).
+
+By Theorem C.13 the discretization bias satisfies 
+
+|u∆t(x) − u⋆(x)| ≤ Cbias 
+
+√∆t, for all 0 < ∆t ≤ ∆t0,
+
+34 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+while Lemma C.14 gives 
+
+|uTmax  
+
+> ∆t
+
+(x) − u∆t(x)| ≤ CT e−˜λT max , for all Tmax > 0,
+
+with the convention e−˜λT max = 0 when Tmax = ∞. Defining 
+
+b(x) :=  u∆t(x) − u⋆(x) +  uTmax  
+
+> ∆t
+
+(x) − u∆t(x),
+
+we obtain the decomposition 
+
+buTmax (x) = u⋆(x) + b(x) + ζ(x),
+
+with 
+
+|b(x)| ≤ Cbias 
+
+√∆t + CT e−˜λT max ,
+
+and with ζ(x) mean-zero and sub-exponential with parameters independent of NMC and of the number of FK points, uniformly over 0 < ∆t ≤ ∆t0.
+
+Step 3: random FK locations. In the FK-PINN construction we draw i.i.d. supervision locations XFK  
+
+> i
+
+∈ Ω, and at each such point we compute an independent estimator buTmax (XFK  
+
+> i
+
+) using a fresh set of NMC trajectories. Setting 
+
+Y FK  
+
+> i
+
+:= buTmax (XFK  
+
+> i
+
+), b(XFK  
+
+> i
+
+) := b XFK 
+
+> i
+
+, ζi := ζ XFK 
+
+> i
+
+,
+
+the pairs {(XFK  
+
+> i
+
+, Y FK  
+
+> i
+
+)}NFK  
+
+> i=1
+
+are i.i.d., and, conditional on XFK  
+
+> i
+
+= x, each Y FK  
+
+> i
+
+admits the decomposition 
+
+Y FK  
+
+> i
+
+= u⋆(x) + b(x) + ζi,
+
+with |b(x)| ≤ Cbias 
+
+√∆t + CT e−˜λT max and with ζi mean-zero and sub-exponential with parameters that do not depend on 
+
+NFK or NMC . This is exactly the statement in Proposition 6.1, thus we are done. 35 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+## D. Error Analysis for FK-PINNs 
+
+The goal of this section is to prove Theorem 6.2. To this end, we will develop a comprehensive error analysis, based on a decomposition of the L2(Ω) error in three terms, which we will control separately through learning-theoretic arguments. 
+
+D.1. Preliminaries 
+
+We begin by recalling the setting in which we will be working together with notations and technical assumptions that we will be working under for the remainder of this section. D.1.1. N OTATIONS 
+
+We work on a bounded Lipschitz domain Ω ⊂ [0 , 1] d with boundary ∂Ω and outward unit normal ν. Integration with respect to Lebesgue measure on Ω is written as R 
+
+> Ω
+
+· dx , while R 
+
+> ∂Ω
+
+· ds denotes integration with respect to surface measure on ∂Ω.For 1 ≤ p ≤ ∞ we write Lp(Ω) and Lp(∂Ω) for the usual Lebesgue spaces, with norms 
+
+∥u∥Lp(Ω) := 
+
+( R  
+
+> Ω
+
+|u(x)|p dx 1/p , 1 ≤ p < ∞,
+
+ess sup x∈Ω |u(x)|, p = ∞,
+
+and similarly on ∂Ω. We write C(Ω) for the space of continuous functions on the closure of Ω with norm ∥u∥C(Ω) := sup x∈Ω |u(x)|.For s ∈ N and 1 ≤ p ≤ ∞ , the Sobolev space W s,p (Ω) consists of functions in Lp(Ω) whose weak derivatives up to order 
+
+s lie in Lp(Ω) , endowed with norm 
+
+∥u∥W s,p (Ω) := 
+
+ X
+
+> |α|≤ s
+
+∥Dαu∥pLp(Ω) 
+
+1/p 
+
+for p < ∞,
+
+and with the obvious modification for p = ∞. We use Hs(Ω) := W s, 2(Ω) . Fractional Sobolev spaces Hs(Ω) for s / ∈ N
+
+are defined in the standard way, for instance via real interpolation or via the Gagliardo seminorm, see Evans (2022). We denote the associated norms by ∥·∥ Hs(Ω) .Throughout, ⟨·⟩· denotes the L2(Ω) inner product, and ∥·∥ L2(Ω) is abbreviated to ∥·∥ 2 when the domain is clear from the context. For random variables we write E[·] for expectation and P(·) for probabilities. D.1.2. S ETTING AND ASSUMPTIONS 
+
+We recall the PDE from Section 2.1. Throughout this appendix we work in the elliptic setting for clarity. All statements are formulated and proved for the second order elliptic problem in (2.1) –(2.2) . The same learning theoretic arguments extend to parabolic problems that admit a Feynman–Kac representation, once the time variable has been discretized and the resulting time discretization error is controlled separately. Since this would require additional notation and is orthogonal to the main message of the paper, we do not pursue the parabolic case in detail here. 
+
+Assumption D.1 (PDE well posedness and FK representation) . The operator L in (2.1) is uniformly elliptic with bounded measurable coefficients and satisfies the structural conditions stated in Section 2.1. The data f and g are such that (2.1) –(2.2) admit a unique strong solution 
+
+u⋆ ∈ H2(Ω) ∩ C(Ω) ,
+
+with u⋆|∂Ω = g. Moreover, there exists a diffusion process (Xt)t≥0 and an exit time τ such that u⋆ admits a Feynman–Kac representation of the form 
+
+u⋆(x) = Ex
+
+hZ τ
+
+> 0
+
+r(Xt) dt + h(Xτ )
+
+i
+
+, x ∈ Ω,
+
+for suitable running and terminal functionals r and h, as described in Section 3 and Appendix A. We follow the sampling scheme described in Algorithm 1 and Algorithm 2. Let 
+
+Xint ∼ U (Ω) , X∂Ω ∼ U (∂Ω) ,
+
+36 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+be interior and boundary points drawn independently from the uniform distributions on Ω and ∂Ω. The corresponding population PDE and boundary risks are 
+
+RPDE (u) := |Ω| E Lu(Xint ) − f (Xint ) 2, (D.1) 
+
+R∂Ω(u) := |∂Ω| E u(X∂Ω) − g(X∂Ω) 2. (D.2) In the FK term we work in a data scarce regime. We sample FK points from the same underlying geometry as the interior points, but we keep their number small. Concretely, we assume 
+
+XFK ∼ U (Ω) ,
+
+independently of Xint and X∂Ω, while the sample size NFK is allowed to remain bounded or grow much more slowly than 
+
+Nint and N∂Ω. At each such point we generate a Monte Carlo FK estimate buMC (XFK ) as in Algorithm 1. Proposition 6.1 shows that these labels admit the decomposition 
+
+buMC (XFK ) = u⋆(XFK ) + b(XFK ) + ζ, 
+
+where the deterministic bias b : Ω → R satisfies 
+
+|b(x)| ≤ Cbias 
+
+√∆t + CT e−κT max for all x ∈ Ω,
+
+for constants Cbias , C T , κ > 0 independent of NFK and of the number of FK trajectories, and where, conditional on 
+
+XFK , the fluctuation ζ is mean-zero and sub-exponential with parameters that do not depend on NFK or on the number of trajectories. The corresponding population FK risk is 
+
+RFK (u) := E u(XFK ) − u⋆(XFK ) 2. (D.3) For fixed nonnegative weights λPDE , λ∂Ω and λFK we define the population FK-PINN risk 
+
+R(u) := λPDE RPDE (u) + λ∂ΩR∂Ω(u) + λFK RFK (u). (D.4) In what follows we assume that the PDE and boundary weights λPDE , λ ∂Ω, and that the FK weight is non-negative. For convenience, we will use the abbreviation 
+
+λmin := min {λPDE , λ ∂Ω}.
+
+Note that rescaling the three weights only changes the constants in the bounds below, so this choice entails no loss of generality. The empirical FK-PINN risk is obtained by Monte Carlo approximation of the expectations in (D.1) – (D.3) .Given i.i.d. samples 
+
+{xint  
+
+> i
+
+}Nint  
+
+> i=1
+
+⊂ Ω, {x∂Ω 
+
+> j
+
+}N∂Ω 
+
+> j=1
+
+⊂ ∂Ω, {xFK  
+
+> k
+
+}NFK  
+
+> k=1
+
+⊂ Ω,
+
+and the corresponding FK labels {buMC (xFK  
+
+> k
+
+)}NFK  
+
+> k=1
+
+, we set 
+
+bRPDE (u) := |Ω| 1
+
+Nint 
+
+> Nint
+
+X
+
+> i=1
+
+Lu(xint  
+
+> i
+
+) − f (xint  
+
+> i
+
+) 2, (D.5) 
+
+bR∂Ω(u) := |∂Ω| 1
+
+N∂Ω
+
+> N∂Ω
+
+X
+
+> j=1
+
+u(x∂Ω 
+
+> j
+
+) − g(x∂Ω 
+
+> j
+
+) 2, (D.6) 
+
+bRFK (u) := 1
+
+NFK 
+
+> NFK
+
+X
+
+> k=1
+
+u(xFK  
+
+> k
+
+) − buMC (xFK  
+
+> k
+
+) 2, (D.7) and bR(u) := λPDE bRPDE (u) + λ∂Ω bR∂Ω(u) + λFK bRFK (u). (D.8) Up to the adaptive task weights used in Equation (4.3), the empirical loss bR(uθ ) coincides with RFK -PINN (θ, φ ).We will make use of the following classical PDE estimate. 37 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Lemma D.1 (PDE stability) . Under Assumption D.1 there exists a constant Cstab > 0 such that for every u ∈ H2(Ω) ∩C(Ω) 
+
+with u|∂Ω ∈ L2(∂Ω) ,
+
+∥u − u⋆∥2 
+
+> L2(Ω)
+
+≤ Cstab 
+
+
+
+RPDE (u) + R∂Ω(u)
+
+
+
+. (D.9) Lemma D.1 is a direct consequence of the a priori boundary estimates of Agmon et al. (1959), combined with the embedding 
+
+L2(Ω) ,→ H−s(Ω) for suitable s > 0. One may also refer to Evans (2022, Chapter 6) and Jiao et al. (2022); Lei et al. (2025) for formulations tailored to PINNs. We will work with a hypothesis class U of candidate solutions, specified in the next subsection. For any u ∈ U we define 
+
+Eapp := inf 
+
+> v∈U
+
+∥v − u⋆∥L2(Ω) , Estat := sup 
+
+> v∈U
+
+R(v) − bR(v) . (D.10) The following decomposition is standard. 
+
+Lemma D.2 (Risk decomposition) . Let bu ∈ arg min u∈U bR(u) be any empirical minimizer. Then 
+
+R(bu) − R (u⋆) ≤ 2 Estat + inf 
+
+> u∈U
+
+R(u) − R (u⋆). (D.11) 
+
+Proof. Fix any u ∈ U . Then 
+
+R(bu) − R (u⋆) =  R(bu) − bR(bu) +   bR(bu) − bR(u)
+
++   bR(u) − R (u) +  R(u) − R (u⋆).
+
+By optimality of bu for bR we have bR(bu) ≤ bR(u), so the middle term is nonpositive. Hence 
+
+R(bu) − R (u⋆) ≤ R(bu) − bR(bu) + bR(u) − R (u) +  R(u) − R (u⋆)
+
+≤ 2 Estat +  R(u) − R (u⋆),
+
+where we used the definition of Estat in (D.10). Since this bound holds for every u ∈ U , taking the infimum over u yields 
+
+R(bu) − R (u⋆) ≤ 2 Estat + inf 
+
+> u∈U
+
+R(u) − R (u⋆).
+
+Later we also introduce an optimization error Eopt that measures the gap between the empirical minimizer and the iterate produced by gradient descent. These three terms will form the building blocks of the final non-asymptotic bound. D.1.3. N EURAL NETWORK ARCHITECTURE 
+
+We consider fully connected feedforward neural networks with tanh activations in the hidden layers and a linear output. For an integer depth L ≥ 1 and a fixed width vector (mℓ)Lℓ=0 with m0 = d and mL = 1 , a parameter vector 
+
+θ := Wℓ, b ℓ
+
+> Lℓ=1
+
+, Wℓ ∈ Rmℓ×mℓ−1 , b ℓ ∈ Rmℓ ,
+
+defines a function uθ : Ω → R by 
+
+z0(x) := x ∈ Rd, (D.12) 
+
+zℓ(x) := tanh  Wℓzℓ−1(x) + bℓ
+
+, ℓ = 1 , . . . , L − 1, (D.13) 
+
+uθ (x) := WLzL−1(x) + bL ∈ R. (D.14) We write P := P (L, (mℓ)ℓ) for the total number of free parameters in θ and call L the depth and m := max ℓ mℓ the width of the network. We will later use the following upper bound on the number of free parameters: by definition, 
+
+P =
+
+> L
+
+X
+
+> ℓ=1
+
+ mℓmℓ−1 + mℓ
+
+, m0 = d, mL = 1 and mℓ ≤ m for all 0 ≤ ℓ ≤ L. 
+
+38 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+This implies that P ≤ Carch (d) L m 2 for a constant Carch (d) > 0 depending only on the input dimension d. In all subsequent bounds we may therefore replace P by Carch (d) L m 2 if we wish to make the dependence on the architectural hyperparameters explicit. For the learning-theoretic analysis we restrict attention to networks whose outputs and low order derivatives are uniformly bounded on Ω. For fixed L, (mℓ)ℓ and B > 0 we first define the parameter set 
+
+ΘL,m := 
+
+n
+
+θ = ( Wℓ, b ℓ)Lℓ=1 : Wℓ ∈ Rmℓ×mℓ−1 , b ℓ ∈ Rmℓ
+
+o
+
+.
+
+The associated hypothesis class is 
+
+UL,m,B := uθ : θ ∈ ΘL,m , ∥uθ ∥C2(Ω) ≤ B , (D.15) where ∥·∥ C2(Ω) denotes the usual C2 norm that controls the function and its first and second order partial derivatives on Ω.The class UL,m,B is nonempty for every B large enough, since constant functions belong to it. To lighten notation we often write U for UL,m,B and denote by P the maximal number of parameters of networks in U. All constants in the sequel may depend on (L, m, B, d ) but never on the sample sizes (Nint , N ∂Ω, N FK ).
+
+D.2. Approximation Error Bound 
+
+We first bound the approximation error in (D.10) in terms of the size of the network. The desired bounds will directly follow from the approximation error bounds of tanh networks due to De Ryck et al. (2021). 
+
+Theorem D.3 (Approximation by two hidden layer tanh networks, simplified) . Let d ∈ N, let s ∈ N with s ≥ 3 and let 
+
+f ∈ W s, ∞([0 , 1] d). There exist constants Capprox , C width > 0, depending only on (d, s, ∥f ∥W s, ∞ ), such that for every integer N large enough there is a tanh network bfN with two hidden layers whose total number of parameters satisfies 
+
+PN ≤ Cwidth N d
+
+and such that, for all multi indices α with |α| ≤ 2,
+
+∥Dαf − Dα bfN ∥L∞([0 ,1] d) ≤ Capprox N −(s−| α|). (D.16) 
+
+Remark D.4 . Theorem D.3 is a mild simplification of De Ryck et al. (2021, Theorem 5.1). The original statement specifies exact widths for the two hidden layers and tracks additional logarithmic factors in N , while we only retain the dominant polynomial dependence on N , which is all that enters our rate calculations. We now apply this result to the hypothesis class U defined in (D.15) and to the true solution u⋆.
+
+Corollary D.5 (Approximation error for UL,m,B ). Suppose that Assumption D.1 holds and that u⋆ ∈ W s, ∞(Ω) for some integer s ≥ 3. Fix any depth L ≥ 3. Then there exist constants Capp ,1, C app ,2 > 0 and m0 ∈ N such that for every width 
+
+m ≥ m0 the hypothesis class UL,m,B contains a network uapprox with 
+
+∥u⋆ − uapprox ∥C2(Ω) ≤ Capp ,1 P (L, m )−γ , γ := s − 2
+
+d , (D.17) 
+
+where P (L, m ) denotes the total number of free parameters of networks in UL,m,B . In particular, 
+
+Eapp = inf 
+
+> u∈U L,m,B
+
+∥u − u⋆∥L2(Ω) ≤ Capp ,2 P (L, m )−γ . (D.18) 
+
+Proof. By the Sobolev extension theorem whose conditions are satisfied here (Evans, 2022), we can extend u⋆ to a function in W s, ∞([0 , 1] d) with comparable norm. Now we apply Theorem D.3 with this extension :for each integer N large enough, we obtain a two-hidden-layer tanh network buN with depth L = 3 , widths of order N d in each hidden layer, total number of parameters PN ≤ Cwidth N d, and 
+
+∥Dαu⋆ − Dα buN ∥L∞([0 ,1] d) ≤ Capprox N −(s−| α|), |α| ≤ 2.
+
+In particular, 
+
+∥u⋆ − buN ∥C2(Ω) ≤ CN −(s−2) 
+
+39 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+for a constant C depending on (d, s, ∥u⋆∥W s, ∞ ).Any such two-hidden-layer network can be realized as a special case of our architecture with depth L ≥ 3 and width m as soon as m is larger than the maximal width of buN , since the extra layers and neurons can be made inactive by setting their weights to zero or to identities. Thus, for every L ≥ 3 there exists m0 such that for all m ≥ m0 the network buN belongs to 
+
+UL,m,B provided B is chosen large enough. Let Nmin be the (fixed) threshold required in Theorem D.3 and choose 
+
+N := max 
+
+n
+
+Nmin , (P (L, m )/C width )1/d o
+
+.
+
+Then PN ≤ Cwidth N d ≤ P (L, m ) and therefore 
+
+∥u⋆ − buN ∥C2(Ω) ≤ CN −(s−2) ≤ C′P (L, m )−γ , γ = s − 2
+
+d ,
+
+for a constant C′ > 0. Taking uapprox = buN yields (D.17) with Capp ,1 = CC ′. Since Ω is bounded, ∥v∥L2(Ω) ≤
+
+CΩ∥v∥C(Ω) for every continuous v, and (D.18) follows from (D.17) by absorbing CΩ into Capp ,2.Corollary D.5 shows that Eapp decays at least polynomially in the number of parameters whenever u⋆ has Sobolev regularity of order exceeding two. Stronger, essentially exponential, rates can be obtained under analyticity assumptions on u⋆ using De Ryck et al. (2021, Corollary 5.5), but we do not pursue this here. 
+
+Lemma D.6 (Control of the population risk by C2 approximation) . Under Assumption D.1 and with the weights 
+
+(λPDE , λ ∂Ω, λ FK ) as in (D.4) , there exists a constant Crisk > 0, depending only on the PDE coefficients, the domain, and the weights, such that for every u ∈ C2(Ω) with 
+
+∥u − u⋆∥C2(Ω) ≤ ε, 
+
+one has 
+
+R(u) ≤ Crisk ε2. (D.19) 
+
+In particular, for the approximating network uapprox from Corollary D.5 we have 
+
+R(uapprox ) ≤ eCrisk P −2γ , (D.20) 
+
+for a constant eCrisk > 0 independent of P .Proof. Since L is a second order operator with bounded measurable coefficients, there exists a constant CL > 0 such that 
+
+sup 
+
+> x∈Ω
+
+L(u − u⋆)( x) ≤ CL ∥u − u⋆∥C2(Ω) .
+
+Therefore 
+
+RPDE (u) = 
+
+Z
+
+> Ω
+
+ Lu(x) − f (x)2 dx =
+
+Z
+
+> Ω
+
+ L(u − u⋆)( x)2 dx ≤ | Ω| C2 
+
+> L
+
+ε2.
+
+On the boundary we have 
+
+sup 
+
+> x∈∂Ω
+
+u(x) − g(x) = sup 
+
+> x∈∂Ω
+
+u(x) − u⋆(x) ≤ ∥ u − u⋆∥C(Ω) ≤ ε, 
+
+which gives 
+
+R∂Ω(u) = 
+
+Z
+
+> ∂Ω
+
+ u(x) − g(x)2 ds ≤ | ∂Ω| ε2.
+
+Finally, for the FK term we use that u⋆ is itself the target in (D.3), hence 
+
+RFK (u) = E u(XFK ) − u⋆(XFK ) 2 ≤ ∥ u − u⋆∥2 
+
+> C(Ω)
+
+≤ ε2.
+
+Collecting these three bounds and inserting the weights gives (D.19) with a constant Crisk that depends only on the coefficients of L, the domain, and the weights. The bound (D.20) then follows from (D.17). 40 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+D.3. Optimization Error Bound 
+
+We next control the optimization error incurred by terminating gradient descent after a finite number of iterations. Throughout this subsection we fix the sample set and view the empirical FK-PINN loss 
+
+ℓ(θ) := bR(uθ )
+
+as a deterministic function of the parameters. We rely on the Polyak– Ł ojasiewicz framework of Karimi et al. (2016); Liu et al. (2022). A function ℓ : RP → R satisfies a local PL ∗ condition on a set S ⊂ RP with constant μ > 0 if 
+
+ℓ(θ) − ℓ(θ⋆) ≤ 12μ ∥∇ ℓ(θ)∥22, ∀θ ∈ S, (D.21) for some global minimizer θ⋆ ∈ S of ℓ. If, in addition, ℓ is β-smooth on S (that is, ∥∇ ℓ(θ) − ∇ ℓ(θ′)∥2 ≤ β∥θ − θ′∥2 for all θ, θ′ ∈ S), the ratio 
+
+κℓ(S) := βμ
+
+plays the role of a condition number. The following result is a special case of Liu et al. (2022, Theorem 6). 
+
+Theorem D.7 (Gradient descent under a local PL ∗ condition) . Let ℓ be differentiable and β-smooth on a convex set S ⊂ RP ,and assume that ℓ satisfies the PL ∗ condition (D.21) on S with constant μ > 0. Let θ0 ∈ S and consider gradient descent 
+
+θt+1 = θt − η∇ℓ(θt),
+
+with a fixed step size η ∈ (0 , 2/β ]. Suppose that all iterates remain in S. Then for all t ≥ 0,
+
+ℓ(θt) − ℓ(θ⋆) ≤  1 − ημ t ℓ(θ0) − ℓ(θ⋆). (D.22) In Theorem 5.4 we proved that the FK-augmented loss enjoys a PL ∗ inequality with a condition number that stays uniformly bounded as the number of collocation points increases. We translate this consequence for the empirical loss. 
+
+Corollary D.8 (Uniform PL ∗ geometry for FK-PINNs) . Under the assumptions of Theorem 5.4 there exist a convex set 
+
+S ⊂ RP , constants μFK > 0, βFK < ∞ and an initialization θ0 ∈ S such that the empirical loss ℓ(θ) = bR(uθ ) satisfies the PL ∗ condition (D.21) on S with constant μFK , is βFK -smooth on S, and the associated condition number 
+
+κFK := βFK 
+
+μFK 
+
+is bounded by a constant that does not depend on (Nint , N ∂Ω, N FK ).
+
+Under Theorem D.8, gradient descent with a suitable step size converges linearly to an empirical minimizer. We quantify the corresponding optimization error in terms of the number of iterations. 
+
+Proposition D.9 (Optimization error bound) . Let {θt}t≥0 be the gradient descent iterates for ℓ(θ) = bR(uθ ) with step size 
+
+η ∈ (0 , 2/β FK ], initialized at θ0 as in Theorem D.8. Let 
+
+bu ∈ arg min 
+
+> u∈U
+
+bR(u)
+
+be an empirical minimizer and write θ⋆ for a parameter vector with uθ⋆ = bu. Define the optimization error 
+
+Eopt (t) := bR(uθt ) − bR(bu). (D.23) 
+
+Then, under Corollary D.8, there exist constants Copt , c opt > 0 independent of the sample sizes and of t such that 
+
+Eopt (t) ≤ Copt exp( −copt t). (D.24) 
+
+In particular, for every t ≥ 0 the network uθt is an Eopt (t)-approximate empirical minimizer of bR in the sense that 
+
+bR(uθt ) ≤ inf 
+
+> u∈U
+
+bR(u) + Eopt (t).
+
+Proof. Inequality (D.24) follows directly from Theorem D.7 with μ = μFK and β = βFK , taking θ⋆ to be any parameter vector that realizes an empirical minimizer bu of bR.41 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+D.4. Statistical Error Bound 
+
+We now turn to the statistical error Estat in (D.10) , which captures the deviation between the population risk and its empirical approximation. Our goal is to obtain non-asymptotic high probability bounds on 
+
+Estat = sup 
+
+> u∈U
+
+R(u) − bR(u)
+
+in terms of the number of collocation points and the complexity of the hypothesis class. The analysis follows the now standard Rademacher complexity approach in statistical learning theory, but it has two distinctive features. First, we operate in a data scarce regime for the FK term: NFK is allowed to remain bounded while Nint and N∂Ω grow. Second, we must control the complexity not only of the network outputs uθ but also of their first and second order derivatives, since the PDE residual involves ∂αuθ for |α| ≤ 2. To the best of our knowledge, existing results of this kind only cover piecewise polynomial activations (see e.g. Jiao et al. (2022); Lu et al. (2022); Lei et al. (2025)), which does not include 
+
+tanh . We therefore derive new pseudo-dimension bounds for tanh networks and their derivatives, building on classical results of Karpinski & Macintyre (1997) and Anthony & Bartlett (2009). These bounds are of independent interest. D.4.1. P RELIMINARY RESULTS 
+
+We briefly recall the main tools from empirical process theory that we will use. Detailed expositions can be found, e.g., in Anthony & Bartlett (2009) and Wainwright (2019). 
+
+Rademacher complexity. Let (Zi)ni=1 be i.i.d. random variables taking values in a space Z and let F be a class of measurable functions f : Z → R. The empirical Rademacher complexity of F with respect to a fixed sample Z1, . . . , Z n is 
+
+Rn(F | Z1: n) := Eσ
+
+"
+
+sup  
+
+> f∈F
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+σif (Zi)
+
+#
+
+,
+
+where (σi)ni=1 are i.i.d. Rademacher variables ( P(σi = 1) = P(σi = −1) = 1 /2). The expected Rademacher complexity is 
+
+Rn(F) := E[Rn(F | Z1: n)] .Rademacher complexity controls uniform deviations between empirical and population averages. 
+
+Lemma D.10 (Symmetrization and contraction) . Let F be a class of functions f : Z → R with |f (z)| ≤ B for all f ∈ F 
+
+and z ∈ Z . Then for any n ∈ N and any δ ∈ (0 , 1) , with probability at least 1 − δ,
+
+sup  
+
+> f∈F
+
+E[f (Z)] − 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+f (Zi) ≤ 2 Rn(F) + 3 B
+
+r log(2 /δ )2n .
+
+Moreover, if ϕ : R → R is L-Lipschitz and ϕ(0) = 0 , then 
+
+Rn(ϕ ◦ F ) ≤ L Rn(F),
+
+where ϕ ◦ F := {ϕ ◦ f : f ∈ F} .
+
+A proof of the deviation bound is given in (Wainwright, 2019, Chapter 3). The Lipschitz mapping bound follows from the contraction principle (Ledoux & Talagrand, 2013). 
+
+Covering numbers and pseudo-dimension. Let A ⊂ Rn and consider the metric 
+
+d∞(a, a ′) := max 
+
+> 1≤i≤n
+
+|ai − a′
+
+> i
+
+|.
+
+An ε-cover of A with respect to d∞ is a finite subset V ⊂ Rn such that for every a ∈ A there exists v ∈ V with 
+
+d∞(a, v ) ≤ ε. The covering number C(ε, A, d ∞) is the smallest cardinality of an ε-cover of A.Given a function class F and a sample Z1: n = ( Z1, . . . , Z n), the evaluation set 
+
+F| Z1: n := (f (Z1), . . . , f (Zn)) : f ∈ F ⊂ Rn
+
+42 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+induces a covering number 
+
+C∞(ε, F, n ) := sup 
+
+> Z1: n
+
+C ε, F| Z1: n , d ∞
+
+.
+
+The pseudo-dimension Pdim( F) is the standard extension of VC dimension to real-valued function classes (Anthony & Bartlett, 2009). The next two results relate Rademacher complexity, covering numbers and pseudo-dimension. 
+
+Lemma D.11 (Dudley’s entropy integral) . Let F be a class of functions f : Z → R with |f | ≤ B. Then for every n ∈ N,
+
+Rn(F) ≤ inf  
+
+> 0<δ<B
+
+4δ + 12 
+
+√n
+
+Z Bδ
+
+q
+
+log  2 C∞(ε, F, n ) dε 
+
+!
+
+.
+
+Proposition D.12 (Covering numbers from pseudo-dimension) . Let F be a class of functions from a domain Z to [0 , B ]
+
+with pseudo-dimension dp := Pdim( F). Then for every n ≥ dp and every ε ∈ (0 , B ),
+
+C∞(ε, F, n ) ≤
+
+ eBn εd p
+
+dp
+
+.
+
+Proposition D.12 goes back to Anthony & Bartlett (2009). Combining Lemma D.11 with Proposition D.12 yields Rademacher complexity bounds of order pPdim( F)/n up to logarithmic factors. D.4.2. P SEUDO -DIMENSION BOUNDS FOR DERIVATIVES OF tanh NETWORKS 
+
+We bound the pseudo-dimension of the classes generated by uθ and its first and second order derivatives by proceeding in two steps. First, each derivative Dαuθ can be realized by an analytic network that reuses the original weights and biases, at the cost of a controlled increase in the number of computation nodes. Second, we invoke the VC-dimension bound for Pfaffian networks from (Karpinski & Macintyre, 1997), which applies to tanh since it is an analytic Pfaffian function. 
+
+Lemma D.13 (Pseudo-dimension as VC dimension of subgraph thresholds) . Let F ⊂ { f : X → R} and define the associated threshold (subgraph) class 
+
+thresh( F) := 
+
+n
+
+(x, t ) 7 → 1{f (x) − t > 0} : f ∈ F 
+
+o
+
+⊂ { 0, 1}X×R.
+
+Then 
+
+Pdim( F) = VCdim  thresh( F).
+
+Proof. The equivalence follows directly from the definitions of pseudo-shattering and shattering after mapping f to the subgraph threshold map (x, t ) 7 → 1{f (x) > t }. A detailed argument is given in (Anthony & Bartlett, 2009, Chapter 11). We will use the VC-dimension upper bound proved for Pfaffian networks 2 in (Karpinski & Macintyre, 1997, Section 4.2). We restate it in the parameterization needed below. 
+
+Theorem D.14 (Pseudo-dimension bound via VC bounds for Pfaffian networks (Karpinski & Macintyre, 1997)) . Consider a feedforward Pfaffian network architecture A in the sense of Karpinski & Macintyre (1997, Section 4.2), with the following complexity parameters: 
+
+• l ∈ N: number of trainable real parameters (weights/biases); 
+
+• N ∈ N: number of computation nodes (non-input nodes); 
+
+• dpoly ∈ N: an upper bound on the degree of each node polynomial; 
+
+• s ∈ N: an upper bound on the number of monomials in each node polynomial; 
+
+• q ∈ N and D ∈ N: Pfaffian chain length and degree controlling all activation functions used by the architecture (as in Karpinski & Macintyre (1997, Section 4.2)).   
+
+> 2The notions of Pfaffian networks and the associated complexity parameters (l, N, q, D, d poly , s )are taken from (Karpinski & Macintyre, 1997). As the required background is quite involved, we refer the reader to said paper for detailed definitions and explanations.
+
+43 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Let F(A) ⊂ { f : Rd → R} be the resulting real-valued function class computed by A (as the l parameters vary freely in 
+
+Rl). Define 
+
+Ψ( l, N, q, D, d poly , s ) := lN q (lN q −1)+(16+2 log 2 dpoly +2 log 2 s) l+2( l+2 lN q ) log 2 l+2( l+2 lN q ) log 2(dpoly +D).
+
+Then 
+
+Pdim  F(A) ≤ Ψ l, N + 1 , q, D, d poly , s + 1 .
+
+Proof. By Lemma D.13, 
+
+Pdim  F(A) = VCdim  thresh( F(A)) .
+
+Now consider the augmented architecture Asub with one additional input t ∈ R and output gate computing the Boolean predicate 
+
+(x, t ) 7 → 1{f (x) − t > 0}, where f ∈ F (A).
+
+Concretely, Asub is obtained by taking the original output polynomial and adding the extra term (−t). This adds no trainable parameters, increases the number of computation nodes by at most 1 (if the subtraction is implemented as a separate final node), and increases the monomial count bound by at most 1. Thus thresh( F(A)) is realized by a Pfaffian network with parameters bounded by (l, N + 1 , d poly , s + 1 , q, D ).Applying the VC-dimension upper bound for Pfaffian networks from Karpinski & Macintyre (1997, Section 4.2, end of section) to Asub yields 
+
+VCdim  thresh( F(A))  ≤ Ψ l, N + 1 , q, D, d poly , s + 1 ,
+
+and the result follows. 
+
+Corollary D.15 (Implication of Theorem D.14 for fixed activations) . Assume q, D, d poly are absolute constants and 
+
+s ≤ poly( N ). Then there exists a constant C > 0 such that, for all l, N ≥ 2,
+
+Pdim  F(A) ≤ C (lN )2 log( lN ).
+
+We next need a lemma on the representation of products with analytic networks. 
+
+Lemma D.16. Let φsq (t) = t2. In a feedforward architecture allowing tanh and φsq hidden units and a linear output, there exists a fixed constant-size subnetwork that maps two scalar inputs (a, b ) ∈ R2 to the product ab exactly. Proof. The identity ab = 12
+
+ (a + b)2 − a2 − b2 expresses multiplication using one addition, three squaring operations, and one final affine combination. These operations can be implemented by a constant number of units with fixed coefficients, independent of the surrounding network. The next lemma shows that derivatives of uθ with respect to the input variables can be represented by analytic networks with the same depth and with at most a constant factor more parameters. 
+
+Lemma D.17. Fix an architecture (mℓ)Lℓ=0 with m0 = d and mL = 1 , and write 
+
+P := 
+
+> L
+
+X
+
+> ℓ=1
+
+(mℓmℓ−1 + mℓ), Nhid := 
+
+> L−1
+
+X
+
+> ℓ=1
+
+mℓ.
+
+Let uθ be the corresponding fully connected tanh network (with linear output) on Ω.For every multi-index α ∈ Nd 
+
+> 0
+
+with 1 ≤ | α| ≤ 2, there exists a feedforward Pfaffian network architecture Aα (in the sense of Karpinski & Macintyre (1997, Section 4.2)) with the following properties: 1. (Parameter sharing ) The set of trainable parameters of Aα is exactly the original parameter vector θ ∈ RP (no additional free parameters). 
+
+44 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+2. ( Exact derivative ) For every θ and every x ∈ Ω,
+
+Aα(x; θ) = Dαuθ (x).
+
+3. ( Computation nodes ) The number Nα of computation nodes of Aα satisfies 
+
+Nα ≤ Cd, |α| Nhid + 3 ,
+
+where one may take 
+
+Cd, 1 := 3 + 5 d, Cd, 2 := 8 + 5 d + 13 2 d(d + 1) .
+
+Proof. Write the base tanh network as a feedforward computation graph with affine maps, tanh nonlinearities, and a final linear output. This fits the Pfaffian network framework of (Karpinski & Macintyre, 1997) because affine maps are polynomials and tanh is Pfaffian. Fix a hidden neuron with pre-activation a and activation z = tanh( a). Using only tanh , squaring, affine combinations, and the exact multiplication subnetwork from Lemma D.16, we can compute z2, s := 1 − z2, and t := −2z + 2 z3. The identities tanh ′(a) = s and tanh ′′ (a) = t then hold exactly. We construct Aα by propagating first and second input derivatives through the graph using the chain rule. For each input coordinate i ∈ { 1, . . . , d }, ∂ia is an affine combination of derivatives from the previous layer with coefficients given by the original weights, and ∂iz = s ∂ ia is obtained using one multiplication subnetwork. Similarly, for 1 ≤ i ≤ j ≤ d, ∂ij a is affine in previous-layer derivatives and 
+
+∂ij z = t (∂ia)( ∂j a) + s ∂ ij a
+
+is implemented using three multiplications and one affine combination. All trainable coefficients are reused from θ, while any additional coefficients introduced by squaring, addition, and the product construction are fixed constants. This gives parameter sharing and the exact derivative identity. It remains to bound the number of computation nodes. Using the concrete multiplication construction of Lemma D.16, one multiplication can be implemented with a constant number of computation nodes, and we may upper bound this constant by 4. For each hidden neuron, computing z, z2, and s = 1 − z2 costs 3 nodes. For each i, computing ∂ia costs one affine node and computing ∂iz = s ∂ ia costs at most 4 nodes, for a total of 5d nodes. For second derivatives, computing z3 and 
+
+t = −2z + 2 z3 costs at most 5 additional nodes. For each pair 1 ≤ i ≤ j ≤ d, the update for ∂ij z uses one affine node for 
+
+∂ij a and at most 3 multiplications, hence at most 1 + 3 · 4 = 13 nodes per pair. Since there are d(d + 1) /2 such pairs, the per-neuron cost is bounded by Cd, 1 = 3 + 5 d for first derivatives and by Cd, 2 = 8 + 5 d + 13 2 d(d + 1) for derivatives up to order 2. Multiplying by Nhid and adding a constant number of output nodes yields the claimed bound on Nα.We now define, for k ∈ { 0, 1, 2}, the derivative classes 
+
+F(k) := 
+
+n
+
+Dαuθ : uθ ∈ U L,m,B , α ∈ Nd
+
+> 0
+
+, |α| = k
+
+o
+
+, (D.25) with the convention that D0uθ = uθ . Lemma D.17 and Corollary D.15 together give the following quantitative bound. 
+
+Proposition D.18 (Pseudo-dimension of tanh networks and their up-to-order-two derivatives) . Let UL,m,B be as in (D.15) 
+
+with architecture (mℓ)Lℓ=0 , and define 
+
+P := 
+
+> L
+
+X
+
+> ℓ=1
+
+(mℓmℓ−1 + mℓ), Nhid := 
+
+> L−1
+
+X
+
+> ℓ=1
+
+mℓ, and Nk := Cd,k Nhid + 3 ,
+
+with 
+
+Cd, 0 := 1 , Cd, 1 := 3 + 5 d, and Cd, 2 := 8 + 5 d + 13 2 d(d + 1) .
+
+Then there exists a constant Cpdim > 0 depending only on d and on the activation family (ultimately tanh ) such that for each k ∈ { 0, 1, 2},
+
+Pdim  F(k) ≤ Cpdim (P N k)2 log( P N k).
+
+45 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Proof. Fix k ∈ { 0, 1, 2} and a multi-index α with |α| = k. By Lemma D.17, the class F(α) := {Dαuθ : θ ∈ ΘL,m }
+
+is contained in the Pfaffian network class F(Aα) of an architecture with l = P trainable parameters and at most Nk
+
+computation nodes. Hence 
+
+Pdim( F(α)) ≤ Pdim( F(Aα)) .
+
+Applying Corollary D.15 (a consequence of Theorem D.14) gives 
+
+Pdim( F(α)) ≤ C(P N k)2 log( P N k)
+
+for a constant C depending only on the fixed activation family. Finally, F(k) = S 
+
+> |α|=k
+
+F(α) is a finite union over  d+k−1
+
+> k
+
+ multi-indices. Using the standard finite-union bound for pseudo-dimension (Anthony & Bartlett, 2009, Section 11.2) and absorbing  d+k−1
+
+> k
+
+ into the constant yields the claim. Proposition D.18 yields, to the best of our knowledge, the first rigorous bounds for first and second order derivatives of tanh 
+
+networks. Together with Lemma D.11 and Proposition D.12, it yields the Rademacher complexity bounds for the PDE, boundary and FK losses stated later in this appendix. D.4.3. F INITE -SAMPLE BOUND ON THE STATISTICAL ERROR 
+
+We now bound Estat using the pseudo-dimension estimates from Proposition D.18. Recall that 
+
+R(u) = λPDE RPDE (u) + λ∂ΩR∂Ω(u) + λFK RFK (u),
+
+and that bR is defined in (D.8). We first separate the contributions of the three components. 
+
+Lemma D.19 (Decomposition of the statistical error) . For every hypothesis class U,
+
+Estat ≤ λPDE EPDE stat + λ∂Ω E∂Ωstat + λFK EFK stat ,
+
+where 
+
+EPDE stat := sup 
+
+> u∈U
+
+RPDE (u) − bRPDE (u) ,
+
+E∂Ωstat := sup 
+
+> u∈U
+
+R∂Ω(u) − bR∂Ω(u) ,
+
+EFK stat := sup 
+
+> u∈U
+
+RFK (u) − bRFK (u) .
+
+Proof. This is an immediate consequence of the triangle inequality and the linearity of R and bR in their three components. 
+
+Lemma D.20 (Pseudo-dimension and fixed multipliers / finite sums) . Let F ⊂ { f : Z → R} be a function class with 
+
+Pdim( F) = d < ∞ and let g : Z → R be a fixed (non-random) function. Then 
+
+Pdim  gF := Pdim  {z 7 → g(z)f (z) : f ∈ F}  ≤ d. 
+
+Moreover, if F1, . . . , Fm are function classes with pseudo-dimensions dj := Pdim( Fj ), and 
+
+Fsum := 
+
+n
+
+z 7 →
+
+> m
+
+X
+
+> j=1
+
+fj (z) : fj ∈ F j
+
+o
+
+,
+
+then there exists a constant Cm > 0, depending only on m, such that 
+
+Pdim( Fsum ) ≤ CmmX
+
+> j=1
+
+dj .
+
+46 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Proof. For the first claim, fix a finite sample z1, . . . , z n and thresholds r1, . . . , r n ∈ R. If we replace the class F by gF,the sign of g(zi)f (zi) − ri at each point zi is determined by the sign of f (zi) − ri/g (zi) whenever g(zi)̸ = 0 , while points with g(zi) = 0 contribute no additional sign variability. Thus the number of sign patterns achievable by gF on any finite sample is at most the number achievable by F, so Pdim( gF) ≤ Pdim( F).The bound for finite sums is a special case of the general pseudo-dimension bound for linear combinations of real-valued function classes as shown by Anthony & Bartlett (2009, Chapter 11). Since the number m of summands is fixed in our setting, its contribution can be absorbed into the constant Cm.We treat each term in Lemma D.19 with Lemma D.10 applied to an appropriate function class. We illustrate the argument for EPDE stat ; the remaining terms follow in the same way. Define 
+
+FPDE := 
+
+n
+
+x 7 → | Ω|  Lu(x) − f (x)2 : u ∈ U 
+
+o
+
+.
+
+Define the (unsquared) residual class 
+
+GPDE := 
+
+n
+
+x 7 → L u(x) − f (x) : u ∈ U 
+
+o
+
+.
+
+By the bounds above we have 
+
+sup 
+
+> g∈G PDE
+
+sup 
+
+> x∈Ω
+
+|g(x)| ≤ CPDE .
+
+The mapping u 7 → L u is linear in u and involves only first and second order derivatives. In particular, every g ∈ G PDE 
+
+can be written as a finite linear combination (with fixed coefficient functions given by the coefficients of L and by −f ) of functions from the derivative classes F(0) , F(1) , F(2) defined in (D.25). Note that for every g ∈ G PDE the function 
+
+x 7 → | Ω| g(x)2
+
+belongs to FPDE , and the mapping t 7 → | Ω| t2 is 2|Ω|CPDE -Lipschitz on [−CPDE , C PDE ]. Hence, by the contraction inequality in Lemma D.10, 
+
+RNint (FPDE ) ≤ 2|Ω|CPDE RNint (GPDE ).
+
+To bound RNint (GPDE ) it suffices to control the Rademacher complexities of the derivative classes F(0) , F(1) , F(2) . Indeed, writing L in coordinates as 
+
+Lu(x) = X
+
+> |α|≤ 2
+
+cα(x) Dαu(x),
+
+with bounded coefficient functions cα, we have for any fixed sample x1, . . . , x Nint ,
+
+RNint (GPDE | x1: Nint ) ≤ X
+
+> |α|≤ 2
+
+∥cα∥L∞(Ω) RNint (F(|α|) | x1: Nint ),
+
+and the constant shift −f does not affect Rademacher complexity. By Proposition D.18 (with k ≤ 2) and the Dudley/covering-number bounds, this yields 
+
+RNint (GPDE ) ≲ (P N 2)
+
+s
+
+log( P N 2)
+
+Nint 
+
+,
+
+up to logarithmic factors and constants depending only on (d, L ) and the coefficients of L.Applying Lemma D.10, Lemma D.11 and Proposition D.12 to FPDE , together with the bound RNint (GPDE ) ≲
+
+(P N 2)plog( P N 2)/N int , yields the following bound. 
+
+Lemma D.21 (Statistical error for the PDE residual) . There exist constants CPDE ,1, C PDE ,2 > 0, depending only on 
+
+(d, L, m, B ) and on the coefficients of L, such that for every δ ∈ (0 , 1) , with probability at least 1 − δ,
+
+EPDE stat ≤ CPDE ,1|Ω|C2PDE 
+
+s
+
+(P N 2)2 log( P N 2) + log(2 /δ )
+
+Nint 
+
++ CPDE ,2|Ω|C2PDE 
+
+(P N 2)2 log( P N 2) + log(2 /δ )
+
+Nint 
+
+.
+
+47 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+The boundary term E∂Ωstat is handled analogously, using that the boundary loss involves only uθ itself and no derivatives. In this case the relevant function class is generated by F(0) and the same argument shows that 
+
+E∂Ωstat ≲ |∂Ω|C2
+
+> ∂Ω
+
+(P N 0)
+
+s
+
+log( P N 0) + log(1 /δ )
+
+N∂Ω
+
+. (D.26) for a suitable constant C∂Ω.The FK term requires a small modification. Recall that RFK (u) is defined using the true solution u⋆ in (D.3) , while bRFK (u)
+
+is defined with the noisy labels buMC (xFK  
+
+> k
+
+). Writing 
+
+buMC (xFK  
+
+> k
+
+) = u⋆(xFK  
+
+> k
+
+) + b(xFK  
+
+> k
+
+) + ζk,
+
+with b and ζk as in Proposition 6.1, we deduce 
+
+EFK stat = sup 
+
+> u∈U
+
+E(u(XFK ) − u⋆(XFK )) 2 − 1
+
+NFK 
+
+> NFK
+
+X
+
+> k=1
+
+ u(xFK  
+
+> k
+
+) − buMC (xFK  
+
+> k
+
+)2
+
+≤ sup 
+
+> u∈U
+
+E(u(XFK ) − u⋆(XFK )) 2 − 1
+
+NFK 
+
+> NFK
+
+X
+
+> k=1
+
+ u(xFK  
+
+> k
+
+) − u⋆(xFK  
+
+> k
+
+)2
+
++ sup 
+
+> u∈U
+
+1
+
+NFK 
+
+> NFK
+
+X
+
+> k=1
+
+(u(xFK  
+
+> k
+
+) − u⋆(xFK  
+
+> k
+
+)) 2 − (u(xFK  
+
+> k
+
+) − buMC (xFK  
+
+> k
+
+)) 2
+
+=: AFK + BFK .
+
+The term AFK can be bounded exactly as in Lemma D.21, now using only the class F(0) on Ω, since it is an empirical-process deviation for the squared error with respect to u⋆. For BFK we expand the difference of squares and use that 
+
+(u − u⋆)2 − (u − buMC )2 = 2 ( u − u⋆) b(xFK  
+
+> k
+
+) + ζk
+
+ −  b(xFK  
+
+> k
+
+) + ζk
+
+2.
+
+Using ∥u − u⋆∥C(Ω) ≤ 2B, the bias bound in Proposition 6.1, and the inequality 1
+
+> NFK
+
+PNFK  
+
+> k=1
+
+ak ≤ sup 1≤k≤NFK |ak|, we obtain the deterministic estimate 
+
+sup 
+
+> u∈U
+
+1
+
+NFK 
+
+> NFK
+
+X
+
+> k=1
+
+
+
+2 ( u(xFK  
+
+> k
+
+) − u⋆(xFK  
+
+> k
+
+)) b(xFK  
+
+> k
+
+) − b(xFK  
+
+> k
+
+)2
+
+≤ 4B ∥b∥L∞(Ω) + ∥b∥2
+
+> L∞(Ω)
+
+.
+
+Define the Monte Carlo bias level 
+
+εbias := Cbias 
+
+√∆t + CT e−κT max ,
+
+so that ∥b∥L∞(Ω) ≤ εbias . We keep the contribution 4B ε bias + ε2bias explicit in the final bound. The remaining stochastic contribution in BFK involves the mean-zero sub-exponential fluctuations ζk. A Bernstein-type bound yields a term of order N −1/2FK up to logarithmic factors, as shown in Appendix C. The genuinely stochastic part, involving the ζk, is mean-zero and sub-exponential, and a standard Bernstein-type argument yields a contribution of order 
+
+O(N −1/2FK ) (up to logarithmic factors), as we show in Appendix C. Combining these ingredients we obtain the following finite-sample bound on the full statistical error. 
+
+Proposition D.22 (Finite-sample statistical error bound) . Under Assumption D.1 and the standing assumptions on U, there exist constants Cstat , C FK > 0 such that for every δ ∈ (0 , 1) , with probability at least 1 − δ,
+
+Estat ≤ Cstat 
+
+"
+
+(P N 2)
+
+s
+
+log( P N 2) + log(6 /δ )
+
+Nint 
+
++ ( P N 0)
+
+s
+
+log( P N 0) + log(6 /δ )
+
+N∂Ω
+
+#
+
++ CFK 
+
+"
+
+(P N 0)
+
+s
+
+log( P N 0) + log(6 /δ )
+
+NFK 
+
++
+
+s
+
+log(6 /δ )
+
+NFK 
+
++ log(6 /δ )
+
+NFK 
+
+#
+
++ Cbias 
+
+ εbias + ε2bias 
+
+, (D.27) 48 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+where εbias := Cbias 
+
+√∆t + CT e−κT max is the FK Monte Carlo bias level from Proposition 6.1. In particular, for fixed network size P and fixed confidence level, the first bracket in (D.27) tends to zero as Nint , N ∂Ω → ∞ , while the second bracket decays only as N −1/2FK (up to logarithmic factors). Thus, when NFK is small or remains bounded, the FK contribution controls the asymptotic order of Estat and induces a nonvanishing statistical floor of order 
+
+Estat ≳ (P N 2)
+
+s
+
+log( P N 2)
+
+NFK 
+
+.
+
+The dependence on log(6 /δ ) in (D.27) comes from a simple union bound. We first apply Lemma D.21 to control EPDE stat 
+
+with failure probability at most δ/ 3 by replacing log(2 /δ ) there with log(6 /δ ). The same argument applied to the boundary term E∂Ωstat yields an analogous bound, again with failure probability at most δ/ 3. Finally, the FK contribution EFK stat is controlled in the same way, with its own failure probability bounded by δ/ 3 and with the same replacement of log(2 /δ ) by 
+
+log(6 /δ ). A union bound over these three events shows that, with probability at least 1 − δ, all three component bounds hold simultaneously, which implies (D.27) via Lemma D.19. 
+
+D.5. Putting it all together: non-asymptotic error bounds for FK-PINNs 
+
+We are now ready to combine the approximation, statistical and optimization bounds to prove the non-asymptotic error estimate announced in Theorem 6.2. Let bu ∈ U be an empirical minimizer of bR and let uθT be the output of T steps of gradient descent on ℓ(θ) = bR(uθ )
+
+starting from θ0 as in Theorem D.8. We write 
+
+Etot (T ) := ∥uθT − u⋆∥L2(Ω) .
+
+Theorem D.23 (Non-asymptotic error bound for FK-PINNs) . Suppose that Assumption D.1 holds and that the assumptions of Corollary D.8 are satisfied, and that u⋆ ∈ W s, ∞(Ω) for some integer s ≥ 3. Fix confidence level δ ∈ (0 , 1) . Then there exist constants Capp , C stat , C FK , C opt , c opt > 0, independent of (Nint , N ∂Ω, N FK ) and of T , such that with probability at least 1 − δ over the sampling of the collocation and FK points, 
+
+Etot (T ) ≤ Capp P −γ + Cstat 
+
+"
+
+(P N 2)1/2 log( P N 2) + log(6 /δ )
+
+Nint 
+
+!1/4
+
++ ( P N 0)1/2 log( P N 0) + log(6 /δ )
+
+N∂Ω
+
+!1/4#
+
++ CFK 
+
+"
+
+(P N 0)1/2 log( P N 0) + log(6 /δ )
+
+NFK 
+
+!1/4
+
++ log(6 /δ )
+
+NFK 
+
+!1/4
+
++ log(6 /δ )
+
+NFK 
+
+!1/2#
+
++ Cbias 
+
+ εbias + ε2bias 
+
+1/2 + Copt exp( −copt T / 2) .
+
+(D.28) 
+
+where γ = (s − 2) /d and P is the maximal number of parameters of networks in U. The constants 
+
+Capp , C stat , C FK , C opt , c opt may depend on the task weights (λPDE , λ ∂Ω, λ FK ) and on the PDE data, but not on the sample sizes (Nint , N ∂Ω, N FK ) nor on T .Proof. Fix δ ∈ (0 , 1) and work on the event where the statistical bound (D.27) of Proposition D.22 holds. Set 
+
+uT := uθT ,
+
+let bu be an empirical minimizer of bR as in Lemma D.2, and let uapprox ∈ U be the approximating network from Corollary D.5. First we control the population risk of uT . Adding and subtracting empirical risks gives 
+
+R(uT ) − R (u⋆) = R(uT ) − bR(uT ) +  bR(uT ) − bR(bu)
+
++  bR(bu) − R (bu) + R(bu) − R (u⋆).
+
+On the high probability event, the first and third brackets are bounded in absolute value by Estat . The second bracket is exactly Eopt (T ) by (D.23). For the last bracket we apply Lemma D.2 with comparison function uapprox , which yields 
+
+R(bu) − R (u⋆) ≤ 2 Estat + 2 R(uapprox ) − R (u⋆).
+
+49 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Since R(u⋆) = 0 and R is nonnegative, this last term is at most 2R(uapprox ). Combining these bounds we arrive at 
+
+R(uT ) − R (u⋆) ≤ 4 Estat + Eopt (T ) + 2 R(uapprox ). (D.29) By Lemma D.6 we have R(uapprox ) ≤ eCrisk P −2γ , so 
+
+R(uT ) − R (u⋆) ≤ 4 Estat + Eopt (T ) + C1P −2γ (D.30) for a constant C1 > 0 independent of the sample sizes and of P .Next we use PDE stability. From (D.4) and the nonnegativity of RFK we have, for every u,
+
+λmin 
+
+ RPDE (u) + R∂Ω(u) ≤ R (u) − R (u⋆),
+
+with λmin = min {λPDE , λ ∂Ω}. Applying this with u = uT in (D.9) gives 
+
+∥uT − u⋆∥2 
+
+> L2(Ω)
+
+≤ Cstab 
+
+λmin 
+
+ R(uT ) − R (u⋆). (D.31) Substituting (D.30) into (D.31) we obtain 
+
+∥uT − u⋆∥2 
+
+> L2(Ω)
+
+≤ C2
+
+ Estat + P −2γ + Eopt (T ),
+
+for a constant C2 > 0 independent of (Nint , N ∂Ω, N FK ) and of T . Taking square roots and using √a + b + c ≤ √a + √b +√c gives 
+
+Etot (T ) ≤ C3
+
+p Estat + P −γ +
+
+q
+
+Eopt (T )
+
+
+
+.
+
+We now insert the statistical bound (D.27) and the optimization bound (D.24) , which yields pEopt (T ) ≤
+
+pCopt exp( −copt T / 2) , and then absorb constants into Capp , C stat , C FK , C opt , c opt .
+
+Remark D.24 (Error bound in terms of depth and width) . Recall that for networks in UL,m,B the number of parameters satisfies 
+
+P (L, m ) ≤ Carch (d) L m 2.
+
+Writing eP := Carch (d) L m 2 and using log P ≲ log eP ≲ log( Lm ), the bound (D.28) can be rewritten (up to a change of the constants) as 
+
+Etot (T ) ≲ (Lm 2)−γ + L2m3
+
+s
+
+log( Lm ) + log(6 /δ )
+
+Nint 
+
++ L2m3
+
+s
+
+log( Lm ) + log(6 /δ )
+
+N∂Ω
+
++ L2m3
+
+s
+
+log( Lm ) + log(6 /δ )
+
+NFK 
+
++ exp( −copt T ),
+
+with γ = ( s − 2) /d . Moreover Nhid = PL−1 
+
+> ℓ=1
+
+mℓ ≤ (L − 1) m, hence N2 ≤ (Cd, 2(L − 1) m + 3) ≲d Lm . Therefore 
+
+(P N 2) ≲d L2m3.
+
+Corollary D.25 (Depth-3 FK-PINN: optimal width and rate) . Assume the setting of Theorem D.23 and Corollary D.5, with 
+
+s ≥ 3 and γ = ( s − 2) /d . Fix the depth to L = 3 . Using P (L, m ) ≲ m2 in the master bound and suppressing logarithmic factors in the sample sizes and in m, we may write, for any training time T ≥ 0,
+
+Etot (T ) ≲ m−2γ + m3/2N −1/4int + m N −1/4 
+
+> ∂Ω
+
++ m N −1/4FK + exp( −copt T / 2) +  εbias + ε2bias 
+
+1/2,
+
+where εbias := Cbias 
+
+√∆t + CT e−κT max . In the data-scarce FK regime (with Nint and N∂Ω large compared to NFK ), balance the approximation term m−2γ with the FK term m N −1/4FK . This gives the width 
+
+m ≍ N 14(1+2 γ) 
+
+> FK
+
+= N d 
+
+> 4d+8( s−2)
+> FK
+
+.
+
+For this architecture, apart from logarithmic factors and the optimization and bias terms, the bound yields the rate 
+
+Etot (T ) = O
+
+
+
+N − γ
+
+> 2+4 γ
+> FK
+
+
+
+= O
+
+
+
+N − s−22d+4( s−2) 
+
+> FK
+
+
+
+(up to logs) .
+
+once Nint and N∂Ω are large enough for the terms m3/2N −1/4int and mN −1/4 
+
+> ∂Ω
+
+to be negligible. 
+
+50 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Corollary D.25 shows that, if the number of FK trajectories NFK were allowed to grow, a depth-3 FK-PINN with optimally chosen width would achieve the rate N −(s−2) /(2 d+4( s−2)) FK up to logarithmic factors. This matches the asymptotic behaviour proved by Doum `eche et al. (2025) for PINNs with dense physics sampling: in that ideal regime, FK supervision does not worsen the leading statistical exponent. Our focus, however, is the genuinely sparse FK regime, where NFK is fixed while Nint and N∂Ω may grow. In this setting the FK term behaves as an irreducible noise floor: even as Nint , N ∂Ω → ∞ and T → ∞ , the excess risk cannot be made uniformly small, because it is pinned down by the few noisy FK labels. This loss of uniform guarantees for the excess risk is the real “price” of FK supervision. We accept it in exchange for the PL ∗ geometry and uniform conditioning provided by the FK term (Corollary D.8), which yield fast optimization (Proposition D.9). How to exploit a fixed FK budget (placement of FK points, choice of λFK , etc.) so as to mitigate this statistical saturation while retaining the optimization benefits is an interesting avenue for future work. 51 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+## E. Numerical Experiments 
+
+We now illustrate our theoretical results by a series of numerical experiments. 
+
+E.1. Equations Considered 
+
+We begin by specifying the concrete equations used to benchmark the proposed FK-PINNs framework. As discussed earlier, our focus is on regimes where traditional PINNs often become inaccurate or unstable, due to difficulties such multiscale coupling, singular perturbations, high frequencies etc. in the PDE data, leading to extremely stiff loss landscapes. Besides the Schr ¨odinger equation introduced in the main text, we also consider the three following representative classes of problems: E.1.1. P OISSON EQUATION 
+
+We consider a prototypical elliptic bounded value problem on a bounded domain Ω ⊂ Rd with boundary ∂Ω:
+
+−∆u(x) = f (x) x ∈ Ω, (E.1) with Dirichlet boundary conditions 
+
+u(x) = g(x) x ∈ ∂Ω.
+
+Here u(x) denotes the stationary potential or steady-state field generated by a source term f (x). In multiscale settings, f (x)
+
+and/or the solution u(x) can exhibit sharp layers and small-scale structures, which pose challenges for standard PINNs due to spectral bias. E.1.2. M EAN ESCAPE TIME 
+
+Consider an overdamped diffusion process in Rd,
+
+dXt = b(Xt) d t + σ(Xt) d Wt, (E.2) and a bounded domain Ω ⊂ Rd with boundary ∂Ω. The mean first exit time (or mean escape time) τ (x) from Ω solves the elliptic PDE 
+
+L τ (x) = −1, x ∈ Ω, (E.3) with boundary condition 
+
+τ (x) = 0 , x ∈ ∂Ω,
+
+where L is the infinitesimal generator 
+
+Lϕ = −∇ V · ∇ ϕ + β−1∆ϕ (E.4) where β is inverse temperature. The function τ (x) quantifies how long, on average, trajectories starting from x remain inside 
+
+Ω. In metastable or small-noise regimes, τ (x) can vary over exponentially large scales, leading to stiff elliptic problems characterized by sharp boundary layers and high-contrast magnitudes that are challenging for standard PINNs. E.1.3. C OMMITTOR FUNCTION 
+
+For the same diffusion process 
+
+dXt = b(Xt) d t + σ(Xt) d Wt, (E.5) let A, B ⊂ Rd be two disjoint sets, and define Ω = Rd \ (A ∪ B). The committor function q(x) is the probability that a trajectory starting at x reaches B before A. It is characterized as the solution of the elliptic boundary value problem 
+
+L q(x) = 0 x ∈ Ω, (E.6) with boundary conditions 
+
+q(x) = 0 x ∈ A, q(x) = 1 x ∈ B, 
+
+where L is the same generator as above. The committor encodes the effective reaction coordinate in transition path theory and large deviation theory, typically exhibiting sharp interfaces between metastable basins. Such boundary layers and rare-event structures are difficult to resolve with conventional PINNs, especially under small-noise conditions. 52 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+E.2. Evaluation of FK-PINNs against baseline PINNs 
+
+In this section, we evaluate our proposed FK-PINNs by testing them on the aforementioned PDEs, and comparing how they perform against standard PINNs as baseline. This choice is to isolate the effect of the Feynman-Kac supervision terms on the training dynamics. E.2.1. I MPLEMENTATION DETAILS 
+
+Neural Network Architectures. All neural networks (baseline and FK-PINNs) used for these experiments are fully connected tanh networks with 4 hidden layers, and 128 neurons per layer. 
+
+Training Schedule. All neural networks (baseline and FK-PINNs) used for these experiments are trained using the Adam optimizer for 30 , 000 iterations, followed by 15 , 000 iterations of L-BFGS to fine-tune the solution. For the Adam phase, we implement a step-based exponential decay schedule, where the initial learning rate of 10 −3 is decayed every k iterations by a factor of γ = exp(ln(10 −3)/(N/k )) , reaching a final learning rate of 10 −6.
+
+Feynman-Kac data supervision. To generate the FK “data points”, we use Algorithm 1 and set ∆t = 10 −3, NMC = 500 ,and Tmax = ∞ (we simulate the trajectories until escape). As for the number of FK points, we first choose a number Ncoll 
+
+of collocation points, and fix a proportion pdata ∈ (0 , 1) of randomly selected points for which we compute the FK label. We thus define 
+
+NFK := pdata Ncoll 
+
+, Nint := Ncoll − NFK . (E.7) We fix pdata = 0 .02 for all experiments in E.2. We will further explore the effects of different NMC , ∆t, and pdata on the experimental results in E.5. 
+
+Metrics. To evaluate the performance of the models, we use the L2 and H1 error metrics in both absolute and relative forms. 
+
+L2 absolute error: L2
+
+> abs
+
+(fθ ) = 
+
+vuut 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+|fθ (xn) − uref (xn)|2 (E.8) 
+
+L2 relative error: L2
+
+> rel
+
+(fθ ) = 
+
+q 1
+
+> N
+
+PNn=1 |fθ (xn) − uref (xn)|2
+
+q 1
+
+> N
+
+PNn=1 |uref (xn)|2 (E.9) 
+
+H1 absolute error: H1
+
+> abs
+
+(fθ ) = 
+
+vuut 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+|fθ (xn) − uref (xn)|2 + ∥∇ fθ (x) − ∇ uref (x)∥2 (E.10) 
+
+H1 relative error: H1
+
+> rel
+
+(fθ ) = 
+
+q 1
+
+> N
+
+PNn=1 |fθ (xn) − uref (xn)|2 + ∥∇ fθ (x) − ∇ uref (x)∥2
+
+q 1
+
+> N
+
+PNn=1 |uref (xn)|2 + ∥∇ uref (x)∥2 (E.11) E.2.2. P OISSON EQUATION 
+
+In this example, we solve the Poisson equation on the square Ω = [0 , 1] × [0 , 1] , with source term given by 
+
+f (x1, x 2) = π2[51 sin( πx 1) sin(4 πx 2) + 156 sin(5 πx 1) sin( πx 2) + 24 sin(2 πx 1) sin(2 πx 2) + 244 sin(5 πx 1) sin(6 πx 2)] ,
+
+And exact solution u∗:
+
+u∗(x1, x 2) = 3 sin( πx 1) sin(4 πx 2) + 6 sin(5 πx 1) sin( πx 2) + 3 sin(2 πx 1) sin(2 πx 2) + 4 sin(5 πx 1) sin(6 πx 2). (E.12) We set Ncoll = 10000 interior collocation points, and ( Nbc = 400 ) boundary collocation points. Figure 4 compares the performance of PINNs and FK-PINNs on this Poisson problem with high-frequency oscillations. While both models capture the global solution profile, PINNs exhibit significant absolute errors (up to 9.0), particularly near the oscillatory peaks and boundaries. In contrast, by leveraging the “extra data”, FK-PINNs effectively mitigate spectral bias, achieving a much finer reconstruction with absolute errors nearly an order of magnitude lower. Figure 5 likewise demonstrates that FK-PINNs achieve superior convergence stability and a significantly lower PDE loss compared to standard PINNs, effectively mitigating the optimization stagnation observed in the vanilla baseline. 53 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Figure 4. The ground truth solution ( Col. 1), predicted 2D,3D results by PINNs ( Col. 2), 2D,3D absolute error by PINNs ( Col. 3), predicted 2D,3D results by FK-PINNs ( Col. 4), 2D,3D absolute error by FK-PINNs ( Col. 5) on Poisson equations. 
+
+Figure 5. Comparison of PDE loss, BC loss of PINNs versus PDE loss, BC loss, Data loss of FK-PINNs for Poisson equation 
+
+E.2.3. M EAN ESCAPE TIME 
+
+We set the domain Ω as the regular hexagon centered at the origin with circumradius R = 2 . We set V as a double-well potential function: 
+
+V (x1, x 2) = 14 (x21 − 1) 2 + α
+
+2 x22, (E.13) where α = 1 . The corresponding Mean Escape Time PDE is then given by: 
+
+−∇ V · ∇ τ + β−1∆τ = −1, (E.14) with inverse temperature β = 5 and zero Dirichlet boundary condition. 
+
+Figure 6. Comparison of Mean Escape Time PDE solutions learned by PINNs (left) and FK-PINNs(right) 
+
+Figure 6 shows the solutions learned both by PINNs and FK-PINNs. We see that PINNs (Cols. 2–3) exhibit catastrophic failure on this task, and completely fail to produce a meaningful solution. FK-PINNs (Cols. 4–5), on the other hand, successfully learn the solution and manage to capture the transition layers near the boundary, despite the corner singularities. 54 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision  
+
+> Figure 7. Comparing the evolution of loss components for solving the Mean Escape Time problem between PINNs and FK-PINNs
+
+The training loss evolutions in Figure 7 reveal that standard PINNs encounter significant optimization stagnation after the initial phase, seemingly getting stuck around a spurious local minimum for the PDE loss. We see on the other hand that FK-PINNs manage to break through the poorly conditioned loss landscape and converge to the true solution. E.2.4. C OMMITTOR FUNCTION 
+
+We now report the performance of FK-PINNs on the committor function problem on the domain Ω = [ −1.5, 1.2] × [−0.2, 2] 
+
+with M ¨uller-Brown potential, which is a standard benchmark in transition path studies (E & Vanden-Eijnden, 2006; Vanden-Eijnden et al., 2010). It is defined as the sum of four exponentials: 
+
+V (x, y ) = 
+
+> 4
+
+X
+
+> k=1
+
+Ak exp ak(x − x0
+
+> k
+
+)2 + bk(x − x0
+
+> k
+
+)( y − y0
+
+> k
+
+) + ck(y − y0
+
+> k
+
+)2 (E.15) The specific coefficients used to define the potential energy surface in this work are provided in Table 3. These parameters ensure the presence of the characteristic “three-well” structure often used to benchmark transition path sampling and committor function approximations. We further define two metastable states, A and B, which correspond to the reactant and product regions, respectively. These states are represented as circular boundary regions ¯ΩA and ¯ΩB with a fixed radius of r = 0 .2. The centers of these disks, 
+
+cA and cB , are positioned at the primary local minima of the potential: • State A (Reactant): cA = ( −0.5582 , 1.4417) , satisfying the boundary condition q(x) = 0 .• State B (Product): cB = (0 .6235 , 0.0281) , satisfying the boundary condition q(x) = 1 .The domain for the committor equation is thus defined as Ω′ := Ω \ ( ¯ΩA ∪ ¯ΩB )                               
+
+> Table 3. Parameters for the M¨ uller-Brown Potential Energy Surface. Index ( k)Akakbkckx0
+> ky0
+> k
+> 1−200 −10−10 1.00.0
+> 2−100 −10−10 0.00.5
+> 3−170 −6.511 −6.5−0.51.5
+> 415 0.70.60.7−1.01.0
+
+As highlighted in Figure 8, the PINN solution fails to meaningfully capture the transition regions and the dynamics induced by the loss landscape, unlike FK-PINNs which recover a fully satisfactory solution. The improved training dynamics are also apparent in Figure 9. 
+
+E.3. FK supervision improves the loss landscape 
+
+We now collect both qualitative and quantitative evidence supporting the improvement of the loss landscape as predicted by Theorem 5.4. 55 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+Figure 8. Comparison of Committor Function under M¨ uller-Brown potential learned by PINNs (left) and FK-PINNs (right) 
+
+Figure 9. Comparison of the convergence behavior of individual loss components in PINNs and FK-PINNs trained with Adam optimizer only 
+
+Model Metric Poisson (E.2.2) Schr¨ odinger-type (7) Mean Escape Time (E.2.3) Committor (E.2.4) PINNs L2 Abs Err 1.333 ± 0.616 0.475 ± 0.148 16 .56 ± 0.055 1.028 ± 0.283 
+
+L2 Rel Err 0.322 ± 0.149 0.624 ± 0.195 1.007 ± 0.003 0.839 ± 0.661 
+
+H1 Abs Err 12 .42 ± 4.345 2.893 ± 0.415 43 .55 ± 0.039 3.154 ± 0.794 
+
+H1 Rel Err 0.171 ± 0.061 0.512 ± 0.073 1.002 ± 0.001 0.547 ± 0.074 
+
+FK-PINNs L2 Abs Err 0.761 ± 0.011 0.073 ± 0.008 1.755 ± 0.093 0.791 ± 0.039 
+
+L2 Rel Err 0.1184 ± 0.003 0.096 ± 0.010 0.107 ± 0.006 0.030 ± 0.008 
+
+H1 Abs Err 7.822 ± 0.412 1.043 ± 0.083 1.755 ± 0.093 1.495 ± 0.105 
+
+H1 Rel Err 0.108 ± 0.006 0.185 ± 0.015 0.395 ± 0.051 0.153 ± 0.049 
+
+Table 4. Performance comparison between standard PINNs and FK-PINNs on various problems. All results are averaged over 5 independent runs with different random seeds. 
+
+56 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+E.3.1. H ESSIAN CONDITION NUMBER 
+
+To provide quantitative justification for the superior convergence of FK-Enhanced PINNs, we analyze the local curvature of the loss landscape near a minimizer through the lens of the empirical Hessian matrix, H = ∇2 
+
+> θ
+
+L(θ). As discussed in Section 5, the conditioning of the Hessian governs the stability and speed of gradient-based optimization.  
+
+> Figure 10. Condition numbers near a local minimum for PINNs and FK-PINNs for Poisson equation (left) and the Mean Escape Time Problem (right).
+
+The evolution of the Hessian condition number as the number of collocation points increases plotted in Figure 10, suggests, as predicted by Theorem 5.3, that for the standard PINN, the condition number grows polynomially fast with sampling density. The condition number of FK-PINNs however, does not appear to follow such a growth rate, and remains for most sample sizes orders of magnitude below that of the standard PINN, in accordance with Theorem 5.4. E.3.2. V ISUALIZING THE LOSS LANDSCAPE GEOMETRY 
+
+We now turn to a more qualitative understanding of the training difficulty for standard PINNs and FK-PINNs. To do so, we decide to directly visualize the loss landscape itself around a minimizer, by projecting the loss onto a 2D parameter subspace, and visually observe the result (Li et al., 2018; Krishnapriyan et al., 2021; Zhao et al., 2024). The resulting landscapes for the Mean Escape Time PDE, as seen in Figure 11, confirm what the theory and the other numerical results so far suggest: the PINN loss landscape exhibits a highly non-convex, jagged geometry, with many oscillations. This explains the failure of PINNs on this challenging PDE. On the other hand, the loss landscape of FK-PINNs appears much more regular and smooth, with a unique, well localized minimizer. This thus provides a vivid illustration of our theory.  
+
+> Figure 11. Loss landscape of Standard PINN (left) and FK-PINN (right) trained on the Mean Escape Time PDE, next to a minimizer.
+
+57 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+E.4. Comparison with other operator preconditioning techniques 
+
+Now that the improvements of FK-PINNs over the baseline PINNs is clear, we compare the FK-PINNs with two other “pre-conditioning inspired” approaches to train them. The first one we consider is the Energy Natural Gradient Descent algorithm (ENGD), proposed by M ¨uller & Zeinhofer (2023), and which consists in performing gradient descent in the function space induced by the PDE. The second one is the NysNewtown-Conjugate Gradient Descent Algorithm (NNCG), proposed by Rathore et al. (2024), and which we run after Adam and L-BFGS, as the authors of said paper do to save computational cost.                                      
+
+> Figure 12. Comparisons of different PINNs solving the Mean Escape Time PDE trained with (from left to right) Standard PINN (Adam + L-BFGS), Adam + L-BFGS + NNCG, ENGD, FK-PINN method MODEL L2 E RROR H1 E RROR
+> PINN S(A DAM +L-BFGS) 1.002 ±0.002 1.001 ±0.001
+> PINN S(A DAM +L-BFGS+NNCG) 0.986 ±0.011 1.006 ±0.001
+> PINN S(ENGD) 1.016 ±0.001 1.006 ±0.014
+> FK-PINN S(A DAM +L-BFGS) 0.174 ±0.004 0.699 ±0.008
+> Table 5. Relative L2and H1errors for each of the methods in Figure 12
+
+As per the results reported in Figure 12 and Table 5, the other methods can not handle the stiff loss landscape of the Mean Escape Time PDE and fail just as much as the standard PINN does, despite their non-negligible computational overhead. 
+
+E.5. Influence of the Monte Carlo budget 
+
+Finally, we report how the “Monte Carlo budget”, i.e., the number NFK of FK data points we allow ourselves to use relative to the number of collocation points, the number NMC of paths we use to compute the Monte Carlo average, and the timestep 
+
+∆t we use to discretize the SDE influence the performance of FK-PINNs. We take Tmax = ∞ in all of the experiments presented below. As shown in Figure 13, and as one could expect, too coarse discretization ∆t of the SDE leads to solutions which perform worse than the baseline PINN, which could be explained by the large amount of noise in the labels shifting the objective away from the true PDE solution. However we observe clear solution improvement for any discretization finer than 
+
+∆t = 10 −3, which is well within the standard discretization sizes used to simulate SDE solutions. We likewise observe that for ∆t = 10 −3, as even as little as NMC = 300 provides clear improvement over the baseline, suggesting that even modest Monte Carlo computational budgets are already sufficient to “lift” the poorly conditioned PINN landscape with our method. We finally show in Table 6 how the proportion pdata of points used as FK supervision influences the solution quality. Perhaps contrary as to what one would expect, we find that, for the Mean Escape Time at least, there are diminishing returns when adding FK supervision data: while the solution quality improves as pdata slowly increases from zero, we quickly find that there is a threshold where there is no clear improvement in the solution quality, while the time needed to simulate all the 
+
+NMC × NFK paths until escape becomes prohibitively large, as the mean escape time is by design costly to estimate by 58 Taming the Loss Landscape of PINNs with Noisy Feynman–Kac Supervision 
+
+(a) (b) Figure 13. Sensitivity Analysis of Key Parameters in Feynman-Kac Monte Carlo Supervision. Figure (a): Fixed NMC =500, influence of 
+
+∆t on solution accuracy. Figure (b): Fixed ∆t = 1 e − 3, influence of NMC on solution accuracy P DATA L2 E RROR H1 E RROR TIME (S)
+
+> P DATA
+
+=0 1.003 ± 0.004 1.001 ± 0.001 319 .7 ± 5.5
+
+> P DATA
+
+=0.001 0.189 ± 0.037 0.594 ± 0.069 456 .3 ± 93 .1
+
+> P DATA
+
+=0.01 0.120 ± 0.025 0.431 ± 0.143 665 .7 ± 14 .1
+
+> P DATA
+
+=0.02 0.107 ± 0.007 0.353 ± 0.086 807 .4 ± 22 .1
+
+> P DATA
+
+=0.05 0.111 ± 0.011 0.224 ± 0.072 1309 .7 ± 19 .6
+
+> P DATA
+
+=0.1 0.098 ± 0.007 0.299 ± 0.081 2198 .2 ± 7.7
+
+> P DATA
+
+=0.2 0.106 ± 0.010 0.382 ± 0.081 3968 .9 ± 25 .1
+
+Table 6. Influence of the choice of pdata on the time overhead and the relative L2 and H1 error metrics. The PINNs here are trained to solve the Mean Escape Time PDE, and we’ve taken ∆t = 10 −3, N MC = 500 
+
+.
+
+Monte Carlo averages. These observations suggest that it would be sensible, depending on the PDE being solved, to first fix ∆t, and then preemptively simulate some Euler-Maruyama trajectories of the underlying stochastic process Xt until escape, in order to estimate roughly the amount of time needed to fully simulate a path. One can then tune pdata , NMC , and possibly Tmax 
+
+according to both the time and computational budget one has at disposition. 59

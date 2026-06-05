@@ -1,0 +1,1987 @@
+Title: On the training of physics-informed neural operators for solving parametric partial differential equations
+
+URL Source: https://arxiv.org/pdf/2606.06164v1
+
+Published Time: Fri, 05 Jun 2026 01:29:26 GMT
+
+Number of Pages: 42
+
+Markdown Content:
+# ON THE TRAINING OF PHYSICS -INFORMED NEURAL OPERATORS FOR SOLVING PARAMETRIC PARTIAL DIFFERENTIAL EQUATIONS 
+
+Nanxi Chen 1, Chuanjie Cui 2, Airong Chen 1, Sifan Wang 3,∗, Rujin Ma 1,∗
+
+> 1
+
+College of Civil Engineering, Tongji University, Shanghai 200092 
+
+> 2
+
+Department of Engineering Science, University of Oxford, Oxford OX1 3PJ 
+
+> 3
+
+Institute for Foundations of Data Science, Yale University, New Haven, CT 06520 
+
+## ABSTRACT 
+
+Physics-informed neural operators (PINOs) aim to learn solution operators for partial differential equations by using the governing physics as supervision, rather than relying solely on paired input-output simulation data. By incorporating physical constraints into the training objective, PINOs combine the cross-instance generalization of neural operators with the data efficiency of physics-informed learning. Despite this promise, how to train PINOs efficiently and robustly remains less well-understood than the training of either data-driven neural operators or physics-informed neural networks (PINNs). To bridge this gap, we examine key components of the PINO training pipeline, including architecture design, optimizer choice, loss balancing, and collocation-point sampling strategy. We study three representative operator backbones, Deep Operator Network (DeepONet), Fourier Neural Operator (FNO), and Continuous Vision Transformer (CViT), across five diverse parametric PDE systems. Our results show that CViT provides consistently strong and stable performance across the considered benchmarks. Beyond architecture, we find that several optimization pathologies previously identified in PINN training naturally arise in PINOs, including gradient conflicts and causal violation. We also find that mitigation algorithms developed for PINNs remain effective in the PINO setting. We further compare physics-informed and data-driven training under different data regimes, revealing that a carefully designed physics-informed training pipeline can match, and in some cases, outperform purely data-driven neural operators. Taken together, these findings provide a systematic empirical understanding of the optimization challenges in PINO training and inform a practical pipeline for efficient and robust physics-informed operator learning. Code and data are publicly available at https://github.com/NanxiiChen/PI-CViT .
+
+Keywords Neural operators · Physics-informed machine learning · Partial differential equations 
+
+## 1 Introduction 
+
+Scientific computing relies heavily on numerical solvers for partial differential equations (PDEs) to model complex physical systems and predict their behavior under varying conditions. Classical methods based on finite elements, finite volumes, and spectral methods have matured over decades and can provide highly accurate solutions for individual PDE instances. However, they become prohibitively expensive in high-throughput settings, where the same PDE family must be solved repeatedly with different parameters, initial conditions, or boundary conditions. The need for such repeated solutions arises across many scientific and engineering applications, including design optimization [ 1, 2], materials discovery and screening [ 3, 4], multiscale modeling [ 5– 7], reliability analysis [ 8 , 9], and real-time prediction and control [10–12]. Scientific machine learning addresses this challenge by learning surrogate models that approximate expensive PDE solutions with efficient inference [ 13 , 14 ], among which neural operators have emerged as a particularly powerful class [ 15 , 16 ]. Rather than solving each PDE instance independently, neural operators learn mappings from parametric 
+
+> *
+
+Correspondence to: sifan.wang@yale.edu ; rjma@tongji.edu.cn .
+
+> arXiv:2606.06164v1 [cs.LG] 4 Jun 2026
+
+inputs to solution fields and generalize across varying parameter configurations and discretizations. Representative architectures include the Deep Operator Network (DeepONet) [ 17 ], the Fourier Neural Operator (FNO) [ 18 ], the Continuous Vision Transformer (CViT) [ 19 ], among others [ 20 – 27 ]. These models have shown strong performance across a broad spectrum of applications, including surrogate modeling for fluid dynamics [ 28 , 29 ], microstructural modeling [30–32], material deformation [33], and climate modeling [34]. At the same time, physics-informed neural networks (PINNs) offer a complementary route to solving PDEs by incorporating the governing equations directly into the training loss [ 14 , 35 ]. By minimizing PDE residuals together with initial and boundary condition terms at freely sampled collocation points, PINNs can be trained without labeled solution data, which is especially attractive when high-fidelity simulations are scarce or expensive. Although physics-informed learning is typically more challenging to optimize than supervised learning, the prospect of data-free training has motivated extensive work on new architectures [36–38], sampling strategies [39, 40], weighting schemes [36, 41], optimizer design [ 42 ], and other training techniques [ 43 – 45 ] for improving robustness and efficiency, as well as scientific applications spanning fluid mechanics [ 46 ], phase-field materials modeling [ 43 , 47 ], solid mechanics [ 48 , 49 ], and geophysics [50, 51]. These two paradigms, although largely developed in parallel, are naturally complementary. Neural operators generalize across parametric PDE families, yet their standard supervised formulation typically requires large volumes of high-fidelity simulation data [ 31 ]. Physics-informed learning removes the need for labeled data, but in its conventional PINN formulation the model solves only a single PDE instance per training run. Combining operator architectures with physics-informed training produces physics-informed neural operators (PINOs) [ 52 –54 ], which offer the prospect of uniting the generalization capability of neural operators with the data-free property of physics-informed learning. Early explorations have demonstrated the feasibility of this approach on specific PDE systems, with applications to heat transfer [ 55 ], solid and structural mechanics [ 56 – 58 ], wave propagation [ 59 ], and phase-field materials modeling [ 60 ]. However, as PINOs incorporate the physics-informed training objective, they are susceptible to the optimization pathologies that have been well documented in the PINN literature, including spectral bias [ 61 ], gradient imbalance among competing loss terms [ 36 ], causal violation in time-dependent problems [ 41 ], and gradient conflicts [ 42 ]. These issues may even be exacerbated by the increased complexity of learning mappings between function spaces. Furthermore, the literature still lacks a unified and practically grounded understanding of how to train PINOs reliably across different PDE families and operator backbones. This naturally leads to two paired questions when extending from PINNs to PINOs: 
+
+To what extent do PINN training strategies transfer effectively to PINOs, and how well do PINOs preserve the data-free advantages of physics-informed training? 
+
+In this work, we investigate these questions through a systematic empirical study of physics-informed neural operator training. Our main contributions are summarized as follows: • We evaluate PINO across five parametric PDE systems and three representative operator backbones (PI-CViT, PI-DeepONet, and PI-FNO), and find that PI-CViT consistently delivers the strongest performance. • We find that key optimization pathologies previously identified in PINN training, such as gradient imbalance, causal violation, and gradient conflicts, naturally arise in PINO training. • We demonstrate that training strategies developed for PINNs, including GradNorm weighting, causal weighting, and the SOAP optimizer, effectively improve the predictive accuracy of PINOs. • We show that a well-resolved purely physics-informed training pipeline can match or surpass purely data-driven training across different labeled-data scales. • We distill these findings into a structured training pipeline and practical guidelines for physics-informed neural operators. The remainder of the paper is organized as follows. Section 2 formulates the conventional and physics-informed operator-learning objectives, and Section 3 then develops our training framework for PINOs, including architecture design, weighting and optimization strategies, and practical considerations. Section 4 evaluates this framework across a suite of benchmarks while comparing different operator backbones, followed by comprehensive ablation studies that isolate the contribution of each key component. Finally, Section 5 summarizes the main findings and outlines directions for future work. 22 Physics-informed operator learning 
+
+Physics-informed operator learning aims to approximate the solution map of a class of PDEs while explicitly incorpo-rating the governing physical laws into the learning process. To formalize this setting, we consider a family of PDEs parameterized by an input function u ∈ U . For each instance u ∈ U , the corresponding solution field s(x, t ; u) is defined on a spatial domain Ω and, for time-dependent problems, on a temporal interval [0 , T ]. The governing PDE, initial condition, and boundary condition are written in a general form as 
+
+N (s(x, t ; u); u) = 0 , (x, t ) ∈ Ω × [0 , T ], (2.1) 
+
+I(s(x, t ; u); u) = 0 , (x, t ) ∈ Ω × { 0}, (2.2) 
+
+B(s(x, t ; u); u) = 0 , (x, t ) ∈ ∂Ω × [0 , T ], (2.3) where N (· ; u) denotes the PDE operator for the instance defined by u, and I(· ; u) and B(· ; u) denote the corresponding initial and boundary operators. The solution operator G maps each input function u to its corresponding solution field 
+
+s(· ; u), defining a mapping between the input function space U and the solution space S:
+
+G : U → S , u 7 → s(· ; u), (2.4) and our goal is to learn a parametric approximation Gθ such that 
+
+Gθ : U → S , Gθ (u) ≈ G (u) = s(· ; u), ∀u ∈ U . (2.5) In practice, this learning problem is formulated as an optimization over the model parameters: 
+
+θ∗ = arg min  
+
+> θ
+
+L(Gθ ), (2.6) where L denotes a training loss that measures how well Gθ approximates the true solution operator. The most straightforward way to train a neural operator is through supervised learning, in which the loss is evaluated on labeled trajectories that provide input-output pairs. Given a set of input functions {uj }Mj=1 and reference solutions sampled at coordinates {(xi, t i)}Ndata  
+
+> i=1
+
+, the standard supervised loss is defined as 
+
+Ldata (Gθ ) = 1
+
+M N data 
+
+> M
+
+X
+
+> j=1
+> Ndata
+
+X
+
+> i=1
+
+|G θ (uj )( xi, t i) − sref (xi, t i; uj )|2 , (2.7) where sref (· ; uj ) denotes the reference solution for the j-th input instance. In this conventional data-driven setting, the governing physics is enforced only implicitly through the labeled solution trajectories. However, as discussed in the Introduction, generating high-fidelity solution trajectories can be expensive, and fitting data alone may not adequately enforce the governing physical constraints. Physics-informed training offers an alternative by directly minimizing PDE residuals at freely sampled collocation points [ 35 , 62 ]. Specifically, the PDE residual, together with the initial and boundary condition losses, can be incorporated into the training objective to guide the model toward physically consistent solutions. Given PDE residual, initial condition, and boundary collocation points 
+
+{(xi, t i)}Nr
+
+> i=1
+
+, {(xi, 0) }Nic 
+
+> i=1
+
+, and {(xi, t i)}Nbc 
+
+> i=1
+
+, sampled from Ω × [0 , T ], Ω × { 0}, and ∂Ω × [0 , T ], respectively, the individual loss components are defined as 
+
+Lr = 1
+
+M N rMX
+
+> j=1
+> Nr
+
+X
+
+> i=1
+
+|N (Gθ (uj )( xi, t i); uj )|2 , (2.8) 
+
+Lic = 1
+
+M N ic 
+
+> M
+
+X
+
+> j=1
+> Nic
+
+X
+
+> i=1
+
+|I (Gθ (uj )( xi, 0); uj )|2 , (2.9) 
+
+Lbc = 1
+
+M N bc 
+
+> M
+
+X
+
+> j=1
+> Nbc
+
+X
+
+> i=1
+
+|B (Gθ (uj )( xi, t i); uj )|2 . (2.10) A weighted combination of these terms yields the overall training objective: 
+
+L = wr Lr + wic Lic + wbc Lbc + wdata Ldata , (2.11) The weight coefficients wr , wic , wbc , and wdata balance the contributions of the different loss terms. The derivative terms in the PDE residual Lr can be computed via automatic differentiation (AD) or finite-difference (FD) approximations, 3Tokenize 
+
+Encoder Input function u Patch embedding Patch tokens Q, K, V 
+
+Decoder    
+
+> Fourier emb Fourier emb Concat QRearrange
+> Position emb
+> LHS sampling Interior IC BC
+> Query features
+> Transformer blocks Transformer blocks K, V Multi-head attention Layer norm MLP
+> Layer norm Q, K, V
+
+Transformer block MLP Optimizer 
+
+> Preco nditioning:
+> SOAP Update:
+
+Losses  
+
+> Encoder: Decoder:
+
+Weighting Gr adNorm r ic bc r ic bc 0 TCausal ... 
+
+> Solution function
+
+Figure 1: Overview of the training pipeline for physics-informed neural operators. The input function is encoded by a vision-transformer-based encoder into a latent representation. Given spatiotemporal query coordinates, the decoder attends to this latent representation and predicts the solution at the queried locations. The training objective combines multiple loss components, including PDE residual, initial-condition, and boundary-condition losses. The PDE residual loss is further modulated by a causal weighting scheme that emphasizes earlier time segments. A gradient-normalization weighting scheme balances the contributions of different loss terms, while the SOAP optimizer is used to mitigate gradient conflicts during training. depending on the model architecture and the collocation-point distribution. The supervised term Ldata is optional and can be omitted when labeled trajectories are scarce or unavailable, yielding a purely physics-informed training objective. However, the composite objective in Eq. (2.11) can be challenging to optimize. For example, the PDE residual loss 
+
+Lr may produce gradients with vastly different magnitudes from other components and varies dynamically during training; the gradient directions of different loss components may conflict; and for time-dependent problems, the model may violate causality by fitting later states before learning earlier time segments. In the next section, we develop a comprehensive training framework that addresses these challenges for a robust and efficient optimization of physics-informed neural operators 
+
+## 3 Method 
+
+The physics-informed operator-learning problem introduced above places coupled demands on the model architecture and the training procedure. On the modeling side, the network must encode a parametric input function and represent the corresponding solution in a form that can be queried accurately and differentiably across the spatiotemporal domain. On the training side, the objective combines several heterogeneous terms, including PDE residual, initial-condition, boundary-condition, and optional supervised data losses, whose magnitudes and gradients can differ substantially. These challenges motivate a framework that pairs an expressive neural operator backbone with stabilization strategies for loss weighting, optimization, and collocation sampling. In this section, we describe the main components of this framework. We first discuss the choice of neural operator architecture and motivate the use of a transformer-based coordinate decoder. We then introduce the loss-balancing and optimization strategies used to stabilize physics-informed training, followed by the sampling schemes and implementa-tion details used in our experiments. An overview of the full training pipeline is shown in Figure 1. 4DeepONet    
+
+> Lift Project Grid input Grid output FFT IFFT Linear Linear
+> +
+> ✕LQuery (x, t) Patches Transformer decoder (Cross-attention) Transformer encoder (Self-attention) Latent tokens Branch Net (MLP) Trunk Net (MLP) Query (x, t) Dot product Input feature Query (x, t)
+> FNO CViT
+
+Figure 2: Schematic comparison of the three neural operator architectures studied in this work. DeepONet combines branch and trunk networks through an inner product for pointwise prediction. FNO applies Fourier layers on structured grids to capture global interactions in the spectral domain. CViT encodes the input field into latent tokens with a vision transformer and decodes the solution at arbitrary query coordinates through cross-attention. 
+
+3.1 Architecture design for physics-informed neural operators 
+
+The choice of operator architecture is central to physics-informed training, as the model must translate a parametric input field into a solution representation that can be evaluated at arbitrary spatiotemporal query points. This requirement is particularly important when PDE residuals and constraint losses are computed at collocation points that may differ from the input discretization or from any available labeled data. With this motivation, we consider three representative neural operator backbones: DeepONet [ 17 ], FNO [ 18 ], and CViT [ 19 ]. A schematic comparison of these architectures is provided in Figure 2. DeepONet and FNO represent two widely used approaches to operator learning. DeepONet uses separate branch and trunk networks to encode the input function and the query coordinates, respectively, and combines the resulting features through an inner product for pointwise prediction. This design naturally supports coordinate-based evaluation. FNO, by contrast, is built on Fourier layers and typically operates on structured grids, where global interactions are captured efficiently in the spectral domain. Both architectures have been widely studied and successfully applied to a range of operator-learning problems. Despite these advantages, several limitations become relevant in the physics-informed setting considered here. Deep-ONet’s fully connected branch–trunk design may be less effective in capturing complex spatiotemporal structure [ 63 ], and its inner-product interaction can restrict the representation of intricate parametric dependencies [ 64 ]. FNO efficiently models global interactions on regular grids, but extending it to arbitrary query locations or irregular discretizations often requires additional embeddings or architectural modifications [65]. Moreover, its Fourier basis can be less convenient for strongly multiscale features or non-periodic problems [27, 53]. These considerations motivate the use of an architecture that combines expressive input encoding with flexible coordinate-based decoding. CViT provides such a formulation by using a vision transformer to encode the parametric field into a latent representation and a cross-attention decoder to predict the solution at arbitrary spatiotemporal query coordinates. This structure is well suited to physics-informed operator learning, since residual, initial-condition, and boundary-condition losses can be evaluated at different sets of collocation points without requiring the output to be tied to a fixed grid. As discussed later in Section 4, CViT consistently delivers strong performance across the benchmark problems considered here relative to DeepONet and FNO. We therefore adopt CViT as the backbone of our physics-informed neural operator framework and refer to the resulting model as PI-CViT. Its architecture is detailed below. 
+
+Encoder. Given an input field u ∈ RH×W ×C , we first apply a convolutional patch-embedding layer to partition the input into non-overlapping patches and map them to patch tokens up ∈ RNp×De . We then add fixed two-dimensional sinusoidal positional embeddings PE ∈ RNp×De to the patch tokens: 
+
+upe = up + PE , upe ∈ RNp×De . (3.1) where PH and PW are the patch height and width, Np = HPH × WPW is the total number of patches, and De is a hyperparameter controlling the encoder embedding dimension. The encoder then applies a stack of self-attention blocks, 
+
+ˆzl+1 = zl + MSA(LN( zl)) , for l = 0 , . . . , L e − 1, (3.2) 
+
+zl+1 = ˆ zl+1 + MLP(LN(ˆ zl+1 )) , for l = 0 , . . . , L e − 1, (3.3) 5where z0 = upe , MSA denotes a standard multi-head self-attention operation, and MLP denotes a feedforward network. The encoder output is a set of latent tokens zLe ∈ RNp×De .
+
+Decoder. To evaluate the solution at a set of query coordinates {(xi, t i)}Nq
+
+> i=1
+
+, the decoder constructs coordinate-dependent query features. Fourier features are applied separately to the spatial and temporal coordinates to capture their distinct roles in the PDE solution [61, 66]: 
+
+qx(x) = [sin(2 πBxx), cos(2 πBxx)] , qx ∈ RNq ×(De/2) , (3.4) 
+
+qt(t) = [sin(2 πBtt), cos(2 πBtt)] , qt ∈ RNq ×(De/2) , (3.5) where Bx and Bt are projection matrices that randomly sample frequencies from a Gaussian distribution, and Nq is the number of query points. The decoder then applies a stack of cross-attention blocks to attend over the latent encoder representation and produce solution representations at the queried coordinates: 
+
+ˆql+1 = ql + MCA(LN( ql), LN(ˆ zLe ), LN(ˆ zLe )) for l = 0 , . . . , L d − 1, (3.6) 
+
+ql+1 = ˆ ql+1 + MLP(LN(ˆ ql+1 )) , for l = 0 , . . . , L d − 1, (3.7) where q0 = [ qx(x), qt(t)] is the initial query feature, ˆzLe ∈ RNp×Dd is the latent encoder output projected by a linear layer to match the decoder embedding dimension, and MCA denotes a standard multi-head cross-attention operation. Finally, an MLP head is applied to the output query tokens to obtain the predicted solution: 
+
+ˆs(x, t ; u) = MLP(LN( qLd )) . (3.8) 
+
+3.2 Loss formulation and weighting 
+
+The physics-informed loss in Eq. (2.11) combines several physical constraints, including PDE residuals, initial conditions, and boundary conditions. Although it is written as a single scalar objective, it behaves in practice as a multi-objective optimization problem. In the PINN literature, such composite objectives are known to suffer from gradient imbalance, where different loss terms generate gradients with vastly different magnitudes and the optimizer overemphasizes the dominant term [ 36 ]. For time-dependent problems, another difficulty is causal violation: uniformly minimizing residuals over the entire time domain can encourage the model to fit later-time dynamics before earlier-time dynamics have been resolved [ 41 ]. These pathologies naturally carry over to PINOs, where the same physical constraints must be satisfied not for a single PDE instance, but across an entire family of input functions. We therefore adopt two complementary weighting strategies inspired by prior PINN training methods. Gradient-norm-based weighting balances the contributions of different loss components, while causal weighting reweights the PDE residual across time so that earlier temporal segments are prioritized before later ones. Details of these strategies are described below. 
+
+Gradient-norm-based loss balancing. The gradient imbalance discussed above is clearly visible in the shallow water benchmark. As shown in Figure 3, PI-DeepONet is trained with four coupled loss components: two PDE residual losses for the momentum and continuity equations, and two initial-condition losses for the height and velocity fields. Throughout training, the gradient norm of the momentum residual remains more than two orders of magnitude larger than that of the initial-velocity loss. Consequently, the optimization is biased toward reducing the dominant residual term, while neglecting to fit the initial conditions of the PDE system. To mitigate this imbalance, we adopt a GradNorm-style weighting scheme [ 36 , 67 ]. The idea is to adaptively rescale each loss component according to its gradient magnitude, so that no single term dominates the parameter update. Let 
+
+JL denote the index set of all loss terms. At training step s, the raw weight for the ℓ-th loss term is defined from its gradient as 
+
+g(s) 
+
+> ℓ
+
+= ∇θ L(s) 
+
+> ℓ
+
+, ℓ ∈ J L, (3.9) 
+
+ˆw(s) 
+
+> ℓ
+
+= 1
+
+g(s)
+
+> ℓ
+
+X
+
+> k∈J L
+
+g(s) 
+
+> k
+
+(3.10) where g(s) 
+
+> ℓ
+
+denotes the gradient of the ℓ-th loss with respect to the model parameters θ at step s. The raw weights ˆw(s)
+
+> ℓ
+
+are then smoothed via an exponential moving average to reduce oscillations: 
+
+w(s) 
+
+> ℓ
+
+= αw ˆw(s) 
+
+> ℓ
+
++ (1 − αw)w(s−1)  
+
+> ℓ
+
+, w(0)  
+
+> ℓ
+
+= 1 , (3.11) where αw ∈ (0 , 1] controls the degree of smoothing. This scheme promotes balanced gradient contributions across all loss terms, leading to more stable and efficient training. 60 5000 10000 15000 20000     
+
+> Step
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> L2 Norm of Gradients
+> Unweighted
+> 05000 10000 15000 20000
+> Step
+> 10 1
+> Weighted
+> PDE: momentum
+> PDE: continuity
+> IC: height
+> IC: velocity
+
+Figure 3: L2 norms of the gradients of the four loss components (two PDE residual terms: momentum and continuity; two initial condition terms: height and velocity) during training on the shallow water benchmark with PI-DeepONet. 
+
+Left : Unweighted losses. The momentum residual gradient dominates, exceeding the IC velocity gradient by more than two orders of magnitude throughout training. Right : GradNorm-weighted losses. The adaptive weighting scheme balances each gradient norm to ensure equitable contributions to the overall training dynamics. 
+
+Causal weighting for time-dependent PDEs. Gradient-norm weighting balances different loss components, but it does not address the temporal structure inside the PDE residual itself. For time-dependent PDEs, the solution at time t should be determined only by the initial/boundary conditions and the dynamics on earlier times, not by future states [ 41 ]. However, the standard residual loss averages collocation points over the whole time domain, treating early and late times equally. This can allow the optimizer to reduce later-time residuals before the earlier dynamics are accurately learned, leading to solutions that have small averaged residuals but violate the causal evolution of the PDE. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Time
+> 0.0000
+> 0.0001
+> 0.0002
+> 0.0003
+> Loss in time chunks  Training steps
+> 10 k
+> 20 k
+> 40 k
+
+Figure 4: PDE residual loss per time segment at training steps 10k, 20k, and 40k for PI-CViT on the wave equation. Under causal weighting, the optimizer progressively satisfies earlier time segments before advancing to later ones, resulting in a uniform loss profile by 40k steps. Following the causal weighting strategy developed for PINNs [ 41 ], we impose a temporal ordering on the residual loss. Specifically, we partition the time interval [0 , T ] into Nt equal segments and assign each segment a weight determined by the cumulative residual error of all previous segments. Later segments are therefore emphasized only after the model has sufficiently reduced the residual at earlier times: 
+
+w(i) 
+
+> causal
+
+= exp −ϵ
+
+> i−1
+
+X
+
+> k=1
+
+L(k) 
+
+> r
+
+(θ)
+
+!
+
+, for i = 1 , 2, . . . , N t, (3.12) where ϵ is a hyperparameter controlling the strength of causality enforcement, and L(k) 
+
+> r
+
+is the MSE of the PDE residual at collocation points within the k-th time segment, averaged over the batch of input functions {uj }Mj=1 . We increase ϵ
+
+when 0.99 < w (Nt) 
+
+> causal
+
+< w causal ,max to progressively enforce causality as training proceeds. A representative example is shown in Figure 4 for PI-CViT on the wave equation, where strongly time-dependent dynamics make causality-related training behavior particularly visible: at 10k steps the per-segment loss is still elevated at early times, but as training proceeds the causal weights guide the optimizer to resolve earlier segments first, and by 40k steps the loss is uniformly small across the entire temporal domain. 7The ablation study in Section 4.6 reveals that both the GradNorm and causal weighting schemes improve the predictive accuracy of PINOs, and their combination yields the best performance across the considered problems. 
+
+3.3 Optimizer selection and gradient alignment 
+
+Physics-informed neural operators are trained by minimizing a composite objective consisting of PDE residual, initial condition, boundary condition, and optional supervised data terms. Beyond the gradient magnitude imbalance discussed above, such a formulation also gives rise to directional conflicts among the loss components. When the gradients of competing objectives point in opposing directions, standard first-order optimizers such as Adam may struggle to find a descent direction that simultaneously reduces all loss terms—a phenomenon known as directional gradient conflict [42, 68]. We quantify this conflict using the gradient alignment score introduced in [ 42 ]. Let {g(s) 
+
+> ℓ
+
+}ℓ∈J L denote the gradient vectors of the individual loss terms, as defined in Section 3.2, at training step s. The average normalized gradient is computed as 
+
+¯g(s) = 1
+
+|J L|
+
+X
+
+> ℓ∈J L
+
+g(s)
+
+> ℓ
+
+g(s)
+
+> ℓ
+
+, (3.13) where |J L| is the number of loss terms. The gradient alignment score is then defined as 
+
+A(s) = 2 ¯g(s) 2
+
+− 1. (3.14) The score takes values in [−1, 1] , with larger values indicating stronger directional agreement among the loss gradients. When |J L| = 2 , it reduces to the standard cosine similarity between the two normalized gradients. 0 5000 10000 15000 20000  
+
+> Step
+> 0.0
+> 0.5
+> 1.0
+> Gradient Alignment
+> soap adam
+
+Figure 5: Gradient alignment score [ 42 ] between different loss components during training on the shallow water benchmark with PI-DeepONet. Adam’s alignment collapses after approximately 5,000 steps and remains near zero, indicating severe directional gradient conflicts on this multi-objective physics-informed loss. SOAP, by operating in a preconditioned eigenbasis, maintains a consistently high alignment score of approximately 0.90 , validating its suitability for this scenario. Recent studies [ 42 ] suggest that quasi-second-order optimizers, by incorporating preconditioning and curvature information, are more effective at navigating such conflicting gradient landscapes. We therefore adopt SOAP [ 69 ] as our default optimizer. This behavior is illustrated in Figure 5 using PI-DeepONet on the shallow water benchmark, where multiple coupled objectives induce pronounced directional conflicts; SOAP achieves substantially higher gradient alignment during training compared to Adam. SOAP combines Shampoo-style preconditioning with Adam-style adaptive updates [ 69 ]. The preconditioner is constructed from the eigenvectors of the running gradient second-moment matrices: 
+
+QL = eig 
+
+
+
+E[G(s)G(s)⊤]
+
+
+
+, QR = eig 
+
+
+
+E[G(s)⊤G(s)]
+
+
+
+, (3.15) 8where G(s) denotes the raw gradient matrix at training step s. The gradient is then projected into the eigenbasis defined by QL and QR, and the parameter update is Adam applied in the rotated space: 
+
+∆fW = η Adam 
+
+
+
+Q⊤ 
+
+> L
+
+G(s) QR
+
+
+
+. (3.16) By preconditioning the total gradient in an empirical curvature eigenbasis, SOAP can rescale poorly conditioned directions and reduce the adverse effect of conflicting component gradients on the final update. We report the performance of both Adam and SOAP in the ablation study in Section 4.6, demonstrating that SOAP generally improves the predictive accuracy of PINOs for most of the considered problems. 
+
+3.4 Training data and collocation sampling strategies 
+
+In physics-informed operator learning, sampling plays a role beyond constructing minibatches. Unlike supervised operator learning, where training signals are restricted to a finite set of labeled input–output trajectories, the physics-informed objective can be evaluated at arbitrary input functions and arbitrary points in the spatiotemporal domain. This provides an additional source of supervision: the model can be constrained by the governing equations not only at locations where reference solutions are available, but also throughout the broader parametric and physical domain. The choice of how input functions, collocation points, and labeled trajectories are sampled therefore directly affects the coverage of the training objective and the generalization behavior of the learned operator. At each training step, we sample a batch of input functions {uj }Mj=1 from the parametric input space U. For coordinate-based models, we then sample shared sets of query coordinates for the residual, initial-condition, and boundary-condition losses. Specifically, residual collocation points are sampled from the interior of the spatiotemporal domain, initial-condition points from the initial-time slice, and boundary-condition points from the spatial boundary: 
+
+{uj }Mj=1 ∼ U , (3.17) 
+
+{(xi, t i)}Nr
+
+> i=1
+> LHS
+
+∼ Ω × (0 , T ], (3.18) 
+
+{(xi, 0) }Nic 
+
+> i=1
+> LHS
+
+∼ Ω, (3.19) 
+
+{(xi, t i)}Nbc 
+
+> i=1
+> LHS
+
+∼ ∂Ω × [0 , T ]. (3.20) Here Latin hypercube sampling is used to promote broad coverage of the sampling domain at each iteration. Resampling both the input functions and the collocation points during training allows the physics loss to probe a much larger portion of U × Ω × [0 , T ] than would be possible with a fixed finite dataset. Free PDE collocation Supervised data trajectory Training dataset    
+
+> Pure physics Pure data Physics on labeled data Physics on unlabeled data
+
+Figure 6: Illustration of the four training regimes defined by the use of supervised data and by where the physics residual is evaluated. Each square represents the full parametric and spatiotemporal domain U × Ω × [0 , T ], while the dashed circles indicate the finite labeled dataset. This distinction becomes important when comparing physics-informed and data-driven training. The presence of a PDE residual loss alone does not specify where the residual is evaluated. If the residual is evaluated only on the coordinates contained in labeled trajectories, then the physics loss inherits the same coverage limitations as the dataset. In contrast, if the residual is evaluated at freely sampled collocation points, the PDE provides supervision beyond the labeled data distribution. To separate these effects, we consider four training regimes, illustrated in Figure 6: • Pure physics : the model is trained using only PDE residual, initial-condition, and boundary-condition losses, with both input functions and collocation points freely sampled during training; • Pure data : the model is trained using the supervised data loss on labeled trajectories, with optional initial- and boundary-condition losses applied in the same way as in the physics-informed setting; 9• Physics on labeled data : supervised and physics losses are both used, but the PDE residual is evaluated only at the spatiotemporal coordinates contained in the labeled trajectories; • Physics on unlabeled collocation points : the supervised data loss is evaluated on labeled trajectories, while the physics losses are evaluated at freely sampled collocation points independent of the labeled dataset. This categorization isolates the effect of free collocation sampling from the effect of adding labeled data. As shown in Section 4.6, this distinction is crucial: a well-resolved purely physics-informed training procedure with freely sampled collocation points can match or outperform data-driven training across several data regimes, whereas restricting the residual to labeled trajectory coordinates substantially weakens the benefit of the physics loss. 
+
+3.5 Practical tips 
+
+Beyond the core training components discussed above, several implementation details also have a noticeable impact on stability and final accuracy in practice. In this subsection, we summarize a few empirically useful design choices that proved helpful for PINO training in our experiments. 
+
+3.5.1 Enforcing periodic boundary conditions 
+
+For PDEs with periodic spatial boundary conditions, soft enforcement via loss terms yields only approximate satisfaction and introduces additional hyperparameters. We instead hard-encode periodicity by replacing the raw spatial coordinates with a periodic embedding before they are passed to the decoder. For a 2D domain with periods Lx and Ly , the embedding is defined as 
+
+Φ( x) = 
+
+
+
+sin 
+
+ 2πLx
+
+x1
+
+
+
+, cos 
+
+ 2πLx
+
+x1
+
+
+
+, sin 
+
+ 2πLy
+
+x2
+
+
+
+, cos 
+
+ 2πLy
+
+x2
+
+ 
+
+. (3.21) Since Φ( x) is periodic by construction, the decoded solution is guaranteed to satisfy the periodic boundary conditions exactly, without the need for additional loss terms and corresponding sampling. 
+
+3.5.2 FiLM layer for time conditioning 
+
+In the standard decoder, spatial and temporal Fourier embeddings are concatenated to form the initial query features, treating space and time symmetrically. This is suboptimal for PDEs in which the morphological evolution of the solution is predominantly driven by time, with the spatial pattern serving as a consistent template that is globally modulated across time steps—as in the Allen–Cahn-governed ice melting problem, where temporal dynamics primarily govern the displacement of the interface, or the wave equation, where waveforms propagate while their shape is dictated by the spatial structure. For such problems, we adopt Feature-wise Linear Modulation (FiLM) [ 70 ] to decouple spatial and temporal processing in the decoder. The spatial Fourier embedding qx alone serves as the initial query, such that 
+
+q0 = qx(x) ∈ RNq ×De , (3.22) while the temporal embedding qt is passed through a shared MLP to produce a layer-wise scale and shift: 
+
+[γ(l), β(l)] = MLP FiLM (qt) ∈ R2Dd , l = 1 , . . . , L d. (3.23) At each decoder layer l, the normalized query features are modulated before cross-attention: 
+
+˜q(l) = LN( q(l)) ⊙  1 + γ(l) + β(l). (3.24) To ensure training stability, the last linear layer of MLP FiLM is initialized to zero, so the modulation starts as the identity at the beginning of training. We find FiLM beneficial for problems with the above structure (ice melting and wave equation) but not for cases with more intricate spatial-temporal coupling such as Burgers’ equation or the shallow water equations. See Section 4.6 for an ablation study. 
+
+3.5.3 Warm-up phase of training 
+
+A key advantage of physics-informed neural operators is their ability to draw a fresh batch of collocation points at every training step, effectively enabling infinite sampling of the function space and the spatiotemporal domain. In practice, we resample both the input functions {uj } and the query coordinates {(xi, t i)} at every gradient step to fully exploit this property. However, per-step resampling introduces high variance in the gradient across consecutive iterations, which prevents the initial condition loss from converging: the optimizer cannot accumulate a consistent signal to anchor the 10 Table 1: Relative L2 error (in %, mean ± std) of physics-informed neural operators on five benchmark PDEs, evaluated over the full test set. 
+
+Benchmark PDE PI-DeepONet PI-FNO PI-CViT 
+
+Burgers (34 .50 ± 2.54) % (9 .67 ± 1.84) % (0 .78 ± 0.11) %
+
+Wave (11 .90 ± 1.82) % (19 .10 ± 2.29) % (2 .46 ± 0.45) %
+
+Shallow Water (29 .50 ± 3.77) % (9 .02 ± 0.97) % (4 .29 ± 0.61) %
+
+Ice melting (37 .10 ± 9.35) % (52 .90 ± 1.00) % (1 .87 ± 0.68) %
+
+Lid-driven Cavity (7 .60 ± 1.75) % (103 .50 ± 2.67) % (6 .46 ± 0.57) %CViT DeepONet FNO         
+
+> 10 −2
+> 10 −1
+> 10 0
+> Rel.  L2 Error
+> Burgers
+> CViT DeepONet FNO
+> Wave
+> CViT DeepONet FNO
+> Shallow Water
+> CViT DeepONet FNO
+> Ice Melting
+> CViT DeepONet FNO
+> Lid-Driven Cavity
+
+Figure 7: Relative L2 error distributions across all benchmark PDEs. Each violin shows the full distribution over 100 test samples. PI-CViT consistently achieves lower errors and tighter distributions compared to PI-DeepONet and PI-FNO. solution at t = 0 , weakening the causal structure of the training dynamics, and the network is prone to collapsing to the trivial zero solution [71]. To mitigate this, we employ a warm-up training of 50 –2,000 steps in which we slow down the resampling frequency to every 50 –100 steps. During this phase, the model is exposed to a more consistent set of input functions and collocation points, allowing the network to first acquire a rough approximation of the solution structure before being exposed to the full stochasticity of per-step resampling. We also up-weight the initial condition losses by an additional factor of 
+
+2–10 on top of the GradNorm weights, so that the optimizer is strongly guided toward satisfying the prescribed data at 
+
+t = 0 before the PDE residual loss dominates. After the warm-up phase, the resampling frequency and loss weights are restored to their standard values. 
+
+## 4 Results 
+
+We now evaluate whether the training principles developed above lead to accurate and robust physics-informed operator learning in practice. The goal is not only to compare architectures, but also to test whether a fully physics-informed pipeline can learn solution operators across diverse PDE families without relying on supervised solution data. We compare PI-CViT against its physics-informed counterparts built on DeepONet and FNO (referred to as PI-DeepONet and PI-FNO, respectively) across these five benchmarks. All three models are trained with a pure physics loss without any supervised data. Unless otherwise stated in the description of each benchmark, we follow the standard training pipeline described in Section 3, including GradNorm weighting, causal weighting, and the SOAP optimizer. PI-CViT and PI-DeepONet evaluate PDE residuals at randomly sampled input functions and spatiotemporal collocation points, with derivatives computed via automatic differentiation; PI-FNO predicts the full solution trajectory on a fixed spatiotemporal grid in a single forward pass and computes residuals via spectral/finite-difference differentiation combined with a fourth-order Runge–Kutta (RK4) time integrator. For each benchmark, the trained models of the three architectures are evaluated on a held-out test set of 100 trajectories with unseen input functions. Further details on hyperparameter settings, architectural configurations, and test set generation are provided in Appendices D and E. Table 1 reports mean and standard deviation of the relative L2 error (see Appendix B for the definition) over the full test set for each benchmark, and Figure 7 shows the full error distributions. PI-CViT achieves the lowest mean error and the tightest distribution across all benchmarks. The gain is most pronounced on Burgers’ equation, where PI-CViT outperforms PI-FNO by over an order of magnitude. On the lid-driven cavity benchmark, PI-DeepONet 11 remains competitive since this problem is parameterized solely by a scalar Reynolds number, leaving less room for the structured input encoding of PI-CViT to demonstrate its advantages. Nevertheless, the distribution plots reveal that PI-DeepONet’s errors are significantly more dispersed, with a heavier tail and a larger maximum error; these failure cases are concentrated at high Reynolds numbers, where the flow develops stronger nonlinearities. PI-FNO performs poorly on this benchmark, as its spectral convolution assumes periodic boundary conditions that are incompatible with the no-slip walls and corner singularities of the lid-driven cavity geometry. The subsequent sections present the problem setup and detailed solution comparisons for each benchmark PDE. A comprehensive ablation study on the training pipeline components is provided in Section 4.6, and additional results and visualizations are included in Appendix G. 
+
+4.1 Burgers’ equation 
+
+We begin with the 2D vector Burgers’ equation, a classical benchmark for nonlinear advection–diffusion dynamics, governing the evolution of a velocity field v(x, t ) = ( v1, v 2) under the combined effects of nonlinear advection and viscous diffusion: 
+
+∂v
+
+∂t + ( v · ∇ )v = ν∇2v, (4.1) where ν = 0 .01 is the kinematic viscosity. Periodic boundary conditions are imposed in both spatial dimensions. The parametric family consists of random initial velocity fields, drawn from a periodic Gaussian random field (GRF) with a fixed Gaussian power spectrum (length scale ℓ and amplitude A; see Appendix C.1), with each velocity component sampled independently. The neural operator learns to map the initial velocity field v(x, 0) to the velocity solution 
+
+v(x, t ) for t ∈ [0 , 1] .Figure 8 shows the first velocity component v1 at five time snapshots for a representative test sample. Since the two velocity components exhibit qualitatively similar behavior, we visualize only v1 here. PI-CViT closely tracks the reference solution throughout the entire time window, with the maximum error of 2.09 % at the final snapshot t = 1 .0.PI-DeepONet exhibits rapid error accumulation: while it partially captures the large-scale flow structure at early times, the prediction progressively deteriorates and by t = 1 .0 the relative L2 error reaches nearly 70 % , indicating that the model struggles to sustain accurate temporal dynamics under the nonlinear advection. PI-FNO takes the t = 0 snapshot directly as input and predicts the full spatiotemporal solution trajectory in a single forward pass, so its error at t = 0 is zero by construction; nevertheless, it accumulates approximately 34 % error by the end of the time horizon, retaining the dominant spatial structures but losing fine-scale detail at later times. 
+
+4.2 Wave equation 
+
+We consider the 2D scalar wave equation with a spatially varying wave speed c(x), which serves as a challenging benchmark for heterogeneous wave propagation: 
+
+∂2v∂t 2 = c(x)2∇2v, x ∈ [0 , 1) 2, t ∈ [0 , 1] , (4.2) 
+
+c(x) = 1 + 12 sin(2 πx 1) sin(2 πx 2). (4.3) The initial displacement is drawn from a periodic GRF with a Gaussian power spectrum in Eq. (C.4) , and the initial velocity is set to zero: 
+
+v(x, 0) = ξ(x), (4.4) 
+
+∂v ∂t (x, 0) = 0 . (4.5) Periodic boundary conditions are imposed in both spatial dimensions. The solution operator takes the initial displacement field v(x, 0) as input and outputs the wave solution v(x, t ) for t ∈ [0 , 1] .Figure 9 shows the predicted displacement field at five time snapshots. PI-CViT accurately tracks the wave field throughout, with errors growing gradually from 0.21 % at t = 0 to 4.43 % at t = 1 .0, outperforming the other two models by a wide margin. PI-DeepONet exhibits uniformly high errors of around 10 % across all time snapshots. PI-FNO starts at zero error by construction and accumulates monotonically to 35 .66 % by t = 1 .0, with the predicted field losing spatial coherence at later times. 12 t = 0.0 s    
+
+> Reference
+> -0.52 -0.15 0.22 0.58
+
+t = 0.2 s    
+
+> -0.29 -0.06 0.17 0.39
+
+t = 0.5 s    
+
+> -0.17 -0.03 0.11 0.26
+
+t = 0.8 s    
+
+> -0.12 -0.02 0.09 0.19
+
+t = 1.0 s                                           
+
+> -0.09 -0.01 0.08 0.16
+> Rel. L2= 0.45%
+> CViT
+> Rel. L2= 0.44% Rel. L2= 0.78% Rel. L2= 1.48% Rel. L2= 2.09%
+> Rel. L2= 17.48%
+> DeepONet
+> Rel. L2= 31.52% Rel. L2= 49.08% Rel. L2= 61.51% Rel. L2= 68.99%
+> Rel. L2= 0.00%
+> FNO
+> Rel. L2= 5.21% Rel. L2= 15.55% Rel. L2= 27.15% Rel. L2= 34.32%
+
+Figure 8: Burgers’ equation. The first velocity component v1 predicted by different physics-informed neural operators compared with the reference solution. The second velocity component exhibits qualitatively similar behavior and is omitted for brevity. 
+
+4.3 Shallow water equations 
+
+The linearized shallow water equations govern the evolution of a fluid layer with free-surface height h and depth-averaged horizontal velocity v = ( v1, v 2) under gravity and the Coriolis effect: 
+
+∂h ∂t + H∇ · v = 0 , (4.6) 
+
+∂v
+
+∂t + g∇h + f v⊥ = 0 , (4.7) where H is the mean fluid depth, g is the gravitational acceleration, f is the Coriolis parameter, and v⊥ = ( −v2, v 1)
+
+denotes the 90 ◦ rotation of v. We set g = H = 1 and use a large Coriolis parameter f = 10 to drive strong inertia-gravity wave activity, with a characteristic oscillation period 2π/f ≈ 0.63 comparable to the time horizon T = 1 . The fluid height is initialized with a perturbation drawn from a periodic GRF (see Appendix C.1), while the velocity field is initialized to zero: 
+
+h(x, 0) = ξ(x), (4.8) 
+
+v(x, 0) = 0. (4.9) Periodic boundary conditions are imposed in both spatial dimensions. The solution operator maps the initial height perturbation h(x, 0) to the full coupled state (h, v)( x, t ) for t ∈ [0 , 1] . The primary challenge of this benchmark lies in the tight coupling among the three output fields (h, v 1, v 2) and the dispersive inertia-gravity wave dynamics induced by 13 t = 0.0 s    
+
+> Reference
+> -0.42 -0.05 0.32 0.69
+
+t = 0.2 s    
+
+> -0.29 -0.06 0.17 0.40
+
+t = 0.5 s    
+
+> -0.34 -0.10 0.15 0.39
+
+t = 0.8 s    
+
+> -0.43 -0.17 0.09 0.34
+
+t = 1.0 s                                           
+
+> -0.26 -0.07 0.11 0.30
+> Rel. L2= 0.21%
+> CViT
+> Rel. L2= 1.28% Rel. L2= 2.00% Rel. L2= 2.60% Rel. L2= 4.43%
+> Rel. L2= 10.24%
+> DeepONet
+> Rel. L2= 13.13% Rel. L2= 9.54% Rel. L2= 10.31% Rel. L2= 13.34%
+> Rel. L2= 0.00%
+> FNO
+> Rel. L2= 10.23% Rel. L2= 15.90% Rel. L2= 21.20% Rel. L2= 35.66%
+
+Figure 9: Wave equation. Scalar solution field v predicted by different physics-informed neural operators compared with the reference solution. the large Coriolis parameter, which drive rapid geostrophic adjustment and fast multi-scale oscillations throughout the time window. Figure 10 shows the predicted height field h at five time snapshots. The reference solution undergoes rapid geostrophic adjustment immediately after t = 0 , with the field amplitude dropping sharply before inertia-gravity waves re-emerge and the solution oscillates at later times. PI-CViT follows this evolution closely, with the final error remaining below 
+
+6 % . PI-DeepONet struggles at early times, reaching over 50 % error at t = 0 .2 and remaining above 40 % thereafter, and the predicted field is visibly over-smoothed. PI-FNO performs considerably better than PI-DeepONet, with errors growing from zero to approximately 10 % by t = 1 .0. The strong multi-field coupling and fast oscillations make PI-CViT’s accuracy on this benchmark particularly notable. 
+
+4.4 Ice melting 
+
+Unlike the previous benchmarks whose initial conditions are smooth random fields, the ice melting problem [ 72 ]is defined by a structured parametric family of elliptical initial inclusions, each with a well-defined thin interface separating the two phases and varying in shape and orientation. The resulting operator-learning task must therefore resolve a thin moving interface governed by stiff phase-field dynamics while remaining robust to variations in the embedded elliptical inclusion. A 2D Allen–Cahn phase-field model governs the ice–water phase transition, where the order parameter ϕ(x, t ) ∈ [−1, 1] transitions smoothly between the ice phase ( ϕ = +1 ) and the water phase ( ϕ = −1)through a diffuse interface of width O(ϵ):
+
+∂ϕ ∂t = M
+
+
+
+∇2ϕ − F ′(ϕ)
+
+ϵ2
+
+
+
+− λ
+
+p2F (ϕ)
+
+ϵ , (4.10) 14 t = 0.0 s    
+
+> Reference
+> -1.26 -0.31 0.65 1.61
+
+t = 0.2 s    
+
+> -0.44 -0.07 0.30 0.67
+
+t = 0.5 s    
+
+> -0.85 -0.27 0.32 0.90
+
+t = 0.8 s    
+
+> -0.72 -0.20 0.32 0.83
+
+t = 1.0 s                                           
+
+> -0.95 -0.35 0.26 0.87
+> Rel. L2= 0.17%
+> CViT
+> Rel. L2= 3.24% Rel. L2= 4.53% Rel. L2= 7.51% Rel. L2= 5.26%
+> Rel. L2= 18.50%
+> DeepONet
+> Rel. L2= 53.79% Rel. L2= 40.96% Rel. L2= 42.49% Rel. L2= 56.46%
+> Rel. L2= 0.00%
+> FNO
+> Rel. L2= 6.30% Rel. L2= 8.26% Rel. L2= 17.26% Rel. L2= 15.18%
+
+Figure 10: Shallow water equations. Free-surface height h predicted by different physics-informed neural operators compared with the reference solution. where M = 0 .1 is the interface mobility, λ = 5 is a latent-heat coupling coefficient, and F (ϕ) = 14 (ϕ2 − 1) 2 is the double-well potential. The interface thickness is determined by ϵ = 3 h/ (√2arctanh(0 .9)) , where h = 100 /63 is the grid spacing of the reference solution (see Appendix D). The initial condition is prescribed as a diffuse-interface profile of a randomly sampled rotated elliptical inclusion: 
+
+ϕ(x, 0) = tanh 
+
+ d(x)
+
+√2 ϵ
+
+
+
+, (4.11) where d(x) is an approximate signed distance to the ellipse boundary; see Appendix C.2 for details. The problem is posed on a domain of Ω = [ −50 , 50] 2 with homogeneous Neumann boundary conditions. Given the initial phase-field profile ϕ(x, 0) parameterized by the ellipse geometry (a, b, θ ), the neural operator predicts the phase-field evolution 
+
+ϕ(x, t ) for t ∈ [0 , 3] . For this benchmark, we use Adam optimizer instead of SOAP, as it yields better performance on this phase-field problem; see Appendix H for a detailed analysis. Figure 11 shows the phase-field variable ϕ for a representative elliptical inclusion. The reference solution exhibits a steadily shrinking ellipse with a thin, well-defined interface throughout. PI-CViT accurately captures the interface position and shape at all time steps, with errors growing only from 0.41 % at t = 0 to 2.01 % at t = 3 .0. PI-DeepONet and PI-FNO both perform noticeably worse on this benchmark. PI-DeepONet already incurs 15 .67 % error at t = 0 ,suggesting that its fully-connected branch network has difficulty encoding the thin diffuse interface from the flattened input field; the predicted interface progressively loses its sharp profile, with the elliptical shape becoming indistinct by t = 2 .0. PI-FNO, despite taking the exact initial condition as input, degrades substantially over time and reaches 
+
+70 .60 % error by t = 3 .0, with unphysical artifacts appearing in the interior at later times. This indicates that PI-FNO does not capture the physical dynamics of the phase-field evolution. This behavior is likely due to the limited ability 15 t = 0.0 s    
+
+> Reference
+> -1.00 -0.33 0.33 1.00
+
+t = 1.0 s    
+
+> -1.00 -0.33 0.33 1.00
+
+t = 1.5 s    
+
+> -1.00 -0.33 0.33 1.00
+
+t = 2.0 s    
+
+> -1.00 -0.33 0.33 1.00
+
+t = 3.0 s                                           
+
+> -1.00 -0.33 0.33 1.00
+> Rel. L2= 0.41%
+> CViT
+> Rel. L2= 0.95% Rel. L2= 1.14% Rel. L2= 1.35% Rel. L2= 2.01%
+> Rel. L2= 15.67%
+> DeepONet
+> Rel. L2= 27.89% Rel. L2= 41.56% Rel. L2= 52.28% Rel. L2= 47.35%
+> Rel. L2= 0.00%
+> FNO
+> Rel. L2= 40.02% Rel. L2= 54.72% Rel. L2= 66.78% Rel. L2= 70.60%
+
+Figure 11: Ice melting problem. Phase-field variable ϕ predicted by different physics-informed neural operators compared with the reference solution. of truncated spectral convolutions combined with finite-difference residuals to resolve the thin interface and the stiff nonlinearity of the double-well potential term. 
+
+4.5 Lid-driven Cavity flow 
+
+The lid-driven cavity flow is a classical steady-state benchmark for the incompressible Navier–Stokes equations with complex boundary conditions and corner singularities. The governing equations are given by 
+
+(v · ∇ )v = −∇ p + ν∇2v, (4.12) 
+
+∇ · v = 0 , (4.13) where v = ( v1, v 2) is the velocity field, p is the pressure, and ν = 1 /Re is the kinematic viscosity. No-slip conditions are imposed on the bottom, left, and right walls, while the top boundary moves with unit tangential velocity: 
+
+v(x) = 
+
+(0, for stationary walls (x2 = 0 , x 1 = 0 , x 1 = 1) ,
+
+(1 , 0) , for moving lid (x2 = 1) . (4.14) To avoid the velocity discontinuity at the top corners, the lid velocity is replaced by a smooth approximation: 
+
+v1(x1, 1) = 1 − cosh(50( x1 − 0.5)) cosh(25) , v2(x1, 1) = 0 . (4.15) The Reynolds number is the sole problem parameter, sampled log-uniformly over Re ∈ [50 , 1000] ; see Appendix C.3 for details. Unlike the previous benchmarks, the solution operator here maps a scalar Re directly to the steady-state 16 Re = 50    
+
+> Reference
+> 0.00 0.33 0.67 1.00
+
+Re = 100    
+
+> 0.00 0.33 0.67 1.00
+
+Re = 200    
+
+> 0.00 0.33 0.67 1.00
+
+Re = 500    
+
+> 0.00 0.33 0.67 1.00
+
+Re = 1000                                           
+
+> 0.00 0.33 0.67 1.00
+> Rel. L2= 5.23%
+> CViT
+> Rel. L2= 6.34% Rel. L2= 6.92% Rel. L2= 5.57% Rel. L2= 6.86%
+> Rel. L2= 5.19%
+> DeepONet
+> Rel. L2= 6.29% Rel. L2= 6.65% Rel. L2= 7.69% Rel. L2= 12.59%
+> Rel. L2= 107.95%
+> FNO
+> Rel. L2= 106.73% Rel. L2= 104.80% Rel. L2= 101.91% Rel. L2= 100.63%
+
+Figure 12: Lid-driven cavity flow. Streamlines and velocity magnitude predicted by different physics-informed neural operators compared with the reference solution. velocity and pressure fields (v, p )( x). As Re increases, the primary vortex center shifts and secondary corner vortices develop, producing qualitatively distinct flow patterns across the parameter range. Since this benchmark is steady-state and has no temporal dimension, causal weighting is not applied, whereas GradNorm weighting is still used to balance the different physics loss terms. For PI-FNO, the spatial domain is padded by 32 grid points on each side to handle the non-periodic walls (see Appendix E). Figure 12 shows the predicted streamlines and velocity magnitude at five representative Reynolds numbers. PI-CViT maintains consistent accuracy across the entire parameter range, with errors between 5.23 % and 6.86 % . PI-DeepONet achieves comparable performance at low Reynolds numbers (e.g., 5.19 % at Re = 50 ), but its accuracy degrades steadily as Re increases, reaching 12 .59 % at Re = 1000 where stronger nonlinearities and finer secondary vortex structures develop. Although we pad the spatial domain to mitigate the non-periodicity and corner singularities, PI-FNO struggles across all Reynolds numbers, with errors exceeding 100 % throughout; the predicted velocity field near the bottom boundary departs sharply from the reference, reflecting the difficulty of imposing non-periodic no-slip and lid boundary conditions within a spectral convolution architecture. 
+
+4.6 Ablation studies 
+
+In this section, we conduct ablation studies of the main components of the proposed physics-informed training pipeline. For each study, only the target component is varied, while all other hyperparameters, architectural settings, sampling strategies, and training procedures are kept identical to the default pipeline. This allows us to isolate the effects of optimizer selection, labeled data usage, weighting schemes, derivative computation, and FiLM conditioning on accuracy and training behavior across representative benchmarks. 17 0 5000 10000 15000 
+
+> 10 −2
+> 10 −1
+> 10 0
+> Burgers
+
+CViT   
+
+> Soap
+> Adam
+> 010000 20000
+
+DeepONet   
+
+> 010000 20000
+
+FNO                     
+
+> 020000 40000
+> 10 −1
+> 10 0
+> Wave
+> 010000 20000 30000 020000 40000
+> 010000 20000
+> 10 −1
+> 10 0
+> Shallow Water
+> 010000 20000 010000 20000
+> 010000
+> Step
+> 10 −1
+> 10 0
+> Lid-Driven Cavity
+> 010000 20000
+> Step
+> 010000 20000
+> Step
+
+Figure 13: Ablation study on optimizer selection. Test error convergence curves during training for SOAP and Adam across three architectures and four benchmark PDEs. 
+
+Optimizer selection. We compare SOAP against Adam across all three architectures and four benchmark PDEs; test error convergence curves during training are shown in Figure 13. PI-CViT achieves the lowest errors across all benchmarks with the SOAP optimizer, further corroborating Table 1. More importantly, SOAP consistently outperforms Adam for both PI-CViT and PI-DeepONet, with the most pronounced gains on the Burgers and wave benchmarks, where the final error for PI-CViT is reduced by over an order of magnitude. The ice melting benchmark is an exception where SOAP does not yield a clear improvement; we analyze this anomaly in Appendix H. For PI-FNO, SOAP outperforms Adam on the Burgers and wave benchmarks; however, on the shallow water benchmark, both optimizers plateau near 
+
+10 % error throughout training, suggesting that the bottleneck lies in the architecture’s limited spectral resolution and its finite-difference-based loss formulation for the multiscale oscillatory dynamics of this problem. Finally, PI-FNO performs poorly on the lid-driven cavity benchmark under both optimizers, consistent with the difficulty of imposing non-periodic no-slip boundary conditions discussed in Section 4.5. 
+
+Labeled training data. We investigate the role of labeled data by comparing four training regimes (as defined in Section 3.4) with varying numbers of labeled solution trajectories, using PI-CViT on the Burgers, shallow water, and lid-driven cavity benchmarks. The labeled dataset is disjoint from the test set. Each trajectory is a full numerical solution on a 64 × 64 spatial grid over 100 time snapshots for time-dependent problems. All data-driven regimes share the same batch size of input functions, total training steps, and full training pipeline (GradNorm weighting, causal weighting, and the SOAP optimizer) as our physics-informed training. The data loss is evaluated with batch size M ,18 matching the number of input functions sampled per step in the physics-informed training. At each step, spatiotemporal coordinates are randomly subsampled from the labeled trajectories in the same quantity as Nr , and initial and boundary condition losses are applied identically. 26 28 210         
+
+> Num. of labeled data trajectories
+> 10 −2
+> 10 −1
+> 10 0
+> Rel.  L2 Error
+> Burgers
+> 2628210
+> Num. of labeled data trajectories
+> 10 −1
+> Shallow Water
+> 21232527
+> Num. of labeled data trajectories
+> 10 −1
+> 2 × 10 −1
+> 3 × 10 −1
+> Lid-Driven Cavity
+> Pure physics Pure data Physics on labeled data Physics on unlabeled data
+
+Figure 14: Ablation study on labeled training data. Relative L2 error of four training regimes with varying numbers of labeled trajectories on Burgers, shallow water, and lid-driven cavity benchmarks. Pure physics uses physics losses with freely sampled collocation and no labeled data. Pure data uses supervised training only. Physics on labeled data 
+
+evaluates physics losses at the labeled trajectory coordinates. Physics on unlabeled data combines freely sampled physics collocation with a supervised data loss. Pure physics (dashed red) matches or outperforms data-driven regimes across most of the data range, and adding labeled data does not significantly improve over pure physics, indicating that free collocation sampling is the critical ingredient and that gradient conflicts arise when physics and data losses are combined. Several consistent patterns emerge from Figure 14. Pure physics (dashed red) matches or outperforms data-driven regimes across most of the data range, demonstrating that a well-formulated physics loss with free collocation sampling can rival the accuracy of supervised training even at large labeled-data scales. We attribute this largely to free collocation sampling, as probing the full function space and spatiotemporal domain at every training step allows the physics loss to regularize the model, promoting generalization to unseen input functions and test coordinates while reducing the reliance on labeled data. Pure data becomes competitive only with a large number of trajectories. For Burgers, a noticeable gap persists even at 210 trajectories, and for the shallow water equations, approximate parity with pure physics requires around 29 trajectories. This reflects the difficulty of learning a complex function-to-function mapping from a limited number of labeled solutions. The lid-driven cavity is an exception where pure data converges quickly, requiring as few as 23 trajectories. Unlike the other two benchmarks, which involve learning a function-to-function mapping from random initial fields, the lid-driven cavity operator maps a single scalar Reynolds number to the steady-state flow field. In this low-dimensional parameter space, the model need only interpolate among a small number of flow patterns, making pure data highly competitive with few labeled examples. Restricting the physics loss to the labeled trajectory coordinates (physics on labeled data) underperforms both pure physics and pure data at every data scale on Burgers and shallow water. This confirms that free collocation sampling appears to be a critical factor in these experiments, since without coverage of the full spatiotemporal domain the physics loss cannot prevent the model from overfitting to the limited labeled trajectories. Combining physics with a supervised data loss does not improve over pure physics and can occasionally degrade performance, as seen in the error bumps at 
+
+27 trajectories on Burgers and 28 trajectories on the shallow water equations. These degradations suggest that gradient conflicts between physics and data objectives may partially counteract their individual benefits, and developing training strategies that mitigate such conflicts warrants further investigation to unlock the potential of combining physics and data when the physics loss cannot be fully resolved. 
+
+Weighting schemes. We ablate the two weighting schemes by removing each individually, using PI-CViT on four benchmarks; results are shown in Figure 15. The full model with both GradNorm and causal weighting consistently achieves the lowest final error, confirming the complementary benefits of these two schemes. Removing GradNorm is most harmful on the shallow water benchmark, where the gradient norm imbalance among the coupled loss terms is most severe (Figure 3). Removing causal weighting most significantly degrades performance on the ice melting benchmark, where strict temporal ordering is critical for the optimizer to resolve the phase transition correctly. 19 0 5000 10000 15000        
+
+> Step
+> 10 −2
+> 10 −1
+> 10 0
+> Rel.  L2 Error
+> Burgers
+> Full Model
+> w/o GradNorm
+> w/o Causality
+> 05000 10000 15000
+> Step
+> 10 −1
+> 10 0
+> Ice Melting
+> 010000 20000
+> Step
+> 10 −1
+> 10 0
+> Shallow Water
+> 020000 40000
+> Step
+> 10 −1
+> 10 0
+> Wave
+
+Figure 15: Ablation study on weighting schemes. Test error convergence curves during training for PI-CViT with and without GradNorm weighting and causal weighting on four benchmark PDEs. Full model with both weighting schemes consistently achieves the lowest final error. 
+
+Derivative and residual-evaluation strategy. We compare automatic differentiation (AD) against finite-difference/spectral approximations (FD) for evaluating PDE residuals, using PI-CViT on Burgers and ice melting. Results are shown in Figure 16. For FD, derivatives are computed on a fixed 64 × 64 spatial grid with 100 uniform time steps using spectral differentiation (Burgers) or finite differences (ice melting) combined with an RK4 time integrator; AD evaluates residuals at freely sampled sparse collocation points via exact automatic differentiation. 0 5000 10000 15000    
+
+> Step
+> 10 −2
+> 10 −1
+> 10 0
+> Rel.  L2 Error
+> Burgers
+> AD
+> FD
+> 05000 10000 15000
+> Step
+> 10 −1
+> 10 0
+> Ice Melting
+
+Figure 16: Ablation study on derivative computation method. Test error convergence curves during training for PI-CViT using automatic differentiation and finite-difference/spectral methods to compute PDE residuals on Burgers and ice melting benchmarks. The AD-based free-collocation residual outperforms the fixed-grid FD/spectral residual on both benchmarks. Although FD avoids backpropagating through the network, it must evaluate the model at all 64 × 64 × 100 grid points per step, incurring a wall-clock time of 3.85 h per 10 ,000 steps on ice melting and 6.53 h on Burgers, compared to 0.65 h and 
+
+1.00 h for AD. Crucially, even this already costly dense discretization proves insufficient in accuracy. Figure 17 shows that the FD-trained model produces spatially coherent solutions with clean, well-defined interfaces, but the ice phase fraction trajectories exhibit a systematic lag, with the interface evolving consistently more slowly than the reference throughout the simulation. The Allen–Cahn equation contains stiff source terms scaling as 1/ϵ 2, and 100 time steps over t ∈ [0 , 3] cannot accurately resolve the resulting interface dynamics, so the model learns a slightly lagged version of the continuous melting process. AD imposes no such discretization constraint and evaluates residuals exactly at sparse freely sampled collocation points, achieving both higher accuracy and substantially lower training cost. We note that this temporal resolution bottleneck is not exclusive to the FD-based PI-CViT variant studied here. PI-FNO similarly relies on a fixed spatiotemporal grid with finite-difference residuals, and the same limitation may partly account for its consistently higher errors across benchmarks. 
+
+Time FiLM conditioning. We evaluate FiLM conditioning on the ice melting and wave benchmarks; results are shown in Figure 18. FiLM yields clear gains on both, reducing the final error from approximately 9 % to 2 % on ice melting and from 6 % to 3 % on the wave equation. In both problems, the spatial pattern of the solution serves as a stable structural template that is globally modulated by time. For ice melting, the elliptical interface retains its shape 20 Sample 1 
+
+> Ref.
+
+Sample 2 Sample 3 Sample 4                     
+
+> Rel. L2= 1.76%
+> AD
+> Rel. L2= 2.35% Rel. L2= 1.86% Rel. L2= 2.07%
+> Rel. L2= 31.12%
+> FD
+> Rel. L2= 32.13% Rel. L2= 36.19% Rel. L2= 31.53%
+
+0.1 
+
+0.2 
+
+0.3 
+
+> Ice phase frac.
+> Sample 1
+> AD
+> FD
+> Ref.
+> Sample 2
+
+0 1 2 3
+
+> Time (s)
+
+0.1 
+
+0.2 
+
+0.3 
+
+> Ice phase frac.
+> Sample 3
+
+0 1 2 3
+
+> Time (s)
+> Sample 4
+
+Figure 17: FD versus AD on the ice melting benchmark. Left : predicted phase-field variable ϕ at t = 3 s for four representative samples. FD produces spatially coherent solutions with clean interfaces, but the ellipses are systematically larger than the reference, indicating slower interface evolution. Right : ice phase fraction over time for the same samples. AD closely tracks the reference melting rate, while FD exhibits a consistent lag attributable to insufficient temporal resolution of the fixed discrete grid. throughout the simulation and time governs only the rate of melting. For the wave equation, the spatial eigenmodes of the heterogeneous medium are determined by the initial displacement and the spatially varying wave speed c(x). The temporal coordinate controls the propagation of wave fronts along these fixed modes without fundamentally altering their spatial structure. FiLM is well-suited to this class of problems. By using spatial Fourier embeddings as the initial query and injecting temporal information as learned layer-wise scales and shifts, the decoder first establishes the spatial pattern via cross-attention, and temporal information is then applied as a coherent modulation. For problems with intricate space-time coupling such as Burgers’ equation and the shallow water equations, this spatial-temporal decoupling is less appropriate. 0 5000 10000 15000 
+
+> Step
+> 10 −1
+> 10 0
+> Rel.  L2 Error
+
+Ice melting   
+
+> FiLM
+> W/o FiLM
+> 020000 40000
+> Step
+> 10 −1
+> 10 0
+
+Wave 
+
+Figure 18: Ablation study on time FiLM conditioning. Test error convergence curves during training for PI-CViT with and without FiLM-modulated decoder on the ice melting and wave benchmarks. 
+
+## 5 Conclusion 
+
+We presented a systematic empirical study of physics-informed neural operator training for parametric PDEs, examining how architecture design, optimizer choice, loss weighting, collocation sampling, derivative evaluation, and time conditioning affect training stability and predictive accuracy across three representative operator backbones and five benchmark problems. 21 Among the three architectures, PI-CViT consistently achieves the lowest relative L2 errors. On Burgers’ equation, PI-CViT ( 0.78 % ) improves over PI-FNO ( 9.67 % ) by more than an order of magnitude and over PI-DeepONet ( 34 .5 % ) by a factor of over 40 . The gap widens further on the ice melting problem, where both PI-FNO ( 52 .9 % ) and PI-DeepONet (37 .1 % ) struggle to capture the phase-field dynamics, while PI-CViT remains accurate at 1.87 % . These results suggest that transformer-based input encoding combined with coordinate-based cross-attention decoding is particularly well suited to physics-informed operator learning. Our results further show that several optimization pathologies previously identified in PINN training arise naturally in the PINO setting. For instance, on the shallow water benchmark, the gradient norm of the momentum residual exceeds that of the initial-velocity loss by more than two orders of magnitude, and the gradient alignment score under Adam collapses to near zero after early training steps. Corresponding strategies developed for PINNs transfer effectively to this operator-learning setting. GradNorm and causal weighting improve accuracy over unweighted baselines, and the SOAP optimizer reducing the error of PI-CViT by over an order of magnitude on Burgers and wave benchmarks compared to Adam. We also found that the way the physics loss is evaluated is critical. Freely sampled collocation points provide a richer training signal than residuals restricted to labeled trajectory coordinates, because they allow the model to probe the parametric and spatiotemporal domain beyond a finite dataset. As a result, a well-resolved purely physics-informed training pipeline can match, and in some cases outperform, purely data-driven training across a range of labeled-data regimes. In contrast, simply adding supervised data to the physics loss does not always improve performance, suggesting that hybrid data–physics training requires more careful coordination than a straightforward additive objective. Despite these promising results, several challenges and opportunities remain for future work. Extending physics-informed operator learning to irregular domains, complex geometries, and unstructured discretizations will require more geometry-aware architectures and sampling strategies. Scaling to fully three-dimensional problems is another important step, where the computational advantages of operator learning may be especially valuable but where memory cost, optimization stiffness, and residual evaluation become more challenging. The limited synergy observed between supervised and physics-informed losses also motivates future work on training strategies that explicitly manage conflicts between these objectives. Finally, for problems with sharp interfaces, stiff source terms, or strong multi-field coupling, standard pointwise residual losses may be insufficient; variational, conservative, energy-based, or pseudo-time-stepping formulations may provide more faithful physical training signals. We believe that exploring these directions will provide new insights into the design and optimization of physics-informed neural operators and pave the way toward more reliable, data-efficient, and broadly applicable operator-learning methods for scientific computing. 
+
+## Acknowledgments 
+
+This work was supported by the National Natural Science Foundation of China (NSFC) under Grant No. 52478199. Nanxi Chen acknowledges support from the China Association for Science and Technology (CAST) through the Young Science and Technology Talent Cultivation Project (Doctoral Student Program). 
+
+## References 
+
+[1] Toni Lassila and Gianluigi Rozza. Parametric free-form shape design with pde models and reduced basis method. 
+
+Computer Methods in Applied Mechanics and Engineering , 199(23):1583–1592, 2010. [2] Shuangbu Wang, Ruibin Wang, Yu Xia, Zhenye Sun, Lihua You, and Jianjun Zhang. Multi-objective aerodynamic optimization of high-speed train heads based on the pde parametric modeling. Structural and Multidisciplinary Optimization , 64(3):1285–1304, 2021. [3] Stefano Curtarolo, Gus LW Hart, Marco Buongiorno Nardelli, Natalio Mingo, Stefano Sanvito, and Ohad Levy. The high-throughput highway to computational materials design. Nature materials , 12(3):191–201, 2013. [4] Anubhav Jain, Shyue Ping Ong, Geoffroy Hautier, Wei Chen, William Davidson Richards, Stephen Dacek, Shreyas Cholia, Dan Gunter, David Skinner, Gerbrand Ceder, et al. Commentary: The materials project: A materials genome approach to accelerating materials innovation. APL materials , 1(1), 2013. [5] Matthaios Chatzopoulos and Phaedon-Stelios Koutsourelakis. Physics-aware neural implicit solvers for multiscale, parametric pdes with applications in heterogeneous media. Computer Methods in Applied Mechanics and Engineering , 432:117342, 2024. [6] Wei Shyy, Young-Chang Cho, Wenbo Du, Amit Gupta, Chien-Chou Tseng, and Ann Marie Sastry. Surrogate-based modeling and dimension reduction techniques for multi-scale mechanics problems. Acta Mechanica Sinica ,27(6):845–865, 2011. [7] Daniel A White, William J Arrighi, Jun Kudo, and Seth E Watts. Multiscale topology optimization using neural network surrogate models. Computer Methods in Applied Mechanics and Engineering , 346:1118–1135, 2019. 22 [8] Zeng Meng, Qiaochu Qian, Mengqiang Xu, Bo Yu, Ali Rıza Yıldız, and Seyedali Mirjalili. Pinn-form: A new physics-informed neural network for reliability analysis with partial differential equation. Computer Methods in Applied Mechanics and Engineering , 414:116172, 2023. [9] Jie Li and Jian-Bing Chen. Dynamic response and reliability analysis of structures with uncertain parameters. 
+
+International Journal for Numerical Methods in Engineering , 62(2):289–315, 2005. [10] Matteo Tomasetto, Andrea Manzoni, and Francesco Braghin. Real-time optimal control of high-dimensional parametrized systems by deep learning-based reduced order models. International Journal for Numerical Methods in Engineering , 127(1):e70237, 2026. [11] Christophe Prud’Homme, Dimitrios V Rovas, Karen Veroy, and Anthony T Patera. A mathematical and com-putational framework for reliable real-time solution of parametrized partial differential equations. ESAIM: Mathematical Modelling and Numerical Analysis , 36(5):747–771, 2002. [12] Rakhoon Hwang, Jae Yong Lee, Jin Young Shin, and Hyung Ju Hwang. Solving pde-constrained control problems using operator learning. Proceedings of the AAAI Conference on Artificial Intelligence , 36(4):4504–4512, Jun. 2022. [13] Steven L Brunton and J Nathan Kutz. Promising directions of machine learning for partial differential equations. 
+
+Nature Computational Science , 4(7):483–494, 2024. [14] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, June 2021. [15] Kamyar Azizzadenesheli, Nikola Kovachki, Zongyi Li, Miguel Liu-Schiaffini, Jean Kossaifi, and Anima Anand-kumar. Neural operators for accelerating scientific simulations and design. Nature Reviews Physics , 6(5):320–328, 2024. [16] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural Operator: Learning Maps Between Function Spaces with Applications to PDEs. 
+
+Journal of Machine Learning Research , 24(89):1–97, 2023. [17] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence ,3(3):218–229, March 2021. [18] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations, May 2021. [19] Sifan Wang, Jacob H Seidman, Shyam Sankaran, Hanwen Wang, George J Pappas, and Paris Perdikaris. Cvit: Continuous vision transformer for operator learning. arXiv preprint arXiv:2405.13998 , 2024. [20] Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song, and Jun Zhu. Gnot: A general neural operator transformer for operator learning. In International conference on machine learning , pages 12556–12569. PMLR, 2023. [21] Zijie Li, Kazem Meidani, and Amir Barati Farimani. Transformer for partial differential equations’ operator learning. arXiv preprint arXiv:2205.13671 , 2022. [22] Qianying Cao, Somdatta Goswami, and George Em Karniadakis. Laplace neural operator for solving differential equations. Nature Machine Intelligence , 6(6):631–640, 2024. [23] Md Ashiqur Rahman, Zachary E Ross, and Kamyar Azizzadenesheli. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 , 2022. [24] Zongyi Li, Nikola Kovachki, Chris Choy, Boyi Li, Jean Kossaifi, Shourya Otta, Mohammad Amin Nabian, Maximilian Stadler, Christian Hundt, Kamyar Azizzadenesheli, et al. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36:35836–35854, 2023. [25] Zhikai Wu, Sifan Wang, Shiyang Zhang, Sizhuang He, Min Zhu, Anran Jiao, Lu Lu, and David van Dijk. Tante: Time-adaptive operator learning via neural taylor expansion. arXiv preprint arXiv:2502.08574 , 2025. [26] Jacob Seidman, Georgios Kissas, Paris Perdikaris, and George J Pappas. Nomad: Nonlinear manifold decoders for operator learning. Advances in Neural Information Processing Systems , 35:5601–5613, 2022. [27] Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M Benson. U-fno—an enhanced fourier neural operator-based deep-learning model for multiphase flow. Advances in Water Resources , 163:104180, 2022. [28] Zhijie Li, Wenhui Peng, Zelong Yuan, and Jianchun Wang. Fourier neural operator approach to large eddy simulation of three-dimensional turbulence. Theoretical and Applied Mechanics Letters , 12(6):100389, 2022. 23 [29] Yunpeng Wang, Zhijie Li, Zelong Yuan, Wenhui Peng, Tianyuan Liu, and Jianchun Wang. Prediction of turbulent channel flow using fourier neural operator-based machine-learning strategy. Physical Review Fluids , 9(8):084604, 2024. [30] Hanxun Jin, Boyu Zhang, Qianying Cao, Enrui Zhang, Aniruddha Bora, Sridhar Krishnaswamy, George Em Karniadakis, and Horacio D Espinosa. Characterization and inverse design of stochastic mechanical metamaterials using neural operators. Advanced Materials , 37(29):2420063, 2025. [31] Christophe Bonneville, Nathan Bieberdorf, Arun Hegde, Mark Asta, Habib N Najm, Laurent Capolungo, and Cosmin Safta. Accelerating phase field simulations through a hybrid adaptive fourier neural operator with u-net backbone. npj Computational Materials , 11(1):14, 2025. [32] Vivek Oommen, Khemraj Shukla, Somdatta Goswami, Rémi Dingreville, and George Em Karniadakis. Learning two-phase microstructure evolution using neural operators and autoencoder architectures. npj Computational Materials , 8(1):190, 2022. [33] Seid Koric, Asha Viswantah, Diab W Abueidda, Nahil A Sobh, and Kamran Khan. Deep learning operator network for plastic deformation with variable loads and material properties. Engineering with Computers , 40(2):917–929, 2024. [34] Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, David Hall, Zongyi Li, Kamyar Azizzadenesheli, et al. Fourcastnet: A global data-driven high-resolution weather model using adaptive fourier neural operators. arXiv preprint arXiv:2202.11214 , 2022. [35] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, February 2019. [36] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, January 2021. [37] Sifan Wang, Bowen Li, Yuhan Chen, and Paris Perdikaris. PirateNets: Physics-informed deep learning with residual adaptive networks, February 2024. [38] Yizheng Wang, Jia Sun, Jinshuai Bai, Cosmin Anitescu, Mohammad Sadegh Eshaghi, Xiaoying Zhuang, Timon Rabczuk, and Yinghua Liu. Kolmogorov–arnold-informed neural network: A physics-informed deep learning framework for solving forward and inverse problems based on kolmogorov–arnold networks. Computer Methods in Applied Mechanics and Engineering , 433:117518, 2025. [39] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, January 2023. [40] Arka Daw, Jie Bu, Sifan Wang, Paris Perdikaris, and Anuj Karpatne. Rethinking the importance of sampling in physics-informed neural networks. arXiv preprint arXiv:2207.02338 , 2022. [41] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality for training physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 421:116813, March 2024. [42] Sifan Wang, Ananyae Kumar Bhartari, Bowen Li, and Paris Perdikaris. Gradient Alignment in Physics-informed Neural Networks: A Second-Order Optimization Perspective, February 2025. [43] Nanxi Chen, Chuanjie Cui, Rujin Ma, Airong Chen, and Sifan Wang. Sharp-pinns: staggered hard-constrained physics-informed neural networks for phase field modelling of corrosion. Computer Methods in Applied Mechanics and Engineering , 447:118346, 2025. [44] Nanxi Chen, Sifan Wang, Rujin Ma, Airong Chen, and Chuanjie Cui. Enforcing hidden physics in physics-informed neural networks. arXiv preprint arXiv:2511.14348 , 2025. [45] Pao-Hsiung Chiu, Jian Cheng Wong, Chin Chun Ooi, Chang Wei, Yuchen Fan, and Yew-Soon Ong. Scale-pinn: Learning efficient physics-informed neural networks through sequential correction. arXiv preprint arXiv:2602.19475 , 2026. [46] Shengze Cai, Zhiping Mao, Zhicheng Wang, Minglang Yin, and George Em Karniadakis. Physics-informed neural networks (PINNs) for fluid mechanics: A review. Acta Mechanica Sinica , 37(12):1727–1738, December 2021. [47] Nanxi Chen, Sergio Lucarini, Rujin Ma, Airong Chen, and Chuanjie Cui. PF-PINNs: Physics-informed neural networks for solving coupled Allen-Cahn and Cahn-Hilliard phase field equations. Journal of Computational Physics , page 113843, 2025. 24 [48] Zhetong Wu, Hanbo Zhang, Hongfei Ye, Hongwu Zhang, Yonggang Zheng, and Xu Guo. Pinn enhanced extended multiscale finite element method for fast mechanical analysis of heterogeneous materials. Acta Mechanica ,235(7):4895–4913, 2024. [49] Haoteng Hu, Lehua Qi, and Xujiang Chao. Physics-informed neural networks (pinn) for computational solid mechanics: Numerical frameworks and applications. Thin-Walled Structures , 205:112495, 2024. [50] Yongji Wang, Ching-Yao Lai, David J Prior, and Charlie Cowen-Breen. Deep learning the flow law of antarctic ice shelves. Science , 387(6739):1219–1224, 2025. [51] Majid Rasht-Behesht, Christian Huber, Khemraj Shukla, and George Em Karniadakis. Physics-informed neural networks (pinns) for wave propagation and full waveform inversions. Journal of Geophysical Research: Solid Earth , 127(5):e2021JB023120, 2022. [52] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40):eabi8605, September 2021. [53] Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli, and Anima Anandkumar. Physics-Informed Neural Operator for Learning Partial Differential Equations. ACM/JMS Journal of Data Science , 1(3):1–27, 2024. [54] Sifan Wang and Paris Perdikaris. Long-time integration of parametric evolution equations with physics-informed deeponets. Journal of Computational Physics , 475:111855, 2023. [55] Seid Koric and Diab W Abueidda. Data-driven and physics-informed deep learning operators for solution of heat conduction equation with parametric heat source. International Journal of Heat and Mass Transfer , 203:123809, 2023. [56] Chawit Kaewnuratchadasorn, Jiaji Wang, and Chul-Woo Kim. Physics-informed neural operator solver and super-resolution for solid mechanics. Computer-Aided Civil and Infrastructure Engineering , 39(22):3435–3451, 2024. [57] Xuanxin Tian, Chunhua Wan, Feng Duan, Dan Wu, Liang Chang, and Xiaohua Nie. Physics-informed deep operator network for bending analysis of stiffened panels. Thin-Walled Structures , page 114765, 2026. [58] Mohammad Sadegh Eshaghi, Cosmin Anitescu, Manish Thombre, Yizheng Wang, Xiaoying Zhuang, and Timon Rabczuk. Variational physics-informed neural operator (vino) for solving partial differential equations. Computer Methods in Applied Mechanics and Engineering , 437:117785, 2025. [59] Xiao Ma and Tariq Alkhalifah. An effective physics-informed neural operator framework for predicting wavefields. 
+
+Journal of Geophysical Research: Machine Learning and Computation , 3(2):e2025JH000899, 2026. [60] Nanxi Chen, Airong Chen, and Rujin Ma. Physics-informed neural operator for predictive parametric phase-field modelling. arXiv preprint arXiv:2603.09693 , 2026. [61] Sifan Wang, Hanwen Wang, and Paris Perdikaris. On the eigenvector bias of fourier feature networks: From regression to solving multi-scale PDEs with physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 384:113938, October 2021. [62] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, June 2021. [63] Min Zhu, Shihang Feng, Youzuo Lin, and Lu Lu. Fourier-deeponet: Fourier-enhanced deep operator networks for full waveform inversion with improved accuracy, generalizability, and robustness. Computer Methods in Applied Mechanics and Engineering , 416:116300, 2023. [64] Pengzhan Jin, Shuai Meng, and Lu Lu. Mionet: Learning multiple-input operators via tensor product. SIAM Journal on Scientific Computing , 44(6):A3490–A3514, 2022. [65] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier Neural Operator with Learned Deformations for PDEs on General Geometries. Journal of Machine Learning Research , 24(388):1–26, 2023. [66] Matthew Tancik, Pratul P. Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Nithin Raghavan, Utkarsh Singhal, Ravi Ramamoorthi, Jonathan T. Barron, and Ren Ng. Fourier features let networks learn high frequency functions in low dimensional domains, June 2020. [67] Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. GradNorm: Gradient Normalization for Adaptive Loss Balancing in Deep Multitask Networks. In Proceedings of the 35th International Conference on Machine Learning , pages 794–803. PMLR, July 2018. [68] Qiang Liu, Mengyu Chu, and Nils Thuerey. Config: Towards conflict-free training of physics informed neural networks. In International Conference on Learning Representations , volume 2025, pages 59531–59566, 2025. 25 [69] Nikhil Vyas, Depen Morwani, Rosie Zhao, Mujin Kwun, Itai Shapira, David Brandfonbrener, Lucas Janson, and Sham Kakade. Soap: Improving and stabilizing shampoo using adam. arXiv preprint arXiv:2409.11321 , 2024. [70] Marc Brockschmidt. Gnn-film: Graph neural networks with feature-wise linear modulation. In International conference on machine learning , pages 1144–1152. PMLR, 2020. [71] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W Mahoney. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems ,34:26548–26560, 2021. [72] Jian Wang, Chaeyoung Lee, Hyun Geun Lee, Qimeng Zhang, Junxiang Yang, Sungha Yoon, Jintae Park, and Junseok Kim. Phase-field modeling and numerical simulation for ice melting. Numerical Mathematics: Theory, Methods and Applications , 14(2):540–558, 2021. [73] Kartikey Singh. A reference finite-difference solver for the 2d lid-driven cavity flow, 2026. GitHub repository, archived on Zenodo. [74] Donald W Peaceman and Henry H Rachford, Jr. The numerical solution of parabolic and elliptic differential equations. Journal of the Society for industrial and Applied Mathematics , 3(1):28–41, 1955. [75] Alexander Thom. The flow past circular cylinders at low speeds. Proceedings of the Royal Society of London. Series A, Containing Papers of a Mathematical and Physical Character , 141(845):651–669, 1933. [76] Aaron Defazio, Xingyu Yang, Harsh Mehta, Konstantin Mishchenko, Ahmed Khaled, and Ashok Cutkosky. The road less scheduled, 2024. [77] Shawn G Rosofsky, Hani Al Majed, and EA Huerta. Applications of physics informed neural operators. Machine Learning: Science and Technology , 4(2):025022, 2023. [78] Sifan Wang, Shawn Koohy, Yiping Lu, and Paris Perdikaris. When pinns go wrong: Pseudo-time stepping against spurious solutions. arXiv preprint arXiv:2604.23528 , 2026. 
+
+## A Nomenclature 
+
+Table A1: Notation used throughout the paper. 
+
+Domain and geometry 
+
+Ω Set Spatial domain 
+
+∂Ω Set Boundary of the spatial domain 
+
+[0 , T ] Interval Temporal domain 
+
+(x, t ) Tuple Spatiotemporal coordinate 
+
+Lx, L y Scalar Spatial periods for the periodic boundary embedding 
+
+PDE formulation 
+
+U Function space Space of input functions (e.g., initial conditions) 
+
+S Function space Solution space of the PDE 
+
+u(·) Function Input function parameterizing a PDE instance 
+
+s(x, t ; u) Function PDE solution field corresponding to input u
+
+N (· ; u) Operator Parameterized PDE differential operator for input u
+
+I(· ; u) Operator Initial-condition operator for input u
+
+B(· ; u) Operator Boundary-condition operator for input u
+
+Neural network architecture 
+
+Gθ : U → S Operator Neural operator approximating the solution operator 
+
+θ Set Trainable parameters of the neural operator 
+
+Notation Type Description 
+
+Continued on next page 26 Table A1: Notation used throughout the paper. (Continued) 
+
+C, H, W Scalar Input field number of channels, height, and width 
+
+PH , P W Scalar Patch height and width 
+
+Np Scalar Total number of patches ( = H/P H × W/P W )
+
+De, Dd Scalar Encoder/decoder embedding dimension 
+
+Le, Ld Scalar Number of encoder/decoder layers 
+
+Nq Scalar Number of query points in the decoder 
+
+Collocation sampling 
+
+M Scalar Number of input functions sampled per training batch 
+
+Nr , Nic , Nbc Scalar Number of collocation points for the PDE residual, initial condition, and boundary condition losses 
+
+{(xi, t i)}Nr 
+
+> i=1
+
+Set PDE residual collocation points 
+
+{xi}Nic  
+
+> i=1
+
+Set Initial condition collocation points 
+
+{(xi, t i)}Nbc  
+
+> i=1
+
+Set Boundary condition collocation points 
+
+Loss formulation 
+
+L Scalar Total training loss 
+
+Lr , Lic , Lbc Scalar PDE residual, IC, and BC loss components 
+
+wr , w ic , w bc Scalar Scalar weights for each loss component 
+
+JL Set Index set of all loss terms 
+
+g(s) 
+
+> ℓ
+
+Vector Gradient of loss ℓ w.r.t. θ at training step s
+
+A(s) Scalar Gradient alignment score at training step s
+
+ˆw(s) 
+
+> ℓ
+
+, w(s) 
+
+> ℓ
+
+Scalar Raw and EMA-smoothed GradNorm weight for loss ℓαw Scalar EMA smoothing factor for loss weights 
+
+Nt Scalar Number of temporal segments for causal weighting 
+
+w(i)causal Scalar Causal weight for the i-th time segment 
+
+ϵ Scalar Causal strength hyperparameter 
+
+Training and Optimization 
+
+η Scalar Learning rate 
+
+G(s) Matrix Raw gradient matrix at training step sQL, Q R Matrix Left/right eigenvector matrices of the gradient second-moment 
+
+∆fW Matrix Parameter update in the preconditioned eigenbasis (SOAP) 
+
+Notation Type Description 
+
+## B Evaluation metric 
+
+We employ the relative L2 error as the primary evaluation metric throughout all benchmarks. The error is computed on a discrete set of evaluation points and averaged over channels and test samples. For the time-dependent problems, the reference test trajectories are stored at ∆t = 0 .1. PI-CViT and PI-DeepONet are evaluated directly on this spatiotemporal mesh, whereas PI-FNO first predicts on its native grid with ∆t = T / 100 and is then temporally subsampled at the stored reference times before error computation: Rel. L2 = 1
+
+Ntest 
+
+> Ntest
+
+X
+
+> i=1
+
+1
+
+C
+
+> C
+
+X
+
+> c=1
+
+Gθ (ui)(c) − s(c)(· ; ui) Ω×[0 ,T ]
+
+s(c)(· ; ui) Ω×[0 ,T ]
+
+, (B.1) 27 where C is the number of solution channels, Ntest = 100 , and 
+
+s(c) 
+
+> Ω×[0 ,T ]
+
+=
+
+vuut NxX
+
+> k=1
+> Nt
+
+X
+
+> l=1
+
+s(c)(xk, t l) 2. (B.2) Here {xk}Nx 
+
+> k=1
+
+are all mesh points of the reference numerical solver, {tl}Nt 
+
+> l=1
+
+are temporal snapshots at uniform intervals of ∆t = 0 .1, and the evaluation is performed at all Cartesian product points {(xk, t l)}, yielding Nx ×Nt spatiotemporal evaluation points in total. For steady-state lid-driven cavity flow, the temporal dimension is omitted. 
+
+## C Parametric input families 
+
+This section summarizes the parametric input distributions used to define the benchmark PDE families. The considered problems span three representative types of inputs: smooth random fields for the Burgers, wave, and shallow water equations; structured geometric parameters for the ice melting problem; and a single scalar physical parameter for the lid-driven cavity flow. These choices are intended to test physics-informed neural operators across different levels of input complexity, ranging from high-dimensional function-to-function mappings to low-dimensional parameter-to-field mappings. 
+
+C.1 Periodic Gaussian random fields 
+
+We generate initial conditions for the Burgers, wave, and shallow water equations by sampling from a zero-mean 
+
+periodic Gaussian random field (GRF) with a Gaussian power spectrum, implemented via a spectral method. For a spatial grid of resolution Nx × Ny on a periodic domain [0 , L x] × [0 , L y ], the discrete angular wavenumbers are 
+
+kx,n x = 2πn x
+
+Lx
+
+, ky,n y = 2πn y
+
+Ly
+
+, (C.1) where nx ∈ { 0, 1, . . . , ⌊Nx/2⌋ − 1, −⌊ Nx/2⌋, . . . , −1} and analogously for ny . The squared wavenumber magnitude at each mode is |k|2 = k2 
+
+> x
+
++ k2 
+
+> y
+
+.A Gaussian power spectrum is defined in wavenumber space as 
+
+S(|k|2) = exp 
+
+
+
+− ℓ2 |k|2
+
+2
+
+
+
+, (C.2) where ℓ is the length-scale parameter controlling spatial smoothness: larger ℓ yields smoother, more correlated fields, while smaller ℓ produces rougher fields. Complex Fourier coefficients are then drawn as 
+
+ˆξ(k) =  ξr (k) + i ξi(k)p S(|k|2), (C.3) where ξr (k), ξ i(k) i.i.d. 
+
+∼ N (0 , 1) are independent standard Gaussian random variables. The physical-space field is recovered via the inverse discrete Fourier transform, 
+
+ξ(x) = Re 
+
+h
+
+F−1n ˆξ
+
+o
+
+(x)
+
+i
+
+, (C.4) and is standardized to zero mean and unit variance before being scaled by a prescribed amplitude A:
+
+ξ ← A · ξ − μξ
+
+σξ
+
+, (C.5) where μξ and σξ denote the sample mean and standard deviation. For all three benchmarks parameterized by GRF initial conditions, the length scale is fixed at ℓ = 0 .1. The amplitude A
+
+is set to 0.2, 0.5, and 0.2 for the Burgers’, wave, and shallow water equations, respectively, to keep the solution fields within a physically reasonable range without requiring additional normalization or rescaling. 
+
+C.2 Rotated elliptical inclusions 
+
+The parametric family for the ice melting problem consists of rotated elliptical inclusions. Each instance is described by semi-axes a, b > 0 and a rotation angle θ ∈ [0 , π ). For a point x = ( x, y ), the coordinates aligned with the ellipse axes are obtained by rotating by −θ: x′
+
+y′
+
+
+
+=
+
+ cos θ sin θ
+
+− sin θ cos θ
+
+  xy
+
+
+
+. (C.6) 28 An approximate signed distance from x to the ellipse boundary is then defined as 
+
+d(x) ≈ 2ab a + b
+
+1 −
+
+s x′
+
+a
+
+2
+
++
+
+ y′
+
+b
+
+2
+
+ , (C.7) so that d > 0 inside the ellipse and d < 0 outside. The prefactor 2ab/ (a + b) is the harmonic mean of the semi-axes; for a circle ( a = b = r) the formula reduces to the exact signed distance r − ∥ x∥, and for a general ellipse it provides a first-order accurate approximation in the vicinity of the boundary. All ellipses are centered at the origin, and the parameters are uniformly sampled as 
+
+a, b ∼ U (20 , 40) , (C.8) 
+
+θ ∼ U (0 , π ). (C.9) The diffuse-interface initial condition is then set as 
+
+ϕ(x, 0) = tanh 
+
+ d(x)
+
+√2 ϵ
+
+
+
+, (C.10) which transitions smoothly from ϕ ≈ +1 (inside the ellipse) to ϕ ≈ − 1 (outside) over an interface of width O(ϵ).
+
+C.3 Log-uniform Reynolds number sampling 
+
+The lid-driven cavity problem is parameterized by a single scalar, the Reynolds number Re . Since the solution behavior varies more smoothly on a logarithmic scale than a linear one, we draw samples log-uniformly over the interval 
+
+[Re min , Re max ] = [50 , 1000] using Latin hypercube sampling (LHS): 
+
+log Re LHS 
+
+∼ U(log Re min , log Re max ) . (C.11) Before being passed to the model, each sampled value is normalized to [0 , 1] via min-max scaling in the log space: 
+
+fRe = log Re − log Re min 
+
+log Re max − log Re min 
+
+, (C.12) so that fRe = 0 corresponds to Re = 50 and fRe = 1 corresponds to Re = 1000 . This normalized scalar serves as the input encoding for the operator. 
+
+## D Numerical solvers for reference solutions 
+
+Reference solutions for all benchmark PDEs are computed using dedicated numerical solvers: a pseudo-spectral method for the Burgers’, wave, and shallow water equations; a finite-element method for the ice melting problem; and a finite-difference method for the lid-driven cavity flow. We generate 100 test solutions for each benchmark with randomly sampled input functions as described in Appendix C. 
+
+Burgers’ equation. Reference solutions are generated using a pseudo-spectral method with a classical fourth-order Runge–Kutta (RK4) time integrator. The velocity field v = ( v1, v 2) is represented on a uniform Nx × Ny grid over the doubly periodic domain [0 , L x) × [0 , L y ). Spatial derivatives are evaluated spectrally: for any field w with 2D discrete Fourier transform ˆw, d∂xw(k) = ik x ˆw(k), d∂y w(k) = ik y ˆw(k), (D.1) where kx = 2 πn x/L x and ky = 2 πn y /L y . The right-hand side combines nonlinear advection and viscous diffusion: 
+
+[R[v]( k) = − \(v · ∇ )v(k) − ν|k|2 ˆv(k). (D.2) The nonlinear term is evaluated by pointwise multiplication in physical space and then transformed to Fourier space. To suppress aliasing errors from the quadratic interactions, the 2/3 truncation rule is applied: all modes with |kx| > 23 kx, max 
+
+or |ky | > 23 ky, max are zeroed. The solution is advanced by 
+
+vn+1 = vn + ∆t
+
+6
+
+ κ1 + 2 κ2 + 2 κ3 + κ4
+
+, (D.3) where κ1 = R(vn), κ2 = R(vn+ ∆t 
+
+> 2
+
+κ1), κ3 = R(vn+ ∆t 
+
+> 2
+
+κ2), κ4 = R(vn+∆ t κ 3). Simulations use Nx = Ny = 64 ,
+
+Lx = Ly = 1 .0, ν = 0 .01 , ∆t = 1 × 10 −3, and t ∈ [0 , 1] .29 Wave equation. The spatial discretization and RK4 time integration follow the same pseudo-spectral framework as in Appendix D. The second-order wave equation is recast as a first-order system by introducing ψ = ∂tv, giving state vector q = ( v, ψ ) and right-hand side 
+
+R[v, ψ ] =  ψ, c(x)2∇2v, (D.4) where the Laplacian is evaluated spectrally via d∇2v(k) = −| k|2 ˆv(k), and the spatially varying factor c(x)2 is applied as a pointwise multiplication in physical space. Since the equation is linear in v, no dealiasing is required. Simulations use Nx = Ny = 64 , Lx = Ly = 1 , ∆t = 5 × 10 −4, and t ∈ [0 , 1] .
+
+Shallow water equation. The spatial discretization and RK4 time integration follow the same pseudo-spectral framework as in Appendix D. The state vector is q = ( h, v 1, v 2). Since the linearized shallow water equations are entirely linear, all spatial derivatives are computed spectrally without dealiasing, and the right-hand side reads directly in Fourier space: 
+
+dR[h]( k) = −H ik x ˆv1 + ik y ˆv2
+
+, (D.5) 
+
+\R[v1]( k) = f ˆv2 − g ik xˆh, (D.6) 
+
+\R[v2]( k) = −f ˆv1 − g ik y ˆh, (D.7) where H is the mean fluid depth, g the gravitational acceleration, and f the Coriolis parameter. Simulations use 
+
+Nx = Ny = 64 , Lx = Ly = 1 , H = g = 1 , f = 10 , ∆t = 1 × 10 −3, and t ∈ [0 , 1] .
+
+Ice melting. The Allen–Cahn equation is discretized using the finite element method (FEM) with a fully implicit (backward Euler) time-stepping scheme, implemented in FEniCS . The spatial domain Ω = [ −50 , 50] 2 is partitioned into a uniform N × N rectangular mesh using continuous piecewise-linear (P1/CG1) elements, giving the finite element space Vh ⊂ H1(Ω) .Multiplying the governing equation by a test function v ∈ Vh and integrating over Ω yields the weak form. The Laplacian term is integrated by parts; the boundary term vanishes due to the homogeneous Neumann condition 
+
+∇ϕ · n|∂Ω = 0 . The semi-discrete weak form reads: find ϕ ∈ Vh such that for all v ∈ Vh,
+
+Z
+
+> Ω
+
+∂ϕ ∂t v dx + M
+
+Z
+
+> Ω
+
+∇ϕ · ∇ v dx + Mϵ2
+
+Z
+
+> Ω
+
+F ′(ϕ) v dx + λϵ
+
+Z
+
+> Ω
+
+p2F (ϕ) v dx = 0 , (D.8) where F (ϕ) = 14 (ϕ2 − 1) 2 and F ′(ϕ) = ϕ3 − ϕ. Applying a backward Euler approximation to the time derivative gives the fully discrete problem at each time step: find ϕn+1 ∈ Vh such that for all v ∈ Vh,
+
+Z
+
+> Ω
+
+ϕn+1 − ϕn
+
+∆t v dx + M
+
+Z
+
+> Ω
+
+∇ϕn+1 · ∇ v dx + Mϵ2
+
+Z
+
+> Ω
+
+F ′(ϕn+1 ) v dx + λϵ
+
+Z
+
+> Ω
+
+p2F (ϕn+1 ) v dx = 0 . (D.9) The nonlinear system (D.9) at each time step is solved by Newton’s method with the MUMPS direct solver. Simulations use N = 63 (yielding a 64 × 64 uniform grid), M = 0 .1, λ = 5 , interface thickness ϵ = 3 h/ (√2 arctanh(0 .9)) with mesh size h = 100 /N , time step ∆t = 1 × 10 −3, and t ∈ [0 , 3] .
+
+Lid-driven cavity flow. The steady lid-driven cavity flow is computed via the vorticity–streamfunction formu-lation [ 73 ]. Introducing the streamfunction ψ such that v1 = ∂ψ/∂y and v2 = −∂ψ/∂x , and the vorticity 
+
+ω = ∂v 2/∂x − ∂v 1/∂y = −∇ 2ψ, the incompressible Navier–Stokes equations reduce to two coupled scalar problems: 
+
+∇2ψ = −ω, (D.10) 
+
+∂ω ∂t + v1
+
+∂ω ∂x + v2
+
+∂ω ∂y = ν∇2ω. (D.11) The domain [0 , 1] 2 is discretized on a uniform N × N grid with spacing h = 1 /(N − 1) . Velocities are recovered from 
+
+ψ by second-order central differences. Convective terms in (D.11) are discretized by first-order upwind differences and diffusive terms by second-order central differences. The steady solution is sought by iterating the following two-stage procedure until the vorticity change satisfies max |∆ω| < 10 −6. At each iteration, the vorticity field is first advanced by one time step ∆t = 0 .1h/U using the Peaceman–Rachford alternating direction implicit (ADI) scheme [ 74 ], with tridiagonal sub-systems solved via the Thomas algorithm. The updated vorticity is then used as the source in the Poisson equation (D.10) , which is solved with red-black successive over-relaxation (SOR) (relaxation factor ωSOR = 1 .8) until 
+
+max |∆ψ| < 10 −4.30 The streamfunction satisfies ψ = 0 on all four walls. Vorticity values at solid boundaries are updated each outer iteration using Thom’s formula [75]: 
+
+ωN,j = − 2ψN −1,j 
+
+h2 − 2Uh (top moving lid) , (D.12) 
+
+ω1,j = − 2ψ2,j 
+
+h2 , ωi, 1 = − 2ψi, 2
+
+h2 , ωi,N = − 2ψi,N −1
+
+h2 (stationary walls) , (D.13) where U is the lid velocity. Corner nodes are assigned the average of their two adjacent wall values. To capture the sharp flow features at high Reynolds numbers, simulations use N = 256 , U = 1 , and ν = 1 /Re with parametric Reynolds numbers sampled as described in Appendix C.3. 
+
+## E Hyperparameters 
+
+E.1 Training hyperparameters 
+
+The training hyperparameters used for all experiments and shared across all three architectures are summarized in Table A2. All benchmarks use an exponential decay learning rate schedule; the lid-driven cavity is the exception, using a schedule-free training scheme [ 76 ] instead. SOAP is the default optimizer for all benchmarks, with Adam substituted for the ice melting problem for better stability. Causal weighting is applied to all time-dependent benchmarks and omitted for the steady-state lid-driven cavity flow. We resample the input functions and collocation points at every training step; during the warm-up phase, the resampling frequency is reduced to every 50 –100 steps to stabilize convergence of the initial condition loss. The coordinate sampling parameters apply only to PI-CViT and PI-DeepONet, as PI-FNO operates on a fixed discretization grid and does not use collocation points. For the initial condition, we sample a dense grid of 64 2 points matching the input field resolution to fully capture the initial state. For problems with additional initial conditions (e.g., the velocity components in the wave and shallow water equations), we use a smaller number of collocation points for those terms. Periodic boundary conditions are enforced via the periodic embedding in (3.21) and do not require explicit sampling or loss terms; for the ice melting problem, the entire boundary remains in the liquid phase with spatially uniform field values, so the homogeneous Neumann boundary conditions are trivially satisfied and require no explicit enforcement; for the lid-driven cavity flow, we sample 256 points on each of the four walls to enforce the velocity and no-slip boundary conditions. 
+
+E.2 Architectural hyperparameters PI-CViT. Table A3 summarizes the architectural hyperparameters for PI-CViT across all benchmarks. For problems parameterized by spatial fields, the encoder architecture is largely consistent, while for lid-driven cavity flow, which is parameterized by a scalar Reynolds number, the encoder is simplified to a small MLP without attention layers. 
+
+PI-DeepONet PI-DeepONet consists of a branch network and a trunk network, both implemented as fully connected networks with GELU or Tanh activations; architectural details are given in Table A4. The branch network encodes the flattened initial condition field at the full 64 2 grid resolution into a feature vector of a specified dimension (i.e., basis dimension). The trunk network maps spatiotemporal query coordinates, augmented by Fourier features embeddings, to a feature vector of the same dimension. The final prediction is obtained as a point-wise inner product of these two vectors. For the lid-driven cavity, the branch network degenerates to a linear layer with an input dimension of 1 to take in the scalar Reynolds number. Network depth and width are tuned across benchmarks to yield a parameter count in the range of 3–10 million, for a fair comparison with PI-CViT. 
+
+PI-FNO. PI-FNO processes the input through a point-wise lifting convolution, a stack of Fourier spectral convolution layers each supplemented by a residual point-wise convolution in physical space, and a final projection layer; architec-tural hyperparameters are given in Table A5. For time-dependent benchmarks, convolutions span the full spatiotemporal domain, with grid coordinates concatenated as additional input channels; the entire solution trajectory is predicted in a single forward pass on a fixed spatiotemporal grid with 100 uniform time steps, i.e., ∆t = T / 100 . At test time, the reported errors are computed on the stored reference snapshots with ∆t = 0 .1, obtained by temporally subsampling the PI-FNO prediction. For the lid-driven cavity, the spectral convolutions are restricted to the spatial domain and the Reynolds number is broadcast as a constant input channel across the spatial grid. Padding is applied along non-periodic axes to suppress spectral wrap-around artifacts: e.g., for lid-driven cavity flow, the spatial domain is padded by 32 grid points on each side; while for time-dependent benchmarks, the temporal domain is padded by 10 time steps at the end [ 77 ]. Because PI-FNO operates on a fixed volumetric discretization, its parameter count is substantially larger than those of the other two architectures even at a modest number of retained Fourier modes. 31 Table A2: Training hyperparameters for all benchmarks. SW = shallow water, IM = ice melting, LDC = lid-driven cavity. 
+
+Parameter Burgers Wave SW IM LDC Learning rate schedule 
+
+Initial learning rate 5 × 10 −4 5 × 10 −4 5 × 10 −4 5 × 10 −4 5 × 10 −4
+
+Decay rate 0.95 0.95 0.95 0.95 N/A Decay steps 200 500 500 200 N/A Minimum learning rate 1 × 10 −5 1 × 10 −5 1 × 10 −6 1 × 10 −5 1 × 10 −5
+
+Optimizer settings 
+
+Optimizer name SOAP SOAP SOAP Adam SOAP Precondition frequency (SOAP) 5 5 5 N/A 5
+
+EMA factor b1 0.95 0.95 0.90 0.9 0.95 
+
+EMA factor b2 0.95 0.95 0.90 0.999 0.95 
+
+Weight Decay 1 × 10 −6 1 × 10 −6 0 1 × 10 −3 1 × 10 −6
+
+Training and sampling 
+
+Total training steps 20 ,000 40 ,000 25 ,000 15 ,000 15 ,000 
+
+Warm-up steps 1,500 1,500 1,000 500 0
+
+Num. of input functions 32 32 32 16 32 
+
+Num. of residual samplings 2,048 2,048 2,048 4,096 2,048 
+
+Num. of IC samplings (for u) 64 2 64 2 64 2 64 2 N/A Num. of IC samplings (others) N/A 1,024 2,048 N/A N/A Num. of BC samplings N/A N/A N/A N/A 256 × 4
+
+GradNorm and causal weighting 
+
+GradNorm EMA factor 1.0 1.0 1.0 1.0 1.0
+
+Num. of causal time segments 24 24 24 24 N/A Initial causal strength 1 × 10 −2 1 × 10 −2 1 × 10 −5 1 × 10 −2 N/A Maximum causal strength 5.0 10 .0 1.0 10 .0 N/A 
+
+## F Computational cost 
+
+All models are trained on a machine equipped with two NVIDIA RTX PRO 6000 GPUs (96 GB memory each) and a 22-core Intel Xeon Platinum 8470Q CPU. All code is implemented in JAX and equinox . The wall-clock training time for each benchmark is summarized in Table A6. PI-DeepONet is the fastest model owing to its purely linear branch and trunk network architecture, which incurs minimal computational overhead per training step. PI-FNO, by contrast, is considerably slower due to its substantially larger parameter count. Despite its moderate training cost, PI-CViT achieves the highest accuracy across benchmarks (Table 1). 
+
+## G Additional visualizations 
+
+This section provides supplementary results for PI-CViT trained with a pure physics loss. For every benchmark, we include solution trajectories for additional test samples beyond the single representative sample shown in the main text. For selected benchmarks, we further provide complementary views such as derived fields computed from the predicted solutions (e.g., vorticity and divergence) and more detailed visualizations such as spatial slices that reveal fine-grained spatiotemporal structure. 
+
+Burgers’ equation. We visualize the predicted and reference vorticity fields in Figure A1. The solution fields with more randomly sampled initial conditions are shown in Figure A2. 32 Table A3: Architectural hyperparameters for PI-CViT on all benchmarks. SW = shallow water, IM = ice melting, LDC = lid-driven cavity. 
+
+Parameter Burgers Wave SW IM LDC Encoder 
+
+Grid size 64 × 64 64 × 64 64 × 64 64 × 64 N/A Patch size 8 × 8 8 × 8 8 × 8 8 × 8 N/A Encoder depth 2 2 2 2 2
+
+Encoder dim. 256 256 256 256 256 
+
+Encoder num. of heads 8 8 8 8 N/A 
+
+Decoder 
+
+Fourier features freq. for x 2.0 2.0 2.0 1.0 2.0
+
+Fourier features freq. for t 2.0 2.0 2.0 1.0 2.0
+
+Decoder depth 2 4 4 2 4
+
+Decoder dim. 256 384 384 256 256 
+
+Decoder num. of heads 8 12 8 8 8
+
+Num. MLP layers 2 2 2 3 2
+
+Activation GELU GELU GELU Tanh GELU Time FiLM False True False True N/A 
+
+Others 
+
+Num. of trainable parameters 3.4 M 10 .6 M 9.0 M 3.9 M 3.5 M 
+
+Table A4: Architectural hyperparameters for PI-DeepONet on all benchmarks. SW = shallow water, IM = ice melting, LDC = lid-driven cavity. 
+
+Parameter Burgers Wave SW IM LDC Branch network 
+
+Branch depth 8 8 6 6 2
+
+Branch dim. 256 512 512 256 512 
+
+Trunk network 
+
+Fourier features freq. for x 2.0 2.0 2.0 1.0 2.0
+
+Fourier features freq. for t 2.0 2.0 2.0 1.0 2.0
+
+Trunk depth 8 8 6 6 8
+
+Trunk dim. 256 512 512 256 512 
+
+Activation GELU GELU GELU Tanh Tanh 
+
+Others 
+
+Basis dim. 256 512 512 256 512 
+
+Num. of trainable parameters 3.5 M 7.4 M 6.0 M 2.1 M 3.4 M 
+
+Wave equation. We slice the predicted and reference solution fields along the vertical ( x1 = 0 .5) and horizontal (x2 = 0 .5) centerlines at different time steps to visualize the spatiotemporal evolution of the solution in Figure A3. The solution fields with more randomly sampled initial conditions are shown in Figure A4. 
+
+Shallow water equations. We visualize the predicted and reference vorticity and divergence fields in Figure A5, which emerge from the zero initial velocity field. The free-surface height h for additional test samples with randomly sampled initial conditions is shown in Figure A6. 33 Table A5: Architectural hyperparameters for PI-FNO on all benchmarks. SW = shallow water, IM = ice melting, LDC = lid-driven cavity. 
+
+Parameter Burgers Wave SW IM LDC FNO 
+
+Num. of Fourier modes for x 8 8 8 8 8
+
+Num. of Fourier modes for y 8 8 8 8 8
+
+Num. of Fourier modes for t 8 8 8 8 N/A Width 32 64 64 32 64 
+
+Depth 8 4 4 4 4
+
+Time steps 100 100 100 100 N/A Padding for (x, y, t ) (0, 0, 10) (0, 0, 10) (0, 0, 10) (0, 0, 10) (32, 32, N/A) Activation GELU GELU GELU GELU GELU 
+
+Others 
+
+Num. of trainable parameters 33 .6 M 67 .1 M 67 .1 M 16 .8 M 4.2 M 
+
+Table A6: Wall-clock training time in hours per 10 ,000 training steps for all benchmarks. SW = shallow water, IM = ice melting, LDC = lid-driven cavity. 
+
+Models Burgers Wave SW IM LDC 
+
+PI-CViT 1.0 2.41 1.6 0.65 0.88 
+
+PI-DeepONet 0.46 0.55 0.27 0.1 0.73 
+
+PI-FNO 3.29 4.23 4.26 1.46 2.20 
+
+Ice melting problem. We provide the solution field with more randomly sampled initial conditions in Figure A7. 
+
+Lid-driven cavity flow. We visualize the velocity v1 along the vertical centerline ( x1 = 0 .5) and velocity v2 along the horizontal centerline ( x2 = 0 .5) with varying Reynolds numbers in Figure A8. The vorticity field is visualized in Figure A9. 
+
+## H Negative results 
+
+On the ice melting benchmark, SOAP produces a paradoxical outcome: despite driving both the PDE residual loss and the initial condition loss roughly two orders of magnitude below Adam, it yields a higher relative L2 error ( 3.0 % 
+
+vs. 1.9 % ). As shown in Figure A10, SOAP achieves better pointwise accuracy at early time steps ( t ≤ 1.5 s ), but the predicted interface progressively diffuses at later times, losing the well-defined structure that characterizes the physical solution. We attribute this to a structural mismatch between the loss and the evaluation metric. A diffuse interface incurs smaller spatial gradients and thus a smaller PDE residual than a sharp but mislocated interface; the loss therefore inadvertently rewards diffusion as a way to reduce residuals. Because SOAP is a more powerful optimizer, it converges more aggressively toward this diffuse-interface basin, achieving lower loss values at the cost of physical accuracy. Adam, converging more slowly, settles at a sharper interface that better matches the reference. The problem thus lies not with SOAP itself but with the loss formulation: the standard pointwise PDE residual does not penalize interface diffusion, so a blurrier prediction can appear better by the training objective while incurring higher L2 error. Potential remedies include more structured loss formulations, such as a variational form [ 58 ] or pseudo-time stepping [ 78 ], which we leave for future work. 34 Ref. Vorticity 
+
+t = 0.0 s       
+
+> Pred. Vorticity
+> -6.47 -2.14 2.20 6.53
+> Abs. Error
+> 0.000 0.035 0.069 0.104
+
+t = 0.2 s       
+
+> -4.64 -1.60 1.44 4.48
+> 0.000 0.013 0.026 0.039
+
+t = 0.5 s       
+
+> -2.48 -0.91 0.65 2.22
+> 0.000 0.016 0.031 0.047
+
+t = 0.8 s       
+
+> -1.62 -0.64 0.34 1.31
+> 0.000 0.017 0.034 0.051
+
+t = 1.0 s       
+
+> -1.29 -0.53 0.24 1.00
+> 0.000 0.021 0.042 0.063
+
+Figure A1: Burgers’ equation. Vorticity field obtained via automatic differentiation from the velocity solution predicted by PI-CViT trained with a pure physics loss, compared with the reference vorticity computed via Fourier differentiation. 35 t = 0.0 s 
+
+> Ref.
+> Sample 1  Pred.
+
+t = 0.2 s  
+
+> Ref. Pred.
+
+t = 0.5 s  
+
+> Ref. Pred.
+
+t = 0.8 s  
+
+> Ref. Pred.
+
+t = 1.0 s  
+
+> Ref. Pred.
+
+0.98% 
+
+Rel. L2
+
+> Sample 2
+
+0.94% 
+
+> Sample 3
+
+0.83% 
+
+> Sample 4
+
+0.86% 
+
+> Sample 5
+
+0.71% 
+
+> Sample 6
+
+0.75% Figure A2: Burgers’ equation. Velocity component v1 predicted by PI-CViT trained with a pure physics loss for additional test samples with randomly sampled initial conditions. y
+
+> −0.25
+> 0.00
+> 0.25
+> u(x = 0.5)
+
+t = 0.0 s 
+
+> y
+
+t = 0.2 s 
+
+> y
+
+t = 0.5 s 
+
+> y
+
+t = 0.8 s 
+
+> y
+
+t = 1.0 s           
+
+> Pred.
+> Ref.
+> 0.0 0.5 1.0
+> x
+> −0.25
+> 0.00
+> 0.25
+> u(y = 0.5)
+> 0.0 0.5 1.0
+> x
+> 0.0 0.5 1.0
+> x
+> 0.0 0.5 1.0
+> x
+> 0.0 0.5 1.0
+> x
+
+Figure A3: Wave equation. Space slices ( x1 = 0 .5 and x2 = 0 .5) of the scalar displacement v predicted by PI-CViT trained with a pure physics loss and the reference solution at different time steps for a representative sample. 36 t = 0.0 s 
+
+> Ref.
+> Sample 1  Pred.
+
+t = 0.2 s  
+
+> Ref. Pred.
+
+t = 0.5 s  
+
+> Ref. Pred.
+
+t = 0.8 s  
+
+> Ref. Pred.
+
+t = 1.0 s  
+
+> Ref. Pred.
+
+3.27% 
+
+Rel. L2
+
+> Sample 2
+
+2.34% 
+
+> Sample 3
+
+2.64% 
+
+> Sample 4
+
+2.14% 
+
+> Sample 5
+
+1.98% 
+
+> Sample 6
+
+3.15% Figure A4: Wave equation. Scalar displacement v predicted by PI-CViT trained with a pure physics loss for additional test samples with randomly sampled initial conditions. 37 Ref. Vorticity 
+
+t = 0.0 s    
+
+> Pred. Vorticity
+> 0.00 0.00 0.00 0.00
+> Abs. Error
+> 0.000 0.003 0.007 0.010
+
+t = 0.2 s       
+
+> -10.06 -2.37 5.33 13.02
+> 0.000 0.116 0.232 0.349
+
+t = 0.5 s       
+
+> -8.78 -2.94 2.91 8.76
+> 0.000 0.188 0.375 0.563
+
+t = 0.8 s       
+
+> -9.64 -3.35 2.94 9.23
+> 0.000 0.213 0.427 0.640
+
+t = 1.0 s       
+
+> -9.08 -2.30 4.48 11.26
+> 0.000 0.242 0.484 0.726
+
+(a) Ref. Divergence  t = 0.0 s    
+
+> Pred. Divergence
+> 0.00 0.00 0.00 0.00
+> Abs. Error
+> 0.000 0.006 0.011 0.017
+
+t = 0.2 s       
+
+> -10.57 -3.39 3.78 10.96
+> 0.000 0.393 0.786 1.179
+
+t = 0.5 s       
+
+> -14.10 -5.05 3.99 13.04
+> 0.000 0.698 1.396 2.095
+
+t = 0.8 s       
+
+> -11.50 -3.86 3.79 11.43
+> 0.000 0.794 1.588 2.382
+
+t = 1.0 s       
+
+> -8.94 -2.00 4.93 11.86
+> 0.000 0.804 1.608 2.413
+
+(b) 
+
+Figure A5: Shallow water equations. (a) Vorticity and (b) divergence fields obtained via automatic differentiation from the velocity solution predicted by PI-CViT trained with a pure physics loss, compared with the reference fields computed via Fourier differentiation. 38 t = 0.0 s 
+
+> Ref.
+> Sample 1  Pred.
+
+t = 0.2 s  
+
+> Ref. Pred.
+
+t = 0.5 s  
+
+> Ref. Pred.
+
+t = 0.8 s  
+
+> Ref. Pred.
+
+t = 1.0 s  
+
+> Ref. Pred.
+
+4.12% 
+
+Rel. L2
+
+> Sample 2
+
+4.42% 
+
+> Sample 3
+
+4.31% 
+
+> Sample 4
+
+7.00% 
+
+> Sample 5
+
+4.06% 
+
+> Sample 6
+
+4.46% Figure A6: Shallow water equations. Free-surface height h predicted by PI-CViT trained with a pure physics loss for additional test samples with randomly sampled initial conditions. 39 t = 0.0 s 
+
+> Ref.
+> Sample 1  Pred.
+
+t = 1.0 s  
+
+> Ref. Pred.
+
+t = 1.5 s  
+
+> Ref. Pred.
+
+t = 2.0 s  
+
+> Ref. Pred.
+
+t = 3.0 s  
+
+> Ref. Pred.
+
+1.37% 
+
+Rel. L2
+
+> Sample 2
+
+1.26% 
+
+> Sample 3
+
+1.29% 
+
+> Sample 4
+
+1.70% 
+
+> Sample 5
+
+1.50% 
+
+> Sample 6
+
+1.34% Figure A7: Ice melting problem. Phase-field variable ϕ predicted by PI-CViT trained with a pure physics loss for additional test samples with randomly sampled initial conditions. 0.0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+−0.4 
+
+−0.2 
+
+0.0 
+
+0.2 
+
+> vy(y = 0.5)
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+y
+
+−0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> vx(x = 0.5)
+
+Re = 50 
+
+Re = 100 
+
+Re = 200 
+
+Re = 500 
+
+Re = 1000 
+
+Pred. 
+
+Ref. 
+
+Figure A8: Lid-driven cavity flow. Velocity profiles along the vertical ( x1 = 0 .5) and horizontal ( x2 = 0 .5) centerlines predicted by PI-CViT trained with a pure physics loss, compared with the reference solution. 40 Re = 50 
+
+> Ref. vorticity
+
+Re = 100 Re = 200 Re = 500 Re = 1000                    
+
+> Pred. vorticity
+> -5.21 -1.74 1.74 5.21 -5.12 -1.71 1.71 5.12 -4.86 -1.62 1.62 4.86 -4.36 -1.45 1.45 4.36 -4.05 -1.35 1.35 4.05
+
+Figure A9: Lid-driven cavity flow. Vorticity field obtained via automatic differentiation from the velocity solution predicted by PI-CViT trained with a pure physics loss, compared with the reference vorticity. 41 0 5000 10000 15000       
+
+> Step
+> 10 −1
+> 10 0
+> Rel.  L2 Error
+> Soap
+> Adam
+> 05000 10000 15000
+> Step
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+> PDE Loss
+> 05000 10000 15000
+> Step
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> IC Loss
+
+t = 0.0 s    
+
+> Reference
+> -1.00 -0.33 0.33 1.00
+
+t = 1.0 s    
+
+> -1.00 -0.33 0.33 1.00
+
+t = 1.5 s    
+
+> -1.00 -0.33 0.33 1.00
+
+t = 2.0 s    
+
+> -1.00 -0.33 0.33 1.00
+
+t = 3.0 s                              
+
+> -1.00 -0.33 0.33 1.00
+> Rel. L2= 0.41%
+> Adam
+> Rel. L2= 0.95% Rel. L2= 1.14% Rel. L2= 1.35% Rel. L2= 2.01%
+> Rel. L2= 0.07%
+> SOAP
+> Rel. L2= 0.91% Rel. L2= 1.00% Rel. L2= 1.63% Rel. L2= 6.56%
+
+Figure A10: Ice melting. Negative results from optimizer comparisons. Top: Training curves for relative L2 error (left), PDE residual loss (middle), and initial condition loss (right). SOAP reduces both physics losses by roughly two orders of magnitude compared to Adam, yet converges to a higher relative L2 error. Bottom: Predicted phase-field evolution. SOAP yields more accurate predictions at early time steps ( t ≤ 1.5 s ), but the interface progressively diffuses at later times, reaching 6.56 % error at t = 3 .0 s versus 2.01 % for Adam. The discrepancy indicates that the physics loss preferentially rewards a diffuse interface, exposing a limitation of the current loss formulation for interface problems. 42

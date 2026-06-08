@@ -6,27 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-07
-- 运行时间：2026-06-07 20:55:35 UTC
+- 最新运行日期：2026-06-08
+- 运行时间：2026-06-08 21:59:06 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：0
-- 速读区：2
+- 本次总论文数：5
+- 精读区：4
+- 速读区：1
 
 ### 今日简报（AI）
-今日速读2篇论文，精读0篇，主题涵盖强化学习控制与可验证数学推理。最值得关注的是深度强化学习在浮力驱动对流边界控制中的时空感知应用（7.0分），以及AXIOM信任优先的神经符号数学推理架构（6.0分）。建议优先阅读强化学习方向论文，物理控制领域新思路值得深入了解。
-- 详情：[/202606/07/README](/202606/07/README)
+1) 今日精选5篇论文，深度精读《Auto-Relate》和《Data-Free Symbolic Regression》两篇9.0高分研究，另有《Decision-Aware Evaluation》速读参考。  
+2) 最值得关注：统计检验驱动的函数关系自动发现方法，以及无需训练数据的符号回归求解方程新范式。  
+3) 建议优先精读这两篇高分论文，掌握其算法核心后再阅读速读篇，评估物理信息代理模型的实际应用效果。
+- 详情：[/202606/08/README](/202606/08/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Auto-Relate: A Unified Approach to Discovering Reliable Functional Relationships Leveraging Statistical Tests](/202606/08/2606.07060v1-auto-relate-a-unified-approach-to-discovering-reliable-functional-relationships-leveraging-statistical-tests)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：从表格数据中发现可靠的函数关系（算术、字符串变换），直接对应符号回归和方程发现
+2. [A Data-Free Symbolic Regression Approach for Solving Equations](/202606/08/2606.07152v1-a-data-free-symbolic-regression-approach-for-solving-equations)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：无需数据的符号回归求解方程
+3. [Discovering Multiscale Deep Formulas in Complex Systems via Neural-Guided Lambda Calculus](/202606/08/2606.07426v1-discovering-multiscale-deep-formulas-in-complex-systems-via-neural-guided-lambda-calculus)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：lambda演算符号回归模型发现公式
+4. [Theory of learning of high-dimensional controlled non-linear dynamical systems (I): models and methods](/202606/08/2606.07247v1-theory-of-learning-of-high-dimensional-controlled-non-linear-dynamical-systems-i-models-and-methods)  
+   标签：评分：8.0/10、query:sr-piml
+   evidence：神经ODE用于动力系统的物理信息建模
 
 ### 速读区论文标签
-1. [Deep reinforcement learning with spatial and temporal awareness for active boundary control of buoyancy-driven convection](/202606/07/2606.06191v1-deep-reinforcement-learning-with-spatial-and-temporal-awareness-for-active-boundary-control-of-buoyancy-driven-convection)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：深度强化学习控制热对流
-2. [AXIOM: A Trust-First Neuro-Symbolic Execution Architecture for Verifiable Mathematical Reasoning](/202606/07/2606.00671v1-axiom-a-trust-first-neuro-symbolic-execution-architecture-for-verifiable-mathematical-reasoning)  
-   标签：评分：6.0/10、query:sr-piml
-   evidence：用于可验证数学推理的神经符号架构，利用计算机代数系统
+1. [Decision-Aware Evaluation of Physics-Informed Surrogates](/202606/08/2606.07146v1-decision-aware-evaluation-of-physics-informed-surrogates)  
+   标签：评分：7.0/10、query:sr-piml
+   evidence：物理信息机器学习用于代理评估
 
 
 <div class="dpr-home-promo-card">

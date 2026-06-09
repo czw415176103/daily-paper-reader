@@ -1,0 +1,2547 @@
+Title: Operator learning for solving Fokker-Planck equations with various initial conditions
+
+URL Source: https://arxiv.org/pdf/2606.09434v1
+
+Published Time: Tue, 09 Jun 2026 02:13:28 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+OPERATOR LEARNING FOR SOLVING FOKKER-PLANCK EQUATIONS WITH VARIOUS INITIAL CONDITIONS ∗
+
+LI ZENG † , XIAOLIANG WAN ‡ , YAOBIN WANG § , FABIO NOBILE ¶, AND TAO ZHOU ∥
+
+Abstract. The Fokker-Planck equation (FPE) plays a pivotal role in describing the time evo-lution of probability density functions (PDFs) for systems governed by stochastic dynamics. In this work, we propose a conditional normalizing flow-based physics-informed neural network (PINN) framework for efficiently approximating the solution operator of the FPE for a whole range of initial conditions. Leveraging the Chapman–Kolmogorov equation for Markovian stochastic processes, the problem is reformulated into approximating a transition PDF starting at initial time from a Dirac mass centered at an arbitrary point. The PDF of an associated linearized stochastic differential equation (SDE) is employed as the base distribution for the normalizing flow, providing a good ap-proximation of the target PDF, especially for small times, and thereby avoiding the singularity of the map associated with the Dirac delta initial distribution. Furthermore, a time-weighted loss function is introduced to mitigate numerical instabilities arising at small times, achieving a balance between causality and training difficulty as time progresses. A variety of numerical experiments are presented to illustrate the effectiveness and robustness of the proposed method. 
+
+Key words. Conditional Normalizing flow, Fokker-Planck equation, Operator learning 
+
+MSC codes. 68T07, 62G07, 65M99 
+
+1. Introduction. The FPE describes the time evolution of the PDF associated to a stochastic dynamical system of diffusion type, serving as a deterministic repre-sentation of the stochastic process. However, a variety of FPEs do not admit closed form solutions. Numerically solving the FPE is of high interest in many fields, such as statistical physics, chemistry, biology, finance, and data science, as it enables un-certainty quantification and statistical inference. Classical numerical discretization schemes for this problem include the finite element method [9], the finite difference method [22], the path integral method [43], and the Jordan-Kinderlehrer-Otto (JKO) scheme [21], among others. Nevertheless, these traditional approaches are compu-tationally challenging since the FPE is often defined over an unbounded physical domain and must satisfy PDF constraints, namely, positivity and integration to one. Grid-based methods (e.g., finite elements/difference) require domain truncation and artificial boundary conditions, and need special care to provide valid PDFs, and scale poorly with the dimension. On the other hand, sampling-based methods (e.g., path integrals and particle-based implementation of JKO) typically require a large number of sampled trajectories, leading to high computational costs. To overcome these challenges, deep learning methods, such as the deep Galerkin method [36], the deep Ritz method [11], and the physics-informed neural networks 
+
+> ∗
+
+Submitted to the editor’s DATE. 
+
+Funding: The first author was supported by the NSF of China (under grant 12401566). The second author was supported by NSF grant DMS-2513234. The last author was supported by the NSF of China (under grants 12288201 and 12461160275). 
+
+> †
+
+School of Mathematics and Statistics, Fuzhou University, Fuzhou, China(zengli@lsec.cc.ac.cn). 
+
+> ‡
+
+Department of Mathematics and Center for Computation and Technology, Louisiana State Uni-versity, Baton Rouge 70803, USA (xlwan@lsu.edu). 
+
+> §
+
+Faculty of Science and Technology, Beijing Normal-Hong Kong Baptist University, Zhuhai 519087, China. (wangyaobin@bnbu.edu.cn). 
+
+> ¶
+
+CSQI, ´Ecole Polytechnique F´ ed´ erale de Lausanne, Lausanne, Switzerland (Fabio.Nobile@epfl.ch). 
+
+> ∥
+
+Institute of Computational Mathematics and Scientific/Engineering Computing, Acad-emy of Mathematics and Systems Science, Chinese Academy of Sciences, Beijing, China (tzhou@lsec.cc.ac.cn). 1
+
+> arXiv:2606.09434v1 [cs.LG] 8 Jun 2026
+
+2 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+(PINNs) [34], bring a new paradigm. In general, deep learning–based methods for solving the FPE can be categorized into two main classes: those that directly repre-sent the solution with neural networks, and those that employ generative modeling techniques. For the first category, the solution of the FPE is parametrized by neural networks with PDF constraints enforced through penalization terms [45, 49, 7, 41, 32]. Alternatively, Bruna et al. [6, 44] approximate the solution of the interacting-particle FPE using a Gaussian mixture model, and numerically solve the ordinary differen-tial equation (ODE) system for the mixture coefficients using the Neural Galerkin method, subsequently normalizing the solution at each time step to enforce the PDF constraints. On the other hand, there is a growing research leveraging generative models to solve FPEs. Normalizing flows have been effectively used to solve the FPE by learning an invertible mapping between a simple base distribution and the target solution of the FPE, which enables direct sampling as well as evaluation of the explicit PDF [38, 13, 47, 48, 29, 12]. Score-based approaches [3, 19, 50] were also developed to solve the FPE, relying on the approximation of the score function, i.e., gradient of the logarithm of the PDF. In parallel, several techniques have been developed for the FPE that exploit the re-interpretation as the L2-Wasserstein gradient flow of the Kullback-Leibler divergence [26, 23]. While a variety of numerical methods have shown promising performance in solv-ing FPEs, there remains a lack of methods capable of efficiently handling multiple initial conditions. This is relevant in many applications, such as ensemble forecasting [24] and data assimilation [30], in which the governing stochastic dynamic is fixed, whereas the initial distribution varies across scenarios or posterior updates. The afore-mentioned methods have to solve the FPE anew every time a new initial condition arrives. This challenge can be viewed from the perspective of operator learning, where the objective is to learn a mapping from an initial distribution to the corresponding time-dependent solution of the FPE. Yang et al. [46] proposed a pseudoreversible normalizing flow and leveraged samples generated from an SDE to learn the terminal solution of the corresponding transition FPE. In the general data-driven setting, gen-erative models are also widely used to learn the conditional PDF, such as conditional Glow [28], monotone generative adversarial networks [2], the gradient of a partially input-convex neural network, and Neural ODE [42], to name a few. For general para-metric PDEs, some techniques have been proposed to learn the solution operator, such as the deep operator network (DeepONet) [27], the Fourier neural operator (FNO) [25], and their variants. Gaby et al. [15] learned the solution operator of the evolution PDEs for various initial conditions by learning a control vector field in the parameter space and solving the ODE system of the neural network parameters. There are also works that learn the Green’s function to construct the solution operator, leveraging the explicit representation of the solution in terms of the Green’s function [1, 5, 39]. However, direct application of these methods to FPEs requires additional treatments of boundary conditions and PDF constraints. In this work, we aim to learn the un-derlying solution operator of the FPE with varying initial conditions. This is achieved as follows. First, we reformulate operator learning for the FPE as the problem of approxi-mating the transition PDF, i.e., the solution of the FPE starting at initial time from a Dirac mass at an arbitrary location x0. This is motivated by the fact that the FPE solution can be expressed as the integral of the product of the transition PDF and the initial distribution, following the Chapman-Kolmogorov equation for Markovian stochastic processes. We develop a conditional normalizing flow parametric in time and location x0 of the Dirac mass, to learn the transition PDF. Benefiting from the OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 3inherent property that a normalizing flow is a model for PDFs, the proposed approach naturally satisfies the PDF constraints without requiring additional enforcement. We mention that the work [31] developed in parallel to ours, also proposes a conditional normalizing flow to approximate the transition PDF, however, in a Neural Galerkin framework. Second, we propose a problem-dependent base distribution to improve the con-ditioning of the conditional normalizing flow. In contrast to the commonly used standard normal distribution, our base distribution, which corresponds to a diffusion process, is given by the explicit solution of a linearized SDE parametric with respect to the initial state x0. The linearized SDE is obtained by applying a first-order Tay-lor expansion to the drift term and a zero-order expansion to the diffusion term of the target SDE. In this way, the conditional normalizing flow defines a transforma-tion mapping the parametric distribution of the target stochastic process to that of a known diffusion process. Using the solution of the linearized SDE as the base random process not only respects the causality for evolution PDEs [8] while bypassing the sin-gular initial condition, but also alleviates training difficulties. We show, in particular, that the total variation distance between the transition PDF of the linearized process and that of the true process is of order O(t) while the Kullback–Leibler divergence scales as O(t2) as t → 0. The corresponding mapping tends to the identity as t → 0, making it easier to learn compared to a more traditional approach that uses a fixed standard normal as a base distribution at all times. Third, we propose a time-weighted loss function to mitigate numerical instabil-ities arising at small times when the transition PDF approaches a Dirac measure. The weight function takes the form td+2 or t d  
+
+> 2+2
+
+depending on the distribution of the training points. It is designed to capture the temporal scaling of the residual when a small perturbation around the base PDF is considered. Introducing this weighting strategy can be interpreted as a trade-off between maintaining causality and alleviat-ing optimization difficulties, as it assigns larger weights to the training points drawn from distributions at later time instances. Fourth, once the transition PDF has been approximated by the conditional nor-malizing flow, we approximate the solution p(x, t ) of the FPE for a given initial distribution p0(x) using an importance-sampling Monte Carlo estimator for the in-tegral of the transition PDF and the initial distribution, the importance sampling measure being a mixture of the initial distribution and an ( x, t )-dependent Gaussian distribution associated to a time reversed linearized SDE. The remainder of this paper is organized as follows. Section 2 formalizes the operator learning problem for the FPE under different initial conditions. In section 3, we introduce the conditional normalizing flow with base distribution provided by the linearized SDE. In section 4, we analyze the behavior of the loss function as t → 0, and we propose a time-weighted loss and an adaptive sampling algorithm. Importance sampling is discussed in section 5 to efficiently evaluate p(x, t ). Section 6 presents a series of numerical experiments that illustrate the effectiveness and robustness of the proposed method, followed by concluding remarks in section 7. Additional details of certain proofs and calculations are provided in the Appendix. 
+
+2. Problem setup and reformulation. Consider the state variable Xt mod-eled by the following non-degenerate SDE, (2.1) dXt = f (Xt) d t + g(Xt) d Wt, t > 0,4 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+where f (Xt) : Rd → Rd and g(Xt) : Rd → Rd×m, m ≥ d denote the drift and diffusion terms, respectively, and Wt is an m-dimensional standard Wiener process. The PDF p(x, t ) for Xt satisfies the corresponding time-dependent FPE: (2.2) ∂p ∂t = L∗  
+
+> f,g
+
+p := −∇ · (pf ) + 12 ∇ · ∇ · (gg Tp).
+
+In general, equation (2.2) is defined on Rd with the following boundary condition (2.3) p(x) → 0 as |x|2 → ∞ .
+
+Meanwhile, the solution as a probability density function should be conservative and non-negative, i.e., (2.4) 
+
+Z
+
+> Rd
+
+p(x, t )d x ≡ 1, and p(x, t ) ≥ 0, ∀t ≥ 0.
+
+In this work, we address scenarios with varying initial conditions and develop a condi-tional normalizing flow-based framework that generalizes across them, thereby elimi-nating the need to solve the corresponding FPE repeatedly for different initial condi-tions, i.e., we consider the problem (2.5) 
+
+
+
+∂p (x, t )
+
+∂t = L∗  
+
+> f,g
+
+p(x, t ), x ∈ Rd, t > 0,p(x, 0) = p0(x), p0 ∈ G , x ∈ Rd
+
+where G is a functional class including all possible initial distributions of interest. To achieve this, we turn to the transition PDF p(x, t |x0) given an initial state. The corresponding transition PDF satisfies the same governing equation as the original FPE (2.5), but with a Dirac Delta function as the initial condition, (2.6) 
+
+
+
+∂p (x, t |x0)
+
+∂t = L∗  
+
+> f,g
+
+p(x, t |x0), x ∈ Rd, t > 0,p(x, 0|x0) = δ(x − x0), x ∈ Rd.
+
+Applying the Chapman-Kolmogorov equation, the solution of the FPE (2.5) can be expressed as (2.7) p(x, t ) = 
+
+Z
+
+> Ω0
+
+p(x, t |x0)p0(x0)d x0.
+
+It motivates us to solve the FPE for different initial conditions by approximating the transition PDF p(x|x0, t ). Normalizing flows have been demonstrated to be powerful tools for solving the FPE under a specific initial condition [38, 13, 47]. In this work, we extend the normalizing flow framework to handle the transition FPE with Dirac delta functions centered at various points as initial conditions. 
+
+2.1. Notation. For convenience, we introduce here some notations that will be used throughout the paper. For a vector x ∈ Rd, |x| denotes its Euclidean norm. For a matrix A ∈ Rd×d, ∥A∥ denotes its spectral norm induced by the Euclidean norm. Likewise, for a bilinear map B : Rd × Rd → Rd, ∥B∥ denotes its operator norm 
+
+∥B∥ := sup x,y ∈Rd, x ̸=0 , y ̸ =0  
+
+> |B(x,y )||x| | y|
+
+.OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 5Given two probability measures ν and μ on Rd, ν ≪ μ, H(ν | μ) denotes the relative entropy of ν with respect to μ, and ∥ν − μ∥TV denotes the total variation distance between ν and μ.
+
+H(ν | μ) := 
+
+Z
+
+> Rd
+
+log 
+
+ dν
+
+dμ
+
+
+
+dν, ∥ν − μ∥TV := sup 
+
+> A∈B (Rd)
+
+|ν(A) − μ(A)|.
+
+Furthermore, if μ ≪ ρ, and d ν = pν dρ, d μ = pμdρ, then 
+
+H(ν | μ) = 
+
+Z
+
+> Rd
+
+pν (x) log 
+
+ pν (x)
+
+pμ(x)
+
+
+
+dρ(x), ∥ν − μ∥TV = 12
+
+Z
+
+> Rd
+
+|pν (x) − pμ(x)|dρ(x).
+
+Moreover, given a measurable map T : Rd → Rd, T#ν denotes the pushforward mea-sure of ν through T , i.e., ( T#ν)( A) := ν T −1(A) = ν  {x ∈ Rd : T (x) ∈ A} for any A ∈ B (Rd). By N (·; μ, Σ) we denote the PDF of a multivariate normal dis-tribution with mean μ and covariance matrix Σ. For a function f ∈ L2(Rd, ν ; Rm), 
+
+∥f ∥L2(Rd,ν ;Rm) denotes its L2-norm with respect to the measure ν, i.e., ∥f ∥L2(Rd,ν ;Rm) =
+
+ R  
+
+> Rd
+
+|f (x)|2dν(x)1/2 .
+
+3. The conditional normalizing flow. In this section, we introduce a condi-tional normalizing flow to approximate the transition PDF p(x, t |x0) given the initial state x0. Before proceeding to the conditional normalizing flow, we briefly review the idea of normalizing flows. A normalizing flow seeks an invertible transformation T from the unknown ran-dom vector X ∈ Rd to a given random vector Z ∈ Rd with a well-know and easy to sample distribution. According to the change of variables formula, the PDF of 
+
+X = T −1(Z) can be expressed by, (3.1) pX (x) = pZ (T (x)) det ∇xT (x) .
+
+Furthermore, by allowing the distribution of the given random variable Z and the transformation T to depend on some parameters, the initial state x0 and time 
+
+t in our setting, we can derive a conditional normalizing flow that maps the current state Xt of (2.1) to a base random variable Zt(x0) conditioned on an initial state 
+
+X0 = x0, i.e., (3.2) 
+
+Xt|X0=x0 = T −1(Zt(x0); θ(x0, t )) ,pXt|X=x0 (x) = pZt(x0) (T (x; θ(x0, t ))) det ∇xT (x; θ(x0, t )) ,
+
+where θ(x0, t ) represents the parameter set of the invertible transformation T condi-tioned on the initial state x0 and time t. This transformation T maps an unknown stochastic process Xt to another stochastic process Zt given the initial state X0 = x0.
+
+3.1. What makes a good base stochastic process for the conditional normalizing flow? The transition PDF provides a way to approximate the solution of the FPE under different initial conditions. However, directly approximating the solution of the FPE with a Dirac delta function as the initial condition is challenging. The challenge lies in the fact that the Dirac delta function lacks regularity, and there is no transformation that maps it to a regular distribution (e.g., normal or uniform distributions) used in normalizing flows. To address this challenge, we linearize the original SDE and use the solution of the resulting linear SDE as the base stochastic 6 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+process of the normalizing flow. The linearization of the original SDE is based on the assumption that the drift term f and diffusion term g are smooth functions. This allows us to approximate the original SDE by a linear SDE, which admits an analytical solution. Specifically, we approximate the original drift term by the first-order Taylor expansion and the diffusion term by the zero-order Taylor expansion at the initial state x0, i.e., (3.3) 
+
+(d cXt = ( f (x0) + ∇f (x0)( cXt − x0))d t + g(x0)d Wt, t > 0
+
+cX0 = x0.
+
+The corresponding solution admits an analytical form, (3.4) cXt = x0 +
+
+Z t
+
+> 0
+
+e∇f (x0)( t−s)f (x0)d s +
+
+Z t
+
+> 0
+
+e∇f (x0)(t−s)g(x0)d Ws,
+
+which is a multivariate Gaussian process with mean and covariance given by (3.5) 
+
+E
+
+h cXt| cX0 = x0
+
+i
+
+= x0 +
+
+Z t
+
+> 0
+
+e∇f (x0)( t−s)f (x0)d s, 
+
+Σ
+
+h cXt| cX0 = x0
+
+i
+
+=
+
+Z t
+
+> 0
+
+e∇f (x0)( t−s)g(x0)g(x0)⊤e∇f (x0)⊤(t−s)ds. 
+
+The two integrals with respect to time t in equation (3.5) can be effectively approxi-mated by Gauss-Legendre quadrature, thus, (3.6) 
+
+E
+
+h cXt| cX0 = x0
+
+i
+
+≈ x0 +
+
+> m
+
+X
+
+> i=1
+
+wie∇f (x0)( t−si)f (x0),
+
+Σ
+
+h cXt| cX0 = x0
+
+i
+
+≈
+
+> m
+
+X
+
+> i=1
+
+wie∇f (x0)( t−si)g(x0)g(x0)⊤e∇f (x0)⊤(t−si),wi = t
+
+2 ˆwi, si = t
+
+2 (ˆ si + 1) ,
+
+where {( ˆ wi, ˆsi)} are the weights and nodes associated with the Legendre polynomial defined on [ −1, 1]. Moreover, if ∇f (x0) is invertible, we can rewrite the solution as (3.7) cXt = x0 + ( ∇f (x0)) −1 
+
+e∇f (x0)t − I
+
+
+
+f (x0) + 
+
+Z t
+
+> 0
+
+e∇f (x0)(t−s)g(x0)d Ws.
+
+The corresponding conditional mean admits the equivalent expression, 
+
+E
+
+h cXt| cX0 = x0
+
+i
+
+= x0 + ( ∇f (x0)) −1 
+
+e∇f (x0)t − I
+
+
+
+f (x0).
+
+Thus, instead of approximating the integral, one may compute the inverse of ∇f (x0). We note that the linear SDE system (3.3) provides a close pathwise approximation to the original SDE (2.1) for small t. The corresponding transition PDF associated with the linear SDE provides a good approximation of the target transition PDF in the short-time regime, as verified by Proposition 3.1 below. 
+
+Proposition 3.1. Suppose that the drift term f = fν in the SDE (2.1) is dif-ferentiable, and the diffusion term g is constant, G = ( Gij )i,j ≤d = 12 gg ⊤ is non-degenerate, {pνt }t∈[0 ,t f ] is the PDF solution to the corresponding FPE with a Dirac OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 7
+
+delta function δx0 as the initial condition, {pσt }t∈[0 ,t f ] is the PDF solution on the time interval [0 , t f ] to the FPE corresponding to the linearized SDE (3.3) with drift term fσ and the same initial condition δx0 . Denote νt and σt the probability measures corresponding to pνt , pσt , respectively. If ∥∇ fν (x)∥ ≤ Cf , ∀x ∈ Rd for some Cf ≥ 0,then for any t ∈ (0 , t f ),
+
+H (σt | νt) ≤ 12
+
+Z t
+
+> 0
+
+Z
+
+> Rd
+
+G−1/2(fσ (x) − fν (x)) 2
+
+dσsds, 
+
+∥νt − σt∥2TV ≤ 14
+
+Z t
+
+> 0
+
+Z
+
+> Rd
+
+G−1/2 (fσ (x) − fν (x)) 2
+
+dσsds. 
+
+Both the relative entropy H(σt|νt) and the square of total variation ∥νt − σt∥2TV 
+
+are O(t2) as t → 0. Moreover, if ∥∇ 2fν (x)∥ ≤ Hf , ∀x ∈ Rd for some Hf ≥ 0, then 
+
+H(σt|νt), ∥νt − σt∥2TV are both O(t3) as t → 0.Proof. See Appendix A. 
+
+Statistical quantities evaluated under the target measure can be approximated by those under the approximate measure, with an error bounded by the total variation distance between the two measures, as established in the next proposition. 
+
+Proposition 3.2. Suppose that ν, σ are two probability measures on Rd. Then for every function f ∈ L2(Rd, ν ; Rm) ∩ L2(Rd, σ ; Rm), we have 
+
+Z
+
+> Rd
+
+f (x)d ν(x) −
+
+Z
+
+> Rd
+
+f (x)d σ(x) ≤ p2∥ν − σ∥TV 
+
+ ∥f ∥L2(Rd,ν ;Rm) + ∥f ∥L2(Rd,σ ;Rm)
+
+ .
+
+Proof. See Appendix B. 
+
+In particular, if we take σ = T#ν for some measurable map T : Rd → Rd and 
+
+f (x) = x, assuming ν, σ have finite second moments, we have 
+
+Z
+
+> Rd
+
+xdν(x) −
+
+Z
+
+> Rd
+
+T (x)d ν(x) ≤ p2∥ν − σ∥TV 
+
+ ∥x∥L2(Rd,ν ;Rd) + ∥x∥L2(Rd,σ ;Rd)
+
+ .
+
+We also state that if νi → μ in total variation and their second moments converge, then the Knothe-Rosenblatt (KR) map Ti satisfying ( Ti)#μ = νi converges to the identity map in L2(μ). 
+
+Proposition 3.3. Let {νi}∞ 
+
+> i=1
+
+be a family of absolutely continuous probability measures on Rd w.r.t. the Lebesgue measure, each with finite second moments, and assume that μ is an absolutely continuous measure, ∥νi − μ∥TV → 0, ∥x∥L2(Rd,ν i) →∥x∥L2(Rd,μ ) as i → ∞ . Then, let Ti be the KR map between μ and νi. We have 
+
+Ti → Id in L2(μ) as i → ∞ .Proof. See Appendix C. 
+
+Proposition 3.1 shows that, for small t, the transition PDF of the linearized SDE is close to that of the original SDE in total variation. Proposition 3.3 implies that, under certain conditions, KR maps associated with a sequence of measures and its limiting measure converge to the identity map. This observation motivates our design choice: the conditional normalizing flow is constrained to be the identity at t = 0 and to deform gradually as t increases. In this way, we avoid directly mapping from a Dirac delta initial condition and reduce the training difficulty near t = 0. 
+
+3.2. Architecture of the conditional normalizing flow. The flow-based model reformulates the original problem of finding p(x, t |x0) as the task of identifying 8 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+an invertible transformation T (·; θ(x0, t )), mapping a stochastic process Xt to Zt
+
+given initial state X0 = x0. In practice, we can construct such a complex invertible mapping by stacking a sequence of simple bijections, i.e., 
+
+Zt|Z0=Z0(x0) = T (Xt|X0=x0 ; θ(x0, t )) = T[K] ◦ T[K−1] ◦ · · · ◦ T[1] (Xt|X0=x0 ),
+
+where T[i] = T[i](·; θ[i](x0, t )) is based on shallow neural networks. The inverse and Jacobian determinant are given as 
+
+Xt|X0=x0 = T −1 (Zt|Z0=z0 ; θ(x0, t )) = T −1[1] ◦ · · · ◦ T −1[K−1] ◦ T −1[K](Zt|Z0=Z0(x0)),
+
+| det ( ∇xT (·; θ(x0, t ))) | =
+
+> L
+
+Y
+
+> i=1
+
+| det  ∇x[i−1] T[i](·) |,
+
+which motivates the use of techniques that enable efficient computation of both the inverse and the Jacobian matrix of T[i](·). In this work, we adopt the structure with descending active transformation dimensions in the standard KRnet [37], which is inspired by the KR rearrangement [35] and affine coupling layers [10], to enhance accuracy and reduce model complexity in high-dimensional settings. Let x⊤ =
+
+ x(1) ⊤ ,  x(2) ⊤ , . . . ,  x(K)⊤
+
+be a partition of x⊤, where x(i) =
+
+
+
+x(i)1 , . . . , x (i)
+
+> di
+
+⊤
+
+with 1 ≤ K ≤ d, 1 ≤ di ≤ d and PKi=1 di = d. Denote x(i:j) =
+
+ x(i)⊤ ,  x(i+1) ⊤ , . . . ,  x(j)⊤⊤
+
+. Our conditional normalizing flow TC-KRnet is defined as follows, (3.8) 
+
+T[1] = ˜TK , T[k] = ˜TK+1 −k
+
+Id K+2 −k:K
+
+!
+
+, k = 2 , . . . , K, 
+
+Zt|Z0=z0 = TC-KRnet (Xt|X0=x0 ; θ(x0, t )) = ˜T1
+
+Id (2: K)
+
+!
+
+◦ · · · ◦ ˜TK−1
+
+Id (K)
+
+!
+
+◦ ˜TK (Xt|X0=x0 ),
+
+where Id (i:j)(x) = x(i:j) denotes the projection operator, ˜Tk : [−1, 1] Pki=1 di →
+
+[−1, 1] Pki=1 di is an invertible mapping of x(1: k) that is constructed by the compo-sition of conditional affine coupling layers defined in the Section 3.2.1. The conditional normalizing flow TC-KRnet is primarily constructed using two nested loops: an outer loop and an inner loop. The outer loop consists of K stages, each corresponding to a mapping ˜Tk. The inner loop ˜Tk contains lk stages, represent-ing the number of coupling layers. Following the application of ˜Tk, the kth partition is kept fixed in the subsequent outer stages. As the outer loop progresses, the active dimension gradually decreases, which motivates reducing the depth lk for later stages. 
+
+3.2.1. Conditional affine coupling layer. In this section, we focus on the construction of the inner loop ˜Tk = ˜Tk,l k ◦ · · · ◦ ˜Tk, 2 ◦ ˜Tk, 1. To this end, we first introduce a conditional affine coupling layer, given some information ξ and time t,applied to a vector y = ( y1, y2) ∈ Rm, where y1 ∈ Rm1 , and y2 ∈ Rm−m1 as follows: (3.9) 
+
+( ˆy1 = y1,
+
+ˆy2 = y2 ⊙  1m−m1 + β tanh( t · s) + eζ ⊙ tanh( t · q),
+
+where β ∈ (0 , 1) is user defined, ζ is trainable and s and q are outputs of a neural network that takes as input the unchanged portion y1, the given information ξ and OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 9time t, i.e., (3.10) (s, q) = NN( y1, ξ, t ).
+
+To emphasize the influence of the initial state, we adopt the approach proposed in [18], applying a random Fourier feature transformation [40] before the fully connected layers of the neural network used in equation (3.10). The resulting neural network is (3.11) 
+
+h0 = [ y1, ξ, t ]⊤ ,
+
+h1 =
+
+
+
+sin 
+
+ 1
+
+eγ F h 0 + b0
+
+
+
+, cos 
+
+ 1
+
+eγ F h 0 + b0
+
+
+
+, h0
+
+⊤
+
+,
+
+hj = SiLU( Wj−1hj−1 + bj−1), for j = 2 , . . . , M, 
+
+(s, q) = WM hM + bM ,
+
+where F ∈ Rrh/2×dim( h0), b0 ∈ Rrh/2 are sampled from a standard normal distribution and a uniform distribution over [0 , 2π]rh/2, respectively and rh denotes the dimension of the random features. Both F and b0 are fixed after initialization. γ, {Wj , bj }Mj=1 
+
+are trainable parameters, and the sigmoid linear unit (SiLU) function is used as the activation function. Since the conditional affine coupling layer (3.9) updates only y2, we alternate the roles of y1 and y2 in subsequent layers to ensure a full update of y. Note that the transformation defined by the conditional affine coupling layer (3.9) reduces to the identity when t = 0, which is consistent with using the PDF corresponding to the linearized SDE as the base distribution of the conditional normalizing flow. Now we are ready to construct ˜Tk, which consists of lk conditional affine coupling layers. Denote x[0] = x, x[k] = T[k](x[k−1] , ξ = x0), and y[k] = x(1: K−k)[k] the active part of x[k] for k = 1 , . . . , K − 1. We apply a sequence of conditional affine coupling transformations (3.9) to y[k] using a half-half split. 
+
+4. Deep adaptive algorithm. Given an SDE, we solve the corresponding tran-sition FPE with Dirac delta functions centered at various points as initial conditions, which is considered as offline training. Let p(x, t |x0) be a conditional probability density function defined on Rd × [0 , t f ] × Ω0. It satisfies (4.1) 
+
+
+
+∂p (x, t |x0)
+
+∂t − L ∗  
+
+> f,g
+
+[p(x, t |x0)] = 0 , x ∈ Rd, t ∈ (0 , t f ],p(x, 0|x0) = δx0 (x), x ∈ Rd, x0 ∈ Ω0,p(x, t |x0) → 0 as ∥x∥ → ∞ ,
+
+Z
+
+> Rd
+
+p(x, t |x0)d x = 1 , p (x, t |x0) ≥ 0, x ∈ Rd, t ∈ [0 , t f ].
+
+By using the solution of the linearized SDE as the base stochastic process and enforc-ing the transformation to be the identity mapping at t = 0, the initial condition is naturally satisfied. Applying PINNs yields (4.2) 
+
+L(θ) = 
+
+Z 
+
+> Rd×(0 ,t f]×Ω0
+
+|r(x, x0, t ; pθ )|2dρ(x, x0, t ), r(x, x0, t ; pθ ) = ∂p θ
+
+∂t − L ∗  
+
+> f,g
+
+[pθ ],
+
+where ρ(x, x0, t ) = ρ(x|x0, t )ρ(t|x0)ρ(x0) is the sampling measure to be used in the training process. For the case where x0 lies within a bounded domain Ω 0 and tf10 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+is finite, we define ρ(t|x0)ρ(x0) to be the uniform measure over Ω 0 × [0 , t f ]. For the remaining term, ρ(x|x0, t ), we employ an adaptive sampling strategy similar to that used for specific FPEs in our previous work [13, 47]. The only difference is that, instead of sampling solely from the uniform distribution at the start, we are motivated to sample from the base stochastic process, as it approximates the target TPDF particularly well when the time t is small. After some training epochs, we obtain a conditional normalizing flow that approximates the target solution and can be used to generate samples from it. These samples are then used to update the collocation points. The procedure offers an adaptive strategy for designing the sampling measure 
+
+ρk(x|x0, t ) at stage k, by combining the uniform measure, the measure from the previous stage, and the one induced by the current normalizing flow, i.e., (4.3) ρ0(x|x0, t ) = γ1
+
+γ1 + γ3
+
+μ(x) + γ3
+
+γ1 + γ3
+
+ρZ (x|x0, t ), γ1 + γ2 + γ3 = 1 ,ρk+1 (x|x0, t ) = γ1μ(x) + γ2ρk(x|x0, t ) + γ3ρC-KRnet ,θ (x|x0, t ),
+
+where μ denotes the uniform measure over a user-defined bounded domain, ρZ (x, t |x0)denotes the measure induced by the base random process, ρC-KRnet ,θ (x, t |x0) denotes the measure induced by the current conditional normalizing flow and γ1, γ 2, γ 3 are hyperparameters used to tune the sampling measure. The transition PDF of the base stochastic process serves as a good approximation of the target transition PDF when t is small. The resulting transformation is almost an identity. However, as t → 0, the target solution approaches a Dirac delta function, and even small perturbations may lead to the divergence of the residual. To illustrate this, we consider a small perturbation around the transition PDF of the linearized SDE and analyze the asymptotic behavior of the corresponding residual as t → 0. 
+
+Proposition 4.1. Suppose the drift term f in the SDE (2.1) is differentiable, and the diffusion term g is constant, G = ( Gij )i,j ≤d = 12 gg ⊤ is non-degenerate. Assume that ∥∇ f (x)∥ ≤ Cf , ∀x ∈ Rd for some Cf ≥ 0. Given an initial state 
+
+x0 and time t, let ˜p(x, t |x0) = N (x; m(t), Σ(t)) where Σ(t) ∼ tG, and ddt m(t) is bounded. Then, 
+
+Z
+
+> Rd
+
+|r(x, x0, t ; ˜ p)|2dx = O(t−( d 
+
+> 2+2)
+
+),(4.4) 
+
+Ex∼ ˜p
+
+|r(x, x0, t ; ˜ p)|2 =
+
+Z
+
+> Rd
+
+|r(x, x0, t ; ˜ p)|2 ˜p(x, t |x0)d x = O(t−(d+2) ).(4.5) 
+
+Proof. See Appendix D. 
+
+According to Proposition 4.1, although the approximation may be close to the target transition PDF for small t, the integral of the residual over the spatial domain can scale as t−(d+2) or t−( d  
+
+> 2+2)
+
+as t → 0 depending on the sampling measure ρ(x|x0, t ), which potentially leads to a blow-up. This motivates us to define a time-weighted loss function. Incorporating the adaptive sampling strategy, we rewrite the loss function at the k−th stage as a sum of three parts: 
+
+Lk(θ) = γ1
+
+Z 
+
+> Ω×Ω0×(0 ,t f]
+
+|r(x, x0, t ; pθ )|2dμ(x)d ρ(t|x0)d ρ(x0)+ γ2
+
+Z 
+
+> Ω×Ω0×(0 ,t f]
+
+|r(x, x0, t ; pθ )|2dρk−1(x|x0, t )d ρ(t|x0)d ρ(x0)+ γ3
+
+Z 
+
+> Ω×Ω0×(0 ,t f]
+
+|r(x, x0, t ; pθ )|2dρC-KRnet ,θ (x, t |x0)d ρ(t|x0)d ρ(x0).OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 11 We apply weighting functions w1(t) = t d  
+
+> 2+2
+
+to the first part, and w2(t) = td+2 to the last two parts, respectively. The resulting weighted loss function is then defined as 
+
+Lkw(θ) = γ1
+
+Z 
+
+> Ω×Ω0×(0 ,t f]
+
+|r(x, x0, t ; pθ )|2t( d 
+
+> 2+2)
+
+dμ(x)d ρ(t|x0)d ρ(x0)+ γ2
+
+Z 
+
+> Ω×Ω0×(0 ,t f]
+
+|r(x, x0, t ; pθ )|2t(d+2) dρk−1(x|x0, t )d ρ(t|x0)d ρ(x0)+ γ3
+
+Z 
+
+> Ω×Ω0×(0 ,t f]
+
+|r(x, x0, t ; pθ )|2t(d+2) dρC-KRnet (x|x0, t )d ρ(t|x0)d ρ(x0).
+
+We emphasize that the usage of the linearized SDE respects the causality, and the weighting functions introduced here not only help prevent blow-up but also assign greater weight to more challenging training regions, making our method well-suited for the transition FPE. We introduce an indicator variable to distinguish samples drawn from differ-ent distributions. Specifically, let N = N1 + N2 + N3 with proportions N1 : N2 :
+
+N3 = γ1 : γ2 : γ3. Define S1 =   xi, xi
+
+> 0
+
+, t i, η i = 0  N1
+
+> i=1
+
+, where  xi, xi
+
+> 0
+
+, t i are sam-pled from μ(x)ρ(t|x0)ρ(x0). Similarly, define S2 =   xi, xi
+
+> 0
+
+, t i, η i = 1  N1+N2 
+
+> i=N1+1
+
+where 
+
+  xi, xi
+
+> 0
+
+, t i are drawn from ρk−1(x|x0, t )ρ(t|x0)ρ(x0). Define S3 =   xi, xi
+
+> 0
+
+, t i, η i = 1  Ni=N1+N2+1 
+
+where   xi, xi
+
+> 0
+
+, t i are sampled from ρC-KRnet (x|x0, t )ρ(t|x0)ρ(x0). Let S = S1 ∪
+
+S2 ∪ S3. The empirical time-weighted loss function is then defined as: (4.6) bLkw(θ; S) := 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+|r(xi, xi
+
+> 0
+
+, t i; pθ )|2 
+
+ηitd+2 + (1 − ηi)t d 
+
+> 2+2
+
+
+
+.
+
+The optimal parameter θ∗ can be obtained via solving the optimization problem: (4.7) θ∗ ∈ arg min 
+
+> θ
+
+bLw(θ; ˜S).
+
+The adaptive training process is summarized in Algorithm 4.1. The training set is divided into several mini-batches, and the Adam optimizer is used to update the parameters θ. The training set S is updated according to the strategy (4.3). 
+
+5. Importance sampling-based approximation of p(·, t ). Once the transi-tion PDF is available, a natural way to approximate the solution of equation (2.5) is by approximating the integral (2.7) through the Monte Carlo method, (5.1) p(x, t ) ≈ 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+p(x, t |xi
+
+> 0
+
+), xi 
+
+> 0
+
+∼ p0(x),
+
+where {xi
+
+> 0
+
+}Mi=1 are samples from the initial distribution p0. However, the transition PDF approximates the Dirac delta function as t → 0. Consequently, a direct Monte Carlo method may incur large errors due to high variance. Alternatively, we apply importance sampling, leveraging the knowledge of the transition PDF. (5.2) 
+
+p(x, t ) = 
+
+Z
+
+> Ω0
+
+p(x, t |x0)p0(x0)
+
+q(x0|x, t ) q(x0|x, t )d x0
+
+≈ ˆpθ (x, t ) := 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+p(x, t |xi
+
+> 0
+
+)p0(xi
+
+> 0
+
+)
+
+q(xi
+
+> 0
+
+|x, t ) , xi 
+
+> 0
+
+∼ q(·| x, t ).12 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+Algorithm 4.1 Solving the transition FPE with various initial states 
+
+Input: maximum epoch number Ne, maximum iteration number Nadaptive , rate 
+
+γ1, γ 2, γ 3, initial learning rate lr , decay rate η, step size ns, the number of the training samples N .
+
+for k = 0 , · · · , N adaptive do if k = 0 then 
+
+N1 = ⌊ γ1 
+
+> γ1+γ3
+
+∗ N ⌋, N3 = N − N1,Generate S1 = {(xi, xi
+
+> 0
+
+, t i, 0) }N1 
+
+> i=1
+
+with ( xi, xi
+
+> 0
+
+, t i) ∼ μ(x)ρ(t|x0)ρ(x0), 
+
+S3 = {(xi, xi
+
+> 0
+
+, t i, 1) }Ni=N1+1 with ( xi, xi
+
+> 0
+
+, t i) ∼ ρC-KRnet ,θ (x, t |x0)ρ(t|x0)ρ(x0). Initialize the training set S = S1 ∪ S3.
+
+else 
+
+N1 = ⌊γ1 ∗ N ⌋, N2 = ⌊γ2 ∗ N ⌋, N3 = N − N1 − N2,Generate S1 = {(xi, xi
+
+> 0
+
+, t i, 0) }N1 
+
+> i=1
+
+with ( xi, xi
+
+> 0
+
+, t i) ∼ μ(x)ρ(t|x0)ρ(x0), 
+
+S2 consists of N2 random samples drawn from S.
+
+S3 = {(xi, xi
+
+> 0
+
+, t i, 1) }Ni=N1+N2+1 , ( xi, xi
+
+> 0
+
+, t i) ∼ ρC-KRnet ,θ (x, t |x0)ρ(t|x0)ρ(x0). Update the training set: S = S1 ∪ S2 ∪ S3.
+
+end if for j = 1 , · · · , N e do if (( k − 1) Ne + j)% ns == 0 then 
+
+lr = η ∗ lr .
+
+end if 
+
+Divide S into n mini-batches {Sib }nib =1 randomly. 
+
+for ib = 1 , · · · , n do 
+
+Compute the loss function (4.6) bLw(θ; Sib ). Update θ by using the Adam optimizer. 
+
+end for end for end for Output: The predicted solution pC-KRnet ,θ (x, t |x0). Recall that given an initial state x0 and time t, x concentrates around the initial state x0 for small time. The corresponding base distribution used in our conditional normalizing flow is 
+
+p bXt (x, t |x0) = N
+
+
+
+x; x0 +
+
+Z t
+
+> 0
+
+e∇f (x0)( t−s)f (x0)d s, Σ[ cXt| cX0 = x0]
+
+
+
+.
+
+Let (5.3) q1(x0|x, t ) = N (x0; m(x, t ), ˜Σ(x, t )) ,
+
+where m(x, t ) = x − R t 
+
+> 0
+
+e∇f (x)sf (x)d s, ˜Σ(x, t ) = R t 
+
+> 0
+
+e∇f (x)sg(x)g(x)⊤e∇f (x)⊤sds.The distribution q1 is primarily designed to capture the local concentration of the transition PDF and to mitigate the effect of large variance when t is small. How-ever, the approximation accuracy of q1 deteriorates as t increases. As t grows, the transition PDF becomes increasingly smooth and therefore does not hinder the ap-proximation of p(x, t ). This motivates incorporating the initial distribution into the proposal. Accordingly, we propose to use a mixture of q1(·| x, t ) and p0(·) as the proposal distribution in the importance sampling scheme. Define (5.4) q2(x0|x, t ) = α(t)q1(x0|x, t ) + (1 − α(t)) p0(x0),OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 13 where α(t) ∈ (0 , 1) is decreasing with respect to t, e.g., α(t) = exp( −at ), a > 0. The set of samples {xi
+
+> 0
+
+}Mi=1 ∼ q2(x0|x, t ) can be generated by drawing α(t)M samples from q1 and (1 − α(t)) M samples from p0.
+
+6. Numerical experiments. In this section, we present three numerical exper-iments to demonstrate the effectiveness of the proposed approach. The conditional normalizing flow is applied to solve the transition FPE under various initial states. Once obtained, the importance sampling method is used to evaluate p(x, t ) given an initial distribution. We first consider a benchmark problem where the analytical solution of the transition PDF is available. We next apply our method to an SDE with nonlinear drift and constant diffusion. To further demonstrate the robustness, we investigate the case of state-dependent diffusion. The experiments are implemented in PyTorch with an initial learning rate of 0.001. The number of quadrature points in the equation (3.6) is set to 10. To quantify the effectiveness of the proposed method, we consider several metrics. For some time 
+
+t, we compute the relative L2 error of the approximation for the transition PDF 
+
+p(x, t |x0) if the exact transition PDF is known via (6.1) Rel( pC-KRnet (·, t |· )) = 
+
+vuutPNv
+
+> i=1
+
+(p(xi, t |xi
+
+> 0
+
+) − pC-KRnet (xi, t |xi
+
+> 0
+
+)) 2
+
+PNv 
+
+> i=1
+
+p(xi, t |xi
+
+> 0
+
+)2 ,
+
+where {(xi
+
+> 0
+
+, xi)}Nv 
+
+> i=1
+
+⊂ Ω0 × Ω denotes the validation dataset. When approximating the solution of the FPE given an initial distribution ρ0(x), we consider the relative 
+
+L2 error of the approximation ˆ pθ (x, t ) of p(x, t ), as well as the maximum mean dis-crepancy (MMD) [17]. The relative L2 error reads (6.2) Rel(ˆ pθ (·, t )) = 
+
+vuutPNv
+
+> i=1
+
+(p(xi, t ) − ˆpθ (xi, t )) 2
+
+PNv 
+
+> i=1
+
+p(xi, t )2 ,
+
+where {xi}Nv 
+
+> i=1
+
+⊂ Ω denotes the validation dataset. When the analytical form of the transition PDF is available, we employ Gauss–Kronrod quadrature rule to obtain the reference solution p(x, t ) for a given initial distribution. In the absence of an analytical solution, the alternating-direction implicit (ADI) finite difference scheme [33] with a time step of 0.001 and a spatial discretization size of 0.01 is used to compute the reference solution for cases where the initial distributions are continuous over the entire domain R2. An MMD is introduced in particular to assess the effectiveness of the proposed method for discontinuous initial distributions. (6.3) MMD 2(t) = 1
+
+M 21
+
+> M1
+
+X
+
+> i,j =1
+
+K(xit, xjt )− 2
+
+M1M2
+
+> M1,M 2
+
+X
+
+> i,j =1
+
+K(xit, yjt )+ 1
+
+M 22
+
+> M2
+
+X
+
+> i,j =1
+
+K(yit, yjt ),K(x, y) = 13 exp 
+
+
+
+− 4∥x − y∥2
+
+ˆσ2
+
+
+
++ 13 exp 
+
+
+
+− ∥x − y∥2
+
+ˆσ2
+
+
+
++ 13 exp 
+
+
+
+− ∥x − y∥2
+
+4ˆ σ2
+
+
+
+.
+
+{xit} and {yit} are samples at time t obtained using the Euler-Maruyama scheme with a time step of 0 .001 and generated by the normalizing flow, respectively, with initial distribution p0(x). ˆσ denotes the median distance between the two sample sets {xit} and {yit}. We note that the classical finite difference methods fail to accu-rately approximate the solution with a discontinuous initial condition without special treatments. 14 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+6.1. Beneˇ s SDE. We start with demonstrating the performance of our method on the Beneˇ s SDE, (6.4) 
+
+(dXt = tanh Xtdt + IddWt,
+
+X0 = x0, x0 ∈ [−1, 1] d,
+
+for which the corresponding transition PDF admits an analytical solution, 
+
+p(x, t |x0) = 1(2 πt )d/ 2 exp 
+
+
+
+− d
+
+2 t
+
+
+
+exp 
+
+
+
+− 12t ∥x − x0∥2
+
+ dY
+
+> i=1
+
+cosh xi
+
+cosh x0,i 
+
+.
+
+6.1.1. Two-dimensional case. We first consider the two-dimensional case. The conditional normalizing flow is composed of eight coupling layers. The parame-ters of each coupling layer are generated by a neural network with 32 random Fourier features and two hidden layers with 32 neurons. Training is performed for 10 adaptive iterations, each with 300 epochs. The Adam optimizer is used with an initial learning rate of 0.001, which is halved every 2000 epochs. 2 × 10 5 training points are employed with a batch size of 10 4 each epoch. A validation dataset of 10 6 samples is used to compute relative errors throughout the training process. We first investigate the approximation performance of the transition PDF for various initial states, using the following five types of loss functions: 1. Vanilla PINN, t ∈ (0 , 1.5), γ1 = 0 .2, γ 2 = 0 .6, γ 3 = 0 .2; 2. Vanilla PINN, t ∈ (0 .1, 1.5), γ1 = 0 .2, γ 2 = 0 .6, γ 3 = 0 .2; 3. Time-weighted loss function, t ∈ (0 , 1.5), γ1 = 0 .2, γ 2 = 0 .6, γ 3 = 0 .2.    
+
+> (a) The relative L2error. (b) Time-weighted loss.
+
+Fig. 1: Left: Rel( pC-KRnet (·, t |· )) for different loss functions. Right: the decay of Rel( pC-KRnet (·, t |· )) against the adaptive iterations for the multi-weighted case. We present the Rel( pC-KRnet (·, t |· )) (6.1) in Figure 1a, where the validation dataset 
+
+{x0, x} consists of 10 5 samples drawn uniformly from [ −1, 1] 2 × [−5, 5] 2. The blue curve, which overlaps with the orange one, represents the relative error of the base distribution. While it achieves high accuracy as t → 0, its approximation quality deteriorates as t increases. A similar trend is observed when applying vanilla PINN. Although the base distribution stays close to the ground truth and the conditional normalizing flow remains close to the identity at small times, the corresponding resid-ual at small times may still dominate, so the approximation accuracy is nearly the same as that of the base distribution. If we exclude small times by setting the min-imum training time to t = 0 .1, the PDE constraints are no longer imposed near the initial condition. In this case, the approximation relies primarily on the continuity of the flow, and the accuracy improves for t > 0.1. By contrast, our method exploits the information from the base distribution and provides accurate approximations even as t increases, owing to the expressiveness of the conditional normalizing flow and OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 15 the more balanced PINN’s loss. Notably, we do not observe the typical error growth with time that often occurs in time-dependent problems. This highlights the effec-tiveness of the time-weighted loss function in mitigating error accumulation over time. Figure 1b further illustrates the decay of the Rel( pC-KRnet (·, t |· )) across adaptive iter-ations for the time-weighted loss function. Leveraging samples from the solution itself allows the model to capture the local behavior of the solution and enhances training efficiency. 
+
+Fig. 2: Solutions (top row) and the absolute errors (bottom row) at t = 0 .01. The first column shows the ground-truth solution. Columns 2–5 display numerical ap-proximations obtained by, from left to right, the base distribution, Vanilla PINN with t ∈ (0 , 1.5), Vanilla PINN with t ∈ (0 .1, 1.5), time-weighted loss function with 
+
+t ∈ (0 , 1.5). 
+
+Fig. 3: Same as Figure 2 for t = 0 .5. 
+
+Fig. 4: Same as Figure 2 for t = 1 .5. Figure 2, Figure 3, and Figure 4 present the solutions at different times with the initial state x0 = (0 , 0) computed with the different loss functions. They all align closely to the ground truth across all time instants except for the vanilla PINN’s loss for t ∈ (0 , 1.5). While the base distribution and vanilla PINNs yield much more 16 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+accurate approximations for small t, their performance degrades progressively as t
+
+increases. Especially, Figure 4 demonstrates that the conditional normalizing flow is capable of capturing multi-modal solutions. These results confirm the effectiveness of the proposed approach. 
+
+Fig. 5: Uniform case: Evolution of Rel(ˆ pθ (·, t )) over time. The subplots are arranged from left to right with M = 10 4, 10 5, 10 6.              
+
+> (a) q=p0(b) q=q1(c) q=e−6tq1+ (1 −e−6t)p0
+
+Fig. 6: Uniform case: The decay of Rel(ˆ pθ (·, t )) with respect to the number of Monte Carlo samples at different times. Left: Draw samples from p0; Middle: Draw samples from q1; Right: Draw samples from the mixture of p0 and q1.We next assess how well the solution of the FPE p(x, t ) can be approximated under various initial conditions. To this end, we employ a variety of Beta distributions on [−1, 1] d as initial conditions, thereby evaluating the effectiveness of the conditional normalizing flow for operator learning problems. More precisely, 
+
+Beta (x; ζ, η) = 
+
+> d
+
+Y
+
+> i=1
+
+1
+
+B(ζi, η i)
+
+ 1 + xi
+
+2
+
+ζi−1  1 − xi
+
+2
+
+ηi−1
+
+, x ∈ [−1, 1] d,
+
+where B(ζi, η i) denotes a beta function. We first explore the uniform case where ζ =
+
+η = (1 , 1). We use the conditional normalizing flow trained with the time-weighted loss as an approximation of the transition PDF. Figure 5 reports the Rel( pθ (·, t )) (6.2) with a validation data set consisting 10 4 grid points over [ −5, 5] 2 for different numbers of Monte Carlo samples used in evaluating pθ (x, t ) (5.2). Using q1 as the proposal distribution yields the most accurate approximation for t < 0.3, whereas drawing samples directly from the initial distribution p0 provides more reliable approximations for t ≥ 0.4. By contrast, adopting q2, a mixture of q1 and p0 with α(t) = exp( −6t), offers a balanced compromise, delivering acceptable accuracy across both small and large times. Figure 6 further illustrates the error decay with respect to the number of Monte Carlo samples. The relative error follows the Monte Carlo error scaling for M ≤
+
+10 5. For a larger Monte Carlo sample size, however, the error in approximating the transition PDF becomes dominant. We also present the variance of the importance-sampling Monte Carlo estimator ˆ pθ (x, t ) in (5.2) as a function of t in Figure 7 using 10 4OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 17 samples. The proposal q1 substantially reduces the variance as t → 0, but its variance increases as t grows. However, q2 with different α(t), which combines q1 with the initial distribution p0, yields a more balanced variance behavior over time. We note that traditional methods lose accuracy when the initial distribution is uniform, owing to the discontinuity of the initial distribution over the entire domain, if no special treatment of the discontinuity is taken. In contrast, our proposed methods remain unaffected by this discontinuity, thereby demonstrating their robustness in handling discontinuous initial data. 
+
+Fig. 7: The variance of ˆ pθ (x, t ) over time. Left: x = (0 , 0). Right: Average variance of the set {xi} consisting 10 4 grid points in [ −5, 5] 2.
+
+Fig. 8: Time evolution of the Rel(ˆ pθ (·, t )) for various initial distributions. Left: M =10 4; Right: M = 10 6.Moreover, we report in Figure 8 the time evolution of the Rel( pθ (·, t )) for other Beta distributions chosen as initial conditions using q2 with α(t) = exp( −6t) as the proposal distribution. The numbers of Monte Carlo samples used in evaluat-ing ˆ pθ (x, t ) are set to be 10 4 and 10 6. The results confirm that the proposed method yields reliable approximations. 
+
+6.1.2. Four-dimensional case. We then solve the four-dimensional FPE with various initial distributions using the proposed time-weighted loss function. Moreover, when evaluating the interior residual, we scale the solution by a constant factor, set to 1000 in the four-dimensional case, to avoid numerical underflow, since the solution of the FPE becomes very small in higher dimensions. The conditional normalizing flow follows the KRnet structure with descending active transformation dimensions. It consists of three stages with l1 = 10 , l 2 = 8, and l3 = 6. The parameters of each coupling layer are determined by a neural network with the same structure as in the two-dimensional case. We apply 20 adaptive iterations, each comprising 300 epochs. The updating rates are set to γ1 = 0 .2, γ2 = 0 .4, and γ3 = 0 .4. The initial learning rate is halved every 4000 epochs. 2 × 10 5 training samples are employed with a batch size of 2 × 10 4 per epoch. Figure 9a reports the Rel( pC-KRnet (·, t |· )), where the validation dataset {x0, x} is uniformly sampled from [ −1, 1] 4 × [−5, 5] 4 with a total of 2 × 10 6 samples. It shows 18 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+that the conditional normalizing flow achieves close agreement with the ground truth. Figure 9b presents Rel(ˆ pθ (·, t )) for different Beta distributions as initial conditions. For each initial condition, the numerical solution is obtained using the equation (5.2), where q = q2 is defined in the equation (5.4) with α(t) = e−6t and M = 10 4. A total of 10 5 test points are uniformly drawn from [ −5, 5] 4. Together, these results demonstrate the effectiveness of the proposed method for moderately high-dimensional FPEs.    
+
+> (a) p(x, t |x0)(b) p(x, t )
+
+Fig. 9: The relative L2 errors in the four-dimensional case. Left: Rel( pC-KRnet (·, t |· )); Right: Rel(ˆ pθ (·, t )) for various initial distributions with M = 10 4.
+
+6.2. SDE with nonlinear drift and constant diffusion. In this section, we consider the following SDE with various initial distributions over [ −1, 1] 2,(6.5) d
+
+ X1
+
+X2
+
+
+
+=
+
+ 2X2
+
+2X1 − 0.8X2 − 0.2X31
+
+
+
+dt +
+
+ √0.4 √0.8
+
+
+
+dWt.
+
+Both the structure of the conditional normalizing flow and the training setting are the same as in the two-dimensional Beneˇ s equation. After obtaining the transition PDF, we approximate the PDF corresponding to various Beta initial distributions using the importance sampling (5.2) where q = q2 (5.4) with α(t) = exp( −6t) and M = 10 4.   
+
+> (a) p(x, t )(b) p(x, t )
+
+Fig. 10: Errors for various initial distributions in the nonlinear-drift, constant-diffusion case. Left: Rel(ˆ pθ (·, t )). Right: MMD. Figure 10a presents the Rel(ˆ pθ (·, t )) (6.2) for different initial conditions, which is evaluated using a validation dataset consisting of 10 4 uniformly distributed grid points over [ −6, 6] 2. We also report the MMD (6.3) with a sample size of 5 × 10 4 in Figure 10b. These results demonstrate that the conditional normalizing flow yields highly accurate approximations for small t, as the base distribution is quite close to the ground truth. It also provides reliable approximations as t increases. Figure 11 presents the comparison between the numerical solution and the reference solution obtained from the ADI scheme when the initial condition is a Beta distribution with parameters ζ = (2 , 2) and η = (2 , 2). The proposed method successfully captures the solution at different time instants. OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 19               
+
+> (a) t= 0 .01 (b) t= 0 .2(c) t= 0 .5(d) t= 0 .7(e) t= 1
+
+Fig. 11: Numerical solutions and the absolute errors at t = 0 .01 , 0.2, 0.5, 0.7, 1 when the initial condition is a Beta distribution with parameters ζ = (2 , 2) and η = (2 , 2). The first row presents the solutions obtained by the ADI scheme. The second row presents the numerical solutions, while the third row shows the absolute errors. 
+
+6.3. SDE with nonlinear drift and state-dependent diffusion. For our final example, we validate the robustness of the proposed method in approximating the transition PDF of the following SDE with a state-dependent diffusion, 
+
+
+
+d
+
+ X1
+
+X2
+
+
+
+=
+
+ X2
+
+−0.5X1 − 0.3X31 + sin X2
+
+
+
+dt +
+
+ 0.5 + 0 .3X1
+
+0.4 + 0 .1 sin X2
+
+
+
+dWt,
+
+X0 = x0, x0 ∈ [−1, 1] 2.
+
+The conditional normalizing flow adopts the same structure as in the two-dimensional Beneˇ s equation. Training is conducted over 4 adaptive iterations, each consisting of 1000 epochs. 4 × 10 5 training points are used, with a batch size of 5 × 10 4 per epoch.  
+
+> (a) (b)
+
+Fig. 12: Errors for various initial distributions in the nonlinear-drift, state-dependent-diffusion case. Left: Rel(ˆ pθ (·, t )). Right: MMD. Figure 12a shows the Rel(ˆ pθ (·, t )) defined in (6.2) for some initial conditions. The PDF ˆ pθ (·, t ) is evaluated using the importance sampling estimator (5.2) where 
+
+q = q2 with α(t) = exp( −6t) and 10 4 Monte Carlo samples, while the Rel(ˆ pθ (·, t )) is computed on a validation dataset consisting of 10 4 uniformly distributed grid points over [ −5, 5] 2, with the solution obtained by the ADI scheme used as the reference. We report the MMD (6.3) computed using 5 × 10 4 samples, as a function of time 20 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+in the Figure 12b. Moreover, the comparison between the reference solution and the numerical solution when the initial condition is a Beta distribution with ζ = (2 , 2) and η = (2 , 2) is presented in Figure 13.               
+
+> (a) t= 0 .01 (b) t= 0 .2(c) t= 0 .5(d) t= 0 .7(e) t= 1
+
+Fig. 13: Numerical solutions and the absolute errors at t = 0 .01 , 0.2, 0.5, 0.7, 1 when the initial condition is a Beta distribution with parameters ζ = (2 , 2) and η = (2 , 2). The first row presents the solutions obtained by the ADI scheme. The second row presents the numerical solutions, while the third row shows the absolute errors. 
+
+7. Conclusion. In this work, we proposed a conditional normalizing flow-based framework for solving the FPE under various initial conditions. The conditional nor-malizing flow is employed to approximate the transition PDF given any initial state, effectively constructing a mapping from the target stochastic process to a simple base process. The solution of the linearized SDE serves as a suitable candidate for the base stochastic process. We quantified the discrepancy between the PDFs of the linearized and original SDEs, which is characterized by differences in their drift and diffusion terms. Furthermore, we demonstrated that the transformation within the triangu-lar structure connecting the base and target stochastic processes coincides with the Identity mapping at t = 0 and evolves progressively over time. By employing the solution of the linearized SDE and enforcing the identity mapping at t = 0, the initial condition is naturally satisfied by our conditional normalizing flow, thereby bypassing the explicit handling of the Dirac delta initial condition. In addition, we designed a time-weighted loss function to alleviate numerical instabilities, ensuring that the proposed method respects causality in evolution PDEs while accounting for the increasing training difficulty as time progresses. To evaluate p(·, t ) for arbitrary initial conditions over bounded domains, we used an importance sampling strategy to enhance accuracy. A series of numerical experiments validated the effectiveness and robustness. The four-dimensional Beneˇ s SDE test demonstrated that the pro-posed method has the potential for solving moderately high-dimensional FPEs. This research contributes to the numerical solution of complex FPEs by combining the approximation capability of the base model (the linearized SDE) with the expressive power of the conditional normalizing flow. In future work, we will further refine this framework by improving the accuracy of the base stochastic process and exploring its potential applications. Another promising direction is to generalize the proposed method to a broader class of evolutionary partial differential equations. OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 21 
+
+REFERENCES [1] Z. Aldirany, R. Cottereau, M. Laforest, and S. Prudhomme , Operator approximation of the wave equation based on deep learning of Green’s function, Computers & Mathematics with Applications, 159 (2024), pp. 21–30. [2] R. Baptista, B. Hosseini, N. B. Kovachki, and Y. M. Marzouk , Conditional sampling with monotone GANs: From generative models to likelihood-free inference, SIAM/ASA Journal on Uncertainty Quantification, 12 (2024), pp. 868–900. [3] N. M. Boffi and E. Vanden-Eijnden , Probability flow solution of the Fokker–Planck equation, Machine Learning: Science and Technology, 4 (2023), p. 035012. [4] V. I. Bogachev, M. R¨ ockner, and S. V. Shaposhnikov , Distances between transition probabilities of diffusions and applications to nonlinear Fokker–Planck–Kolmogorov equations, Journal of Functional Analysis, 271 (2016), pp. 1262–1300. [5] N. Boull´ e, S. Kim, T. Shi, and A. Townsend , Learning Green’s functions associated with time-dependent partial differential equations, Journal of Machine Learning Research, 23 (2022), pp. 1–34. [6] J. Bruna, B. Peherstorfer, and E. Vanden-Eijnden , Neural Galerkin schemes with active learning for high-dimensional evolution equations, Journal of Computational Physics, 496 (2024), p. 112588. [7] X. Chen, L. Yang, J. Duan, and G. E. Karniadakis , Solving inverse stochastic problems from discrete particle observations using the Fokker–Planck equation and physics-informed neural networks, SIAM Journal on Scientific Computing, 43 (2021), pp. B811–B830. [8] A. Daw, J. Bu, S. Wang, P. Perdikaris, and A. Karpatne , Mitigating propagation failures in physics-informed neural networks using retain-resample-release (r3) sampling, Proceedings of Machine Learning Research, 202 (2023), pp. 7264–7302. [9] W. Deng , Finite element method for the space and time fractional Fokker–Planck equation, SIAM journal on numerical analysis, 47 (2009), pp. 204–226. [10] L. Dinh, J. Sohl-Dickstein, and S. Bengio , Density estimation using Real NVP, in Interna-tional Conference on Learning Representations, 2017. [11] W. E and Y. B , The deep Ritz method: A deep learning-based numerical algorithm for solving variational problems, Communications in Mathematics and Statistics, 6 (2018), pp. 1–12. [12] N. El Bekri, L. Drumetz, and F. Vermet , Flowkac: An efficient neural fokker-planck solver using temporal normalizing flows and the feynman-kac formula, Transactions on Machine Learning Research (TMLR), (2025). [13] X. Feng, L. Zeng, and T. Zhou , Solving time dependent Fokker-Planck equations via temporal normalizing flow, Communications in Computational Physics, 32 (2022), pp. 401– 423. [14] G. B. Folland , Real analysis: modern techniques and their applications, John Wiley & Sons, 1999. [15] N. Gaby, X. Ye, and H. Zhou , Neural control of parametric solutions for high-dimensional evolution PDEs, SIAM Journal on Scientific Computing, 46 (2024), pp. C155–C185. [16] G. L. Gilardoni , On Pinsker’s and Vajda’s type inequalities for Csisz´ ar’s f -divergences, IEEE Transactions on Information Theory, 56 (2010), pp. 5377–5386. [17] A. Gretton, K. M. Borgwardt, M. J. Rasch, B. Sch¨ olkopf, and A. Smola , A kernel two-sample test, The journal of machine learning research, 13 (2012), pp. 723–773. [18] J. He, Q. Liao, and X. Wan , Adaptive deep density approximation for stochastic dynamical systems, Journal of Scientific Computing, 102 (2025), p. 57. [19] Z. Hu, Z. Zhang, G. E. Karniadakis, and K. Kawaguchi , Score-based physics-informed neural networks for high-dimensional Fokker–Planck equations, SIAM Journal on Scientific Computing, 47 (2025), pp. C680–C705. [20] T. Hytonen, J. van Neerven, M. Veraar, and L. Weis , Analysis in Banach spaces, volume i: Martingales and littlewood-paley theory, Ergebnisse der Mathematik und ihrer Gren-zgebiete, 3 (2016). [21] R. Jordan, D. Kinderlehrer, and F. Otto , The variational formulation of the Fokker–Planck equation, SIAM journal on mathematical analysis, 29 (1998), pp. 1–17. [22] P. Kumar and S. Narayanan , Solution of Fokker-Planck equation by finite element and finite difference methods for nonlinear systems, Sadhana, 31 (2006), pp. 445–461. [23] W. Lee, L. Wang, and W. Li , Deep JKO: Time-implicit particle methods for general nonlinear gradient flows, Journal of Computational Physics, 514 (2024), p. 113187. [24] M. Leutbecher and T. N. Palmer , Ensemble forecasting, Journal of computational physics, 227 (2008), pp. 3515–3539. [25] Z. Li, N. B. Kovachki, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, A. Anand-22 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+kumar, et al. , Fourier neural operator for parametric partial differential equations, in International Conference on Learning Representations. [26] S. Liu, W. Li, H. Zha, and H. Zhou , Neural parametric Fokker–Planck equation, SIAM Journal on Numerical Analysis, 60 (2022), pp. 1385–1449. [27] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis , Learning nonlinear operators via deeponet based on the universal approximation theorem of operators, Nature machine intelligence, 3 (2021), pp. 218–229. [28] Y. Lu and B. Huang , Structured output learning with conditional generative flows, in Pro-ceedings of the AAAI conference on artificial intelligence, vol. 34, 2020, pp. 5005–5012. [29] Y. Lu, R. Maulik, T. Gao, F. Dietrich, I. G. Kevrekidis, and J. Duan , Learning the temporal evolution of multivariate densities via normalizing flows, Chaos: An Interdisci-plinary Journal of Nonlinear Science, 32 (2022). [30] R. N. Miller, E. F. Carter Jr, and S. T. Blue , Data assimilation into nonlinear stochastic models, Tellus A, 51 (1999), pp. 167–194. [31] F. Nobile and R. Saporiti , Neural galerkin normalizing flow for transition probability density functions of diffusion models, arXiv preprint arXiv:2603.18907, (2026). [32] H. Noh, J. Lee, and E. Yoon , FPL-net: A deep learning framework for solving the nonlinear Fokker–Planck–Landau collision operator for anisotropic temperature relaxation, Journal of Computational Physics, 523 (2025), p. 113665. [33] L. Pichler, A. Masud, and L. A. Bergman , Numerical solution of the Fokker–Planck equation by finite difference and finite element methods—a comparative study, in Computational Methods in Stochastic Dynamics, Springer, 2013, pp. 69–85. [34] M. Raissi, P. Perdikaris, and G. E. Karniadakis , Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics, 378 (2019), pp. 686–707. [35] F. Santambrogio , Optimal transport for applied mathematicians, Birk¨ auser, NY, 55 (2015), p. 94. [36] J. Sirignano and K. Spiliopoulos , DGM: A deep learning algorithm for solving partial differential equations, Journal of Computational Physics, 375 (2018), pp. 1339–1364. [37] K. Tang, X. Wan, and Q. Liao , Deep density estimation via invertible block-triangular mapping, Theoretical and Applied Mechanics Letters, 10 (2020), pp. 143–148. [38] K. Tang, X. Wan, and Q. Liao , Adaptive deep density approximation for Fokker-Planck equations, Journal of Computational Physics, 457 (2022), p. 111080. [39] Y. Teng, X. Zhang, Z. Wang, and L. Ju , Learning Green’s functions of linear reaction-diffusion equations with application to fast numerical solver, in Mathematical and Scientific Machine Learning, PMLR, 2022, pp. 1–16. [40] S. Wang, H. Wang, and P. Perdikaris , On the eigenvector bias of fourier feature networks: From regression to solving multi-scale pdes with physics-informed neural networks, Com-puter Methods in Applied Mechanics and Engineering, 384 (2021), p. 113938. [41] T. Wang, Z. Hu, K. Kawaguchi, Z. Zhang, and G. E. Karniadakis , Tensor neural networks for high-dimensional Fokker–Planck equations, Neural Networks, 185 (2025), p. 107165. [42] Z. O. Wang, R. Baptista, Y. Marzouk, L. Ruthotto, and D. Verma , Efficient neural network approaches for conditional optimal transport with applications in Bayesian inference, SIAM Journal on Scientific Computing, 47 (2025), pp. C979–C1005. [43] M. F. Wehner and W. Wolfer , Numerical evaluation of path-integral solutions to Fokker-Planck equations, Physical Review A, 27 (1983), p. 2663. [44] Y. Wen, E. Vanden-Eijnden, and B. Peherstorfer , Coupling parameter and particle dynamics for adaptive sampling in neural Galerkin schemes, Physica D: Nonlinear Phe-nomena, 462 (2024), p. 134129. [45] Y. Xu, H. Zhang, Y. Li, K. Zhou, Q. Liu, and J. Kurths , Solving Fokker-Planck equation using deep learning, Chaos: An Interdisciplinary Journal of Nonlinear Science, 30 (2020). [46] M. Yang, P. Wang, D. del Castillo-Negrete, Y. Cao, and G. Zhang , A pseudoreversible normalizing flow for stochastic dynamical systems with various initial distributions, SIAM Journal on Scientific Computing, 46 (2024), pp. C508–C533. [47] L. Zeng, X. Wan, and T. Zhou , Adaptive deep density approximation for fractional Fokker–Planck equations, Journal of Scientific Computing, 97 (2023), p. 68. [48] L. Zeng, X. Wan, and T. Zhou , Bounded KRnet and its applications to density estimation and approximation, SIAM Journal on Scientific Computing, 47 (2025), pp. C1294–C1318. [49] J. Zhai, M. Dobson, and Y. Li , A deep learning method for solving Fokker-Planck equations, in Mathematical and Scientific Machine Learning, PMLR, 2022, pp. 568–597. [50] M. Zhou, S. Osher, and W. Li , Simulating Fokker-Planck equations via mean field control of score-based normalizing flows, arXiv preprint arXiv:2506.05723, (2025). OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 23 
+
+Appendix A. Proof of Proposition 3.1. 
+
+Proof. Notice that the solution to the linearized SDE at time t is a Gaussian process, with PDF pσt (x) = N (x; Eσt [ cXt| cX0 = x0], Σt[ cXt| cX0 = x0]) given the ini-tial state x0. For notation simplicity, we omit the dependence on the initial state 
+
+x0 and write pσt (x) = N (x; Eσt [ cXt], Σt[ cXt]). Moreover, the linearized SDE and the original SDE share the same constant diffusion matrix, and ∇fν is bounded by assumption. In particular, if Cf = 0, then fσ (x) = fν (x) and consequently 
+
+σt = νt, which completes the proof. It remains to consider the case Cf > 0. It is easy to check that (1 + |x|)−2 Gij , (1 + |x|)−1 |fν | , (1 + |x|)−1|fν − fσ | ∈ 
+
+L1  Rd × [0 , t f ], {σt}0<t<t f
+
+ for some finite tf where 
+
+∥f ∥L1(Rd×[0 ,t f ],{σt}0<t<t f ) =
+
+Z tf
+
+> 0
+
+Z
+
+> Rd
+
+|f (x)|σt(d x)d t. 
+
+Thus, according to Theorem 1.1 in [4], we have (A.1) H (σt | νt) ≤ 12
+
+Z t
+
+> 0
+
+Z
+
+> Rd
+
+G−1/2(fσ (x) − fν (x)) 2
+
+dσsds. 
+
+Combining this result with the Pinsker–Csisz´ ar–Kullback inequality [16] yields (A.2) ∥νt − σt∥2TV ≤ 14
+
+Z t
+
+> 0
+
+Z
+
+> Rd
+
+G−1/2 (fσ (x) − fν (x)) 2
+
+dσsds. 
+
+Notice that Gσ = Gν = G is a constant, non-degenerate matrix, (A.3) G−1/2(fσ − fν ) 2
+
+= ( fσ − fν )T G−1(fσ − fν ) ≤ 1
+
+λmin (G) |fσ − fν |2 ,
+
+where λmin (G) is the smallest eigenvalue of G. Meanwhile, for any s > 0, we have 
+
+Z
+
+> Rd
+
+|fσ (x) − fν (x)|2 dσs ≤ 2
+
+Z
+
+> Rd
+
+|fσ (x) − fσ (x0)|2 + |fν (x0) − fν (x)|2 dσs
+
+= 2 
+
+Z
+
+> Rd
+
+|∇ fν (x0)( x − x0)|2 +
+
+Z 10
+
+∇fν (x0 + τ (x − x0))( x − x0)d τ
+
+> 2
+
+dσs
+
+≤ 4C2
+
+> f
+
+Z
+
+> Rd
+
+|x − x0|2 dσs = 4 C2 
+
+> f
+
+tr 
+
+
+
+Σs[ cXs]
+
+
+
++ 4 C2 
+
+> f
+
+Eσs [ cXs] − x0
+
+> 2
+
+,
+
+where the second inequality holds because ∥∇ fν (x)∥ ≤ Cf , ∀x ∈ Rd and the last equality holds because σs is a Gaussian measure with mean Eσs [ cXs] and covariance 
+
+Σs[ cXs]. We give upper bounds for the two terms tr 
+
+
+
+Σs[ cXs]
+
+
+
+and |Eσs [ cXs] − x0|2.tr 
+
+
+
+Σs[ cXs]
+
+
+
+=
+
+Z s
+
+> 0
+
+tr( e∇f (x0)( s−τ )gg ⊤e(∇f (x0)) ⊤(s−τ ))d τ
+
+≤ 2tr( G)
+
+Z s
+
+> 0
+
+σ2max 
+
+
+
+e∇f (x0)τ 
+
+dτ
+
+≤ 2tr( G)
+
+Z s
+
+> 0
+
+
+
+eσmax (∇f (x0)τ )2
+
+dτ ≤ 2tr( G)
+
+Z s
+
+> 0
+
+e2Cf τ dτ = tr( G) e2Cf s − 1
+
+Cf
+
+,
+
+where σmax (A) is the spectral norm of the matrix A. Meanwhile, equation (3.5) gives 
+
+|Eσs [ cXs] − x0|2 =
+
+Z s
+
+> 0
+
+e∇f (x0)τ f (x0)dτ 
+
+> 2
+
+≤ | f (x0)|2
+
+ eCf s − 1
+
+Cf
+
+2
+
+.24 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+Therefore, given x0, tr 
+
+
+
+Σs[ cXs]
+
+
+
+= O(s), Eσs [ cXs] − x0
+
+> 2
+
+= O(s2), resulting in 
+
+R 
+
+> Rd
+
+|fσ (x) − fν (x)|2dσs = O(s). Moreover, 
+
+H (σt | νt) ≤ 12λmin (G)
+
+Z t
+
+> 0
+
+Z
+
+> Rd
+
+|fσ (x) − fν (x)|2 dσsds, 
+
+≤ 2C2
+
+> f
+
+λmin (G)
+
+Z t
+
+> 0
+
+tr( G) e2Cf s − 1
+
+Cf
+
++ |f (x0)|2
+
+ eCf s − 1
+
+Cf
+
+2!
+
+ds
+
+= 2C2
+
+> f
+
+λmin (G)
+
+
+
+tr( G)  t2 + O(t3) + |f (x0)|2
+
+ 13 t3 + O(t4)
+
+ 
+
+= O(t2) as t → 0.
+
+Hence, ∥(νt − σt)∥2TV ≤ 12 H (σt | νt) = O(t2) as t → 0. Furthermore, if the Hessian of the drift fν is uniformly bounded by Hf , then 
+
+Z
+
+> Rd
+
+|fσ (x) − fν (x)|2 dσs
+
+=
+
+Z
+
+> Rd
+
+Z 10
+
+(1 − h)( x − x0)⊤Hess( x0 + h(x − x0))( x − x0)d h
+
+> 2
+
+dσs ≤ H2
+
+> f
+
+4
+
+Z
+
+> Rd
+
+|x − x0|4dσs.
+
+Z
+
+> Rd
+
+|x − x0|4dσs ≤ 8
+
+Z
+
+> Rd
+
+|x − Eσs [ cXs]|4dσs + 8 
+
+Z
+
+> Rd
+
+|Eσs [ cXs] − x0|4dσs
+
+≤ 24tr 2 
+
+Σs[ cXs]
+
+
+
++ 8 
+
+Z
+
+> Rd
+
+Z s
+
+> 0
+
+e∇f (x0)τ f (x0)dτ 
+
+> 4
+
+dσs
+
+≤ 24tr 2(G) (e2Cf s − 1) 2
+
+C2
+
+> f
+
++ 8 |f (x0)|4
+
+ eCf s − 1
+
+Cf
+
+4
+
+= 96tr 2(G)s2 + O(s3), s → 0,
+
+having used that R 
+
+> Rd
+
+|x−Eσs [ cXs]|4dσs = tr 2
+
+
+
+Σs[ cXs]
+
+
+
++2tr 
+
+
+
+Σs( cXs)2
+
+
+
+and tr 
+
+
+
+Σ2
+
+> s
+
+[ bXs]
+
+
+
+≤
+
+tr 2
+
+
+
+Σs[ cXs]
+
+
+
+. Hence, R t
+
+> 0
+
+R 
+
+> Rd
+
+|fσ (x) − fν (x)|2 dσsds ≤ H2
+
+> f
+> 4
+
+R t
+
+> 0
+
+R 
+
+> Rd
+
+|x − x0|4dσsds =8H2 
+
+> f
+
+tr 2(G)t3 + O(t4), as t → 0. Therefore, H (σt | νt) = O(t3), ∥νt − σt∥2 
+
+> T V
+
+= O(t3)as t → 0. 
+
+Appendix B. Proof of Proposition 3.2. 
+
+Proof. Let ρ = ν +σ, then ν ≪ ρ, σ ≪ ρ. Define pν := dν dρ , pσ := dσ dρ , thus ν = pν ρ,
+
+σ = pσ ρ, and pν + pσ = 1. For f = ( f 1, . . . , f m) ∈ L2(Rd, ν ; Rm) ∩ L2(Rd, σ ; Rm), 
+
+Z
+
+> Rd
+
+f (x)d ν(x) −
+
+Z
+
+> Rd
+
+f (x)d σ(x) =
+
+Z
+
+> Rd
+
+f (x)( pν (x) − pσ (x))d ρ(x)
+
+≤
+
+Z
+
+> Rd
+
+f (x)( pν (x) + pσ (x)) 12
+
+pν (x) − pσ (x)(pν (x) + pσ (x)) 12
+
+dρ(x)
+
+≤
+
+Z 
+
+> Rd
+
+|f (x)|2(pν (x) + pσ (x))d ρ(x)
+
+ 12 Z 
+
+> Rd
+
+(pν (x) − pσ (x)) 2
+
+pν (x) + pσ (x) dρ(x)
+
+ 12
+
+≤  ∥f ∥L2(Rd,ν ;Rm) + ∥f ∥L2(Rd,σ ;Rm)
+
+ p 2∥ν − σ∥TV .
+
+Appendix C. Proof of Proposition 3.3. OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 25 
+
+Proof. Let Π k : Rd → Rk denote the canonical projection onto the first k co-ordinates, that is, Π k(x1, x 2, · · · , x d) = ( x1, x 2, · · · , x k). The KR map Ti admits 
+
+Ti(x) = ( T 1 
+
+> i
+
+(x1), T 2 
+
+> i
+
+(x1, x 2), · · · , T di (x1, . . . , x d)). For 1 ≤ k ≤ d, denote its k-dimensional truncation by T (k) 
+
+> i
+
+(x(1: k)) = Π k ◦ Ti(x) where x(1: k) = ( x1, . . . , x k). We denote by μ(k) := Π k#μ and ν(k) 
+
+> i
+
+:= Π k#νi the k-dimensional marginal distribution of μ and νi, respectively. Their corresponding PDFs are denoted by p(k) 
+
+> μ
+
+and p(k) 
+
+> νi
+
+. By the definition of total variation distance, we have ∥ν(k) 
+
+> i
+
+− μ(k)∥TV ≤ ∥ νi − μ∥TV → 0.
+
+We now prove Ti(x) → x in μ-probability as i → ∞ by induction. We first show that T 1 
+
+> i
+
+(x1) → x1 in μ-probability as i → ∞ . Let F 1 
+
+> i
+
+and F 1
+
+be the cumulative distribution functions of ν(1)  
+
+> i
+
+and μ(1) , respectively. Let δ1 
+
+> i
+
+=sup x∈R |F 1 
+
+> i
+
+(x) − F 1(x)|. Since ∥ν(1)  
+
+> i
+
+− μ(1) ∥TV → 0, we have δ1 
+
+> i
+
+→ 0 as i → ∞ . Notice that T 1 
+
+> i
+
+(x1) = ( F 1 
+
+> i
+
+)(−1) ◦ F 1(x1), and ( F 1 
+
+> i
+
+)(−1) (s) = inf {y ∈ R : F 1 
+
+> i
+
+(y) ≥ s}. For any 
+
+ϵ > 0, if T 1 
+
+> i
+
+(x1) ≥ x1 + ϵ, then F 1 
+
+> i
+
+(x1 + ϵ) ≤ F 1(x1). Hence, F 1(x1 + ϵ) − F 1(x1) ≤
+
+F 1(x1 +ϵ)−F 1 
+
+> i
+
+(x1 +ϵ) ≤ δ1 
+
+> i
+
+. On the other hand, if T 1 
+
+> i
+
+(x1) ≤ x1 −ϵ, then F 1 
+
+> i
+
+(x1 −ϵ) ≥
+
+F 1(x1). Hence, F 1(x1) − F 1(x1 − ϵ) ≤ F 1 
+
+> i
+
+(x1 − ϵ) − F 1(x1 − ϵ) ≤ δ1 
+
+> i
+
+. Therefore, we have {| T 1 
+
+> i
+
+(x1) − x1| ≥ ϵ} ⊆ { F 1(x1) − F 1(x1 − ϵ) ≤ δ1 
+
+> i
+
+} ∪ { F 1(x1 + ϵ) − F 1(x1) ≤ δ1 
+
+> i
+
+}.Let Ω −(δ) = {x1 | F (x1) − F (x1 − ϵ) ≤ δ}, and Ω +(δ) = {x1 | F (x1 + ϵ) − F (x1) ≤ δ}.Thus, 
+
+μ(1)  |T 1 
+
+> i
+
+(x1) − x1| ≥ ϵ ≤μ(1)  Ω−(δ1 
+
+> i
+
+) + μ(1)  Ω+(δ1 
+
+> i
+
+) ,
+
+where μ(1)  Ω−(δ1 
+
+> i
+
+) = R 1Ω−(δ1 
+
+> i)
+
+(x1)d μ(1) (x1), and μ(1)    Ω+(δ1 
+
+> i
+
+) = R 1Ω+(δ1 
+
+> i)
+
+(x1)d μ(1) (x1). According to the dominated convergence theorem, we have lim  
+
+> i→∞
+
+μ(1)  Ω−(δ1 
+
+> i
+
+) =
+
+Z
+
+1Ω−(0) (x1)d μ(1) (x1) = μ(1) (Ω −(0)) = X
+
+> j∈Z
+
+μ(1) (Ω −(0) ∩(( j−1) ϵ, jϵ ]) .
+
+We note that x1 ∈ Ω−(0) implies F (x1) − F (x1 − ϵ) = 0. For any j ∈ Z, let 
+
+xj = sup {x1 ∈ Ω−(0) ∩ (( j − 1) ϵ, jϵ ]) }, then Ω −(0) ∩ (( j − 1) ϵ, jϵ ] ⊂ (( j − 1) ϵ, x j ] and 
+
+μ(1)  Ω−(0)  ≤ X
+
+> j∈Z
+
+μ(1) ((( j − 1) ϵ, x j ]) ≤ X
+
+> j∈Z
+
+μ(1) (( xj − ϵ, x j ]) = 0 .
+
+Thus, lim i→∞ μ(1)  Ω−(δ1 
+
+> i
+
+) = 0. Similarly, we have lim i→∞ μ(1)  Ω+(δ1 
+
+> i
+
+) = 0. Hence, lim i→∞ μ  {| T 1 
+
+> i
+
+(x1) − x1| ≥ ϵ} = 0, and T 1 
+
+> i
+
+(x1) → x1 in μ-probability as 
+
+i → ∞ .Suppose that for any 1 ≤ k ≤ d − 1, we have T ki (x(1: k)) → xk in μ-probability as 
+
+i → ∞ . We next prove that T k+1  
+
+> i
+
+(x(1: k+1) ) → xk+1 in μ-probability as i → ∞ . For notation simplicity, we write ζi,T (k)
+
+> i
+
+(d xk+1 ) := νi(dx k+1 | T (k) 
+
+> i
+
+(x(1: k))), ζi(d xk+1 ) := 
+
+νi(dx k+1 | x(1: k)), ζT (k)
+
+> i
+
+(d xk+1 ) := μ(dx k+1 | T (k) 
+
+> i
+
+(x(1: k))), and ζ(d xk+1 ) := μ(d xk+1 |
+
+x(1: k)). We show that (C.1) 
+
+Z
+
+∥ζi,T (k)
+
+> i
+
+− ζ∥TV dμ(k)(x(1: k)) → 0, as i → ∞ .
+
+Notice that 
+
+ζi,T (k)
+
+> i
+
+− ζ TV 
+
+≤ ζi,T (k)
+
+> i
+
+− ζT (k) 
+
+> iTV
+
++ ζT (k)
+
+> i
+
+− ζ TV 
+
+,26 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+and 
+
+Z
+
+∥ζi,T (k)
+
+> i
+
+− ζT (k)
+
+> i
+
+∥TV dμ(k)(x(1: k)) = 
+
+Z
+
+∥ζi − ζ∥TV dν(k) 
+
+> i
+
+(x(1: k))= 12
+
+Z
+
+|pνi (xk+1 |x(1: k)) − pμ(xk+1 |x(1: k))|p(k) 
+
+> νi
+
+(x(1: k))d xk+1 dx(1: k)
+
+≤ 12
+
+Z
+
+p(k+1)  
+
+> νi
+
+− p(k+1)  
+
+> μ
+
+dx(1: k+1) + 12
+
+Z
+
+p(k) 
+
+> μ
+
+− p(k) 
+
+> νi
+
+dx(1: k)
+
+=∥ν(k+1)  
+
+> i
+
+− μ(k+1) ∥TV + ∥ν(k) 
+
+> i
+
+− μ(k)∥TV ≤ 2∥νi − μ∥TV → 0, as i → ∞ .
+
+Therefore, to prove (C.1), we only need to show R ∥ζT (k)
+
+> i
+
+− ζ∥TV dμ(k) goes to 0 as 
+
+i → ∞ . Since μ is absolutely continuous and R pμ(xk+1 |x(1: k))d xk+1 = 1 for μ(k)-a.e. x(1: k), pμ(xk+1 |x(1: k)) can be regarded as a L1(R) function for μ(k)-a.e. x(1: k).According to Lemma 1.2.31 in [20], for any ϵ > 0, there exists a bounded continuous 
+
+L1(R) function ϕ(xk+1 , x(1: k)) with ∥ϕ∥∞ := sup z∈Rk ∥ϕ(·, z)∥L1(R)such that 
+
+Hϕ := 
+
+Z
+
+∥pμ(xk+1 |x(1: k)) − ϕ(xk+1 , x(1: k))∥L1(R)dμ(k)(x(1: k)) < ϵ. 
+
+Thus, (C.2) 
+
+Z
+
+∥ζT (k)
+
+> i
+
+− ζ∥TV dμ(k)(x(1: k))= 12
+
+Z
+
+∥pμ(xk+1 |T (k) 
+
+> i
+
+(x(1: k))) − pμ(xk+1 |x(1: k))∥L1(R)dμ(k)(x(1: k))
+
+≤ 12
+
+Z
+
+∥pμ(xk+1 |T (k) 
+
+> i
+
+(x(1: k))) − ϕ(xk+1 , T (k) 
+
+> i
+
+(x(1: k))) ∥L1(R)dμ(k)(x(1: k))+ 12
+
+Z
+
+∥ϕ(xk+1 , T (k) 
+
+> i
+
+(x(1: k))) − ϕ(xk+1 , x(1: k))∥L1(R)dμ(k)(x(1: k)) + 12 Hϕ.
+
+Since T (k) 
+
+> i#
+
+μ(k) = ν(k) 
+
+> i
+
+and ∥ν(k) 
+
+> i
+
+− μ(k)∥TV → 0, there exists i0 ∈ N such that 
+
+∥ν(k) 
+
+> i
+
+− μ(k)∥TV < ϵ 
+
+> 1+ ∥ϕ∥∞
+
+for any i ≥ i0. Then for i ≥ i0, we have (C.3) 
+
+Z
+
+∥pμ(xk+1 |T (k) 
+
+> i
+
+(x(1: k))) − ϕ(xk+1 , T (k) 
+
+> i
+
+(x(1: k))) ∥L1(R)dμ(k)(x(1: k))=
+
+Z
+
+∥pμ(xk+1 |x(1: k))) − ϕ(xk+1 , x(1: k))∥L1(R)dν(k) 
+
+> i
+
+(x(1: k))=Hϕ +
+
+Z
+
+∥pμ(xk+1 |x(1: k))) − ϕ(xk+1 , x(1: k))∥L1(R)d( ν(k) 
+
+> i
+
+− μ(k))( x(1: k))
+
+<ϵ + 2(1 + ∥ϕ∥∞)∥ν(k) 
+
+> i
+
+− μ(k)∥TV < 3ϵ. 
+
+Meanwhile, T (k) 
+
+> i
+
+(x(1: k)) → x(1: k) in μ-probability as i → ∞ and ϕ(xk+1 , x(1: k)) is a bounded continuous function. Hence, ϕ(xk+1 , T (k) 
+
+> i
+
+(x(1: k))) → ϕ(xk+1 , x(1: k)) in μ(k)-probability with respect to the L1 norm as i → ∞ . Since ϕ is bounded, hence inte-grable, according to the Vitali convergence theorem [14], we have R ∥ϕ(·, T (k) 
+
+> i
+
+(x1: k)) −
+
+ϕ(·, x(1: k))∥L1(R)dμ(k)(x1: k) → 0 as i → ∞ . Thus, there exists i1 ∈ N such that (C.4) 
+
+Z
+
+∥ϕ(·, T (k) 
+
+> i
+
+(x1: k)) − ϕ(·, x(1: k))∥L1(R)dμ(k)(x1: k) < ϵ, for any i ≥ i1.OPERATOR LEARNING FOR FOKKER-PLANCK EQUATIONS 27 Substituting equation (C.3) and equation (C.4) into equation (C.2) gives R ∥ζi,T (k)
+
+> i
+
+−
+
+ζ∥TV dμ(k) < 52 ϵ as i > max {i0, i 1}. Hence, lim i→∞ 
+
+R ∥ζi,T (k)
+
+> i
+
+− ζ∥TV dμ(k) = 0 and equation (C.1) holds. For μ(k)-a.e. x(1: k), T k+1  
+
+> i
+
+(x(1: k), x k+1 ) is a one-dimensional KR map from ζ to ζi,T (k)
+
+> i
+
+. Let F k+1  
+
+> i
+
+and F k+1 be the cumulative distribution functions of 
+
+ζ and ζi,T (k)
+
+> i
+
+, respectively. Denote δk+1  
+
+> i
+
+(x(1: k)) = sup xk+1 |F k+1  
+
+> i
+
+(xk+1 ) − F k+1 (xk+1 )|.Then 
+
+Z
+
+δk+1  
+
+> i
+
+(x(1: k))d μ(k)(x(1: k)) ≤ 2
+
+Z
+
+ζi,T (k)
+
+> i
+
+− ζ TV 
+
+dμ(k)(x(1: k)) → 0.
+
+We want to show that μ(k+1)  |T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ → 0 as i → ∞ or equivalently, for any 
+
+η > 0, ∃iη ∈ N : μ(k+1) 
+
+|T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ
+
+
+
+≤ η, ∀i ≥ iη .
+
+Let Rδ (x(1: k)) = ζ  F k+1 (xk+1 ) − F k+1 (xk+1 − ϵ) ≤ δ+ζ  F k+1 (xk+1 + ϵ) − F k+1 (xk+1 ) ≤ δ.Following the same argument as for T 1 
+
+> i
+
+and since 0 ≤ Rδ ≤ 2, we have for any 
+
+ϵ > 0, R Rδ dμ(k) → 0 as δ → 0. Let here δη be s.t. R Rδ dμ(k) ≤ η/ 2. Since 
+
+R δk+1  
+
+> i
+
+(x(1: k))d μ(k) → 0 as i → ∞ , there exists iη s.t. R δk+1  
+
+> i
+
+(x(1: k))d μ(k) ≤ δη · η/ 2, 
+
+∀i ≥ iη . Using that {| T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ} ∩ { δk+1  
+
+> i
+
+≤ δη } ⊂ { F k+1 (xk+1 ) −
+
+F k+1 (xk+1 − ϵ) ≤ δη } ∪ { F k+1 (xk+1 + ϵ) − F k+1 (xk+1 ) ≤ δη }, we have 
+
+μ(k+1) 
+
+|T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ
+
+
+
+=μ(k+1) 
+
+|T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ, δ k+1  
+
+> i
+
+(x(1: k)) ≤ δη
+
+
+
++ μ(k+1) 
+
+|T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ, δ k+1  
+
+> i
+
+(x(1: k)) > δ η
+
+
+
+≤
+
+Z
+
+ζ(|T k+1  
+
+> i
+
+(x(1: k+1) ) − xk+1 | ≥ ϵ)1 δk+1   
+
+> i(x(1: k))≤δη
+
+dμ(k) + μ(k+1) (δk+1  
+
+> i
+
+> δ η )
+
+≤
+
+Z
+
+Rδη (x(1: k))d μ(k)(x(1: k)) + μk+1 (δk+1  
+
+> i
+
+> δ η )
+
+≤ η
+
+2 + 1
+
+δη
+
+Z
+
+δk+1  
+
+> i
+
+(x(1: k))d μ(k) ≤ η, ∀i ≥ iη ,
+
+which shows that T k+1  
+
+> i
+
+(x(1: k+1) ) → xk+1 in μ(k+1) -probability. We now prove that lim i→∞ 
+
+R 
+
+> Rd
+
+|Ti(x) − x|2dμ(x) = 0. Since Ti# μ = νi,
+
+Z
+
+> Rd
+
+|Ti(x)|2dμ(x) = 
+
+Z
+
+> Rd
+
+|x|2dνi(x) →
+
+Z
+
+> Rd
+
+|x|2dμ(x), as i → ∞ .
+
+That is to say, ∥Ti∥L2(Rd,μ ) → ∥ id ∥L2(Rd,μ ) as i → ∞ . On the other hand, 2 |Ti(x)·x| ≤ |Ti(x)|2 + |x|2, and {Ti}i≥1 are uniformly integrable in L1(μ). Thus, according to the Vitali convergence theorem [14], we have R 
+
+> Rd
+
+Ti(x) · xdμ(x) → R 
+
+> Rd
+
+|x|2dμ(x), as 
+
+i → ∞ . Hence, 
+
+∥Ti − id ∥2 
+
+> L2(Rd,μ )
+
+=∥Ti∥2 
+
+> L2(Rd,μ )
+
++ ∥id ∥2 
+
+> L2(Rd,μ )
+
+− 2
+
+Z
+
+> Rd
+
+Ti(x) · xdμ(x) → 0, as i → ∞ .
+
+Therefore, ∥Ti − id ∥2 
+
+> L2(μ)
+
+→ 0 as i → ∞ .28 LI ZENG, XIAOLIANG WAN, YAOBIN WANG, FABIO NOBILE AND TAO ZHOU 
+
+Appendix D. Proof of Proposition 4.1. 
+
+Proof. For any ˜ p(x, t |x0) = N (x; m(t), Σ(t)) , Σ(t) ∼ tG, we have, 
+
+∂ ˜p∂t = ˜ p
+
+
+
+− 12 tr 
+
+
+
+Σ−1 dΣ
+
+dt
+
+
+
++ dm⊤
+
+dt Σ−1(x − m) + 12 (x − m)⊤Σ−1 dΣ
+
+dt Σ−1(x − m)
+
+
+
+,
+
+∇˜p = ˜ p(−Σ−1(x − m)) , ∇ · ∇ · (gg ⊤ ˜p) = ˜ p(g⊤Σ−1(x − m)) 2 − ˜pg⊤Σ−1g.
+
+Hence, r(x, x0, t ; ˜ p) = ˜ p˜r(x, x0, t ; ˜ p), where ˜r(x, x0, t ; ˜ p) = − 12 tr 
+
+
+
+Σ−1 dΣ
+
+dt
+
+
+
++ dm⊤
+
+dt Σ−1(x − m) + 12 (x − m)⊤Σ−1 dΣ
+
+dt Σ−1(x − m)+ ∇ · f − f ⊤Σ−1(x − m) − 12 (g⊤Σ−1(x − m)) 2 + 12 g⊤Σ−1g.
+
+Thus, |˜r(x, x0, t ; ˜ p)| ≤ ˜C0 + ˜C1t−1 + ˜C2|x − m|t−1 + ˜C3|x − m|2t−1 + ˜C4|x − m|2t−2.
+
+|˜r(x, x0, t ; ˜ p)|2 ≤(C0 + C1t−1 + C2t−2) + ( C3t−1 + C4t−2)|x − m|
+
++ ( C5t−1 + C6t−2 + C7t−3)|x − m|2 + ( C8t−2 + C9t−3)|x − m|3
+
++ ( C10 t−2 + C11 t−3 + C12 t−4)|x − m|4.
+
+Notice that  EX∼N (x;m,Σ) [|X − m|]2 ≤ EX∼N (x;m,Σ)
+
+|X − m|2.
+
+EX∼N (x;m,Σ)
+
+|X − m|2 = tr( Σ), EX∼N (x;m,Σ)
+
+|X − m|4 = tr 2(Σ) + 2tr( Σ2), 
+
+EX∼N (x;m,Σ)
+
+|X − m|6 = tr 3(Σ) + 6tr( Σ)tr( Σ2) + 8tr( Σ3). Thus, 
+
+Z
+
+> Rd
+
+|r(x, x0, t ; ˜ p)|2dx = (4 π)− d 
+
+> 2
+
+(det( Σ)) − 12 EX∼N (x;m, Σ 
+
+> 2
+
+)
+
+|˜r(x, x0, t ; ˜ p)|2
+
+≤(4 π)− d 
+
+> 2
+
+(det( Σ)) − 12 C0 + C1t−1 + C2t−2 + ( C3t−1 + C4t−2)
+
+r tr( Σ)2+ 12 (C5t−1 + C6t−2 + C7t−3)tr( Σ) + ( C8t−2 + C9t−3)
+
+r 18 tr 3(Σ) + 34 tr( Σ)tr( Σ2) + tr( Σ3)+( C10 t−2 + C11 t−3 + C12 t−4)
+
+ 14 tr 2(Σ) + 12 tr( Σ2)
+
+ 
+
+= O(t−d/ 2−2) as t → 0.
+
+Similarly, 
+
+Z
+
+> Rd
+
+|r(x, x0, t ; ˜ p)|2 ˜pdx = (2 √3π)−d(det( Σ)) −1EX∼N (x;m, Σ 
+
+> 3
+
+)
+
+|˜r(x, x0, t ; ˜ p)|2
+
+≤(2 √3π)−d(det( Σ)) −1 C0 + C1t−1 + C2t−2 + ( C3t−1 + C4t−2)
+
+r tr( Σ)3+ 13 (C5t−1 + C6t−2 + C7t−3)tr( Σ) + ( C8t−2 + C9t−3)
+
+r 127 tr 3(Σ) + 29 tr( Σ)tr( Σ2) + 827 tr( Σ3)+( C10 t−2 + C11 t−3 + C12 t−4)
+
+ 19 tr 2(Σ) + 29 tr( Σ2)
+
+ 
+
+= O(t−(d+2) ) as t → 0.

@@ -1,0 +1,552 @@
+Title: Operator learning for the 2D incompressible Navier-Stokes equations: a conformal prediction approach in the data-scarce regime
+
+URL Source: https://arxiv.org/pdf/2606.08654v1
+
+Published Time: Tue, 09 Jun 2026 01:17:11 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Operator learning for the 2D incompressible Navier-Stokes equations: a conformal prediction approach in the data-scarce regime 
+
+Weinan Wang 1 Bowen Gang 2 Hao Deng 2
+
+June 9, 2026 
+
+> 1
+
+Department of Mathematics, University of Oklahoma, Norman, OK, USA 
+
+> 2
+
+Department of Statistics and Data Science, School of Management, Fudan University, Shang-hai, China Email: bgang@fudan.edu.cn , ww@ou.edu , haodeng0617@gmail.com 
+
+Abstract 
+
+In this paper, we propose a perturbation-based conformal prediction framework for un-certainty quantification in operator learning, with a focus on the 2D Navier–Stokes equa-tions. While neural operators provide fast surrogates for expensive PDE solvers, they do not by themselves provide calibrated uncertainty for spatiotemporal field predictions. Our approach wraps a trained Fourier Neural Operator (FNO) with split conformal prediction and constructs the local uncertainty scale by comparing the predictions of two operators trained on nearly identical datasets: one on the original labels and one on labels perturbed by small Gaussian noise. We consider this procedure in the data-scarce regime, where the total label budget is fixed and methods that require a separate uncertainty network must divide training data between multiple models. On the 2D Navier–Stokes benchmark, the perturbation-based method produces substantially narrower conformal bands than existing methods under matched total data budgets while maintaining the target simultaneous cov-erage. These results suggest that perturbation sensitivity is a practical and sample-efficient uncertainty proxy for conformalized neural operators. 
+
+# Contents 
+
+1 Introduction 2
+
+1.1 Paper organization . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 3
+
+2 Problem Formulation 3
+
+2.1 Discretization and Uncertainty Quantification . . . . . . . . . . . . . . . . . . . . 4
+
+3 Preliminaries: Split Conformal Prediction 44 Methodology: Perturbation-Based Nonconformity Score 5
+
+4.1 Perturbation-Based Uncertainty Scale and Calibration . . . . . . . . . . . . . . . 54.2 Practical Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 7
+
+5 Experiments 8
+
+5.1 Dataset and experimental protocol . . . . . . . . . . . . . . . . . . . . . . . . . . 85.2 Experiment Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 95.3 Ablation: smoothing and floor stabilization . . . . . . . . . . . . . . . . . . . . . 91
+
+> arXiv:2606.08654v1 [cs.LG] 7 Jun 2026
+
+5.4 Sensitivity to perturbation noise . . . . . . . . . . . . . . . . . . . . . . . . . . . 10 5.5 Qualitative structure and diagnostics . . . . . . . . . . . . . . . . . . . . . . . . . 11 
+
+6 Conclusion 12 
+
+# 1 Introduction 
+
+In this paper, we consider operator learning for the 2D incompressible Navier-Stokes equa-tions with a perturbation-based uncertainty scale. Neural operators provide fast surrogates for time-dependent PDE solution maps, but their point predictions do not quantify the spatially and temporally varying error of the learned surrogate. This limitation is especially important for Navier–Stokes rollouts, where a small number of training trajectories must often support predictions over a high-dimensional spatiotemporal grid. Classical numerical PDE solvers, in-cluding finite element, finite volume, and spectral methods, are accurate and well established, yet their computational cost becomes prohibitive in regimes requiring fine spatial resolution, long temporal horizons, or repeated evaluations. [34, 19, 41]. For incompressible Navier–Stokes, classical well-posedness and numerical stability considerations motivate grid-based solvers that are accurate but computationally intensive at fine resolution [39]. Operator learning offers a complementary, data-driven route: rather than solving a PDE from scratch for each instance, one learns a mapping from inputs to outputs [15, 38, 4, 30]. Neural operators formalize learning resolution-invariant maps between function spaces, making them attractive surrogates for para-metric PDE solution operators [14, 44]. Neural operator architectures such as the Fourier Neural Operator [20] and DeepONet [22] are designed to approximate mappings between discretized function spaces and can generalize across discretizations [37, 27, 14]. This operator-learning viewpoint is also closely related to recent work on inverse problems, including neural inverse op-erators, probabilistic perspectives on operator learning for inverse problems, stochastic inverse problems, and PDE-constrained inverse-problem formulations [28, 31, 21, 42]. In addition, the effectiveness of learned operators depends strongly on the amount and distribution of training data, a point that has recently been emphasized in training-distribution selection and out-of-distribution analysis [10]. However, because neural operators are approximate models trained on finite data, their errors vary across regimes, forecast horizons, and input distributions. In safety-critical or decision-making settings, point predictions are therefore insufficient, and one needs uncertainty quantification (UQ) for structured outputs , namely complete spatiotemporal fields [26, 11, 32, 9, 25, 16, 5]. Conformal prediction (CP) provides distribution-free, finite-sample marginal coverage guar-antees under exchangeability [43, 18, 1], and recent work has adapted the framework to oper-ator learning for functional outputs [23, 29, 5, 45]. The standard validity guarantee is strictly marginal. This marginal guarantee does not ensure uniform performance across specific inputs or individual output coordinates. In practice, we want adaptive prediction bands that maintain approximately uniform conditional coverage at each spatiotemporal point, expanding in regions of high predictive uncertainty and contracting where the surrogate is precise. Achieving exact distribution-free conditional coverage is generally impossible for nontrivial prediction sets [7]. This limitation motivates the pursuit of simultaneous coverage over all output coordinates, com-bined with a carefully designed nonconformity score to approximate conditional calibration. The adaptivity of the resulting bands depends critically on this score. A well-scaled nonconformity function can produce prediction sets that satisfy marginal or simultaneous validity while still responding to local difficulty. Naive residual-based scores, which normalize absolute residuals by a global or per-coordinate standard deviation, typically yield constant-width bands [33, 17]. Although statistically valid, constant-width bands are inefficient and physically uninformative for fluid dynamics. Reliable uncertainty quantification requires bands that widen in turbulent, high-gradient regions and contract in smoother laminar areas. Existing adaptive methods fre-2quently address this by training auxiliary error models, such as quantile regression networks, to estimate local uncertainty scales [23, 36]. This approach introduces additional optimization complexity and increases the risk of overfitting the uncertainty model to the calibration set. The central idea of this present paper is to measure how much the learned operator changes when the training labels are slightly corrupted: if a particular output coordinate varies sub-stantially under this perturbation, then the corresponding prediction should receive a wider uncertainty budget. Concretely, we train two Fourier Neural Operators with identical architec-tures, one on the original training data and one on perturbed labels, and use their pointwise disagreement as the raw uncertainty measure. We then conformalize this measure with a max-type nonconformity score to obtain simultaneous coverage over the full spatiotemporal grid. Our experiments focus on the data-scarce regime, where this construction has a natural ad-vantage over methods such as UQNO that must reserve a disjoint subset of labels to train a secondary uncertainty network. Across the Navier–Stokes benchmark, the resulting conformal bands are consistently narrower than those produced by MC Dropout, Laplace approximation, and UQNO under matched total data budgets. 
+
+1.1 Paper organization 
+
+The rest of the paper is organized as follows. Section 2 formulates the finite-grid prediction prob-lem and Section 3 reviews the split-conformal guarantee. Sections 4–5 present the perturbation-scaled score, implementation details, and numerical results for the Navier–Stokes benchmark. 
+
+# 2 Problem Formulation 
+
+We consider the two-dimensional incompressible Navier–Stokes equations on the periodic do-main T2 in vorticity form 
+
+∂tω + v · ∇ ω = ν∆ω + f (x), t ∈ (0 , T ], (2.1) together with incompressibility ∇ · v = 0 and initial condition ω(x, 0) = w0(x). Here ω =
+
+ω(x, t ) = ∇ × v denotes vorticity, v = v(x, t ) denotes velocity vector field, ν > 0 is the viscosity, and f is an external forcing. Under periodic boundary conditions, v can be recovered from ω
+
+through a stream function ψ satisfying −∆ψ = ω and v = ∇⊥ψ. In the sequel, u and u denote the future vorticity trajectory and its discretization, not the velocity field. For a fixed forcing f , the PDE induces a solution map that propagates the state forward in time. In many operator-learning benchmarks, the goal is not to predict a single scalar but to learn the operator that maps an input specification (e.g. an initial condition) to a future field trajectory. To reflect the data used in our experiments, we formulate the solution operator on a finite input horizon Tin and an output horizon Tout as follows. Let {tℓ}Tin +Tout  
+
+> ℓ=1
+
+be discrete times with uniform step size ∆t. Define the continuous-time input history and future rollout as the collections 
+
+a := {w(·, t 1), . . . , w (·, t Tin )}, u := {w(·, t Tin +1 ), . . . , w (·, t Tin +Tout )}.
+
+We view a and u as elements of suitable function spaces (e.g. L2(T2) at each time slice). The corresponding (unknown) solution operator is 
+
+G : a 7 → u. (2.2) The unknown operator G depends implicitly on ν, f , and on the time grid. In dataset generation, randomness enters through the sampling of initial conditions, inducing a distribution over (a, u )
+
+pairs. Ideally, we would like to construct an uncertainty set C for the operator G such that 
+
+P(G ∈ C ) ≥ 1 − α (2.3) 3for a prescribed confidence level 1 − α. In practice, however, we work with discretized represen-tations of these continuous objects. 
+
+2.1 Discretization and Uncertainty Quantification 
+
+We use non-bold symbols such as a, u for the continuous fields or trajectories and bold symbols such as a, u for their vectorized discretizations. The observed data are 
+
+Dobs = {(ai, ui)}Mi=1 .
+
+The subscript indexes the sample, while superscripts index vector entries; for example, aki
+
+denotes the kth component of ai.The operator learning problem is defined on a finite spatial grid Dh = {x1, . . . , x N } ⊂ T2
+
+(e.g., N = nxny for a uniform mesh) and a discrete output timeline Tout = {tTin +1 , . . . , t Tin +Tout }.We define the finite-dimensional input vector a ∈ Rdin (where din = N T in ) by flattening the vorticity field values over the grid Dh at the Tin input time steps. Similarly, we define the target output vector u ∈ Rdout (where dout = N T out ) by stacking the field values over Dh at the 
+
+Tout output time steps. With this convention, the discrete ground-truth operator G acts as a mapping between finite-dimensional Euclidean spaces: 
+
+G : Rdin → Rdout . (2.4) Given a new query input anew , our objective is to construct an uncertainty set C(anew ) ⊆ Rdout 
+
+that satisfies the following marginal coverage guarantee: 
+
+P (unew ∈ C (anew )) ≥ 1 − α, (2.5) for a prespecified miscoverage rate α ∈ (0 , 1) . We assume that the new data point (anew , unew )
+
+and the observed data Dobs are exchangeable [40, 2]. 
+
+Remark 2.1 (Pointwise vs. Simultaneous Coverage) . It is important to distinguish the goal in 
+
+(2.5) from that in (2.3) . Our formulation constructs a prediction set for the output of G at a 
+
+specific, random test point. A rigorous uncertainty set for the operator G itself would require a 
+
+simultaneous coverage guarantee. That is, one would seek a set-valued mapping C : Rdin → 2Rdout 
+
+satisfying: 
+
+PDobs 
+
+(
+
+G(a) ∈ C (a), ∀a ∈ Rdin 
+
+)
+
+≥ 1 − α. (2.6) 
+
+The condition in (2.6) requires C(a) to contain the ground-truth trajectory G(a) for every possible input a in the domain simultaneously. While theoretically significant, achieving such uniform convergence guarantees requires strict assumptions on the complexity of G and is computationally demanding; we therefore focus on achieving (2.5) .
+
+# 3 Preliminaries: Split Conformal Prediction 
+
+We briefly review the split conformal prediction framework, a distribution-free method for constructing valid predictive uncertainty sets. Let Dn = {(Xi, Y i)}ni=1 be a dataset of n ex-changeable input-output pairs drawn from a joint distribution PXY over X × Y . For a new test point Xn+1 , our goal is to construct a prediction set C(Xn+1 ) ⊆ Y that contains the unknown response Yn+1 with probability at least 1 − α.In the split conformal protocol, the dataset Dn is randomly partitioned into two disjoint subsets: a proper training set indexed by Itrain and a calibration set indexed by Ical , such that 
+
+Itrain ∪ I cal = {1, . . . , n } [33]. The training data {(Xi, Y i) : i ∈ I train } are used only to learn a nonconformity score function 
+
+S : X × Y → R,
+
+4which quantifies how atypical a candidate pair (x, y ) is. Once S is fitted on the training set it is treated as fixed during calibration. Nonconformity scores are then computed on the calibration data: 
+
+Vi := S(Xi, Y i), i ∈ I cal .
+
+Write {V(1) ≤ V(2) ≤ · · · ≤ V(ncal )} for the ordered calibration scores and set 
+
+k := ⌈(|I cal | + 1)(1 − α)⌉,̂ Q1−α := V(k).
+
+When k > n cal , the usual split-conformal convention is to set ̂ Q1−α = + ∞; equivalently, finite nontrivial bands at level 1 − α require ⌈(ncal + 1)(1 − α)⌉ ≤ ncal . The split conformal prediction set for a new input x is then 
+
+C(x) = { y ∈ Y : S(x, y ) ≤̂ Q1−α }. (3.1) We have the following theoretical guarantee. The proof can be found in Angelopoulos and Bates [1]. 
+
+Theorem 3.1 (Marginal Coverage) . Assume that the data points {(Xi, Y i)}n+1  
+
+> i=1
+
+are exchange-able. Let C(Xn+1 ) be the set constructed via split conformal prediction as defined in (3.1) . Then, for any distribution PXY and any choice of score function S,
+
+P (Yn+1 ∈ C (Xn+1 )) ≥ 1 − α. (3.2) 
+
+# 4 Methodology: Perturbation-Based Nonconformity Score 
+
+The marginal coverage guarantee of split conformal prediction holds regardless of the choice of the nonconformity score function, provided the data are exchangeable. However, the efficiency of the resulting prediction bands depends critically on the uncertainty scale used to normalize the residuals. A naive choice such as the unnormalized residual S(a, u) = ∥u−̂ G(a)∥∞ produces constant-width bands, which are typically too conservative for operator-valued predictions on heterogeneous spatiotemporal domains. To construct adaptive uncertainty sets, we employ a normalized max-type nonconformity score of the form 
+
+S(a, u) = max 
+
+> k≤dout
+> ∣∣∣
+
+uk −̂ G(a)k∣∣∣
+
+σ(a)k , (4.1) where k indexes the spatiotemporal output coordinates. The efficiency of the resulting conformal bands depends critically on the local scale σ(a)k, which should reflect the predictive uncertainty at each output coordinate. An effective scale must adapt to spatially varying difficulty: it should assign wider prediction bands to coordinates where the surrogate is sensitive to training noise, and narrower bands where the operator response remains stable. Our construction is guided by a stability principle: if a particular output coordinate varies substantially under small perturbations of the training labels, the corresponding prediction should be treated as uncertain; conversely, stable coordinates should receive a smaller scale. We operationalize this principle by measuring the pointwise disagreement between two neural operators trained on nearly identical datasets. The explicit construction of σ(a) from this disagreement, together with the necessary spatial smoothing and floor stabilization, is detailed in the following subsection. 
+
+4.1 Perturbation-Based Uncertainty Scale and Calibration 
+
+Let {(ai, ui)}i∈I train denote the training set. We first train a base neural operator ̂ G on the original pairs (ai, ui). We then construct perturbed labels by adding independent Gaussian noise to the outputs: 
+
+> ˜
+
+ui = ui + εi, εki
+
+> iid
+
+∼ N (0 , σ 2 
+
+> ε
+
+), σε = c × std( utrain ), (4.2) 5with default c = 0 .05 and std denotes the standard deviation. A second neural operator, denoted ̂
+
+Gε, is trained on the perturbed pairs (ai, ˜ui) using the same architecture and optimization protocol as the base model. Both operators use the full proper training set, so no disjoint subset must be reserved to train a separate model to measure uncertainty. For a new input a,we define the raw perturbation disagreement at output coordinate k by 
+
+d(a)k := 
+
+> ∣∣∣̂
+
+G(a)k −̂ Gε(a)k∣∣∣ , k = 1 , . . . , d out . (4.3) This quantity measures the sensitivity of the learned prediction to small perturbations of the training labels. We intend to use this disagreement as a local scale in a normalized nonconfor-mity score, which divides the absolute residual at each coordinate by the corresponding scale. Because the scale appears in the denominator and the final score is defined as a maximum over all output coordinates, isolated near-zero values of d(a)k would produce arbitrarily large ratios for individual calibration samples. To prevent this, we apply two regularization steps. First, we smooth the disagreement map spatially at each output time step. Writing a coordinate as k ≡ (s1, s 2, t ), we define 
+
+¯d(a)(s1,s 2,t ) := 1
+
+|N K (s1, s 2)| 
+
+> ∑
+> (s′
+> 1,s ′
+> 2)∈N K(s1,s 2)
+
+d(a)(s′
+
+> 1,s ′
+> 2,t )
+
+, (4.4) where NK (s1, s 2) is a K×K spatial neighborhood centered at (s1, s 2) with appropriate boundary handling. In the experiments, we use a 15 × 15 smoothing window. Second, to ensure the denominator remains uniformly bounded away from zero, we impose a data-dependent floor computed from the proper training set: 
+
+σ(a)k := max { ¯d(a)k, τ 0
+
+> }
+
+, τ0 := 0 .1 × median 
+
+> {
+
+d(ai)k : i ∈ I train , k = 1 , . . . , d out 
+
+> }
+
+. (4.5) 
+
+Remark 4.1 (Stability Interpretation) . The perturbation εi may be interpreted as a proxy for numerical error in the solver-generated training outputs, or more generally as a small pertur-bation of the response variable [3]. Under this interpretation, the scale σ(a)k measures how strongly output coordinate k changes when the training labels are slightly corrupted. Large val-ues of σ(a)k indicate locally unstable or hard-to-learn predictions, whereas small values indicate stable predictions that are comparatively insensitive to perturbations in the training data. 
+
+Perturbation-Scaled Nonconformity Score. With the stabilized uncertainty map σ(a)
+
+defined above, we construct the conformal score by normalizing the calibration residuals. For each calibration sample i ∈ I cal , let ri = ui −̂ G(ai). We then define 
+
+Si = max 
+
+> k∈{ 1,...,d out }
+> ∣∣∣
+
+rki
+
+> ∣∣∣
+
+σ(ai)k . (4.6) By taking the maximum over all output coordinates, this score targets simultaneous coverage over the entire spatiotemporal grid. 
+
+Calibration and Prediction Sets. Following split conformal prediction, let S(1) ≤ · · · ≤ 
+
+S(n) denote the ordered calibration scores, where n = |I cal |. For target coverage level 1 − α, we define ̂
+
+Q1−α := S(⌈(n+1)(1 −α)⌉). (4.7) For a new test input anew , we compute the base prediction ̂ unew =̂ G(anew ) together with the perturbation-derived scale σ(anew ), and define the prediction bands coordinate-wise by 
+
+C(anew )k =
+
+> [̂
+
+uk 
+
+> new
+
+−̂ Q1−ασ(anew )k,̂ uk 
+
+> new
+
++̂ Q1−ασ(anew )k]
+
+. (4.8) We have the following theoretical guarantee. 6Theorem 4.2. Assume the calibration data {(ai, ui)}i∈I cal and the test point (anew , unew ) are exchangeable. Let C(anew ) be defined by (4.8) . Then 
+
+P
+
+(
+
+uk 
+
+> new
+
+∈ C (anew )k, ∀k ∈ { 1, . . . , d out }
+
+)
+
+≥ 1 − α. (4.9) 
+
+Proof. Let Dtrain = {(ai, ui)}i∈I train denote the training set, and let ε denote the collection of Gaussian perturbations used to construct the noisy labels for the second operator ̂ Gε. Con-ditional on the σ-algebra generated by Dtrain and ε, both the local scale mapping a 7 → σ(a)
+
+defined in (4.5) and the nonconformity score function 
+
+S(a, u) = max 
+
+> k∈{ 1,...,d out }
+
+|uk −̂ G(a)k|
+
+σ(a)k
+
+are deterministic. In particular, they do not depend on the calibration or test data. Define the calibration scores Si = S(ai, ui) for i ∈ I cal and the test score Snew = S(anew , unew ).Because the augmented collection {(ai, ui)}i∈I cal ∪{ new } is exchangeable and the score function S
+
+is identical and fixed for each pair, the resulting scores {Si}i∈I cal ∪ { Snew } are exchangeable. Let 
+
+n = |I cal |, and let S(1) ≤ · · · ≤ S(n) denote the ordered calibration scores. The split-conformal quantile is constructed as ̂ Q1−α = S(⌈(n+1)(1 −α)⌉) as in (4.7). By Theorem 1 of Angelopoulos and Bates [1] we have 
+
+P
+
+(
+
+Snew ≤̂ Q1−α
+
+∣∣ Dtrain , ε
+
+)
+
+≥ 1 − α. 
+
+By the definition of the max-type score, the event Snew ≤̂ Q1−α is equivalent to the system of inequalities 
+
+|uk 
+
+> new
+
+−̂ G(anew )k|
+
+σ(anew )k ≤̂ Q1−α, k = 1 , . . . , d out .
+
+Rearranging each inequality yields 
+
+uk 
+
+> new
+
+∈
+
+[̂ 
+
+G(anew )k −̂ Q1−α σ(anew )k,̂ G(anew )k +̂ Q1−α σ(anew )k]
+
+, ∀k. 
+
+This is precisely the simultaneous containment event uk 
+
+> new
+
+∈ C (anew )k for all k, where C(anew )
+
+is defined in (4.8). Integrating over the conditioning variables Dtrain and ε via the law of total probability preserves the inequality, giving the unconditional guarantee 
+
+P
+
+(
+
+uk 
+
+> new
+
+∈ C (anew )k, ∀k ∈ { 1, . . . , d out }
+
+)
+
+≥ 1 − α. 
+
+Theorem 4.2 ensures that, with probability at least 1 − α, the entire predicted trajectory is simultaneously covered on the discrete spatiotemporal evaluation grid. We summarize the resulting procedure in Algorithm 1. 
+
+4.2 Practical Implementation 
+
+In the experiments, we parameterize both ̂ G and ̂ Gε with the same Fourier Neural Operator architecture [20]. The input is a stack of Tin = 10 vorticity snapshots together with the two spatial coordinates, and the output is a stack of Tout = 10 future vorticity fields on the same 
+
+64 × 64 grid. In our implementation, the lifting layer maps RTin +2 to R32 , the operator contains four spectral convolution blocks retaining the first 12 Fourier modes in each spatial dimension, and the projection head is given by 
+
+R32 −→ R128 −→ RTout , (4.10) with GELU [12] activations and dropout rate 0.1 in the base model. Both operators are trained with Adam[13], StepLR decay, batch size 10 , and relative L2 loss. 7Algorithm 1 Perturbation-based split conformal prediction for neural operators 
+
+Require: Proper training set {(ai, ui)}i∈I train , calibration set {(ai, ui)}i∈I cal , miscoverage level 
+
+α, smoothing window K 
+
+> 1:
+
+Train base operator ̂ G on {(ai, ui)}i∈I train  
+
+> 2:
+
+Form perturbed labels ˜ui = ui + εi via (4.2)  
+
+> 3:
+
+Train perturbed operator ̂ Gε on {(ai, ˜ui)}i∈I train  
+
+> 4:
+
+Compute the floor τ0 via (4.5) on the proper training set  
+
+> 5:
+
+for i ∈ I cal do  
+
+> 6:
+
+ˆui ←̂ G(ai); ri ← ui − ˆui 
+
+> 7:
+
+Compute d(ai) via (4.3)  
+
+> 8:
+
+Smooth d(ai) spatially to obtain ¯d(ai) via (4.4)  
+
+> 9:
+
+Compute σ(ai) via (4.5)  
+
+> 10:
+
+Compute Si via (4.6)  
+
+> 11:
+
+end for  
+
+> 12: ̂
+
+Q1−α ← S(⌈(n+1)(1 −α)⌉) 
+
+> 13:
+
+Inference: for a new input anew , compute ˆunew =̂ G(anew ), compute σ(anew ) by the same perturbation/smoothing/floor procedure, and output bands (4.8) 
+
+# 5 Experiments 
+
+In this section, we evaluate the perturbation-based conformal method on the standard 2D in-compressible Navier–Stokes vorticity benchmark. The experimental emphasis is the data-scarce regime : all methods are given the same total label budget, and methods that require an addi-tional uncertainty model must divide this limited budget across several roles. An anonymized code package for reproducing the experiment results will be made available as supplementary material. 
+
+5.1 Dataset and experimental protocol 
+
+The dataset consists of 1200 Navier–Stokes vorticity trajectories with viscosity ν = 10 −5 on a 
+
+64 ×64 periodic spatial grid. Each sample contains Tin = 10 input vorticity frames and Tout = 10 
+
+future output frames, so each prediction has 
+
+dout = 64 × 64 × 10 = 40 ,960 
+
+output coordinates. We compare the following five uncertainty quantification procedures. 
+
+• MC Dropout. Following Gal and Ghahramani [8], dropout remains active at inference. We estimate the predictive mean and variance from 20 independent stochastic forward passes and use the resulting standard deviation as the local scale in the conformal score. 
+
+• Laplace. We apply a diagonal last-layer Laplace approximation to the trained FNO [6, 24, 35, 25]. The posterior variance, computed from the feature representation of each input, serves as the local uncertainty scale. 
+
+• UQNO. Following Ma et al. [23], we train an auxiliary quantile FNO on a disjoint training subset to estimate the local 0.99 -quantile of the absolute residual. This quantile estimate is then normalized via the standard split-conformal calibration step. 
+
+• Perturbation. The proposed method (Section 4). The local scale is derived from the spatially smoothed pointwise disagreement between a base FNO and a counterpart trained on Gaussian-perturbed labels, without requiring a separate uncertainty network. 8• Unscaled. A baseline conformal procedure that sets σ ≡ 1 in (4.1), yielding constant-radius bands. The base operator ̂ G is trained identically to the perturbation method to isolate the effect of adaptive scaling. For MC Dropout, Laplace approximation, Perturbation and Unscaled, we use 800 trajecto-ries for training, 200 trajectories for calibration, and 200 trajectories for testing. For UQNO, we partition the 800 training trajectories into two disjoint subsets of size 400 : one trains the base predictive operator, and the other trains the auxiliary quantile network that estimates the local uncertainty scale. After training, we pool the 200 calibration and 200 test trajectories and perform 1000 
+
+independent random partitions into calibration and test sets of size 200 . All methods are evaluated on the identical sequence of splits. For a fixed miscoverage level α, we report two aggregate metrics across the reshuffles: simultaneous coordinate coverage and average conformal radius. Simultaneous coverage measures the proportion of test trajectories for which the entire predicted spatiotemporal field falls within the conformal band: 
+
+Cov sim := 1
+
+|I test |
+
+> ∑
+> i∈I test
+
+I{uki ∈ C (ai)k for all k ∈ { 1, . . . , d out }}. (5.1) This is the validity notion targeted by the max-type nonconformity score. Efficiency is quantified by the average conformal radius, defined as the mean half-width of the prediction band across all output coordinates: 
+
+Rad( ai) := 1
+
+dout 
+
+> dout ∑
+> k=1 ̂
+
+Q1−α σ(ai)k. (5.2) The reported efficiency metric is the sample mean 1 
+
+> |I test |
+> ∑
+> i∈I test
+
+Rad( ai); the full interval width equals twice this value. Standard errors are computed across the 1000 reshuffles as SE = std /√1000 and reflect split-resampling variability conditional on the fixed trained models. 
+
+5.2 Experiment Results 
+
+Table 1 summarizes the main quantitative comparison. Across all reported significance levels, Perturbation achieves the smallest average conformal radius while maintaining empirical simul-taneous coverage close to the nominal target. The deviations from the target level are on the order of the reported Monte Carlo standard errors. At α = 0 .04 , for example, the perturbation method has average radius 3.786 ±0.004 , compared with 4.192 ±0.002 for Unscaled, 4.403 ±0.003 
+
+for Laplace, 8.530 ± 0.015 for MC Dropout, and 16 .784 ± 0.091 for UQNO. These results reflect the advantage of the perturbation construction under a fixed label budget: both the base and perturbed operators are trained on the full proper training set, whereas UQNO partitions the same data between a base predictor and an auxiliary uncertainty model. Table 2 reports the corresponding relative radius reduction of the perturbation method compared with each baseline. The improvement is most pronounced against UQNO and MC Dropout, reflecting respectively the data-splitting penalty of training a separate uncertainty network and the high variance of dropout-based uncertainty estimates. The improvement over the unscaled and Laplace baselines is smaller but still systematic at the reported levels. 
+
+5.3 Ablation: smoothing and floor stabilization 
+
+The perturbation method applies two post-processing steps to the raw disagreement d(a)k =
+
+|̂G(a)k −̂ Gε(a)k|: spatial smoothing with a K × K averaging window and floor stabilization 
+
+σ(a)k ≥ τ0. Both are intended to prevent isolated near-zero denominator values from inflating the max-type calibration score. Table 3 tests four configurations while keeping the trained models fixed. The ablation shows that spatial smoothing is the critical component. At α = 0 .04 ,9α = 0 .02 α = 0 .04 α = 0 .06 α = 0 .08 α = 0 .10                                                                                                              
+
+> target 98% target 96% target 94% target 92% target 90%
+> Unscaled cov. (%) 98.00 96.04 94.02 92.04 90.13 Unscaled rad. 4.353 ±0.003 4.192 ±0.002 4.084 ±0.002 3.986 ±0.002 3.908 ±0.002
+> MC Dropout cov. (%) 97.96 95.95 93.94 91.94 89.98 MC Dropout rad. 10 .289 ±0.029 8.530 ±0.015 7.671 ±0.012 7.169 ±0.008 6.875 ±0.005
+> Laplace cov. (%) 97.95 95.97 94.01 92.07 90.09 Laplace rad. 4.563 ±0.002 4.403 ±0.003 4.261 ±0.003 4.143 ±0.003 4.052 ±0.003
+> UQNO cov. (%) 98.09 96.13 94.14 92.18 90.16 UQNO rad. 27 .210 ±0.154 16 .784 ±0.091 12 .605 ±0.060 9.866 ±0.044 8.030 ±0.037
+> Perturbation cov. (%) 97.99 96.01 94.00 92.00 90.08 Perturbation rad. 4.169 ±0.006 3.786 ±0.004 3.595 ±0.004 3.434 ±0.004 3.291 ±0.004
+
+Table 1: Empirical simultaneous-in-coordinate coverage and average conformal radius over 1000 
+
+reshuffles of the calibration/test pool. All methods use the same total label budget. Values are mean ± standard error. The radius is the average half-width of the conformal band; the full interval width is twice this value. 
+
+Baseline α = 0 .02 α = 0 .04 α = 0 .06 
+
+vs. Unscaled 4.2% 9.7% 12 .0% 
+
+vs. Laplace 8.6% 14 .0% 15 .6% 
+
+vs. MC Dropout 59 .5% 55 .6% 53 .1% 
+
+vs. UQNO 84 .7% 77 .4% 71 .5% 
+
+Table 2: Relative radius reduction of the perturbation method, computed as (Rad baseline −
+
+Rad ours )/Rad baseline × 100 .removing the floor while retaining the 15 × 15 smoothing window changes the average radius only from 3.786 to 3.789 . In contrast, removing smoothing while retaining the floor increases the average radius to 83 .616 . Removing both smoothing and the floor makes the method essentially unusable, producing astronomically large radii. Coverage remains close to the conformal target because validity does not depend on the quality of the scale, but efficiency depends strongly on stabilizing the denominator.                                                         
+
+> Configuration α= 0 .02 α= 0 .04 α= 0 .06
+> Full ( K= 15 ,τ0>0)4.181 ±0.006 3.786 ±0.004 3.596 ±0.004
+> No smoothing ( K= 1 ,τ0>0)87 .573 ±0.058 83 .616 ±0.069 80 .430 ±0.050
+> No floor ( K= 15 ,τ0= 0 )4.173 ±0.006 3.789 ±0.004 3.592 ±0.004
+> Neither ( K= 1 ,τ0= 0 )2.1×10 72.0×10 51.4×10 5
+
+Table 3: Ablation of spatial smoothing and floor stabilization. Values are average conformal radii, reported as mean ± standard error over 1000 reshuffles when available. The conformal coverage remains near the nominal target in all cases, but the efficiency of the bands is dramat-ically affected by smoothing. 
+
+5.4 Sensitivity to perturbation noise 
+
+The label-noise scale σε = c · std( utrain ) is the primary hyperparameter governing the perturba-tion procedure. We evaluate the sensitivity of the conformal bands to c ∈ { 0.01 , 0.02 , 0.05 , 0.10 , 0.20 }
+
+by independently retraining the perturbed FNO for each value, while keeping the base operator, spatial smoothing window, and stabilization floor fixed. Table 4 shows that the method is robust across this range of perturbation magnitudes. At 10 α = 0 .02 α = 0 .04 α = 0 .06                                                                   
+
+> cCov. (%) Rad. Cov. (%) Rad. Cov. (%) Rad.
+> 0.01 98.05 3.995 ±0.004 96.05 3.786 ±0.003 94.07 3.670 ±0.003 0.02 98.02 3.507 ±0.006 96.08 3.248 ±0.003 94.09 3.089 ±0.003 0.05 98.07 3.734 ±0.005 96.13 3.407 ±0.003 94.12 3.278 ±0.002 0.10 98.03 3.965 ±0.007 96.08 3.509 ±0.004 94.11 3.337 ±0.002 0.20 98.00 3.492 ±0.004 95.92 3.266 ±0.003 93.92 3.112 ±0.002
+
+Table 4: Sensitivity to the perturbation-noise multiplier c = σε/std( utrain ). Values are empirical coverage and average conformal radius over 1000 reshuffles. 
+
+α = 0 .04 , the average radius ranges from 3.248 to 3.786 , a variation of about 16 .6% , and coverage stays close to the nominal target. Small perturbations can produce a weak disagreement signal relative to training stochasticity, while large perturbations may begin to distort the perturbed model. In practice, the range c ∈ [0 .02 , 0.10] appears safe for this benchmark. 
+
+5.5 Qualitative structure and diagnostics 
+
+To complement the aggregate metrics, we examine the spatial distribution of the conformal bands to verify that the perturbation scale captures physically structured uncertainty. Fig-ure 1 illustrates this analysis for a representative test trajectory. The right panel displays the perturbation-derived radius Q1−ασ(a). The uncertainty is not spatially uniform: it widens around vortex cores, shear layers, and complicated interactions, while remaining comparatively small in smoother background regions. 
+
+Figure 1: Qualitative perturbation-based uncertainty map. Left: ground-truth vorticity for a representative test trajectory. Right: conformal radius Q1−ασ(a) derived from the dis-agreement between the base and perturbed operators. 
+
+Figure 2: Base operator performance check. Left: ground-truth vorticity field for a repre-sentative test sample. Center: FNO prediction. Right: absolute error. Figure 2 illustrates the predictive accuracy of the base FNO. The absolute residual map in-dicates that prediction errors are localized, whereas the dominant flow structures are accurately 11 recovered. This baseline accuracy ensures that the conformal bands quantify spatially varying predictive uncertainty, rather than compensating for large systematic errors in the surrogate. 
+
+# 6 Conclusion 
+
+We proposed a perturbation-based conformal prediction framework for uncertainty quantifica-tion in neural operator learning. By comparing a base predictor with a counterpart trained on perturbed labels, we obtain a spatially adaptive uncertainty scale that can be conformalized to yield finite-sample simultaneous coverage on the output grid. On the 2D Navier–Stokes bench-mark, this construction is particularly effective in the data-scarce regime, where it outperforms MC Dropout, Laplace approximation, and UQNO under matched total label budgets. More broadly, the perturbation-based scale offers a general mechanism for constructing adaptive nonconformity scores in regression problems. The construction requires only a base predictor, a second predictor trained on perturbed targets, and a pointwise disagreement mea-sure between the two. This procedure does not rely on the PDE structure, the function-space formulation, or any architecture-specific feature; it applies whenever one can train two re-gression models on nearly identical data and wishes to calibrate prediction bands that widen where the learned response is sensitive to training noise. The conformalization step remains standard split conformal prediction, so the marginal coverage guarantee holds under the usual exchangeability assumption. By decoupling uncertainty calibration from auxiliary modeling, the perturbation-based score provides a data efficient alternative for conformalized regression across diverse output geometries. 
+
+# Acknowledgments 
+
+WW would like to thank the Simons Foundation for their support through the Travel Support for Mathematicians program (No. 0007730). 
+
+# References 
+
+[1] A. N. Angelopoulos and S. Bates. Conformal prediction: A gentle introduction. Founda-tions and Trends in Machine Learning , 16(4):494–591, 2023. arXiv:2107.07511. [2] R. F. Barber, E. J. Candès, A. Ramdas, and R. J. Tibshirani. Conformal prediction beyond exchangeability. The Annals of Statistics , 51(2):816–845, 2023. arXiv:2202.13415. [3] C. M. Bishop. Training with noise is equivalent to Tikhonov regularization. Neural Com-putation , 7(1):108–116, 1995. [4] N. Boullé and A. Townsend. A mathematical guide to operator learning. In Handbook of Numerical Analysis , volume 25, pages 83–125. Elsevier, 2024. arXiv:2312.14688. [5] C. Bülte, P. Scholl, and G. Kutyniok. Probabilistic neural operators for functional uncer-tainty quantification. Transactions on Machine Learning Research , 2025. arXiv:2502.12902. [6] E. Daxberger, A. Kristiadi, A. Immer, R. Eschenhagen, M. Bauer, and P. Hennig. Laplace Redux—effortless Bayesian deep learning. In Advances in Neural Information Processing Systems , volume 34, pages 20089–20103, 2021. arXiv:2106.14806. [7] R. Foygel Barber, E. J. Candès, A. Ramdas, and R. J. Tibshirani. The limits of distribution-free conditional predictive inference. Information and Inference: A Journal of the IMA ,10(2):455–482, 2021. 12 [8] Y. Gal and Z. Ghahramani. Dropout as a Bayesian approximation: Representing model uncertainty in deep learning. In Proceedings of the 33rd International Conference on Ma-chine Learning , volume 48 of Proceedings of Machine Learning Research , pages 1050–1059. PMLR, 2016. [9] V. Gopakumar, A. Gray, L. Zanisi, T. Nunn, D. Giles, M. Kusner, S. Pamela, and M. P. Deisenroth. Calibrated physics-informed uncertainty quantification. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 20103–20141. PMLR, 2025. arXiv:2502.04406. [10] N. Guerra, N. H. Nelsen, and Y. Yang. Learning where to learn: Training data distribution optimization for scientific machine learning. arXiv preprint arXiv:2505.21626 , 2025. [11] C. Guo, G. Pleiss, Y. Sun, and K. Q. Weinberger. On calibration of modern neural networks. In Proceedings of the 34th International Conference on Machine Learning , volume 70 of 
+
+Proceedings of Machine Learning Research , pages 1321–1330. PMLR, 2017. [12] D. Hendrycks and K. Gimpel. Gaussian error linear units (GELUs). arXiv preprint arXiv:1606.08415 , 2016. [13] D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. In International Conference on Learning Representations , 2015. arXiv:1412.6980. [14] N. B. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. M. Stuart, and A. Anandkumar. Neural operator: Learning maps between function spaces. Journal of Machine Learning Research , 24(89):1–97, 2023. arXiv:2108.08481. [15] N. B. Kovachki, S. Lanthaler, and A. M. Stuart. Operator learning: Algorithms and analysis. In Handbook of Numerical Analysis , volume 25, pages 419–467. Elsevier, 2024. [16] B. Lakshminarayanan, A. Pritzel, and C. Blundell. Simple and scalable predictive uncer-tainty estimation using deep ensembles. In Advances in Neural Information Processing Systems , volume 30, pages 6402–6413, 2017. [17] J. Lei and L. Wasserman. Distribution-free prediction bands for non-parametric regression. 
+
+Journal of the Royal Statistical Society: Series B , 76(1):71–96, 2014. [18] J. Lei, M. G’Sell, A. Rinaldo, R. J. Tibshirani, and L. Wasserman. Distribution-free predictive inference for regression. Journal of the American Statistical Association ,113(523):1094–1111, 2018. [19] R. J. LeVeque. Finite Volume Methods for Hyperbolic Problems . Cambridge Texts in Applied Mathematics. Cambridge University Press, Cambridge, 2002. [20] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. M. Stuart, and A. Anandkumar. Fourier neural operator for parametric partial differential equations. In 
+
+International Conference on Learning Representations , 2021. [21] Q. Li, M. Oprea, L. Wang, and Y. Yang. Stochastic inverse problem: Stability, regulariza-tion and Wasserstein gradient flow. arXiv preprint arXiv:2410.00229 , 2024. [22] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3):218–229, 2021. [23] Z. Ma, D. Pitt, K. Azizzadenesheli, and A. Anandkumar. Calibrated uncertainty quantifi-cation for operator learning via conformal prediction. Transactions on Machine Learning Research , 2024. ISSN 2835-8856. URL https://openreview.net/forum?id=cGpegxy12T .13 [24] D. J. C. MacKay. A practical Bayesian framework for backpropagation networks. Neural Computation , 4(3):448–472, 1992. [25] E. Magnani, N. Krämer, R. Eschenhagen, L. Rosasco, and P. Hennig. Approximate Bayesian neural operators: Uncertainty quantification for parametric PDEs. Transactions on Machine Learning Research , 2025. arXiv:2208.01565. [26] A. J. Majda and A. L. Bertozzi. Vorticity and Incompressible Flow . Cambridge Texts in Applied Mathematics. Cambridge University Press, Cambridge, 2002. [27] D. Millard, L. Lindemann, and A. Baheri. Split conformal prediction in the function space with neural operators. arXiv preprint arXiv:2509.04623 , 2025. [28] R. Molinaro, Y. Yang, B. Engquist, and S. Mishra. Neural inverse operators for solving PDE inverse problems. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 25105–25139. PMLR, 2023. arXiv:2301.11167. [29] C. Moya, A. Mollaali, Z. Zhang, L. Lu, and G. Lin. Conformalized-DeepONet: Adistribution-free framework for uncertainty quantification in deep operator networks. Phys-ica D: Nonlinear Phenomena , 471:134418, 2025. arXiv:2402.15406. [30] N. H. Nelsen and A. M. Stuart. Operator learning using random features: A tool for scientific computing. SIAM Review , 66(3):535–571, 2024. [31] N. H. Nelsen and Y. Yang. Operator learning meets inverse problems: A probabilistic perspective. To appear in Handbook of Numerical Analysis , volume 27: Machine Learning Solutions for Inverse Problems (Part B) , Elsevier, 2026. arXiv:2508.20207. [32] Y. Ovadia, E. Fertig, J. Ren, Z. Nado, D. Sculley, S. Nowozin, J. V. Dillon, B. Lakshmi-narayanan, and J. Snoek. Can you trust your model’s uncertainty? Evaluating predictive uncertainty under dataset shift. In Advances in Neural Information Processing Systems ,volume 32, 2019. arXiv:1906.02530. [33] H. Papadopoulos, K. Proedrou, V. Vovk, and A. Gammerman. Inductive confidence ma-chines for regression. In Machine Learning: ECML 2002 , volume 2430 of Lecture Notes in Computer Science , pages 345–356. Springer, 2002. [34] A. Quarteroni, R. Sacco, and F. Saleri. Numerical Mathematics . Texts in Applied Mathe-matics, volume 37. Springer, Berlin, 2000. [35] H. Ritter, A. Botev, and D. Barber. A scalable Laplace approximation for neural networks. In International Conference on Learning Representations , 2018. [36] Y. Romano, E. Patterson, and E. J. Candès. Conformalized quantile regression. In Advances in Neural Information Processing Systems , volume 32, 2019. arXiv:1905.03222. [37] U. Subedi and A. Tewari. Controlling statistical, discretization, and truncation errors in learning Fourier linear operators. Transactions on Machine Learning Research , 2025. arXiv:2408.09004. [38] U. Subedi and A. Tewari. Operator learning: A statistical perspective. Annual Review of Statistics and Its Application , 13:123–148, 2026. arXiv:2504.03503. [39] R. Temam. Navier–Stokes Equations: Theory and Numerical Analysis . AMS Chelsea Publishing, Providence, RI, 2001. Reprint of the 1984 edition. 14 [40] R. J. Tibshirani, R. Foygel Barber, E. J. Candès, and A. Ramdas. Conformal prediction under covariate shift. In Advances in Neural Information Processing Systems , volume 32, 2019. arXiv:1904.06019. [41] L. N. Trefethen. Spectral Methods in MATLAB . SIAM, Philadelphia, 2000. [42] T. van Leeuwen and Y. Yang. An analysis of constraint-relaxation in PDE-based inverse problems. Inverse Problems , 41(2):025009, 2025. arXiv:2403.15292. [43] V. Vovk, A. Gammerman, and G. Shafer. Algorithmic Learning in a Random World .Springer, New York, 2005. [44] N. Winovich, M. Daneker, L. Lu, and G. Lin. Active operator learning with predictive un-certainty quantification for partial differential equations. Journal of Computational Physics ,555:114791, 2026. arXiv:2503.03178. [45] Y. Yu, C. H. Ho, and Y. Wang. A conformal prediction framework for uncertainty quan-tification in physics-informed neural networks. arXiv preprint arXiv:2509.13717 , 2025. 15

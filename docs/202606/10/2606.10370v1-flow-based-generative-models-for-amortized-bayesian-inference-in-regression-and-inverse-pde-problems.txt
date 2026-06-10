@@ -1,0 +1,663 @@
+Title: Flow-based generative models for amortized Bayesian inference in regression and inverse PDE problems
+
+URL Source: https://arxiv.org/pdf/2606.10370v1
+
+Published Time: Wed, 10 Jun 2026 00:34:57 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Flow-based generative models for amortized Bayesian inference in regression and inverse PDE problems 
+
+Shaoqian Zhou a, Ling Guo b, Xuhui Meng a,1 
+
+> aInstitute of Interdisciplinary Research for Mathematics and Applied Science, School of Mathematics and Statistics, Huazhong University of Science and Technology, Wuhan 430074, China
+> bDepartment of Mathematics, Shanghai Normal University, Shanghai, China
+
+Abstract 
+
+Bayesian inference provides a principled framework for uncertainty quantifi-cation in scientific machine learning. However, conventional Bayesian ap-proaches typically require solving a new inference problem for each observation set, resulting in substantial computational costs that hinder real-time appli-cations such as online monitoring, digital twins, and decision-making under uncertainty. Furthermore, many scientific machine learning problems involve inference over infinite-dimensional function spaces with varying numbers and locations of observations, posing significant challenges for existing amortized inference methods. In this work, we propose Flow-ABI, a flow-based gener-ative framework for amortized Bayesian inference in regression and inverse partial differential equation (PDE) problems. The proposed framework con-sists of two components: (i) a functional prior model that learns expressive prior in function spaces directly from historical data and physical knowledge through flow matching, and (ii) a set-conditioned functional posterior sampler that performs amortized Bayesian inference by mapping observation sets to posterior distributions over functions. The learned posterior model naturally accommodates varying numbers and locations of observations, is invariant to permutations of the measurement set, and generalizes across different observa-tion discretizations. Once trained, Flow-ABI enables near-real-time posterior sampling for previously unseen observations without retraining or iterative optimization. The proposed methodology can be seamlessly integrated with a broad class of scientific machine learning frameworks, including physics- 
+
+> 1Corresponding author: xuhui meng@hust.edu.cn (Xuhui Meng).
+> Preprint submitted to Elsevier June 10, 2026
+> arXiv:2606.10370v1 [physics.comp-ph] 9 Jun 2026
+
+informed neural networks and neural operators, for uncertainty-aware inverse PDE modeling. Numerical experiments on representative regression and in-verse PDE benchmarks demonstrate that Flow-ABI accurately captures both Gaussian and non-Gaussian posterior distributions while achieving speedups of more than two orders of magnitude relative to the gold-standard Bayesian inference method, Hamiltonian Monte Carlo. These results demonstrate that the Flow-ABI as an effective, scalable, and computationally efficient frame-work for uncertainty quantification in scientific machine learning. 
+
+Keywords: 
+
+flow-matching generative model, functional prior, near-real-time posterior estimate, inverse PDEs 
+
+PACS: 0000, 1111 
+
+2000 MSC: 0000, 1111 
+
+1. Introduction 
+
+Deep learning has emerged as a powerful paradigm for scientific computing, achieving remarkable success in a wide range of applications, including func-tion approximation, forward and inverse partial differential equation (PDE) solving [1, 2], and operator learning [3–5]. Despite these advances, observa-tional data in real-world scientific and engineering systems are often sparse, noisy, and incomplete, resulting in significant uncertainty in model predic-tions [6–11]. Quantifying and propagating such uncertainties are essential for reliable decision-making in safety-critical applications, including medical diagnosis, structural health monitoring, climate forecasting, and digital twins. Bayesian inference provides a principled framework for uncertainty quan-tification (UQ) by representing unknown quantities as probability distribu-tions and updating prior beliefs using observational data. In the context of deep learning, Bayesian neural networks (BNNs)[12, 13], deep ensembles [14], and Monte Carlo dropout [15] have become widely used approaches for uncertainty estimation and have been successfully extended to scientific ma-chine learning (SciML). Examples include Bayesian physics-informed neural networks for solving forward and inverse PDEs [16] and ensemble-based ap-proaches for uncertainty-aware operator learning [17]. A central component of Bayesian inference is the prior distribution. For BNNs, it is well known that infinitely wide networks converge to Gaussian processes under suitable assumptions [12, 13], while carefully designed parameter priors can induce 2analytically tractable function-space priors [12, 13]. More recently, deep gen-erative models such as generative adversarial networks have been employed to learn expressive functional priors directly from historical data, enabling the representation of complex Gaussian and non-Gaussian stochastic processes [18–21]. Given a prior and observational data, Bayesian inference proceeds by con-structing the posterior distribution. To this end, numerous inference algo-rithms have been developed, including Markov chain Monte Carlo (MCMC), Hamiltonian Monte Carlo (HMC), variational inference (VI), and Laplace ap-proximations. Comprehensive reviews of uncertainty quantification methods in SciML can be found in [6, 7]. Despite substantial progress, most existing ap-proaches share a common limitation: posterior inference must be performed from scratch for each new set of observations. Consequently, the computa-tional cost scales with the number of inference tasks, making these methods impractical for applications requiring rapid updates, online monitoring, real-time decision-making, or digital-twin deployment. Simulation-based inference (SBI), also known as likelihood-free inference [22–28], offers a promising alternative. Instead of solving a new Bayesian in-ference problem for each observation set, SBI learns a global mapping from observations to posterior distributions during an offline training stage, thereby amortizing the cost of inference across future tasks. Once trained, the result-ing model can generate posterior samples for previously unseen observations with negligible additional computational cost. SBI has achieved considerable success in fields such as gravitational-wave inference [29], cosmology [30], and structural health monitoring [31]. However, existing SBI methods are not directly applicable to many scien-tific machine learning problems. First, conventional SBI typically focuses on finite-dimensional parameter vectors, whereas quantities of interest in SciML often reside in infinite-dimensional function spaces, such as spatially varying material properties, source terms, boundary conditions, or PDE solutions. Second, observations in conventional SBI are commonly represented by fixed-dimensional vectors or handcrafted summary statistics. In contrast, obser-vations in SciML typically consist of measurements collected at spatial and temporal locations that may differ in different tasks, and may also form an unordered set. Consequently, the posterior inference operator should produce identical posterior distributions regardless of the ordering of the measurements while accommodating varying numbers and locations of observations. Third, scientific systems are governed by physical laws, usually expressed as PDEs, 3which impose strong structural constraints on admissible posterior distribu-tions. These characteristics fundamentally distinguish SciML from traditional SBI settings and motivate the development of amortized Bayesian inference methods tailored to function-space learning and physics-constrained systems. To the best of our knowledge, the only amortized Bayesian inference frame-work specifically developed for PDE-governed inverse problems is based on the likelihood-free method in [32]. This approach combines conditional nor-malizing flows with a convolutional summary network to estimate posterior distributions over high-dimensional groundwater conductivity fields. While demonstrating promising performance, several limitations remain. First, the prior is defined over a finite-dimensional parameter vector, while the induced prior in the underlying function space remains unclear. Second, the use of normalizing flows imposes architectural constraints such as invertibility and tractable Jacobian determinant computation, which can complicate optimiza-tion and limit scalability in high-dimensional problems. Third, the summary network is trained with clean data from numerical simulations, potentially in-troducing a mismatch between training and deployment conditions. Finally, the convolutional architecture assumes a prescribed ordering of observations and therefore does not naturally guarantee that the inferred posterior remains unchanged under permutations of the measurement set. Moreover, it is not inherently invariant to changes in sensor layouts or observation discretizations. Motivated by these challenges, we propose a novel framework based on con-ditional flow matching [22, 33] for amortized Bayesian inference in regression and inverse PDE problems. Unlike normalizing flows, flow matching learns probability transport through vector-field regression and avoids the need for invertible architectures and Jacobian determinant evaluation. Building upon this formulation, we develop a set-conditioned posterior inference framework that learns a mapping from observation sets to posterior distributions over functions. The resulting posterior operator naturally accommodates varying numbers of measurements, remains invariant to permutations of the obser-vation set, and generalizes across different observation discretizations. Fur-thermore, the framework enables efficient posterior sampling for unseen ob-servations without retraining or iterative optimization, making it particularly attractive for efficient uncertainty quantification. The main contributions of this work are summarized as follows: 1. We develop a one-step flow-matching-based framework for learning ex-pressive function-space priors directly from historical data and physical 4constraints, avoiding restrictive parametric assumptions on stochastic processes. 2. We introduce a conditional flow matching approach for amortized Bayesian inference over function spaces. Once trained, the frame-work enables near-real-time posterior sampling for previously unseen observations. 3. We put forth a set-conditioned functional posterior model based on con-ditional flow matching, which learns posterior distributions over func-tions from sparse and noisy observation sets. The resulting model is permutation-invariant with respect to the observation set and naturally accommodates varying numbers and locations of measurements. 4. We demonstrate that the proposed framework can be seamlessly inte-grated with both physics-informed neural networks (PINNs) and neural operators to perform uncertainty-aware inverse PDE modeling. The resulting approach enables efficient Bayesian inversion and uncertainty quantification for PDE-governed systems from sparse and noisy obser-vations. The rest of this paper is organized as follows: In Sec. 2, we present the problem formulation as well as the Flow-ABI, i.e. flow-based generative mod-els for amortized Bayesian inference, in regression and inverse differential equa-tions; the numerical results are shown in Sec. 3, and a summary on this study is present in Sec. 4. 
+
+2. Methodology 
+
+2.1. Problem Formulation 
+
+In this study, we consider two particular scenarios, i.e., function approx-imation or regression and inverse PDE problems. In the former, we assume that we have measurements collected from sensors on a target function that may be sparse and noisy, and we aim to fit it with uncertainties. As for the lat-ter, consider a parametric PDE governing the dynamics of a physical system: 
+
+Lβ
+
+u(t, x) = f (t, x), x ∈ Ω, t ∈ Ωt, β ∈ B, (1a) 
+
+Bβ
+
+u(t, xbc ) = b(t, xbc ), xbc ∈ Γ, (1b) 
+
+u(0 , x) = u0(x), (1c) 5where x ∈ Ω ⊂ RDx denotes the spatial coordinate on a bounded domain Ω with boundary Γ, xbc ∈ Γ is the boundary coordinate, t ∈ Ωt is the tem-poral coordinate, β ∈ B ⊂ RDβ is a parameter vector with the probability space B, u ∈ F := L2(Ω) is the solution, Lβ is the any differential operator parametrised by β, f is the source term, Bβ is the operator impose on the boundary values, b is the prescribed boundary condition, and u0 ∈ F is the initial condition. The particular inverse problem we consider here is formu-lated as follows: we assume that we have partial observations on u, f , and possibly b, u0 as well as β, and we would like to reconstruct the full fields of 
+
+u, f , and possibly β, with uncertainties. Further, we denote the quantity of interest (QoI) or the target function in the regression problem as u(t, x) in what follows without confusion. In the Bayesian framework, the observations associated with QoI, denoted by X , are modeled as 
+
+Yobs = M(X ) + η, η ∼ pη, (2) where X denotes the QoI, which may correspond to the solution field u, the source term f , the parameter field β, or a combination thereof. Here, M is the observation operator and pη denotes the probability distribution charac-terizing the measurement noise. A common choice is the isotropic Gaussian distribution η ∼ N  0, σ 2 
+
+> Y
+
+I . Given a prior distribution X ∼ P (X ), Bayesian inference aims to estimate the posterior distribution of X conditioned on the observations Yobs . According to Bayes’ theorem, 
+
+P (X | Y obs ) = P (Yobs | X )P (X )
+
+P (Yobs ) . (3) The objective of the present work is to efficiently approximate this posterior distribution and subsequently quantify the uncertainty of the QoI through posterior samples. 
+
+2.2. Flow-ABI: Flow-based generative models for amortized Bayesian infer-ence 
+
+As shown in Fig. 1, the proposed Flow-ABI consists of two components: 1. A Functional prior model (FPM) via one-step flow matching, which consists of a function encoder (FE) that maps functions into a low-dimensional coefficient space, and a one-step flow-matching model 
+
+that learns an expressive distribution over the coefficients from the FE. 62. A set-conditioned functional posterior model (SFPM) that per-forms amortized Bayesian inference via conditional flow matching. 𝑁𝑁 ஼
+
+Function Encoder (FE) 
+
+Learns compact representations 
+
+𝑁𝑁 ஻(𝒙 , 𝑡 )
+
+(shared basis network) 
+
+Basis coefficients 
+
+> Basis functions
+
+𝜙 ଵ 𝒙 , 𝑡 , 𝜙 ଶ 𝒙 , 𝑡 , ⋯ , 𝜙 ௣ 𝒙 , 𝑡 
+
+Outputs 𝜓 ௨ and basis {𝜙 ௝(𝒙 , 𝑡 )} ௝ୀଵ 
+
+> ௣
+
+(reused in posterior model) 
+
+(a) Functional prior model (FPM) (b) Set-conditioned functional posterior model (SFPM) 
+
+Flow Matching 
+
+Learn vector field 𝒗 𝜽 ಷುಾ (𝝃 ௧, 𝜏 )
+
+𝝃 ∼ 𝑁 (0, 𝑰 )
+
+Gaussian noise 
+
+⋯ ⋯
+
+𝑢 tokens 
+
+𝝐 ∼ 𝑁 (0, 𝑰 )
+
+Gaussian noise Timestep 𝑡 
+
+𝑡 
+
+Conditional Flow 
+
+Matching (DiT)      
+
+> (predict 𝝃 posterior given
+> condition) Self-Attention
+> (adaLN)
+> Cross-Attention
+> (adaLN)
+> MLP
+> (adaLN)
+> DiT Block
+> N×
+> Input Tokens Cond
+> Cond/Observation
+
+𝑫 
+
+𝜓 ෠௨ = [ 𝜓 ෠௨,ଵ , ⋯ , 𝜓 ෠௨,௣]்
+
+𝑢 ො ≈ ෍ 𝜓 ෠௨,௝ 𝜙 ௝(𝒙 , 𝑡 )
+
+> ௣
+> ௝ୀଵ
+
+Decorder 
+
+𝑓 መ = 𝒩 [𝑢 ො]𝑢 ො
+
+𝒗 ఏಷುಾ (𝝃 ఛ, 𝜏 )
+
+𝝃 ఛ = 𝝃 ଴ + න 𝒗 𝜽 ಷುಾ 𝜉 ௧ , 𝜏 𝑑𝑠  
+
+> ఛ
+> ଴
+> Condition/Observation 𝑫
+
+𝑢 ≈ ෍ 𝜓 ௨,௝𝜙 ௝(𝒙 , 𝑡 )
+
+> ௣
+> ௝ୀଵ
+
+Decorder 
+
+𝑓 tokens ⋯Timestep 𝑡 
+
+𝒗 𝜽 ೄಷುಾ (𝝐 ௧, 𝜏 , 𝑫 )
+
+𝝐 ఛ = 𝝐 ଴ + න 𝒗 𝜽 ೄಷುಾ 𝝐 ௧, 𝜏 𝑑𝑠 
+
+> ఛ
+> ଴
+
+𝑡 
+
+⋯
+
+⋯
+
+𝜓 ௨= [ 𝜓 ௨,ଵ, ⋯ , 𝜓 ௨,௣]்
+
+ℒிா = ෍ 𝜓 ௨,௝𝜙 ௝(𝒙 , 𝑡 )
+
+> ௣
+> ௝ୀଵ
+
+− 𝑢 
+
+> ଶ
+
+𝒑 (𝝃 |𝑫 )
+
+𝓛 𝑭𝑷𝑴 = 𝔼 𝒗 𝜽 ಷುಾ (𝝃 ఛ, 𝜏 ) − ( 𝝍 − 𝝃 ) 𝟐 
+
+𝓛 ௌி௉ெ = 𝔼 𝑫 ∼𝒑 (𝑫 )  
+
+> ഓ∼𝑼 𝟎 ,𝟏 ,𝝃 ,𝝐
+
+𝒗 𝜽 ೄಷುಾ (𝝐 ௧, 𝜏 , 𝑫 ) − ( 𝝃 − 𝝐 ) 𝟐 
+
+coefficients  
+
+> Observation 𝑫
+> Functional Posterior
+
+Posterior 
+
+model 
+
+𝝐 ∼ 𝑁 (0, 𝑰 )
+
+𝒑 (𝝃 |𝑫 )
+
+Prior 
+
+model 
+
+Decoder 𝜓 ௨
+
+𝝃 
+
+𝑫 
+
+𝑢 
+
+Inference(sampling from posterior) 
+
+𝒰 𝑢 
+
+𝑢 
+
+𝑢 
+
+distill the transport into one-step 
+
+𝜓 ෠௨ = 𝓖 𝜽 ௦(𝝃 )
+
+> 𝑝 (𝑢 |𝐷 )
+
+Figure 1: Schematic of the Flow-ABI (flow-based generative framework for amortized Bayesian inference), consisting of two components: (a) Functional prior model (FPM) for learning the distribution over function representations from FE, and (b) a Set-conditioned functional posterior model (SFPM) sampler utilizing the conditional flow matching or dif-fusion Transformer. 
+
+The overall inference pipeline can be summarized as 
+
+Dobs −→ p(ξ|D obs) −→ p(ψ|D obs) −→ p(X |D obs) ,
+
+where ξ denotes a latent Gaussian variable and ψ denotes the latent coefficient representation of the function. 
+
+2.3. Learning functional prior via generative model 
+
+We assume that we have historical data for X , which are either collected from sensors/numerical simulations or realizations of a prescribed functional 7prior, e.g., a certain Gaussian process (GP). In addition, we assume each realization is observed at certain number of temporal-spatial locations, yield-ing a discrete representation for each realization. We aim to learn the prior represented by the historical data in the functional space using the proposed model. We now introduce the architectures and training of the proposed model. As shown in Fig. 1, the functional prior model is composed of two submodels, i.e., a function encoder (FE) and a flow-matching generative model for learning the distributions over the compact representation from FE. Similar as in [21], the FE consists of two subnetworks: a coefficient network N N C;θC and a basis network N N B;θB , where θC and θB are parameters in these two neural networks, respectively. Without loss of generality, we assume the QoI is u. The coefficient network maps the representation U corresponding to a realization of u to a latent coefficient vector 
+
+ψ(Ui) = N N C;θC (Ui) = ( ψ1, . . . , ψ p)T ∈ Rp, (4) where Ui denotes the representation for the ith realization of u, i.e., ui =
+
+{u(tk, xk)}Nui
+
+> k=1
+
+, with k denoting the kth measurement of ui, tk/xk the coor-dinate, and Nui the number of measurements for ui. In addition, the basis network learns a set of coordinate-dependent basis functions 
+
+ϕ(t, x) = N N B;θB (t, x) =  ϕ1(t, x), . . . , ϕ p(t, x)T . (5) The target function is then reconstructed through the low-rank expansion 
+
+uFE (t, x; Ui) = 
+
+> p
+
+X
+
+> j=1
+
+ψj (Ui)ϕj (t, x). (6) All the parameters in N N C;θC and N N B;θB are trained based on the mean square errors between the uFE (t, x; Ui) and ui. This representation projects the original infinite-dimensional function onto a finite-dimensional coefficient space while preserving its continuous dependence on the spatial coordinate. Specifically, the representation for the realization of ui can be obtained using either the discrete function values as in DeepONet [3], or the leading eigen-values computed from the principal component analysis (PCA) as [21]. The resulting feature vector ψ(U) serves as a compact descriptor of the each real-ization from the stochastic process represented by the historical data. 8Having obtained the latent coefficient representations, we next learn their empirical distribution. Let pψ denote the distribution of the latent coefficients extracted by the FE. To approximate this distribution, we employ a two-stage flow-matching framework consisting of a base flow model and a distilled one-step generator. In the first stage, a flow-matching model learns a transport from a standard Gaussian base distribution p0(ξ) = N (0, I), to the target co-efficient distribution p1(ψ) ≈ pψ. The transport is parameterized by a velocity field 
+
+vθFPM : Rp × [0 , 1] → Rp,
+
+through the ordinary differential equation dξτ
+
+dτ = vθFPM (ξτ , τ ), τ ∈ [0 , 1] . (7) Following the conditional flow-matching formulation, a linear probability path is constructed between a Gaussian sample ξ ∼ N (0, I) and a target coefficient sample ψ ∼ pψ, according to 
+
+ξτ = (1 − τ )ξ + τ ψ. (8) The corresponding target vector field is dξτ
+
+dτ = ψ − ξ,
+
+which leads to the flow-matching objective 
+
+LFPM (θ) = E ∥vθFPM (ξτ , τ ) − (ψ − ξ)∥22
+
+ . (9) Although the trained flow model accurately approximates the latent dis-tribution, generating samples requires numerical integration of the ODE. To accelerate sampling, we further distill the learned transport into a one-step generator following [34]. Specifically, a student network 
+
+Gθs : Rp → Rp
+
+is trained to directly map Gaussian noise to latent coefficients. The distillation objective is given by 
+
+LDistill (θs) = Eξ∼N (0,I)
+
+∥G θs (ξ) − ODESolve( vθFPM , ξ, 0, 1) ∥22
+
+ , (10) 9where ODESolve( ·) denotes the terminal state generated by the pretrained flow model. After training, the distilled generator serves as an efficient latent prior model and produces coefficient samples according to 
+
+ψprior = Gθs (ξ), ξ ∼ N (0, I). (11) Combining the generated coefficients with the learned basis functions yields a functional prior in the original function space: 
+
+uprior (t, x; ξ) = 
+
+> p
+
+X
+
+> i=1
+
+[Gθs (ξ)] i ϕi(t, x). (12) Consequently, the proposed framework learns a probability measure over func-tions by modeling the latent coefficient distribution and subsequently mapping it back to the function space through the learned basis expansion. For inverse PDE problems governed by Eq. (1), we assume that either historical realizations of the target field or samples from a prescribed prior distribution are available. Following the procedure described above, these re-alizations are first used to train the functional prior model and thereby learn a functional prior distribution for the QoI. Once the functional prior has been established, prior realizations of other quantities appearing in Eq. (1), such as source terms, boundary conditions, or initial conditions, can be generated through the governing PDE using automatic differentiation (AD). Specifically, sampled realizations of uprior are substituted into Eq. (1), and the correspond-ing realizations of f , b, or u0 are computed via AD, similar to the approaches adopted in [1, 6, 7, 19–21]. As an alternative to AD, pretrained neural operators (NOs), such as the deep operator networks (DeepONet) [3] or the Fourier Neural Operator (FNO), can be employed as surrogate models to capture the relationships among different quantities in Eq. (1). Without loss of generality, suppose a pretrained neural operator N which maps f to u, i.e., u = N (f ) is available. Following [19], the dataset used to train the neural operator may be regarded as samples from the prior distribution of f . The functional prior model can therefore be trained using these samples to learn a functional prior distribution for f , denoted by fprior (t, x; ξ]). New realizations of the solution field can then be generated through the pretrained neural operator according to uprior = N  fprior 
+
+. Additional details regarding uncertainty quantification for neural operators can be found in [6, 7, 19]. 10 For problems in which the parameter β in Eq. (1) is an unknown finite-dimensional vector, we assume that historical samples of β are available. In this case, the parameter vector is concatenated with the latent coefficient vector ψ, and the joint distribution is learned using the flow-matching model 
+
+Gθs (ξ) in Eq. (11), following [18, 21]. If β represents an unknown field rather than a finite-dimensional parameter, an additional FE is introduced to learn a latent coefficient representation and corresponding basis functions for β. The resulting latent coefficients are then concatenated with those associated with 
+
+u or f , and the joint latent distribution is subsequently learned through the flow-matching framework described in Eqs. (11) - (12). 
+
+2.4. Amortized Bayesian inference via a set-conditioned functional posterior model 
+
+In the set-conditioned functional posterior model (SFPM) (Fig. 1), we train a conditional flow-matching model, more specifically the diffusion Trans-former (DiT) [35], to map observational sets to posterior distributions over latent variables, for amortized Bayesian inference. In particular, we seek to approximate the posterior distribution qξ
+
+> post
+
+(ξ | D obs ), from which posterior distributions over the latent coefficients and functions can be obtained through the deterministic mappings introduced in the previous subsection. Similarly, we take the case where the QoI is u as an example to introduce the architecture as well as training of the SFPM. To construct training data for the posterior model, we leverage the pretrained functional prior. Specifically, latent variables are first sampled from the base Gaussian distribution, ξ(k) ∼N (0, I), and subsequently mapped to the function space through the learned prior model based on Eqs. (11) - (12), which is denoted as u(k) = D
+
+
+
+Gθs (ξ(k))
+
+
+
+for simplicity. For each generated realization, a corresponding observation set is constructed according to the measurement model 
+
+D(k)obs = {u(k)(tj , xj ) + η(k) 
+
+> j
+
+}Nu
+
+> j=1
+
+,
+
+where the number of observations Nu are a random integer whitin the range of the length for the squence, and the spatio-temporal coordinates {(tj , xj )}Nx
+
+> j=1
+
+are randomly generated within the computational domain. In addition, the noise term η(k) is drawn from a prescribed measurement-noise distribution to emulate measurement errors in practical applications. Note that the obser-vations on f and/or β can either be obtained in the same way as generating observations on u, or derived from the u(k) using AD or pretrained NO as 11 discussed in the previous subsection. This procedure yields paired samples (ξ(k), D(k)obs) Nk=1 , which can be regarded as samples from the joint distribu-tion (ξ, Dobs) ∼ p(ξ, Dobs) . (13) These paired samples are subsequently used to train the SFPM. As shown in Fig. 1, the SFPM receives three inputs: (i) the noised latent variable ϵτ ∈ Rp at diffusion time τ , (ii) the scalar timestep τ ∈ [0 , 1], and (iii) the observation set Dobs = {(ti, xi, Xi, c i)}N X 
+
+> obs
+> i=1
+
+as condition, where Xi
+
+is the observed value at coordinate ( ti, xi) and ci is a categorical indicator distinguishing different measurement types (e.g., observations of u versus the forcing term f ). Specifically, cross-attention layers are utilized in the SFPM, with the noised latent ϵτ as queries, and the observation tokens as keys and values. To enable the discretization invariance of the SFPM, each observation is tokenized into an embedding vector by encoding its physical coordinate via random Fourier features (RFF) [36], and then concatenating the resulting coordinate embedding with the observed value and type indicator. Specifically, the temporal-spatial coordinate ( ti, xi) is first lifted into a high-dimensional feature space through the RFF mapping 
+
+γ(ti, xi) = 
+
+h
+
+cos( ωT 
+
+> 1
+
+zi), sin( ωT 
+
+> 1
+
+zi), . . . , cos( ωTD/ 2zi), sin( ωTD/ 2zi)
+
+iT
+
+∈ RD,
+
+(14) where zi = ( ti, xTi )T is the concatenated coordinate vector and {ωd}D/ 2 
+
+> d=1
+
+are random frequency vectors sampled from a prescribed spectral distribution, e.g., ωd ∼ N (0, σ 2I). The RFF mapping approximates a shift-invariant kernel 
+
+k(zi, zj ) ≈ γ(zi)T γ(zj ) [36], thereby encoding the relative positional relation-ship between any two observation locations through their inner product in the feature space, while keeping each token’s coordinate representation absolute and order-independent. The full observation token is then formed as 
+
+ei = Linear 
+
+γ(ti, xi); Xi; ci
+
+
+
+∈ Rdmodel , (15) where [ ; ] denotes concatenation, and Linear( ·) projects the concatenated vec-tor to the model dimension dmodel .Crucially, because each token ei already encodes the absolute temporal-spatial coordinate ( ti, xi) of the measurement as part of its content, no addi-tional positional encoding is required or applied to the observation tokens. As 12 a result, the set of observation embeddings {ei}Nobs  
+
+> i=1
+
+is treated as an unordered 
+
+set: permuting the observations leaves every token embedding unchanged, so the cross-attention output—and hence the predicted vector field—is invari-ant to the ordering of Dobs . This design enforces the permutation-invariance property required by Bayesian inference, namely 
+
+qpost 
+
+ u | D obs 
+
+ = qpost 
+
+ u | π(Dobs ), ∀ π ∈ SNobs , (16) where SNobs denotes the permutation group of Nobs elements. Furthermore, attention masking is applied to the cross-attention layers in which the noised latent ϵτ (as queries) attends to the observation tokens (as keys and values). Specifically, a binary mask M ∈ { 0, 1}Nobs is constructed for each sample in a training batch, where Mi = 0 marks a padded or ab-sent observation token that is excluded from the attention computation. This mechanism serves two purposes: (i) it allows the model to handle observa-tion sets of varying cardinality N X 
+
+> obs
+
+within the same batch by padding shorter sequences to a fixed length and masking the padded positions, and (ii) it nat-urally supports partial observations , where only a subset of physical quantities is measured at any given location, by masking the corresponding absent to-kens. Consequently, the conditioning signal seen by each latent query token is computed exclusively from valid, unmasked observations, ensuring that the inferred posterior is determined solely by the available data rather than by padding artifacts. We now discuss the training of the SFPM. Let ϵ ∼ N (0, I) be a base Gaussian variable and define the probability path 
+
+ϵτ = (1 − τ )ϵ + τ ξ, τ ∈ [0 , 1] .
+
+The SFPM parameterizes a conditional vector field vθSFPM (ϵτ , τ, Dobs ; θDiT ),
+
+which is trained using the flow-matching objective 
+
+LSFPM = Eτ ∼U (0 ,1) ,ϵ,ξ,Dobs 
+
+∥vθSFPM (ϵτ , τ, Dobs ; θDiT ) − (ξ − ϵ)∥22
+
+ . (17) After training, posterior samples are generated by integrating the learned conditional flow, 
+
+ξpost = ϵ +
+
+Z 10
+
+vθSFPM (ϵτ , τ, Dobs ; θDiT )dτ. (18) The resulting posterior coefficient samples are obtained through 
+
+ψpost = Gθs (ξpost ),
+
+13 and posterior function samples are reconstructed as 
+
+upost (x) = 
+
+> p
+
+X
+
+> i=1
+
+[ψpost ]iϕi(t, x). (19) Repeating this procedure yields samples from the approximate posterior dis-tribution ˆQpost (u | D obs ).
+
+After obtaining posterior samples of the primary quantity of interest, pos-terior distributions of other physical variables appearing in Eq. (1) can be readily derived. For example, if the posterior samples correspond to the so-lution field upost , posterior realizations of the source term f , boundary con-ditions b, or other PDE quantities can be computed by substituting upost 
+
+into the governing equation and evaluating the required differential operators through AD. Alternatively, when a pretrained neural operator (NO) is avail-able to represent the relationship among physical quantities, uncertainty can be propagated through the neural operator. For instance, if posterior samples of the source term are inferred, i.e., 
+
+fpost ∼ ˆQpost (f | D obs ),
+
+the corresponding posterior samples of the solution field can be obtained through 
+
+upost = N (fpost ).
+
+In this manner, the proposed framework naturally propagates uncertainties across coupled physical quantities without requiring additional posterior sam-plers. Repeating the above procedure yields samples from the approximate pos-terior distribution ˆQpost (u | D obs ),
+
+from which posterior statistics such as the mean, variance, credible intervals, and other uncertainty measures can be readily estimated. Furthermore, since posterior samples are generated independently, the sampling procedure can be fully parallelized through batched computation on modern hardware accel-erators, enabling efficient uncertainty quantification for large-scale regression and inverse PDE problems. 14 Consequently, Flow-ABI learns a permutation-invariant and discretization-invariant set-to-distribution mapping that directly approximates posterior dis-tributions in function space. Unlike conventional inference methods tied to fixed sensor layouts or discretizations, the proposed framework naturally ac-commodates varying numbers, locations, and types of measurements, enabling scalable amortized Bayesian inference and uncertainty quantification across a broad class of regression and inverse PDE problems. 
+
+3. Results and discussion 
+
+In this section, we will test the effectiveness of Flow-ABI in regression as well as inverse PDE problems with uncertainties. We further showcase the efficiency of the Flow-ABI for posterior estimate using examples of inverse PDE problems. In addition, we employ the Hamiltonian Monte Carlo (HMC) to estimate the posterior in cases where we are not able to obtain the exact solutions. Specifically, the HMC is implemented based on the No-U-Turn in BlackJAX[37], which eliminates the need to set the number of steps. Details on the computations in each test case are present in Appendix A. 
+
+3.1. 1D function approximation 
+
+We first evaluate the proposed Flow-ABI framework on a series of one-dimensional regression problems involving different prior distributions and measurement noise models. Specifically, three representative scenarios are considered: (a) a Gaussian process (GP) prior with a squared exponential kernel and Gaussian measurement noise; (b) a non-Gaussian process prior with Gaussian measurement noise; and (c) a GP prior with a Mat´ ern kernel and Student’s t-distributed measurement noise. These cases are designed to assess the ability of the proposed method in cased with both Gaussian and non-Gaussian priors and likelihood models. The corresponding prior specifications and measurement noise models are summarized in Table 1. To begin with, we assess the ability of the functional prior model within Flow-ABI to learn diverse prior distributions in function space from data. For each prior considered in Table 1, we randomly generate 10,000 realizations from the corresponding stochastic process as training samples. Each realiza-tion is discretized using 128 uniformly spaced points over the computational domain x ∈ Ω, where Ω = [ −1, 1]. These snapshots are subsequently used to train the function representation module, comprising the coefficient network 
+
+N N C and the basis network N N B . For this one-dimensional example, the 15 Table 1: 1D regression problems: Prior and measurement error or noise in each test case. 
+
+Prior Kernel Noise case (a) GP (0 , κ (x, x ′)) Squared exponential, l = 0 .1
+
+N (0 , 0.12)case (b) exp[ GP (0 , κ (x, x ′))] Squared exponential, l = 0 .1
+
+N (0 , 0.12)case (c) GP (0 , κ (x, x ′)) Mat´ ern, ν = 2 .5, 
+
+l = 0 .1Student ′s t ( ν =3, σ = 0 .1) discretized function values at the 128 measurement locations are provided as input to N N C , while the spatial coordinate x ∈ Ω serves as the input to 
+
+N N B . The resulting latent coefficients learned by the function encoder are then used to train the one-step flow matching model, which approximates the prior distribution in the latent coefficient space. Samples from the learned functional prior can subsequently be generated according to Eq. (12). 0 10 20 30 0510 15 20 0 10 20 30 02460 10 20 30 02468
+
+> Figure 2: Flow-ABI for 1D regression problem: Eigenvalues of the covariance matrix for the learned functional prior for cases (a)-(c) (from left to right). Black solid line: reference solution, line with squares: preditions from base flow matching model, line with triangles: predictions from one-step generator.
+
+To quantify the accuracy of the learned functional prior, we generate 10,000 samples from the trained model as well as the reference stochastic process, and then we compute the covariance matrices from both sets of samples and perform an eigenvalue decomposition. Fig. 2 presents the leading eigenvalues of the covariance matrices obtained from the reference and learned priors. As can be observed, the proposed functional prior model accurately reproduces 16 the dominant covariance structures of all three stochastic processes, including both Gaussian and non-Gaussian cases. These results demonstrate that the learned prior provides a faithful approximation of the underlying probability measure in function space. Furthermore, by employing a one-step flow matching distillation strategy, the prior generation process can be performed with a single network forward evaluation, eliminating the need for iterative numerical integration. This sig-nificantly reduces the computational cost of sampling and provides an efficient mechanism for generating large numbers of prior realizations, which is particu-larly advantageous for constructing training data for the subsequent amortized Bayesian inference stage. We next train the SFPM using paired training data generated from the pre-trained functional prior, as described in Sec. 2. After training, the posterior model is evaluated on three representative test cases corresponding to scenar-ios (a)–(c). To assess the generalization capability of the proposed framework, the testing cases involve different target functions as well as observation sets with varying numbers and locations of measurements. In particular, the loca-tions of the measurements in each test case are randomly selected within the range x ∈ [−1, 1]. These configurations are not tied to any specific sensing pattern and therefore provide a stringent test of the model’s ability to perform inference under different observation settings. For case (a), where both the prior and likelihood are Gaussian, the pos-terior distribution can be computed analytically using Gaussian process re-gression (GPR), which is adopted as the reference solution. For cases (b) and (c), where either the prior distribution or the measurement noise model is non-Gaussian, posterior samples are generated using Hamiltonian Monte Carlo (HMC) and serve as the reference solutions. In all cases, the posterior mean and uncertainty are estimated from 10,000 posterior samples with the Monte Carlo method. 17 -1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012-1 0 1024-1 0 1012 -1 0 1024-1 0 1012 -1 0 1024-1 0 1012-1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012Figure 3: Flow-ABI for 1D regression problem. Case (a): Gaussian Process (GP) with length-scale l = 0 .1 and Gaussian noise ϵu ∼ N (0 , 0.12); Case (b): non-GP method with length-scale l = 0 .1 and Gaussian noise ϵu ∼ N (0 , 0.12); Case (c): Gaussian Process (GP) with Mat´ ern kernel ν = 2 .5, length-scale l = 0 .1, and Student-t noise ϵu ∼ StudentT( ν =3, σ = 0 .1). Black solid: references for the target function and two standard deviations in the uppper and lower parts of each plot, respectively. 
+
+We illustrate the predictions obtained by Flow-ABI with the correspond-ing reference solutions in Fig. 3. Excellent agreement is observed for both the predicted mean and uncertainties across all three scenarios. In particular, the proposed framework accurately captures the posterior distributions arising from both Gaussian and non-Gaussian priors and likelihoods. Moreover, de-spite the varying numbers and locations of measurements in the testing cases, the prediction accuracy remains consistently high, demonstrating the ability of the proposed approach to effectively process observation sets of varying size 18 and configuration. These results validate the proposed amortized Bayesian in-ference framework and indicate that it can accurately approximate complex posterior distributions while retaining the flexibility required for practical sci-entific machine learning applications involving sparse, noisy, and irregular observations. To assess the permutation-invariance property of Flow-ABI, we consider a representative case from scenario (a), where 16 measurements are available. Specifically, we randomly permute the ordering of the observation set while keeping the latent noise realization ϵ fixed, and then generate posterior sam-ples using the trained SFPM. The resulting samples are compared with those obtained from the original observation ordering, as illustrated in Fig. 3. Since the latent noise is identical in both cases, any discrepancy can be attributed to the ordering of the observations as well as the ODE integration errors incurred during posterior sample generation. Let ξ1, ξ2 ∈ RN ×D denote the two sets of posterior latent samples obtained from the original and permuted observation sets, respectively, where N = 100 is the number of generated samples and D = 64 is the latent dimension. We quantify the difference between the two sample sets using the mean absolute error (MAE), defined as 
+
+EMAE = 1
+
+N D 
+
+> N
+
+X
+
+> i=1
+> D
+
+X
+
+> j=1
+
+|ξ1,i,j − ξ2,i,j | , (20) where ξ1,i,j and ξ2,i,j denote the j-th latent component of the i-th posterior sample from the original and permuted observation sets, respectively. For this particular example, the computed MAE is 5 .32 × 10 −5. This error may be attributed to computational propagation errors within the network. The result confirms that the learned posterior distribution is effectively invariant to permutations of the observation set, thereby verifying that the set-conditioned architecture successfully learns the permutation-invariant posterior operator required for Bayesian inference. We further demonstrate the capability of Flow-ABI for active learning in regression problems. Specifically, we consider the target function 
+
+u(x) = 2 e−(x+1) sin(4 πx ) + x2,
+
+and the prior as well as the noise model are the same as in case (a). We assume that initially we have 17 noisy measurements on the target function. 19 At each active learning iteration, the posterior distribution is first estimated using the current set of observations. A new sensor is then placed at the location corresponding to the maximum predicted uncertainty, and the result-ing measurement is incorporated into the observation set for the subsequent inference step. Fig. 4 illustrates the evolution of the posterior predictions throughout the active learning process. As additional sensors are sequentially deployed, the posterior mean progressively approaches the exact solution, while the predic-tive uncertainty is systematically reduced across the domain. In particular, regions associated with large posterior uncertainty are preferentially sampled, resulting in a progressively more informative observation set and improved reconstruction accuracy. After several active learning iterations, the posterior distribution becomes increasingly concentrated around the exact solution, in-dicating that the uncertainty estimates provided by the proposed framework effectively identify regions where additional measurements are most beneficial. -2 02-1 0 1012-2 02-1 0 1012-2 02-1 0 1012-2 02-1 0 1012-2 02-1 0 1012-2 02-1 0 1012
+
+> Figure 4: Flow-ABI for 1D regression problem: Active learning with the Gaussian process prior.
+
+Notably, the active learning process requires repeated posterior updates as new observations become available. In conventional Bayesian inference frame-20 works, this typically entails solving a new inference problem after each sensor placement, which can be computationally expensive. In contrast, Flow-ABI performs posterior sampling directly through the pretrained Set-Conditioned Functional Posterior Model (SFPM), enabling rapid posterior updates with-out retraining or iterative sampling. Consequently, the proposed framework provides an efficient foundation for active learning, adaptive sensing, and op-timal experimental design in scientific machine learning applications where real-time uncertainty quantification is essential. 
+
+3.2. 2D Function Approximation 
+
+We proceed to test the Flow-ABI on two-dimensional regression prob-lems. The prior in this specific problem is assumed to be a zero-mean Gaus-sian process with an isotropic squared-exponential kernel for u, i.e. u ∼GP (0 , κ (x, x′)), which is expressed as: 
+
+κ(x, x′) = exp 
+
+
+
+−(x1 − x′
+
+> 1
+
+)2
+
+2l2
+
+> x
+
+− (x2 − x′
+
+> 2
+
+)2
+
+2l2
+
+> y
+
+
+
+, x ∈ [−1, 1] 2, (21) with length scales lx = ly = 0 .2. We aim to quantify the uncertainties arsing from noisy and gappy data in a two-dimensional regression case given this prior. Following the training procedure described in Sec. 2, we first train the functional prior model using samples drawn from the prescribed Gaussian process prior and subsequently train the Set-Conditioned Functional Poste-rior Model (SFPM) using paired samples generated from the learned prior model. In particular, a training dataset consisting of 10 , 000 independent re-alizations is generated from the specified Gaussian process prior, with each realization discretized on a 64 × 64 uniform grid over Ω. These samples are used to train the function representation module (FRM): the coefficient net-work N N C takes the field values on the 64 × 64 grid as input, while the basis network N N B takes the continuous spatial coordinates x ∈ Ω as input. Using the latent coefficient representations extracted by the trained FE, a one-step flow matching model is subsequently trained to approximate the prior distri-bution in the latent space, thereby enabling efficient generation of new prior realizations in the function space. Further, the learned prior model is used to generate synthetic observation–latent pairs for training the SFPM. At in-ference time, given a sparse observation set Dobs , the trained SFPM directly produces samples from the approximate posterior distribution, from which posterior statistics are estimated. 21 0.5 1 1.5 2 2.5 0.2 0.4 0.6 0.8 1-2 -1 0 10.5 1 1.5 0.2 0.4 0.6 0.8 -2 0 20.5 1 1.5 0.2 0.4 0.6 0.8 -2 0 20.2 0.4 0.6 0.8 0.1 0.2 0.3 0.4 0.5 0.6 -2 0 2Figure 5: Flow-ABI for 2D regression problem: From left to right in each row: the reference solution, the pointwise error between the predicted mean and the reference solution for Flow-ABI and GPR, and the predicted one standard deviation from the Flow-ABI and GPR. 
+
+22 After the training, we employ four different cases to evaluate the accuracy of the Flow-ABI. In addition, the numbers as well as the locations of the measurements differ in each case. Also, the measurement noise is assumed to be Gaussian, i.e., N (0 , 0.12). Since both the prior and the measurement noise are Gaussian, we therefore utilize results from the GPR as reference solutions as in case (a) of Sec. 3.1. As illustrated in Fig. 5, both the predicted mean and uncertainties from Flow-ABI closely match the reference solutions in all test cases, demonstrating the effectiveness of the Flow-ABI in two-dimensional regression problems. 
+
+3.3. Nonlinear Elliptic Problem 
+
+We now consider to solve an inverse problem by integrating the Flow-ABI and the PINNs. Specifically, the governing equation tested here is a one-dimensional nonlinear elliptic equation 
+
+−∂2
+
+> x
+
+u + sin  u(x) = kf (x), x ∈ [−1, 1] , (22) where k = 0 .005 is a scaling parameter controlling the magnitude of the forcing term. The objective is to infer both the solution field u(x) and the source term f (x), together with their associated uncertainties, from sparse and noisy observations while satisfying the governing physical constraint. Following Section 3.1, we impose a zero-mean Gaussian process prior u ∼GP (0 , κ (x, x′)) with the squared-exponential kernel 
+
+κ(x, x ′) = exp 
+
+
+
+−|x − x′|2
+
+2l2 ,
+
+
+
+, x ∈ [−1, 1] where the length scale is taken as l = 0 .1. Given realizations of u, the corre-sponding source term f is obtained from Eq. (22) using automatic differenti-ation, following the strategy adopted in [1, 16, 19, 21]. Consequently, a joint prior distribution over ( u, f ) can be constructed. The training of Flow-ABI follows the procedure described in Section 2. For the present example, the functional prior of u is trained using 10 , 000 realiza-tions sampled from the prescribed Gaussian process prior, each discretized at 128 uniformly distributed locations over [ −1, 1]. The learned prior accurately reproduces the covariance structure of the target Gaussian process, similar as the result in Sec. 3.1, and the corresponding validation results are omitted here for brevity. Further, Given realizations of u, the corresponding source term f
+
+is obtained from Eq. (22) using AD, as aforementioned. Consequently, a joint 23 prior distribution over ( u, f ) can be constructed. The trained prior is subse-quently employed to generate paired samples for training the Set-Conditioned Functional Posterior Model (SFPM). Unless otherwise stated, additive mea-surement noise is assumed to follow independent Gaussian distributions with standard deviations σu = σf = 0 .1. During inference, the SFPM receives a sparse observation set Dobs con-sisting of noisy measurements of both u and f , and directly generates pos-terior samples of the latent variables, which are subsequently decoded into joint posterior realizations of ( u, f ) over the entire domain. Also, the trained model naturally accommodates varying numbers and spatial locations of sen-sors without retraining. To evaluate the accuracy of Flow-ABI, we consider three representative test cases. In Case (a), the target solution is prescribed as 
+
+u(x) = 2 e−(x+1) sin(4 πx ) − 0.5 sin(3 πx + x2),
+
+and reconstructed from 16 noisy measurements of both u and f . In Cases (b) and (c), the target functions are randomly sampled from the same Gaussian process prior with length scale l = 0 .1 and measurement noise standard devi-ation σ = 0 .1. The three cases differ in the number and spatial distribution of the sensors, thereby providing a more challenging assessment of the model’s ability to generalize across different observation configurations. For each test case, 10 , 000 posterior samples are generated using both Flow-ABI and the reference HMC method, from which the posterior mean and standard devia-tion are estimated. As shown in Fig. 6, the predictions obtained by Flow-ABI are in excellent agreement with the HMC reference for both the posterior mean and uncertainty estimates across all three cases. In particular, the pro-posed method accurately captures the non-Gaussian posterior distributions induced by the nonlinear term sin( u) while maintaining well-calibrated un-certainty quantification. Moreover, consistent reconstruction of both u and 
+
+f is achieved despite substantial variations in sensor numbers and locations, demonstrating the robustness and generalization capability of Flow-ABI for coupled field inference under varying observation configurations. In Table 2, we present the wall-clock time required to generate 10 , 000 pos-terior samples using Flow-ABI and HMC. The proposed approach achieves an approximately 199 × speed-up compared with single-chain HMC and a 112 ×
+
+speed-up compared with four-chain parallel HMC, while maintaining compa-rable posterior accuracy. This computational advantage is particularly pro-nounced for the nonlinear elliptic inverse problem considered here, where each 24 HMC iteration requires repeated evaluations of the nonlinear forward model and its associated gradients. In contrast, once trained, Flow-ABI directly generates posterior samples through a single forward pass of the learned gen-erative model, eliminating the need for HMC iterations during inference. As a result, posterior distributions can be estimated within seconds, enabling rapid uncertainty quantification and efficient assimilation of newly acquired observations. -1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012-1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012 -1 0 1-2 02-1 0 1012
+
+Figure 6: Flow-ABI for nonlinear elliptic problem: The two plots in each column correspond to the reconstructed u and the associated f with uncertainties, respectively. Table 2: Flow-ABI for nonlinear elliptic problem: Computational time (in seconds) and speed-up of the proposed model versus HMC when drawing 10 , 000 posterior samples. 
+
+Flow-ABI NUTS (single chain) Speed-up NUTS (4 chains) Speed-up Walltime (s) 0.69 137.39 199.11 77.86 112.84 
+
+3.4. Neural Operator: 2D Darcy Flow in Heterogeneous Porous Media 
+
+We further test the Flow-ABI using an example of flow through hetero-geneous porous media, which is a widely used benchmark for inverse prob-25 lem. The specific problem consider here is governed by the following two-dimensional equation [38]: 
+
+−∇ ·  K(x) ∇h(x) = f (x), x = ( x, y ) ∈ [−1, 1] 2, (23) which subjects to the boundary conditions 
+
+h(x, −1) = 1 , h(x, 1) = 0 , ∂nh(−1, y ) = 0 , ∂nh(1 , y ) = 0 , (24) where K(x) denotes the hydraulic conductivity, h(x) the hydraulic head, and 
+
+f (x) = 1 a uniform source term. To capture the spatial variability character-istic of realistic conductivity fields, K(x) is modeled following [38] as: 
+
+K(x) = exp  F (x), (25) where F (x) represents the realization of the following prior, i.e., 
+
+F ∼ GP (0 , κ (x, x′)), with the covariance specified as an anisotropic squared-exponential kernel: 
+
+κ(x, x′) = exp 
+
+
+
+−(x − x′)2
+
+2l2
+
+> x
+
+− (y − y′)2
+
+2l2
+
+> y
+
+
+
+, x, x′ ∈ [−1, 1] 2, (26) in which lx = 0 .07 and ly = 0 .2. For this specific problem, we assume that we have noisy measurements on K and h, the objective is to reconstruct the full fields of conductivity K(x) and hydraulic head h(x) and their associ-ated uncertainties from solely these sparse observations while constrained the underlying physics of the governing flow equations. Generally, F (x) is em-ployed in the computations rather than K to guarantee that the obtained K
+
+is nonnegative [6, 7, 19, 38]. In order to showcase the flexibility as well as effectiveness of Flow-ABI, we will integrate the Flow-ABI with the neural operator, more specifically the Fourier neural operator (FNO) [4], to solve the above inverse problem. Specif-ically, we randomly draw samples for F (x) from the corresponding prior, and then we employ the PDEToolboox in Matlab to solve the governing equation to obtain the paired data F (x)i, h i(x)Ni=1 . These data are subsequently utilized to train the FNO to learn the mapping from F (x) to h(x), i.e., h(x) = N (F (x)). With the pretrained FNO, we then integrate the Flow-ABI with it for solving inverse Darcy problems. The training of Flow-ABI proceeds according to the two-stage scheme detailed in Sec. 2.2. In the first stage, the func-tional prior is trained using N = 10 , 000 realizations for F (x) drawn from the 26 prescribed Gaussian process prior and discretized on a 64 × 64 uniform grid. With the well trained prior for F (x), we are able to obtain samples for F (x), and thus the prior for h(x) can be obtained based on the pretrained FNO, i.e., h(x) = N (F (x)). Subsequently, The trained prior is used to generate paired samples for training the Set-Conditioned Functional Posterior Model (SFPM). In this case, the measurements of both F and h are corrupted by additive Gaussian noise with a standard deviation of σ = 0 .05. During infer-ence, the SFPM takes a sparse observation set Dobs which consisting of noisy measurements of both F and h as input, and produces posterior samples of the latent variables. These are then decoded into posterior realizations of log-conductivity field F over the entire domain and get the hydraulic head h.To evaluate the accuracy of Flow-ABI, we consider three representative test cases with varying numbers and spatial configurations of sensors. Since the posterior distribution does not admit a closed-form expression due to the nonlinear forward map, posterior samples obtained via HMC serve as the reference solution. For each case, 10 , 000 posterior samples are drawn using both Flow-ABI and HMC, from which the posterior mean and standard deviation are estimated. As illustrated in Fig. 7, Flow-ABI closely matches the HMC reference in both posterior mean estimation and uncertainty quantification across all three sensor configurations. In particular, the proposed method accurately recovers the anisotropic spatial structure of the log-conductivity field, with elongated correlation patterns along the y-direction faithfully reproduced in the posterior mean. The predicted standard deviation is also well-calibrated, with regions of higher uncertainty correctly identified in areas far from sensors or subject to greater prior variability. These results demonstrate that the framework scales effectively to 2D inverse problems involving non-Gaussian posteriors and implicit forward operators approximated by neural surrogates. Table 3 reports the wall-clock time required to draw 10 , 000 posterior sam-ples using Flow-ABI and HMC, respectively. The proposed approach achieves an approximately 1039 × speed-up compared with single-chain HMC and a 393 × speed-up compared with four-chain parallel HMC, while maintaining comparable posterior accuracy, reducing the sampling time from over 7.6 min-utes to under 1.16 seconds with the four-chain parallel HMC. This efficiency gain is particularly significant for applications requiring repeated posterior evaluations, such as optimal sensor placement or real-time subsurface moni-toring, where the amortized nature of Flow-ABI eliminates the need for re-training or iterative sampling under each new observation configuration. 27 0.02 0.04 0.06 0.08 0.1 0.12 0.01 0.02 0.03 0.04 0.05 0 0.5 1                                                       
+
+> 0.5 11.5 22.5 0.2 0.4 0.6 0.8 1-2 020.02 0.04 0.06 0.08 0.1 0.01 0.02 0.03 0.04 00.5 1
+> 0.5 11.5 20.2 0.4 0.6 0.8 1-2 020.02 0.04 0.06 0.08 0.1 0.12 0.01 0.02 0.03 0.04 0.05 00.5 1
+> 0.5 11.5 22.5 30.2 0.4 0.6 0.8 1-2 02
+
+Figure 7: Flow-ABI for 2D Darcy problem: Predicted mean and uncertainties for the log-conductivity field F and the hydraulic head h. Observations of both F and h are corrupted by additive Gaussian noise with standard deviation σ = 0 .05. 
+
+28 Table 3: Flow-ABI for 2D Darcy problem: Computational time (in seconds) and speed-up of the Flow-ABI versus HMC when drawing 10 , 000 posterior samples. 
+
+Flow-ABI NUTS (single chain) Speed-up NUTS (4 chains) Speed-up Walltime (s) 1.16 1205.65 1039.35 456.14 393.10 
+
+4. Summary 
+
+In this work, we proposed Flow-ABI, a conditional flow-matching frame-work for amortized Bayesian inference in regression and inverse PDE problems. Unlike conventional Bayesian approaches that require solving a new infer-ence problem for every observation set, Flow-ABI learns a set-to-distribution mapping during an offline training stage, enabling near-real-time posterior sampling for previously unseen observations without retraining or iterative optimization. By performing uncertainty quantification directly in function spaces, the proposed framework is applicable to a broad range of scientific machine learning tasks involving functional unknowns. A key feature of Flow-ABI is its set-conditioned posterior representation, which naturally accommodates varying numbers, locations, and types of mea-surements. Consequently, the learned posterior operator is both permutation-invariant and discretization-invariant, allowing the framework to generalize across different sensor configurations and observation discretizations. Fur-thermore, Flow-ABI can be seamlessly integrated with both physics-informed neural networks and neural operators, providing a general and flexible ap-proach to uncertainty-aware inverse modeling in PDE-governed systems. Through extensive numerical experiments on representative regression and inverse PDE benchmarks, we demonstrated that Flow-ABI accurately cap-tures complex posterior distributions, including highly non-Gaussian uncer-tainties, while achieving more than two orders of magnitude speedup com-pared with the conventional gold-standard Bayesian inference method, namely Hamiltonian Monte Carlo (HMC). These results establish the Flow-ABI as an effective, scalable, and computationally efficient framework for uncertainty quantification in scientific machine learning. Several directions warrant further investigation. Future work will focus on extending the proposed framework to high-dimensional spatio-temporal systems, multi-physics and multi-fidelity settings, and sequential data assim-ilation problems. Another promising direction is the integration of adaptive 29 sensing and experimental design strategies, where the learned set-conditioned functional posterior model can be leveraged to guide data acquisition and sensor placement in real time. More broadly, we envision Flow-ABI as a foundational building block for uncertainty-aware scientific machine learning systems, enabling rapid, reliable, and scalable decision-making in complex physical environments. 
+
+Acknowledgements 
+
+S. Z. and X. M. acknowledge the support of the National Natural Science Foundation of China (No. 12201229) and the Interdisciplinary Research Pro-gram of HUST (No. 2024JCYJ003). X. M. also acknowledges the support of the Xiaomi Young Talents Program. L. G. acknowledges the support of the National Natural Science Foundation of China (No. 92270115, 12071301). 
+
+Appendix A. Details on the computations 
+
+In all the cases discussed in the Results section, the AdamW optimizer and a cosine annealing schedule for the learning rate are utilized for training all neural networks. Additional details regarding the architectures and training steps for functional prior and posterior models are provided in Tables A.4 - A.12. Furthermore, during the distillation of the prior, the flow matching process is solved using a 20-step fourth-order Runge-Kutta (RK4) method. For the posterior, a 5-step RK4 method is employed. We observed that 5 steps are sufficient to generate high-quality posteriors, and further increasing the number of steps yields marginal improvements. In Section 3.1, we investigated the error associated with permuted observations. We observed that as the number of RKH steps increases, the error steadily decreases, yielding 5 .3×10 −5
+
+at 5 steps, 3 .7 × 10 −5 at 10 steps, and 1 .8 × 10 −5 at 40 steps. In addition, the details of Fourier Neural Operator (FNO) using in the Sec. 3.4 are as follows: the employed FNO consists of a lifting layer in the 64 × 64 uniform grid, four consecutive Fourier layers, and a projection layer. Specifi-cally, the input features are first lifted to a latent space with a channel width of 12. Across the four Fourier layers, the network operates in the frequency domain by retaining only the maximal modes of 32 and 12 along the first and second spatial dimensions, respectively. The ReLU activation function is applied after the residual connections in the first three Fourier layers and within the projection block. Finally, the projection layer utilizes a two-layer 30 perceptron with a hidden dimension of 128 to map the latent representations to the desired single-channel output. 
+
+Table A.4: Architecture and training steps of functional encoder in each case. Specifically, both N N B and N N C are fully-connected neural networks (FNN). 
+
+N N C N N B Training steps width × depth Activation width × depth Activation Sec. 3.1 64 × 5 ReLU 64 × 5 tanh 200,000 Sec. 3.2 256 × 5 ReLU 256 × 5 tanh 200,000 Sec. 3.3 64 × 5 ReLU 64 × 5 tanh 200,000 Sec. 3.4 256 × 5 ReLU 256 × 5 tanh 200,000 Table A.5: Batch size and training points for each case in functional encoder. Batch size Training points for each snapshot learning rate Sec. 3.1 1280 2048 (equidistantly distributed in [ −1, 1]) 1 × 10 −3
+
+Sec. 3.2 400 2048 (uniformly distributed in [ −1, 1] 2) 1 × 10 −3
+
+Sec. 3.3 1280 2048 (equidistantly distributed in [ −1, 1]) 1 × 10 −3
+
+Sec. 3.4 400 2048 (uniformly distributed in [ −1, 1] 2) 1 × 10 −3
+
+Table A.6: Architectures of based flow-matching generative models in the FPM, which are all FNNs. width × depth FFN Activation Sec. 3.1 64 × 5 GeLU Sec. 3.2 256 × 5 GeLU Sec. 3.3 64 × 5 GeLU Sec. 3.4 256 × 5 GeLU 
+
+31 Table A.7: Batch size, training steps and learning rate (lr) of based flow-matching in the FPM. Batch size learning rate Training steps Sec. 3.1 1280 1 × 10 −3 200,000 Sec. 3.2 400 1 × 10 −3 200,000 Sec. 3.3 1280 1 × 10 −3 200,000 Sec. 3.4 400 1 × 10 −3 200,000 Table A.8: Architectures of the one-step generators in FPM, which are all FNNs. width × depth Activation Sec. 3.1 64 × 5 GeLU Sec. 3.2 256 × 5 GeLU Sec. 3.3 64 × 5 GeLU Sec. 3.4 256 × 5 GeLU Table A.9: Batch size, training steps and learning rate (lr) of the one-step generator in each test case of the FPM. Batch size Training steps learning rate Sec. 3.1 1280 200,000 1 × 10 −3
+
+Sec. 3.2 400 200,000 1 × 10 −3
+
+Sec. 3.3 1280 200,000 1 × 10 −3
+
+Sec. 3.4 400 200,000 1 × 10 −3
+
+Table A.10: Architecture of the diffusion Transformer in the SFPM of each test case. Model-dim Block Num. Heads FFN hidden dim FFN Activation Sec. 3.1 256 4 8 1024 GeLU Sec. 3.2 256 6 8 1024 GeLU Sec. 3.3 256 4 8 1024 GeLU Sec. 3.4 256 8 8 1024 GeLU 
+
+32 Table A.11: Batch size and training steps for the SFPM Batch size Training steps learning rate Sec. 3.1 1024 200,000 1 × 10 −3                            
+
+> Sec. 3.2 1024 200,000 1×10 −3
+> Sec. 3.3 1024 200,000 1×10 −3
+> Sec. 3.4 1024 200,000 1×10 −3
+> Table A.12: Maximum number of sensors for the SFPM in each test case. Sec. 3.1 Sec. 3.2 Sec. 3.3 Sec. 3.4 Maximum number of sensors Nu= 32 Nu= 256 Nu= 32 , N f= 32 Nh= 64 , N F= 64
+
+References 
+
+[1] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. 
+
+Journal of Computational physics , 378:686–707, 2019. [2] Justin Sirignano and Konstantinos Spiliopoulos. Dgm: A deep learning algorithm for solving partial differential equations. Journal of computa-tional physics , 375:1339–1364, 2018. [3] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the uni-versal approximation theorem of operators. Nature machine intelligence ,3(3):218–229, 2021. [4] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. [5] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neu-ral operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research , 24(89):1–97, 2023. 33 [6] Apostolos F Psaros, Xuhui Meng, Zongren Zou, Ling Guo, and George Em Karniadakis. Uncertainty quantification in scientific machine learning: Methods, metrics, and comparisons. Journal of Computational Physics , 477:111902, 2023. [7] Zongren Zou, Xuhui Meng, Apostolos F Psaros, and George E Karni-adakis. Neuraluq: A comprehensive library for uncertainty quantification in neural differential equations and operators. SIAM Review , 66(1):161– 190, 2024. [8] Xuhui Meng, Hessam Babaee, and George Em Karniadakis. Multi-fidelity bayesian neural networks: Algorithms and applications. Journal of Com-putational Physics , 438:110361, 2021. [9] Kevin Linka, Amelie Sch¨ afer, Xuhui Meng, Zongren Zou, George Em Kar-niadakis, and Ellen Kuhl. Bayesian physics informed neural networks for real-world nonlinear dynamical systems. Computer Methods in Applied Mechanics and Engineering , 402:115346, 2022. [10] Yibo Yang and Paris Perdikaris. Adversarial uncertainty quantification in physics-informed neural networks. Journal of Computational Physics ,394:136–152, 2019. [11] Amirhossein Mollaali, Christian B Moya, Amanda Howard, Alexander Heinlein, Panos Stinis, and Guang Lin. Conformalized-kans: Uncertainty quantification with coverage guarantees for kolmogorov-arnold networks (kans) in scientific machine learning. Machine Learning: Science and Technology , 2025. [12] Radford M Neal. Bayesian learning for neural networks , volume 118. Springer Science & Business Media, 2012. [13] Tim Pearce, Russell Tsuchida, Mohamed Zaki, Alexandra Brintrup, and Andy Neely. Expressive priors in bayesian neural networks: Kernel com-binations and periodic functions. In Uncertainty in artificial intelligence ,pages 134–144. PMLR, 2020. [14] Balaji Lakshminarayanan, Alexander Pritzel, and Charles Blundell. Sim-ple and scalable predictive uncertainty estimation using deep ensembles. 
+
+Advances in neural information processing systems , 30, 2017. 34 [15] Yarin Gal and Zoubin Ghahramani. Dropout as a bayesian approxima-tion: Representing model uncertainty in deep learning. In international conference on machine learning , pages 1050–1059. PMLR, 2016. [16] Liu Yang, Xuhui Meng, and George Em Karniadakis. B-pinns: Bayesian physics-informed neural networks for forward and inverse pde problems with noisy data. Journal of Computational Physics , 425:109913, 2021. [17] Ethan Pickering, Stephen Guth, George Em Karniadakis, and Themis-toklis P Sapsis. Discovering and forecasting extreme events via active learning in neural operators. Nature Computational Science , 2(12):823– 833, 2022. [18] Liu Yang, Dongkun Zhang, and George Em Karniadakis. Physics-informed generative adversarial networks for stochastic differential equa-tions. SIAM Journal on Scientific Computing , 42(1):A292–A317, 2020. [19] Xuhui Meng, Liu Yang, Zhiping Mao, Jos´ e del ´Aguila Ferrandis, and George Em Karniadakis. Learning functional priors and posteriors from data and physics. Journal of Computational Physics , 457:111073, 2022. [20] Zongren Zou and George Em Karniadakis. L-hydra: Multi-head physics-informed neural networks. arXiv preprint arXiv:2301.02152 , 2023. [21] Shaoqian Zhou, Wen You, Ling Guo, and Xuhui Meng. Scalable physics-informed deep generative model for solving forward and inverse stochastic differential equations. arXiv preprint arXiv:2503.18012 , 2025. [22] Jonas Wildberger, Maximilian Dax, Simon Buchholz, Stephen Green, Jakob H Macke, and Bernhard Sch¨ olkopf. Flow matching for scalable simulation-based inference. Advances in Neural Information Processing Systems , 36:16837–16864, 2023. [23] Kyle Cranmer, Johann Brehmer, and Gilles Louppe. The frontier of simulation-based inference. Proceedings of the National Academy of Sci-ences , 117(48):30055–30062, 2020. [24] Louis Sharrock, Jack Simons, Song Liu, and Mark Beaumont. Sequential neural score estimation: Likelihood-free inference with conditional score based diffusion models. arXiv preprint arXiv:2210.04872 , 2022. 35 [25] Tomas Geffner, George Papamakarios, and Andriy Mnih. Score modeling for simulation-based inference. In NeurIPS 2022 workshop on score-based methods , 2022. [26] Stefan T Radev, Ulf K Mertens, Andreas Voss, Lynton Ardizzone, and Ullrich K¨ othe. Bayesflow: Learning complex stochastic models with invertible neural networks. IEEE transactions on neural networks and learning systems , 33(4):1452–1466, 2020. [27] Bo Yuan, Yun Zhou, Zhichao Xu, Kiran Ramnath, Aosong Feng, and Balasubramaniam Srinivasan. Bayesflow: A probability inference framework for meta-agent assisted workflow generation. arXiv preprint arXiv:2601.22305 , 2026. [28] Himanshu Kumar and Rishabh Agrawal. Bayesflow++: A unified frame-work for amortized bayesian inference in complex systems. In 2025 61st Allerton Conference on Communication, Control, and Computing Pro-ceedings . Allerton Conference on Communication, Control, and Comput-ing, 2025. [29] Maximilian Dax, Stephen R Green, Jonathan Gair, Jakob H Macke, Alessandra Buonanno, and Bernhard Sch¨ olkopf. Real-time gravitational wave science with neural posterior estimation. Physical review letters ,127(24):241103, 2021. [30] Florent Leclercq. Bayesian optimization for likelihood-free cosmological inference. Physical Review D , 98(6):063511, 2018. [31] Pinghe Ni, Qiang Han, Xiuli Du, and Xiaowei Cheng. Bayesian model updating of civil structures with likelihood-free inference approach and response reconstruction technique. Mechanical Systems and Signal Pro-cessing , 164:108204, 2022. [32] Jice Zeng, Yuanzhe Wang, Alexandre M Tartakovsky, and David A Barajas-Solano. Solving high-dimensional inverse problems using amor-tized likelihood-free inference with noisy and incomplete data. Computer Methods in Applied Mechanics and Engineering , 443:118064, 2025. [33] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. 36 [34] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. arXiv preprint arXiv:2209.03003 , 2022. [35] William Peebles and Saining Xie. Scalable diffusion models with trans-formers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [36] Ali Rahimi and Benjamin Recht. Random features for large-scale kernel machines. Advances in neural information processing systems , 20, 2007. [37] Alberto Cabezas, Adrien Corenflos, Junpeng Lao, R´ emi Louf, Antoine Carnec, Kaustubh Chaudhari, Reuben Cohn-Gordon, Jeremie Coullon, Wei Deng, Sam Duffield, et al. Blackjax: composable bayesian inference in jax. arXiv preprint arXiv:2402.10797 , 2024. [38] Qiang Zheng, Lingzao Zeng, and George Em Karniadakis. Physics-informed semantic inpainting: Application to geostatistical modeling. 
+
+Journal of Computational Physics , 419:109676, 2020. 37

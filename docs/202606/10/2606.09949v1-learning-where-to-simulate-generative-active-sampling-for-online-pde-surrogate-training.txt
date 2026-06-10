@@ -1,0 +1,1417 @@
+Title: Learning Where to Simulate: Generative Active Sampling for Online PDE Surrogate Training
+
+URL Source: https://arxiv.org/pdf/2606.09949v1
+
+Published Time: Wed, 10 Jun 2026 00:07:04 GMT
+
+Number of Pages: 39
+
+Markdown Content:
+# Learning Where to Simulate: Generative Active Sampling for Online PDE Surrogate Training 
+
+Pierre Cesar 
+
+Univ. Grenoble Alpes, Inria, CNRS, Grenoble INP, LIG, Grenoble, France 
+
+pierre.cesar@inria.fr 
+
+Sofya Dymchenko 
+
+Univ. Grenoble Alpes, Inria, CNRS, Grenoble INP, LIG, Grenoble, France 
+
+sofya.dymchenko@inria.fr 
+
+Abhishek Purandare 
+
+Univ. Grenoble Alpes, Inria, CNRS, Grenoble INP, LIG, Grenoble, France 
+
+abhishek.purandare@inria.fr 
+
+Bruno Raffin 
+
+Univ. Grenoble Alpes, Inria, CNRS, Grenoble INP, LIG, Grenoble, France 
+
+bruno.raffin@inria.fr 
+
+## Abstract 
+
+Data-driven PDE surrogates are trained with data produced by numerical PDE solvers. However, when the surrogate’s goal is to generalize across a wide range of PDE configurations (e.g., initial conditions and physical coefficients), generating a representative training set is non-trivial. Uniform sampling of configuration parameters often under-represents trajectories exhibiting challenging dynamics, leading to high prediction errors and large error variance in the trained surrogate. Online training, where data generation and surrogate training are coupled, offers a natural advantage by allowing solver parameters to be steered on-the-fly. To efficiently exploit this capability, we introduce Online Generative Active Sampling 
+
+(OGAS), an active learning method that reactively learns the relationship between configuration parameters and surrogate performance to control the sampling dis-tribution. OGAS trains a fast diffusion model in parallel to the surrogate to act as a conditional sampler, mapping a surrogate-derived difficulty signal (e.g., loss or uncertainty) to configuration parameters. By actively drawing target signals from a prior biased toward high difficulty, OGAS continuously steers data generation toward challenging regimes without delaying the training workflow. We evaluate OGAS across 2D PDEs with distinct challenging dynamics (Kuramoto-Sivashinsky, Navier-Stokes, Gray-Scott) and up to 308 parameters, using multiple surrogate ar-chitectures. Across all settings, OGAS consistently improves tail statistics, yielding substantial reductions in errors above the 99th percentile and overall error disper-sion compared to uniform sampling. While prioritizing challenging trajectories introduces a trade-off with average error, OGAS effectively ensures worst-case reliability of trained surrogates with negligible wall-time overhead. 
+
+> Preprint.
+> arXiv:2606.09949v1 [cs.LG] 8 Jun 2026
+
+Figure 1: Online surrogate training workflow with OGAS. All components are running in parallel. 
+
+## 1 Introduction 
+
+Neural networks that approximate solutions to Partial Differential Equations (PDEs), known as deep PDE surrogates , are emerging as alternatives to traditional numerical solvers [ 36 , 28 , 6, 24 , 32 ]. Data-driven surrogates are trained on synthetic data produced by running multiple solver instances with varying PDE configurations, such as different initial conditions (IC), physical coefficients, or geometries. Depending on the application, these surrogates span from compact models trained on a single PDE over narrow IC ranges to large foundation models trained across multiple PDEs with wide parameter spaces [14, 18]. Challenges in training such surrogates arise from the conventional offline approach, where a large synthetic dataset is precomputed and stored for epoch-based training. The dataset size is constrained by storage capacity, and the I/O bottleneck from disk-based pipelines slows data generation and training, problems that worsen as compute outpaces storage infrastructure [ 2, 27 , 5]. Beyond these practical issues, precomputed datasets may not adequately cover informative regions of the solution space due to the intricate parameter–dynamics relationships and the high dimensionality of configuration spaces. Uniform sampling may over-represent trivial dynamics (e.g., near-equilibrium states) while under-representing challenging regimes, resulting in surrogates that perform well on average but fail on the hardest inputs [33]. An alternative online approach couples data generation with training: solver instances run concurrently with the surrogate and stream the produced data directly to an in-memory buffer used for the training [ 31 ]. This approach eliminates the I/O bottleneck, scales dataset size with available compute rather than storage, and has been shown to reduce training time while improving surrogate quality [ 31 ]. More fundamentally, online training unlocks a new capability: parameters of upcoming solver instances can be adjusted on-the-fly, enabling continuous control over the generated data distribution. Active learning (AL) methods [ 41 ] can leverage this to steer data generation toward informative configurations based on the up-to-date surrogate training dynamics, improving model performance under fixed simulation budgets. However, existing AL methods for PDE surrogates are pool-based and offline [ 34 , 33 ]. Adapting them naively to online training either stalls the workflow or delays the AL feedback loop, i.e., the time between observing the surrogate state and receiving new data under the updated sampling distribution. This delay reduces the benefit of active steering. To our knowledge, the only online AL method proposed so far shows limited scalability [12]. We propose Online Generative Active Sampling (OGAS) , a generative AL approach designed for online surrogate training that adaptively steers data generation toward challenging-regime samples without delaying the training workflow. The key idea is to train a generative model that captures the evolving conditional distribution of configuration parameters given a training signal that quantifies trajectory difficulty, derived on-the-fly from the surrogate training process. At sampling time, target signal values are drawn from a prior biased toward high difficulty, and the generator provides corresponding parameter configurations, which are then used to instantiate the next solver runs. Specifically, we employ a fast diffusion model [ 16 ] trained in parallel to the surrogate using per-sample training loss ( OGAS-Loss ) or ensemble-disagreement uncertainty ( OGAS-Unc ) from recent training batches as signal, thus requiring no additional inference cost. To mitigate sampling bias and maintain full space coverage, we correct the diffusion model updates using a density-ratio estimator and mix conditional samples with uniform sampling. 2We evaluate OGAS across 2D PDEs, including chaotic Kuramoto-Sivashinsky, turbulent Navier-Stokes Kolmogorov flow, and unsteady Gray-Scott-β reaction–diffusion, with parameter spaces up to 308 dimensions, over three surrogate architectures (UNet, FNO [ 28 ], scOT [ 14 ]), and comparing it to uniform sampling, pool-based AL [ 33 ], and online query-synthesis AL [ 12 ]. Compared to uniform sampling, OGAS substantially reduces worst-case surrogate errors (up to 2.13 ×), 99th percentile errors (up to 1.93 ×) and error standard deviation (up to 2.3 ×) across settings, at a variable cost to average error (0.84–1.12 ×), while adding only 0.2% training time overhead. Through a detailed analysis of error distributions, we show why mitigating these tail errors is crucial, confirming that the proposed method ensures improved surrogate robustness and reliability, properties critical for real-world applications. Code and experiments are available at https://gitlab.inria.fr/ melissa/ogas_experiments .
+
+## 2 Related Work 
+
+Active learning (AL) strategically selects data samples for labelling to maximize model performance while minimizing data collection costs [ 41 , 38 , 7 ]. For PDE surrogates, this means choosing solver parameters (e.g., ICs, physical parameters) that result in training trajectories that improve surrogate performance under a fixed data generation budget. Prior work on AL for PDEs primarily focus on pool-based methods. These operate in rounds: surrogate training, parameter selection over a pre-sampled discrete pool based on an acquisition metric, and generation of new data to update the training set. Pestourie et al. [34 , 35] use ensemble uncertainty estimates for selection [ 25 ], Bajracharya et al. [3] compare uncertainty [ 20 ], loss [ 19 ], and diversity [ 40 ] metrics, while Vardhan et al. [45] use auxiliary acquisition score predictor. Musekamp et al. [33] (AL4PDE) benchmark several pool-based methods, including SBAL [22] and LCMD [17]. However, a solver parameters space is often continuous and high-dimensional, and discretizing it into a finite pool—a setting inherited from observation-based AL—can be practically limiting. In online training settings, selection over a large pool is particularly problematic: either the workflow must be stalled, leaving compute resources idle, or selection must be performed asynchronously, delaying arrival of actively selected data and hindering the effectiveness of AL. An alternative to finite pools is 
+
+query-synthesis AL , which operates directly in the solver parameter space. Wang et al. [47] optimize acquisition scores via gradient ascent in continuous space, but only as an add-on to offline pool-based strategies, showing modest improvements. Dymchenko et al. [12] use adaptive multiple importance sampling [ 8] to learn a loss-proportional proposal distribution of solver parameters online, but with limited scalability and only local view over the parameters space as it relies on Gaussian mixture proposals centered around past samples. Beyond data-driven surrogate training, online query-synthesis AL shares similarities with adaptive sampling of training points in physics-informed neural networks (PINNs) [ 46 , 37 ], guided by loss [ 48 ,44 , 11 , 10 ], gradient information [ 26 ], or uncertainty [ 49 , 1], but there training points are sampled within the spatio-temporal domain and evaluated through differentiable surrogate forward passes, eliminating the parametrization and computational costs of solver runs. It is also related to round-free simulation-based inference (SBI) [ 9 , 29 ], which uses simulations to train density estimators for posterior inference of system parameters, but SBI models approximate posteriors for a fixed observed system, in contrast to evolving surrogate training dynamics and informative parameters in our setting. To our knowledge, no existing method provides a scalable AL approach that operates in continuous parameter spaces, reactively adapts online to evolving surrogate dynamics, and does so without stalling training workflow. 
+
+## 3 Problem Setting 
+
+Parametrized PDE and numerical solver. Consider a parametrized PDE defined on a periodic bounded spatial domain X ⊂ Rd over a time interval [0 , T ]:
+
+∂tu = N [u]( t, x; λD), (t, x) ∈ [0 , T ] × X ; u(0 , x) = u0(x; λIC ), x ∈ X ; (1) where u(t, x) : [0 , T ] × X → RNc is the solution with Nc channels, N [·] is a differential operator parametrized by physical coefficients λD, and u0(·; λIC ) is a parametric initial con-dition (IC). We group physical and IC parameters into a single solver parameters vector 
+
+λ =( λD, λIC ) ∈ Λ ⊂ RND+NIC .3For given λ, a spatial grid of size Nx, and a timestep size ∆t, a numerical solver S produces an approximate solution discretized in space and time in an autoregressive manner. Let Xλt ∈ RNx×Nc
+
+denote the discrete solution state at timestep t. A sequence of Nt states over time, i.e., a trajectory, is produced by evaluating u0(·; λIC ) at grid points to obtain Xλ 
+
+> 0
+
+and then applying the solver: 
+
+Xλt = S(Xλt−1, λD) for t = 1 , ... , N t, where Xλt ≈ u(t · ∆t, ·). (2) 
+
+Online surrogate training. We aim to approximate the solver S with a λD conditioned autore-gressive surrogate Sθ parametrized by θ. We adopt a r-step training strategy, following [ 33 ]. Let 
+
+Xλ 
+
+> [t−r]
+
+denote a training sample consisting of states {Xλt−r , ... , Xλt } and vector λD, S(i) 
+
+> θ
+
+be the i-th autoregressive application, then the i-th step MSE loss is: 
+
+ℓi(Xλ
+
+> [t−r]
+
+; θ) = 1
+
+NxNc
+
+S(i) 
+
+> θ
+
+(Xλt−r , λD) − Xλt−r+i
+
+> 22
+
+. (3) The average of the r losses, i.e., ℓ(Xλ
+
+> [t−r]
+
+; θ) = 1
+
+> r
+
+Pri=1 ℓi(Xλ
+
+> [t−r]
+
+; θ), is used for training updates. Training is performed online (Fig. 1). We are given a simulation budget N of total number of solver executions. There are at maximum NS ≪ N solver instances running concurrently in parallel, each generating a trajectory for the assigned parameters λ and streaming training samples Xλ
+
+> [t−r]
+
+as soon as produced into a fixed-capacity memory-buffer reservoir R used for the asynchronous surrogate training. The insertion, eviction, and drawing strategies are designed to ensure near-uniform distribution of timesteps in training batches; otherwise, concurrent trajectory generation can introduce bias into surrogate training [ 30 ]. The goal of AL is to improve the surrogate’s training by dynamically controlling the sampling distribution p(λ) for the upcoming solver parameters (default is uniform). 
+
+## 4 Online Generative Active Sampling 
+
+We propose Online Generative Active Sampling (OGAS), an AL method that learns a conditional distribution over solver parameters λ given a sample informativeness (training signal) on-the-fly. At its core, a fast generative model (generator) is trained asynchronously alongside the surrogate to reactively capture this evolving distribution. Future solver parameters are sampled from a mixture combining a uniform component, ensuring global coverage of Λ, and a generator-guided component, using a user-defined proposal distribution over the signal. The generator objective is corrected to mitigate sampling bias. Implementation and theoretical details are provided in Appendices A, B. We summarize the method in Alg. 1 and illustrate the workflow in Fig. 1. 
+
+Training signal. For each sample Xλ 
+
+> [t−r]
+
+in a training batch, we compute a training signal with a function ε = A(Xλ
+
+> [t−r]
+
+; θ) ∈ R+, which is designed to quantify informativeness of the sample at this training step θ. Our main approach employs a loss-based signal, treating surrogate loss as a measure of trajectory difficulty and thus informativeness; specifically, it is a scaled last-step MSE loss divided by the L2 norm of the target state: 
+
+Aℓ(Xλ
+
+> [t−r]
+
+; θ) = ℓr (Xλ
+
+> [t−r]
+
+; θ)
+
+∥Xλt ∥2 + δ , (4) where δ > 0 is added to avoid division by near-zero values. Scaling prevents excessive prioritization of high-amplitude errors driven by the magnitude of the target state. Alternatively, we consider an 
+
+uncertainty-based signal, following prior AL work [ 33 ], which relies on an ensemble of M identical models with independently initialized and trained weights [ 42 ]. Let {θm}Mm=1 denote the parameters of the M surrogates of the ensemble. Then, A is defined as the total variance of last-step predictions across the ensemble, averaged over all channels and spatial locations: 
+
+Au(Xλ
+
+> [t−r]
+
+; θ) = Var m
+
+h
+
+S(r) 
+
+> θm
+
+(Xλt−r , λD)
+
+i
+
+. (5) To maintain a consistent signal scale throughout online training, we z-standardize raw signals using running batch statistics. At each surrogate update, we compute the current batch statistics to update a moving mean μ and standard deviation σ, yielding the normalized signal ˜ε =( ε − μ)/σ .4Buffer. We log pairs (λ, ˜ε) into a dedicated fixed-capacity buffer B, where incoming pairs overwrite the oldest entries to prioritize recent data. Since ˜ε is observed for particular timestep but OGAS samples only solver parameters, we marginalize over time when logging to B. Under the assumption that the reservoir R samples are drawn approximately uniformly over timesteps [ 30 ], the buffer B
+
+represents a timestep-marginal joint distribution over (λ, ˜ε). We denote by pB(λ, ˜ε) the distribution obtained by sampling a pair uniformly from the current contents of B, with marginal pB(λ), and conditional pB(λ | ˜ε) capturing which λ tend to produce trajectory samples with difficulty level ˜ε.
+
+Signal-conditional generator. We train a conditional generative model, the generator , to approxi-mate this buffer conditional by minimizing 
+
+E(λ,˜ε)∼pB
+
+ − log pϕ(λ | ˜ε). (6) This objective is model-agnostic: it defines the conditional target of the active sampler, not the specific training loss of some generative model. In our implementation, pϕ is a fast conditional DDPM [ 16 ] that operates with the solver parameters vector λ of size ND ; it is trained with the standard conditional noise-prediction objective detailed in Appendix B.1. The generator training is performed in short cycles, each triggered by a new batch of (λ, ˜ε) pairs received from surrogate training. Using the current contents of B defining the empirical training distribution, OGAS performs K generator updates using mini-batches sampled uniformly from B
+
+before the next buffer update. The generator, warm-started from the previous cycle state, tracks a sequence of evolving objectives rather than a stationary distribution. This requires, as done in our implementation, that the generator performs sufficient optimization steps between cycles. Because the buffer content reflects previous sampling policies, we separately correct the induced history bias through the density-ratio reweighting introduced below in Eq. (10). 
+
+Sampling next parameters. OGAS is regularly called to sample parameters for the upcoming solver instances. We denote by pg (λ) the gth generation of the distribution used for sampling these parameters, where pg is a mixture of uniform and generator-guided draws: 
+
+pg (λ) = α UΛ + (1 − α) pgen  
+
+> g
+
+(λ), where pgen  
+
+> g
+
+(λ) = 
+
+Z
+
+k(˜ ε) pϕg (λ | ˜ε) d˜ε. (7) Here α ∈(0 , 1) controls the uniform fraction, and pϕg (λ | ˜ε) is the generator at generation g. To form the generator-guided component pgen  
+
+> g
+
+, we first sample a target signal level ˜ε from a user-defined proposal distribution k and then draw λ ∼ pϕg (λ | ˜ε). We propose to set k to emphasize large signals, with objective of reducing the tail surrogate error, specifically, k(˜ ε) ∝ ˜ε 1A(˜ ε), where 1A restricts ˜ε
+
+to an admissible range A. Since ˜ε is z-normalized, roughly half of the values are negative (below the running mean). Setting A =[0 , 5] discards below-mean signals and focuses sampling on the hardest regimes up to 5 standard deviations, which prioritizes challenging cases while avoiding extreme outliers. The uniform component preserves global coverage of Λ, while the generator-guided component concentrates solver runs in regimes that are currently difficult for the surrogate. 
+
+Uniform-prior generator training and history bias. Given that minimization of Eq. (6) learns 
+
+pϕ(λ | ˜ε) ≈ pB(λ | ˜ε), and applying Bayes’ rule, 
+
+pB(λ | ˜ε) ∝ pB(λ) pB(˜ ε | λ), (8) the learned conditional pϕ(λ | ˜ε) inherits the generally non-uniform buffer prior pB(λ) from previous sampling generations. Consequently, reusing pϕ(λ | ˜ε) to propose future parameters can induce a 
+
+history bias that persistently favors historically over-sampled regions of Λ and potentially keeps the generator focused on regions that are no longer relevant as the surrogate evolves (see Appendix A.3). To debias the generator, we train it under a uniform reference prior by targeting the joint distribution 
+
+p⋆
+
+> B
+
+(λ, ˜ε) = UΛ(λ) pB(˜ ε | λ). (9) We minimize the corresponding importance-weighted log-likelihood. Using samples from B, we implement this objective by importance weighting [4]: 
+
+Lunif (ϕ) = E(λ,˜ε)∼pB [−wB(λ) log pϕ(λ | ˜ε)] , (10) with wB(λ) = UΛ(λ)/p B(λ) the corresponding density ratio. 5Algorithm 1 OGAS: Online Generative Active Sampling 
+
+Require: mixture α ∈ (0 , 1) ; admissible signal set A = [˜ εmin , ˜εmax ]; proposal k(˜ ε) ∝ ˜ε 1A(˜ ε);EMA decay γ; generator updates per cycle K; weight clip [wl, w r ].
+
+Ensure: generator pϕ(λ | ˜ε); discriminator Dψ (λ) ∈ (0 , 1) ; buffer B storing (λ, ˜ε); μ ← 0, σ ← 1. 
+
+> 1:
+
+while training do  
+
+> 2:
+
+(1) Log standardized signals:  
+
+> 3:
+
+Receive batch {(λi, ε i)}ni=1 . 
+
+> 4:
+
+Compute minibatch {εi} statistics (μmb , σ mb ). 
+
+> 5:
+
+Update moving statistics: μ ← γμ + (1 − γ)μmb and σ ← γσ + (1 − γ)σmb . 
+
+> 6:
+
+Standardize ˜εi ← (εi − μ)/σ and push {(λi, ˜εi)}ni=1 to B. 
+
+> 7:
+
+(2) Train the generator:  
+
+> 8:
+
+for s = 1 , . . . , K do  
+
+> 9:
+
+Sample {(λj , ˜εj )}mj=1 ∼ B . ▷ y =1 (buffer) class  
+
+> 10:
+
+Sample {¯λj }mj=1 ∼ U Λ. ▷ y =0 (uniform) class  
+
+> 11:
+
+Update Dψ on {(¯λj , 0) }mj=1 ∪ { (λj , 1) }mj=1 , where Dψ (λ) = Pψ (y = 0 | λ). 
+
+> 12:
+
+Set bwB(λj ) ← Dψ (λj )1−Dψ (λj ) and clamp to [wl, w r ]. 
+
+> 13:
+
+Update ϕ with weighted loss Eq. (10).  
+
+> 14:
+
+(3) If resampling request:  
+
+> 15:
+
+for each new solver run do  
+
+> 16:
+
+λ ∼ U Λ with probability α, else ˜ε ∼ k(˜ ε) and λ ∼ pϕ(λ | ˜ε).
+
+Density ratio estimate. The weight wB(λ) is not available in closed form since the buffer marginal 
+
+pB(λ) is induced by a history-dependent sampling policy. We therefore estimate the density ratio via binary classification. We train a discriminator Dψ (λ) ∈ (0 , 1) to distinguish samples from the uniform reference UΛ (y=0 ) and from the buffer marginal pB (y=1 ), i.e., Dψ (λ) = P (y=0 | λ).The implied density-ratio estimator is 
+
+bwB(λ) = π1
+
+π0
+
+· Dψ (λ)1 − Dψ (λ) . (11) where πc = P (y=c) are the class priors [ 13 ]. In practice we use balanced classes ( π0 = π1), so the prefactor cancels. We clip bwB(λ) to [wl, w r ] for numerical stability. 
+
+## 5 Experimental Setup 
+
+5.1 Data Generation 2D PDEs. We use pseudo-spectral solvers from APEBench [ 23 ] for three high-order nonlinear PDEs: Kuramoto-Sivashinsky (KS), Navier-Stokes Kolmogorov Flow (NS), and unsteady Gray-Scott-β
+
+(GS). The first two model chaotic and turbulent fluid dynamics, while the third captures continually evolving reaction–diffusion pattern formation in a chemical system ( Nc = 2 ). Each PDE is defined on a 2D periodic domain X =[0 , L ]2 discretized into Nx = 256 2 grid points. To ensure numerically stable and accurate trajectories, solvers run at a fine time resolution ∆teff , but we expose only one state every ∆t timesteps for training or validation. We also discard the first Ntw states to avoid initial transients. Training uses trajectories of Nt = 32 timesteps, while validation uses Nt = 51 timesteps to assess generalization beyond the training horizon. These choices closely follow the established setup of Holzschuh et al. [18] (Appendix C.2). 
+
+Solver parameters. Each solver takes an input parameter λ =( λIC , λD) as described in Sec. 3. ICs for KS and NS are truncated Fourier series with up to 8 modes and varied amplitudes and phases per mode, yielding NIC = 308 parameters. ICs for GS are superpositions of 8 Gaussian blobs with varied locations, variances, and intensities, accounting for NIC = 48 parameters (Appendix C.3). To capture diverse physical regimes, KS and GS domain sizes λD = L vary within the [10 .0, 130 .0] 
+
+and [0 .5, 10 .0] intervals, respectively; NS viscosity coefficient λD = ν is defined on [0 .003 , 0.008] ,corresponding to Reynolds numbers Re ∈ [125 , 330] . Appendix C shows example trajectories across the parameter space in Figures 5, 6, and 7; the GS and KS examples illustrate the wide range of dynamics as L varies, while the NS examples show narrower variation across ν.61.0       
+
+> 1.5
+> Navier-Stokes  RMSE-normalized-mean RMSE-normalized-max RMSE-normalized-p99 RMSE-normalized-std
+> 1
+> 2
+> Kuramoto-Sivashinsky
+> OGAS-L
+> OGAS-U
+> Breed
+> SBAL
+> Top-K
+> Sobol
+> 1
+> 2
+> Gray-Scott
+> OGAS-L
+> OGAS-U
+> Breed
+> SBAL
+> Top-K
+> Sobol
+> OGAS-L
+> OGAS-U
+> Breed
+> SBAL
+> Top-K
+> Sobol
+> OGAS-L
+> OGAS-U
+> Breed
+> SBAL
+> Top-K
+> Sobol
+> Strategy
+> Architecture UNet FNO scOT
+
+Figure 2: Improvement ratios over Uniform for normalized RMSE statistics; values above one indicate lower error than Uniform. Columns report mean, maximum, p99, and standard deviation; rows report PDEs; marker color/shape denotes the surrogate architecture. Each connected triplet shows the three seeds for one PDE–architecture–method setting, and bold points for their average. 
+
+5.2 Compared Methods 
+
+We evaluate two variants of the proposed OGAS method: OGAS-Loss uses the training signal Aℓ
+
+from Eq. (4) , while OGAS-Unc uses Au from Eq. (5) (Appendix B.3). As OGAS uses a diffusion model, its AL process runs on a separate A100 NVIDIA GPU, although time-sharing with surrogate training is possible. We compare them against the following baselines and state-of-the-art AL methods. Standard baselines: We use Uniform random sampling and quasi-uniform sampling with 
+
+Sobol sequences, providing a low-discrepancy space-filling coverage of Λ. Pool-based AL: We take two pool-based approaches, SBAL and Top-K, with ensemble-based uncertainty estimates from AL4PDE [ 33 ], and adapt them to the online setting. Instead of maintaining a fixed pool with eviction as in the original works, we uniformly resample a new candidate pool from Λ for each selection phase. These methods estimate uncertainty using the variance over full-rollout trajectory predictions from the ensemble (Appendix B.4). Specifically, every 1,000 completed simulations, we pause data generation and surrogate training to score 5,000 newly sampled candidate parameters, selecting the next 1,000 for simulation. We choose this pool size to balance selection quality and compute efficiency, as most compute resources are left idle during the AL procedure (we profile the overhead in Sec. 6). 
+
+Online AL: We use Breed from Dymchenko et al. [12] where a loss-based posterior is modeled with a Gaussian mixture proposal using an adaptive importance sampling approach; the mixture is periodically updated and combined with uniform sampling. To isolate the effect of the sampling strategy, i.e., generative model vs. Gaussian mixture, we use the same update period, mixture rate α,and loss-based training signal as in OGAS-Loss (Appendix B.5). 
+
+5.3 Surrogates Training and Validation 
+
+For each experiment, we train an ensemble of two surrogates ( M = 2 ) with different initializations, shared batches from R, and 2-step MSE loss ( r = 2 , Eq.3). The ensemble supports uncertainty methods ( OGAS-Unc , SBAL , Top-K); loss-based methods ( OGAS-Loss , Breed ) use the average member loss for comparable training conditions. Single-surrogate OGAS-Loss results are also given in Appendix D.10. For surrogates, we use three distinct backbone architectures of increasing parameter counts: UNet (2.3M) and FNO (29.5M) [ 28 ] from AL4PDE are adapted to our settings, and scOT (184.3M) is adapted from [ 14 ] for conditional autoregressive prediction (Appendix C.4). Optimization and hyperparameters follow AL4PDE (Appendix C.6). We ran experiments using the online training framework Melissa [ 39 ], which we adapted to support the different AL methods evaluated. For comparison purposes, we implemented a speed limiter 
+
+(Appendix B.2) that constrains the training loop to maintain a ratio of 1.8 gradient updates per solver execution, ensuring that each experiment runs the same number of batches (significant differences 7have been observed otherwise). The simulation budget is set to N = 10 4 with a maximum number of concurrent solvers NS = 56 , each of them running on 2 CPU cores. Every surrogate performs 18k gradient updates, which takes approximately 3–4.5 hours with 2 A100 NVIDIA GPUs (one per ensemble member) depending on the architecture. We repeat each experiment over 3 random seeds. All experiments required for this paper, including preparatory ones, ran on the Leonardo supercomputer, accounting for a total of about 15K GPU.h and 785K core.h. For validation, we use ensemble-average predictions, Sθ (·) = 1
+
+> M
+
+PMm=1 Sθm (·), computed after the final training step over a held-out validation set Dv of 750 trajectories whose parameters λ are drawn from a Halton sequence, evaluated at t ∈{ 1, ... , 51 } (total of 37 ,500 samples). Performance is measured with the normalized 1-step RMSE RMSE (λ, t ; θ) = 
+
+q
+
+ℓ1(Xλ
+
+> [t−1]
+
+; θ)   ∥Xλt ∥2 + δ , (12) summarized through its mean ( RMSE-mean ), maximum and 99th percentile ( RMSE-max , RMSE-p99 ,tail robustness), and standard deviation ( RMSE-std , consistency). 
+
+## 6 Experimental Results 
+
+Figure 2 reports improvement ratios relative to Uniform , computed as metric( Uniform )/metric( method ) for each PDE–architecture–seed setting; ratios above one indicate lower error. Full numerical results are reported in Appendix D.7, and per-PDE example trajectory predictions for OGAS-Loss and Uniform appear in appendix Figures 10,11,12. 
+
+Figure 3: OGAS samples GS parameters progressively focusing on hard regions. 
+
+Tail compression. The dominant effect of OGAS is a strong compression of the high-error tail, directly improving robustness ( RMSE-max , RMSE-p99 ) and consistency ( RMSE-std ). The right three columns of Fig. 2 show that the seed-averaged ratios sit above one in nearly every PDE–architecture cell for both variants, with cross-cell averages of 1.64 /1.42 /1.66 
+
+(max/p99/std) for OGAS-Loss and 1.47 /1.32 /1.50 for 
+
+OGAS-Unc . The gain is consistent across PDEs and architectures, and largest on the more diverse parameter ranges (KS, GS). This effect arises from a reallocation of simulation budget within the same parameter do-main Λ rather than any expansion of either of them. OGAS is able to reactively identify and focus on the most challenging regimes as training progresses, while the α-weighted uniform component ensures that no re-gion is completely neglected. The debiasing correction and fast training cycles further enhance this adaptivity, preventing overfitting to past signals. Figure 3 illustrates this for Gray–Scott/scOT, where generated parameters progressively concentrate on blob-location regions at different sampling stages. Compared to the Gaussian mixture proposal in Breed , the generative model can capture complex, mul-timodal distributions globally across Λ and adapt them flexibly over time, without being constrained to a fixed parametric family. Breed achieves tail improvements but inconsistently, i.e., 1.17 /1.23 /1.42 
+
+(max/p99/std) with high cross-cell variability. Pool-based methods show similarly mixed and smaller gains despite uncertainty-driven selection, and Sobol ’s low-discrepancy coverage alone is insufficient to consistently target the most challenging regimes. 
+
+Mean trade-off. On RMSE-mean , OGAS-Loss and OGAS-Unc reach 0.97 and 0.96 on average, a modest cost relative to their substantially larger tail and consistency gains. No competing method matches this trade-off: Breed ’s tail improvements come at a markedly larger mean cost ( 0.92 ), while 
+
+SBAL , Top-K , and Sobol stay close to Uniform on the mean ( 0.98 , 1.00 , 1.00 ) without yielding the tail gains discussed above. Mean degradations concentrate in the lower-capacity UNet/FNO runs on KS and GS, whereas scOT and narrower-range 2D checks preserve the tail gains with improved means (Appendix D.4, D.8). Note that the validation set is itself sampled uniformly over Λ, which arguably gives Uniform a slight advantage on RMSE-mean .8Loss vs. uncertainty. OGAS-Loss emerges as a more consistent variant than OGAS-Unc . On Gray– Scott, ensemble disagreement with M =2 is noisy: for UNet, OGAS-Unc shows much larger p99 variability ( 4.89 ±3.55 ) than OGAS-Loss (4.35 ±0.50 ), with the same pattern carrying over to p95/p99 (Table 11). On the smoother Navier–Stokes cases, OGAS-Unc can match or slightly outperform OGAS-Loss , suggesting that uncertainty guidance remains useful when estimated sufficiently accurately. But enlarging the ensemble size to improve uncertainty estimates would further increase the computational overhead, especially for large-scale surrogates, while loss-based signals are directly available from training with minimal extra cost. 
+
+Wall-time overhead. OGAS and Breed perform AL asynchronously with surrogate training, the only wall-time overhead comes from sending training signal batches to the generator process: OGAS adds 23s ( ≈0.2%) and Breed adds 70s ( ≈0.7%), when compared to the wall-time of surrogate training without AL. In contrast, pool-based methods introduce a substantial inference bottleneck that scales with the pool size, resampling frequency, but more importantly the surrogate architecture size and PDE resolution that determine the inference time per candidate. In our setup with moderate pool size and resampling frequency, we observe a 17.6mn ( ≈10%) for SBAL (Appendix D.2). 
+
+6.1 Small Scale Tests and Ablations 1D PDEs. On 1D PDEs (KS, conservative KS, and dispersion-diffusion Korteweg–de Vries (KdV)), the loss-based OGAS variant (slightly different from OGAS-Loss , see Appendix D.1) consistently improves all metrics across KS variants, with up to 4 × and 2 × average error reduction over Uniform 
+
+and Breed . On KdV, OGAS improves worst-case error and dispersion by an order of magnitude, while 
+
+Breed retains the best average error (Table 6). In these simpler regimes (fewer than 10 parameters, smaller models without conditioning, 1D trajectories), OGAS steering is therefore especially effective. 
+
+Figure 4: Loss distributions over seeds on 1D KdV and KS 
+
+Ablations. We probe three knobs of the loss-based OGAS 
+
+on 1D KS (Appendix D.1). Bias correction reduces error dispersion by 1.26 ×, average by 1.22 ×, and worst-case by 1.2 × compared to no correction (Table 6). For the reser-voir R and generation size, smaller reservoirs with more frequent resampling outperform larger configurations: a 
+
+10 × smaller setting reduces worst-case error by 1.82 ×,dispersion by 2.4 ×, and average error by 2.53 × over the worst configuration (Table 4), highlighting the value of rapid adaptation to evolving target conditionals. Finally, more aggressive mixture rates α improve worst-case error at the cost of stability and average performance (Table 5). 
+
+Loss distribution. Figure 4 shows the full loss distri-butions on 1D KdV and KS for loss-based OGAS and 
+
+Uniform . The two methods nearly overlap on the central bulk of the distribution, yet the upper tails diverge by or-ders of magnitude in density: OGAS reallocates simulation budget away from already-easy regimes into the rare hard ones, suppressing extreme errors without inflating the average, while Uniform only improves the left tail with a long high-error tail remaining. 
+
+## 7 Limitations 
+
+Our study focuses empirically on the practical benefits of online AL. While existing theory provides initial guarantees within simplified settings of linear operators and offline training [ 43 ], advancing these theoretical frameworks to online training of nonlinear PDE surrogates remains an open problem. We evaluated OGAS with one additional GPU to overlap generator and surrogate training, although it is possible to time-share this GPU with the surrogate for a comparison under a fixed compute budget. Note that the DDPM and density-ratio estimator operate only in parameter space, thus additional compute grows slower with resolution and model size compared to the PDE surrogate. The compared AL methods, including OGAS , improve tail statistics with a variable cost at the mean performance compared to uniform sampling. Because our validation set is sampled uniformly over 
+
+Λ, RMSE-mean heavily weighs easy regimes. This may understate tail-focused methods, as the 9metric only loosely aligns with OGAS ’s robustness objective. The trade-offs between mean and tail performance across different validation sets and metrics requires further exploration. Finally, due to compute constraints, our 2D experiments use three seeds, although consistent with prior AL work for similar PDE resolution [33, 21]. 
+
+## 8 Conclusion 
+
+We introduced OGAS , an online AL method that learns a signal-conditional distribution over continu-ous solver parameters using a diffusion generator trained in parallel with the surrogate from reweighted samples. Compared with prior PDE-AL studies [ 12 , 33 , 21 ], OGAS avoids fixed candidate pools and operates directly in the continuous parameter space. Scaling AL studies to higher-complexity PDEs and larger surrogates is essential for practical applicability. We advance beyond prior works [ 12 , 33 , 21 ] by targeting 2D PDEs at 256 ×256 resolution with up to 308 parameters and a 184M-parameter transformer surrogate. Consistent tail improvements confirm effective steering toward difficult PDE regimes with negligible wall-time overhead in our asynchronous implementation. Our generative approach potentially scales further thanks to expressiveness and scalability of diffusion models. Unlike round-based AL methods that often require repeated surrogate retraining, OGAS 
+
+operates online and avoids this computational burden, crucial when scaling [ 2]. Future work includes extending OGAS to PDE foundation models, requiring to handle heterogeneous parameter spaces (different PDEs, boundary types, IC dimensionalities), cross-PDE signal normalization and runtime-aware scheduling. 
+
+## Acknowledgements 
+
+This work was supported by project Exa-DoST, NumPEx PEPR program, France 2030 state grant reference ANR-22-EXNU-0004. This project has received funding from the European Union’s Hori-zon research and innovation program under grant agreement No 101144014 (EoCoe-III). This work was granted access to the HPC resources of IDRIS under the allocations AD010610366R4 attributed by GENCI (Grand Equipement National de Calcul Intensif). We acknowledge the EuroHPC Joint Undertaking for awarding this project access to the EuroHPC supercomputer LEONARDO, hosted by CINECA (Italy) and the LEONARDO consortium through an EuroHPC Development Access call. For early testing, we benefited from access to the Grid’5000 testbed, supported by a scientific interest group hosted by Inria and including CNRS, RENATER and several Universities as well as other organizations. For early testing, we also benefited from access to the GRICAD infrastructure (https://gricad.univ-grenoble-alpes.fr), which is supported by Grenoble research communities. 10 References 
+
+[1] Yuri Aikawa, Naonori Ueda, and Toshiyuki Tanaka. Improving the Efficiency of Training Physics-Informed Neural Networks Using Active Learning. New Gener. Comput., 42(4):739– 760, November 2024. ISSN 1882-7055. doi: 10.1007/s00354-024-00253-6. [2] Neil Ashton, Johannes Brandstetter, and Siddhartha Mishra. Fluid Intelligence: A Forward Look on AI Foundation Models in Computational Fluid Dynamics, November 2025. [3] Pradeep Bajracharya, Javier Quetzalcóatl Toledo-Marín, Geoffrey Fox, Shantenu Jha, and Lin-wei Wang. Feasibility Study on Active Learning of Smart Surrogates for Scientific Simulations, July 2024. [4] Steffen Bickel, Michael Brückner, and Tobias Scheffer. Discriminative Learning Under Covariate Shift. Journal of Machine Learning Research , 10(75):2137–2155, 2009. URL 
+
+http://jmlr.org/papers/v10/bickel09a.html .[5] Spyros Blanas. From flops to iops: The new bottlenecks of scientific computing. https://www.sigarch.org/from-flops-to-iops-the-new-bottlenecks-of-scientific-computing/, 2020. [6] Johannes Brandstetter, Daniel E. Worrall, and Max Welling. Message passing neural PDE solvers. In The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022, 2022. [7] Davide Cacciarelli and Murat Kulahci. Active learning for data streams: A survey. Machine Learning , 113(1):185–239, January 2024. ISSN 1573-0565. doi: 10.1007/s10994-023-06454-2. [8] Olivier Cappé, Arnaud Guillin, Jean-Michel Marin, and Christian Robert. Population Monte Carlo. Journal of Computational and Graphical Statistics, 13(4):907–929, 2004. URL https: //hal.science/hal-01337419 .[9] Kyle Cranmer, Johann Brehmer, and Gilles Louppe. The Frontier of Simulation-Based Inference. Proceedings of the National Academy of Sciences , 117(48):30055–30062, December 2020. ISSN 0027-8424, 1091-6490. doi: 10.1073/pnas.1912789117. [10] Arka Daw, Jie Bu, Sifan Wang, Paris Perdikaris, and Anuj Karpatne. Mitigating propagation failures in physics-informed neural networks using retain-resample-release (r3) sampling. In Proceedings of the 40th International Conference on Machine Learning , pages 7264–7302. PMLR, 2023. URL https://proceedings.mlr.press/v202/daw23a.html . ISSN: 2640-3498. [11] Sofya Dymchenko and Bruno Raffin. Loss-driven sampling within hard-to-learn ar-eas for simulation-based neural network training. In MLPS 2023 - Machine Learning and the Physical Sciences Workshop at NeurIPS 2023 - 37th Conference on Neural Information Processing Systems , pages 1–5, New Orleans, United States, December 2023. [12] Sofya Dymchenko, Abhishek Purandare, and Bruno Raffin. MelissaDL x Breed: Towards Data-Efficient On-line Supervised Training of Multi-parametric Surrogates with Active Learning. In SC-W 2024 - Workshops of The International Conference on High Performance Computing, Network, Storage, and Analysis , pages 1–9, Atlanta (Georgia), United States, November 2024. IEEE. URL https://hal.univ-brest.fr/hal-04712480 .[13] Ian J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative Adversarial Networks, June 2014. URL http://arxiv.org/abs/1406.2661 . arXiv:1406.2661 [stat]. [14] Maximilian Herde, Bogdan Raoni´ c, Tobias Rohner, Roger Käppeli, Roberto Molinaro, Em-manuel de Bézenac, and Siddhartha Mishra. Poseidon: Efficient Foundation Models for PDEs, May 2024. [15] Jonathan Ho and Tim Salimans. Classifier-Free Diffusion Guidance, July 2022. URL http: //arxiv.org/abs/2207.12598 . arXiv:2207.12598 [cs]. [16] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising Diffusion Probabilistic Models, December 2020. URL http://arxiv.org/abs/2006.11239 . arXiv:2006.11239 [cs]. [17] David Holzmüller, Viktor Zaverkin, Johannes Kästner, and Ingo Steinwart. A Framework and Benchmark for Deep Batch Active Learning for Regression, August 2023. 11 [18] Benjamin Holzschuh, Qiang Liu, Georg Kohl, and Nils Thuerey. PDE-transformer: Efficient and versatile transformers for physics simulations. In Forty-Second International Conference on Machine Learning, June 2025. [19] Siyu Huang, Tianyang Wang, Haoyi Xiong, Jun Huan, and Dejing Dou. Semi-Supervised Active Learning with Temporal Output Discrepancy, July 2021. [20] Ajay J. Joshi, Fatih Porikli, and Nikolaos Papanikolopoulos. Multi-class active learning for image classification. 2009 IEEE Conference on Computer Vision and Pattern Recognition ,pages 2372–2379, June 2009. doi: 10.1109/CVPR.2009.5206627. [21] Yegon Kim, Hyunsu Kim, Gyeonghoon Ko, and Juho Lee. Active Learning with Selective Time-Step Acquisition for PDEs. In Forty-Second International Conference on Machine Learning, June 2025. [22] Andreas Kirsch, Sebastian Farquhar, Parmida Atighehchian, Andrew Jesson, Frederic Branchaud-Charron, and Yarin Gal. Stochastic Batch Acquisition: A Simple Baseline for Deep Active Learning, September 2023. [23] Felix Koehler, Simon Niedermayr, Rüdiger Westermann, and Nils Thuerey. APEBench: A Benchmark for Autoregressive Neural Emulators of PDEs. In NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024. arXiv, October 2024. [24] Armand Kassaï Koupaï, Lise Le Boudec, and Patrick Gallinari. Efficient Generative Transformer Operators For Million-Point PDEs, December 2025. [25] Balaji Lakshminarayanan, Alexander Pritzel, and Charles Blundell. Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles, November 2017. [26] Gregory Kang Ruey Lau, Apivich Hemachandra, See-Kiong Ng, and Bryan Kian Hsiang Low. PINNACLE: PINN Adaptive ColLocation and Experimental points selection. In The Twelfth International Conference on Learning Representations, October 2023. [27] Noah Lewis, Jean Luca Bez, and Suren Byna. I/o in machine learning applications on hpc systems: A 360-degree survey. ACM Comput. Surv., 57(10), May 2025. ISSN 0360-0300. doi: 10.1145/3722215. URL https://doi.org/10.1145/3722215 .[28] Zongyi Li, Nikola Borislavov Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhat-tacharya, Andrew M. Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 . OpenReview.net, 2021. URL https: //openreview.net/forum?id=c8P9NQVtmnO .[29] Huifang Lyu, James Alvey, Noemi Anau Montel, Mauro Pieroni, and Christoph Weniger. Dynamic SBI: Round-free Sequential Simulation-Based Inference with Adaptive Datasets, October 2025. [30] Lucas Meyer, Marc Schouler, Robert Alexander Caulk, Alejandro Ribés, and Bruno Raf-fin. Training Deep Surrogate Models with Large Scale Online Learning. In ICML 2023 - International Conference on Machine Learning , pages 1–17, July 2023. URL https: //hal.science/hal-04102400 .[31] Lucas Meyer, Marc Schouler, Robert Alexander Caulk, Alejandro Ribés, and Bruno Raffin. High Throughput Training of Deep Surrogates from Large Ensemble Runs. In SC 2023 -The International Conference for High Performance Computing, Networking, Storage, and Analysis , pages 1–14, Denver, CO, United States, November 2023. ACM. doi: 10.1145/ 3581784.3607083. URL https://hal.science/hal-04213978 .[32] Sepehr Mousavi, Shizheng Wen, Levi Lingsch, Maximilian Herde, Bogdan Raoni´ c, and Sid-dhartha Mishra. RIGNO: A Graph-based framework for robust and accurate operator learning for PDEs on arbitrary domains, January 2025. [33] Daniel Musekamp, Marimuthu Kalimuthu, David Holzmüller, Makoto Takamoto, and Mathias Niepert. Active Learning for Neural PDE Solvers. In The Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025 . OpenReview.net, 2025. [34] Raphaël Pestourie, Youssef Mroueh, Thanh V. Nguyen, Payel Das, and Steven G. Johnson. Active learning of deep surrogates for PDEs: Application to metasurface design. npj Comput Mater, 6(1), October 2020. ISSN 2057-3960. doi: 10.1038/s41524-020-00431-2. 12 [35] Raphaël Pestourie, Youssef Mroueh, Chris Rackauckas, Payel Das, and Steven G. Johnson. Physics-enhanced deep surrogates for partial differential equations. Nat Mach Intell, 5(12): 1458–1465, December 2023. ISSN 2522-5839. doi: 10.1038/s42256-023-00761-y. [36] Tobias Pfaff, Meire Fortunato, Alvaro Sanchez-Gonzalez, and Peter W. Battaglia. Learning mesh-based simulation with graph networks. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 . OpenReview.net, 2021. URL https://openreview.net/forum?id=roNqYL0_XP .[37] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics, 378:686–707, February 2019. ISSN 0021-9991. doi: 10.1016/j.jcp.2018.10.045. [38] Pengzhen Ren, Yun Xiao, Xiaojun Chang, Po-Yao Huang, Zhihui Li, Brij B. Gupta, Xiaojiang Chen, and Xin Wang. A Survey of Deep Active Learning. arXiv e-prints, art. arXiv:2009.00236, August 2020. doi: 10.48550/arXiv.2009.00236. [39] Marc Schouler, Robert Alexander Caulk, Lucas Meyer, Théophile Terraz, Christoph Conrads, Sebastian Friedemann, Achal Agarwal, Juan Manuel Baldonado, Bartłomiej Pogodzi´ nski, Anna Sekuła, Alejandro Ribes, and Bruno Raffin. Melissa: coordinating large-scale ensemble runs for deep learning and sensitivity analyses. Journal of Open Source Software, 8(86):5291, 2023. doi: 10.21105/joss.05291. URL https://doi.org/10.21105/joss.05291 .[40] Ozan Sener and Silvio Savarese. Active Learning for Convolutional Neural Networks: A Core-Set Approach, June 2018. [41] Burr Settles. Active learning literature survey, 2009. [42] H. S. Seung, M. Opper, and H. Sompolinsky. Query by committee. In Proceedings of the Fifth Annual ACM Workshop on Computational Learning Theory , pages 287–294. Publ by ACM, 1992. doi: 10.1145/130385.130417. [43] Unique Subedi and Ambuj Tewari. On the Benefits of Active Data Collection in Operator Learning, February 2025. [44] Kejun Tang, Xiaoliang Wan, and Chao Yang. Das-pinns: A deep adaptive sampling method for solving high-dimensional partial differential equations. Journal of Computational Physics, 476: 111868, 2023. URL https://www.math.lsu.edu/~xlwan/papers/journal/das.pdf .[45] Harsh Vardhan, Umesh Timalsina, Peter Volgyesi, and Janos Sztipanovits. Data efficient surrogate modeling for engineering design: Ensemble-free batch mode deep active learning for regression, November 2022. [46] Sifan Wang, Shyam Sankaran, Hanwen Wang, and Paris Perdikaris. An Expert’s Guide to Training Physics-informed Neural Networks, August 2023. URL http://arxiv.org/abs/ 2308.08468 . arXiv:2308.08468 [physics]. [47] Zhiyuan Wang, Jinwoo Go, Byung-Jun Yoon, Nathan Urban, and Xiaoning Qian. A Plug-and-Play Query Synthesis Active Learning Framework for Neural PDE Solvers. NeurIPS 2025, 2025. [48] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks, July 2022. [49] L. Zanisi, A. Ho, T. Madula, J. Barr, J. Citrin, S. Pamela, J. Buchanan, F. Casson, V. Gopakumar, and J. E. T. contributors. Efficient training sets for surrogate models of tokamak turbulence with Active Deep Ensembles, October 2023. 13 A Theoretical Foundations: Sampling Inertia and Uniform-Prior Training 
+
+This appendix complements Sec. 4 with a compact analysis of (i) the distribution of logged pairs 
+
+(λ, ˜ε) used to train the generator, (ii) the origin of history bias induced by conditional resampling from a finite buffer B, and (iii) the importance-weighted objective that enforces a uniform reference prior over Λ.We follow the notation of the main text. At generation g, λ ∈ Λ denotes solver parameters, pg (λ) the 
+
+behavior policy used to launch solver runs (a mixture of uniform and generator-guided samples), θg
+
+the surrogate parameters, and ˜ε the z-normalized training signal. The generator models pϕg (λ | ˜ε).The buffer B stores recent logged pairs (λ, ˜ε) and we denote by pB(λ, ˜ε) the joint distribution obtained by sampling a logged pair uniformly from the current contents of B. Its marginals/conditionals are 
+
+pB(λ) and pB(˜ ε | λ). Because pg changes over generations and B has finite capacity, pB(λ) is generally non-uniform and captures the sampling history. 
+
+A.1 Assumptions Assumption A.1 (Near-uniform timestep mixing) . The timestep distribution induced by sampling segments uniformly from the surrogate buffer R satisfies qg (t) ≈ 1 
+
+> Nt
+
+for all t ∈ { 0, . . . , N t − 1}.
+
+Assumption A.2 (Generator optimality on B). Within a generator-update window at generation g,maximum-likelihood training on B recovers the buffer conditional: 
+
+pϕg (λ | ˜ε) ≈ pB(λ | ˜ε).
+
+Assumption A.1 concerns how timesteps enter the logged signal through the surrogate-training sampler. Assumption A.2 formalizes the idealized limit in which MLE training on B recovers the conditional distribution present in the buffer. 
+
+A.2 Logged distribution and timestep marginalization 
+
+Although the buffer stores only pairs (λ, ˜ε), each ˜ε is computed at some (latent) timestep t during surrogate updates. Let qg (˜ ε | λ, t ) denote the signal distribution induced by the surrogate at generation 
+
+g when the signal is evaluated at timestep t and filling the buffer B. Under Assumption A.1, the timestep-marginal (time-mixed) signal conditional in the buffer is 
+
+pB(˜ ε | λ) ≈
+
+> Nt−1
+
+X
+
+> t=0
+
+qg (t) qg (˜ ε | λ, t ) ≈ 1
+
+Nt
+
+> Nt−1
+
+X
+
+> t=0
+
+qg (˜ ε | λ, t ). (13) Time-local sampling from the finite buffer can therefore be represented as 
+
+(λ, ˜ε) ∼ pB(λ, ˜ε) = pB(λ) pB(˜ ε | λ), (14) with induced signal marginal 
+
+pB(˜ ε) = 
+
+Z
+
+> Λ
+
+pB(λ) pB(˜ ε | λ) dλ, (15) and Bayes’ rule giving the buffer conditional 
+
+pB(λ | ˜ε) = pB(λ) pB(˜ ε | λ)
+
+pB(˜ ε) . (16) 
+
+A.3 History Bias 
+
+Recall that the generator-induced proposal at generation g+1 is obtained by sampling ˜ε ∼ k(˜ ε) and then λ ∼ pϕg (λ | ˜ε):
+
+pgen 
+
+> g+1
+
+(λ) = 
+
+Z
+
+k(˜ ε) pϕg (λ | ˜ε) d˜ε. (17) Under Assumption A.2, pϕg (λ | ˜ε) ≈ pB(λ | ˜ε). Substituting the Bayes form (16) yields the (unnormalized) factorization 
+
+pgen 
+
+> g+1
+
+(λ) ∝ pB(λ)
+
+Z
+
+k(˜ ε) pB(˜ ε | λ)
+
+pB(˜ ε) d˜ε. (18) 14 Interpretation and link to the behavior policies. Eq. (18) makes explicit a multiplicative history 
+
+term pB(λ) induced by the finite buffer. Since B stores pairs generated by solver runs launched under the sequence of behavior policies {pg′ (λ)}g′≤g , the buffer marginal pB(λ) can be viewed as a time-local mixture of these policies, weighted by how much data from each generation remains in the surrogate buffer. Consequently, naive conditional resampling can inherit over-represented regions of 
+
+Λ through pB(λ) (history bias ), even when the current surrogate signal favors other regions via the tilt term pB(˜ ε | λ).
+
+A.4 Uniform-prior generator training via importance weighting 
+
+The objective in Sec. 4 corresponds to training the generator under the target joint 
+
+p⋆
+
+> B
+
+(λ, ˜ε) = UΛ(λ) pB(˜ ε | λ), (19) which enforces a uniform reference prior on Λ while preserving the (time-marginal) signal mechanism encoded by pB(˜ ε | λ). Since B provides samples from (14), importance sampling yields 
+
+E(λ, ˜ε)∼p⋆
+
+> B
+
+Lgen (λ, ˜ε; ϕ) = E(λ, ˜ε)∼pB
+
+ UΛ(λ)
+
+pB(λ) Lgen (λ, ˜ε; ϕ)
+
+
+
+, (20) justifying the density ratio wB(λ) = UΛ(λ)/p B(λ) used in the main text. This is the standard covariate-shift correction [4]. 
+
+A.5 Classifier-based density ratio estimation 
+
+Eq. (20) requires the marginal ratio UΛ(λ)/p B(λ), but pB(λ) is unknown. We estimate this ratio with a probabilistic classifier. We assign label y=0 to uniform reference samples λ ∼ U Λ and label 
+
+y=1 to buffer samples obtained by drawing (λ, ˜ε) ∼ pB and retaining λ. We train a discriminator 
+
+Dψ (λ) ∈ (0 , 1) to predict Dψ (λ) = Pψ (y=0 | λ). With class priors π0 = P (y=0) and π1 =
+
+P (y=1) estimated from the discriminator minibatch, Bayes’ rule yields [13] 
+
+bwB(λ) = π1
+
+π0
+
+· Dψ (λ)1 − Dψ (λ) . (21) In practice, we use balanced minibatches with an equal number of uniform and buffer samples, so the class-prior factor cancels. We clip bwB(λ) to [wmin , w max ] for numerical stability. 
+
+Remark A.3 (Alternative: uniform-only generator updates) . A simpler alternative is to train the generator only on pairs (λ, ˜ε) originating from the uniform branch of the behavior policy, removing the need for ratio estimation since the effective base measure is already uniform. However, when the uniform fraction α is small, this approach reduces the number of available training pairs and we found empirically that it adapts more slowly than ratio-weighted updates. 
+
+## B Active sampling details 
+
+B.1 Conditional generator: diffusion model 
+
+We parametrize the conditional generator pϕ(λ | ˜ε) with a denoising diffusion probabilistic model (DDPM) [ 16 ] equipped with classifier-free guidance (CFG) [ 15 ]. In preliminary experiments, simpler CVAE variants were less stable and suffered from posterior collapse, whereas DDPMs gave a more reliable fit to the continuous conditional distributions encountered here and naturally supported guided sampling toward high-signal regions. Comparing against alternative backbones such as normalizing flows is left for future work; for discrete or mixed parameter spaces, the same framework could be paired with a mixed-type generative model instead of a Gaussian DDPM. The training and sampling pipelines follow the standard DDPM recipe; here we only specify the components that differ from a vanilla setup, namely (a) density-ratio reweighting and (b) the concrete denoiser/discriminator architectures and hyperparameters used in our asynchronous update loop. 
+
+Diffusion objective with density-ratio reweighting 
+
+Let q(xk | λ) denote the forward noising process at diffusion step k ∈ { 1, . . . , K } (as in [ 16 ]), producing the noisy input xk. The denoiser εϕ(xk, k, ˜ε) predicts the additive Gaussian noise ε used 15 to construct xk. Under the density-ratio debiasing described in Sec. A.5, we associate each training pair (λ, ˜ε) with an importance weight wg (λ) (Eq. (21) ). The resulting weighted noise-prediction objective is 
+
+Lwdiff (ϕ) = E(λ,˜ε)∼B Ek∼Unif( {1,...,K }), ε ∼N (0 ,I )
+
+h
+
+wg (λ) ∥ε − εϕ(xk, k, ˜ε)∥22
+
+i
+
+. (22) In all experiments, we clamp wg (λ) to a bounded interval (Table 1) to prevent unstable gradients. 
+
+Classifier-free guidance (CFG) 
+
+To condition our DDPM, we implement CFG by stochastically dropping the conditioning signal ˜ε
+
+during training: with probability pdrop , we replace ˜ε by a learned null token ˜ε∅. At inference time, we form guided predictions by combining the conditional and unconditional denoisers: 
+
+ˆεcfg (xk, k, ˜ε) = (1 + w) εϕ(xk, k, ˜ε) − w ε ϕ(xk, k, ˜ε∅), (23) where w ≥ 0 is the guidance scale used during ancestral sampling (Table 1). 
+
+Denoiser architecture 
+
+Our denoiser is an MLP-based network chosen for fast (asynchronous) updates. Let d be the dimensionality of λ and let m = 1024 be the hidden width. The model maps (xk, k, ˜ε) to a noise prediction in Rd using: (i) an input projection to width m, (ii) a sinusoidal time embedding, (iii) a learned condition embedding for ˜ε, and (iv) two residual MLP blocks modulated by the fused embeddings. Concretely: 1. Input projection. Project xk ∈ Rd to h0 ∈ Rm with a linear layer. 2. Embeddings. Compute a sinusoidal embedding of the diffusion step k, map it to Rm, then project to e = 4 m = 4096 . Independently embed the condition ˜ε to R4096 (and embed the null token ˜ε∅ similarly). Sum the time and condition embeddings to obtain a fused embedding in R4096 .3. Residual denoising trunk. Apply two identical residual MLP blocks, each of the form 
+
+h ← h + Linear  SiLU(LayerNorm( h)) ,
+
+where the fused embedding modulates each block via affine modulation (FiLM-style): per block we produce (γ, β ) ∈ Rm × Rm from the fused embedding and apply 
+
+LayerNorm( h) 7 → γ ⊙ LayerNorm( h) + β. 
+
+4. Output head. A final LayerNorm–Linear head maps the resulting hidden state back to Rd
+
+to output εϕ(xk, k, ˜ε).
+
+Density-ratio classifier used to form wg (λ)
+
+To compute wg (λ) (Eq. (21)), we train a lightweight discriminator on λ with a 2-layer MLP: Linear (d → 64) → ReLU → Linear (64 → 1) .
+
+We use the scalar logit output in Eq. (21) and clamp the resulting weights to a fixed range for numerical stability (Table 1). 
+
+Hyperparameters and training/sampling configuration 
+
+Table 1 summarizes the full configuration used for the diffusion generator and the density-ratio classifier. 
+
+B.2 Stability heuristics 
+
+Our setting is fully online: solver trajectories, surrogate updates, and generator updates run concur-rently and exchange data through finite-capacity buffers. Without additional safeguards, this pipeline can become unstable due to (i) stale conditioning signals, (ii) generator overfitting when simulations lag, and (iii) changes in the effective number of surrogate updates per simulated trajectory. Below we summarize the practical heuristics used to ensure stable and reproducible runs. 16 Table 1: Diffusion generator and density-ratio classifier configuration. 
+
+Component Setting 
+
+Diffusion model (DDPM + CFG) 
+
+Hidden width ( m) 1024 Residual blocks 2 (LayerNorm–SiLU–Linear with residual connection) Time embedding sinusoidal → Rm, projected to e = 4 m = 4096 
+
+Condition embedding ˜ε 7 → R4096 ; learned null token ˜ε∅
+
+Modulation affine (FiLM-style) modulation of each block using fused embedding Optimizer / LR Adam, 10 −4
+
+Batch size 128 Update budget ≤ 50 DDPM gradient steps per new data arrival Noise schedule linear βk from 10 −4 to 0.02 over K = 1000 steps [16] CFG dropout prob. ( pdrop ) 0.1 (replace ˜ε by ˜ε∅)Sampling ancestral sampling, 50 steps Guidance scale ( w) 5.0 
+
+Density-ratio classifier (for wg (λ))
+
+Architecture Linear( d → 64 )→ReLU →Linear( 64 → 1)Weight clamping wg (λ) ∈ [0 .1, 10] 
+
+Decoupled asynchronous pipeline. We keep the surrogate training loop on the critical path and run active sampling in the background: (i) training-signal computation and transmission are asynchronous, and (ii) generator (DDPM) updates never block surrogate update. This prevents variations in generator load from affecting surrogate throughput. 
+
+Fast-to-train generator and short-horizon updates. The DDPM denoiser is intentionally faster than the surrogate, enabling frequent refreshes of the conditional sampler without becoming a bottleneck. To avoid overfitting to a small, rapidly changing B, we cap generator training to at most 
+
+Kmax gradient steps per new data arrival (so per update of the surrogate). We use Kmax = 50 in 2D, so that generator compute scales with the rate at which fresh (λ, ˜ε) pairs are produced. 
+
+Small, recent buffer for generator supervision. We train the generator on a dedicated buffer B
+
+that stores only recent (λ, ˜ε, t ) pairs. Because the surrogate evolves throughout training, older signals can become miscalibrated; restricting B to recent samples reduces staleness and improves the match between the generator’s conditioning variable and the current loss landscape. 
+
+Speed limiter (controlling data/compute ratio). In an asynchronous client–server setup, cluster variability can change the relative speeds of simulation and training. This changes the effective 
+
+number of surrogate updates per simulated trajectory and can lead to irreproducible results even when random seeds are fixed. We monitor two rates: the input flux (new samples inserted into R per second) and the output flux 
+
+(minibatches consumed for surrogate update per second). If input flux dominates, successive batches contain mostly unseen samples, yielding high variance updates; if output flux dominates, the model repeatedly trains on the same buffer content, increasing overfitting risk. The problematic case is drift over time (e.g., due to node preemption or stragglers), which changes this ratio mid-run. We control this with a view ratio , defined as the average number of batches performed on the surrogate per simulated trajectory (or equivalently, the fraction of R samples that have been “seen” by training). The speed limiter enforces a target view ratio by throttling either simulation intake or surrogate execution so that the data/compute ratio remains stable throughout training. For our 2D experiments, we set the target to 1.8 surrogate batches per simulation, matching the available cluster throughput and yielding consistent training dynamics across runs. 
+
+B.3 OGAS implementation details 
+
+This section collects practical details complementing Algorithm 1. 17 Signal normalization. The raw acquisition values vary over training as the surrogate improves. We therefore maintain running statistics for standardization using an exponential moving average with decay γ = 0 .99 (roughly a ∼100 -batch horizon). Each incoming minibatch updates (μ, σ ), and we store the normalized signal ˜ε = ( ε − μ)/σ in the buffer B.
+
+Generator update schedule. Generator updates are driven by data availability rather than wall-time. When new (λ, ˜ε) pairs arrive, we run a bounded number of DDPM steps and otherwise idle. This prevents the generator from overtraining on a stale B during periods when simulations are slow. Unless stated otherwise, we cap generator work to Kmax = 50 steps per new data arrival; in 2D runs we use Kmax = 50 as noted above. 
+
+Importance weight estimation (ratio debiasing). To correct history bias in the logged λ distribu-tion, we estimate wg (λ) = UΛ(λ)/p B(λ) with a lightweight discriminator Dψ (λ) (two-layer MLP: 
+
+d → 64 → 1) trained with binary cross-entropy to distinguish uniform samples from current-mixture samples. We convert classifier outputs to density ratios using the standard D/ (1 − D) mapping (Eq. (21), up to minibatch priors) and clamp weights to [0 .1, 10] for numerical stability. 
+
+Mixture warmup. We use a linear warmup for the generator mixing coefficient α (or equivalently the generator fraction ε = 1 − α), increasing from 0.0 to 0.7 early in training. This ensures the surrogate first observes broad coverage of Λ under uniform sampling, building a stable global approximation before the generator concentrates compute on high-signal regions. 
+
+B.4 Adaptation to pool-based active learning SBAL in AL4PDE. We follow the pool-based, batch active-learning loop: in each round, a batch of candidate inputs is selected from a pool, simulated with the numerical solver, and added to the training set. Uncertainty is measured via query-by-committee (QbC), i.e., ensemble disagreement, which serves as a sample informativeness score. Stochastic Batch Active Learning (SBAL) draws a batch without replacement from the pool using a softened sampling distribution over uncertainties; a sharpness parameter β interpolates between random sampling ( β = 0 ) and Top-K selection ( β → ∞ ), thereby encouraging diversity beyond the highest-uncertainty mode: 
+
+qi = uβi
+
+P 
+
+> j
+
+uβj
+
+, β ≥ 0,
+
+where ui is the uncertainty score for candidate i [33, 22]. 
+
+Online SBAL adaptation. We adapt Stochastic Batch Active Learning (SBAL) to our online, streaming context. The standard pool-based formulation maintains a fixed candidate pool from which selected parameters are permanently removed after simulation. In contrast, our streaming setting employs a small buffer B that continuously discards old samples, requiring several modifications to ensure fair comparison with other online methods. 
+
+Triggering mechanism. Uncertainty-based resampling is initiated periodically on the training rank— approximately ten times throughout training—after an initial warm-up phase that allows the surrogate ensemble to stabilize. 
+
+Procedure overview. At each resampling trigger, we construct a candidate pool, estimate per-candidate uncertainty via ensemble rollouts, and select a batch using power-law weighted sampling. Algorithm 2 details the full procedure. 
+
+Hyperparameters. We use pool size P = 5000 , rollout fraction ρ = 0 .5 (half the full trajectory length), and sharpness β = 2 . This configuration balances computational cost against uncertainty estimation quality. 
+
+Difference from standard SBAL. In the original pool-based setting, simulated parameters are perma-nently withdrawn from the pool, ensuring each configuration is visited at most once over training. In our streaming adaptation, the finite buffer R naturally discards older data, so previously sampled parameters may be re-selected if they persist as high-uncertainty regions. This design maintains com-patibility with the online setting while preserving SBAL’s core principle of soft, uncertainty-weighted batch selection. 18 Algorithm 2 Online SBAL for Streaming Surrogate Training 
+
+Require: Pool size P , batch size K, rollout fraction ρ ∈ (0 , 1] , sharpness β ≥ 0, ensemble 
+
+{f (m) 
+
+> θ
+
+}Mm=1 
+
+Construct candidate pool: Sample {λi}Pi=1 ∼ U Λ uniformly 
+
+for i = 1 , . . . , P do 
+
+Sample initial condition u0 ∼ p(· | λi)
+
+Set rollout horizon T ′ ← max(1 , ⌊ρT ⌋)
+
+for t = 0 , . . . , T ′ − 1 do 
+
+Compute ensemble predictions {ˆu(m)
+
+> t+1
+
+}Mm=1 from ut
+
+Record disagreement dt ← Var m
+
+ ˆu(m)
+
+> t+1
+
+ or other metric Update state ut+1 ← ¯ut+1 ▷ ensemble mean 
+
+Aggregate uncertainty: ui ← 1
+
+T ′
+
+PT ′−1 
+
+> t=0
+
+dt
+
+Compute selection probabilities: qi ← uβi
+
+PPj=1 uβj
+
+for i = 1 , . . . , P 
+
+Sample batch: Draw K candidates {λs1 , . . . , λ sK } from {qi} without replacement 
+
+Return selected parameters {λsk }Kk=1 to simulate 
+
+B.5 Breed baseline details 
+
+For the Breed baseline, we use a Gaussian mutation width of σ = 0 .1 relative to the parameter range, consistent with the original implementation but adapted for the streaming setting. 
+
+## C Implementation and Experimental Setup 
+
+C.1 PDEs and solver setup 
+
+PDEs used for the 2D evaluations were chosen to ensure a wide range of different PDEs, at high spatial resolutions, and with varying physical quantities across simulations. To simulate them and produce the synthetic data, we relied on the Exponax Solver used in APEBench which implements a range of Exponential Time Differencing Runge-Kutta methods operate in Fourier space and as such do not allow for non-periodic domains or complex boundaries. To follow the design of the dataset of PDE transformer [ 24 ], we use Exponax (as in APEBench) with our own data-generation interface/config. We always use the physical solver interface across datasets to provide a simpler, unified way of handling physical quantities. Representative trajectories for these three equations are shown in Figure 5, Figure 6, and Figure 7. 
+
+C.2 Configurations of PDE solvers 
+
+We provide the stepper configuration when using directly the Exponax solvers. 
+
+Common simulation setup (all 2D cases). All datasets are generated with Exponax pseudo-spectral steppers in Fourier space on a 2D periodic domain Ω = [0 , L ]2. Unless stated otherwise, we use a spectral grid of N = 256 points per spatial dimension and compute spatial operators spectrally. Each recorded trajectory consists of a fixed number of stored time steps: ts = 32 for training (training on two steps rollout following AL4PDE implementation) so as to yield 30 transitions per trajectory. The validation trajectories are longer and use tval  
+
+> s
+
+= 51 as validation is performed in one-step fashion so yielding here 50 transitions. The validation set comprises 750 trajectories sampled via Halton sequences (total 37,500 samples), consistent with the main text. We distinguish three time-integration notions: (i) the stored step size ∆t between consecutive saved states, (ii) the number of substeps nsub 
+
+taken internally per stored step, and (iii) the corresponding internal integrator step δt = ∆ t/n sub . To reduce dependence on transients, we run an initial warmup phase of a prescribed number of internal steps that are discarded before any states are recorded. 
+
+Kuramoto–Sivashinsky (2D). We simulate a single scalar field (density) with the Exponax Kuramoto–Sivashinsky stepper and periodic boundaries on Ω = [0 , L ]2. The domain extent is 19 Figure 5: Gray-Scott trajectory grid. Visual snapshots from the 2D validation suite: Gray-Scott (reaction-diffusion patterns). All simulations are performed using the Exponax JAX-based spectral solver [23] and show timestep evolution across different domain size values 
+
+Figure 6: Navier-Stokes trajectory grid. Visual snapshots from the 2D validation suite: Navier-Stokes Kolmogorov Flow (fluid dynamics). All simulations are performed using the Exponax JAX-based spectral solver [23] and show timestep evolution across different diffusivity values sampled as L ∼ U [10 , 130] . We discard a warmup of 200 internal steps prior to recording. The time delta used is ∆t = 0 .5 and nsub = 5 internal substeps, yielding a solver δt = 0 .1.
+
+Gray–Scott reaction–diffusion (2D). We use the Exponax Gray–Scott stepper for two coupled concentration fields with periodic boundaries on Ω = [0 , L ]2. 2 Diffusivity and reaction parameters are fixed to Da = 2 × 10 −5, Db = 10 −5, F = 0 .02 , and K = 0 .046 to follow the β variant of this equation used in PDETransformer [ 24 ], while the domain extent is in our case sampled within the range L ∼ U [0 .5, 10] . We use a step size of ∆t = 30 with nsub = 30 yielding δt = 1 for the solver. 
+
+Navier–Stokes (2D Kolmogorov flow, vorticity form). We simulate a single vorticity field using the Exponax vorticity-formulation Navier–Stokes stepper with built-in Kolmogorov forcing (single-20 Figure 7: Kuramoto-Sivashinsky trajectory grid. Visual snapshots from the 2D validation suite: Kuramoto-Sivashinsky (chaotic). All simulations are performed using the Exponax JAX-based spectral solver [23] and show timestep evolution across different domain size values mode sinusoidal forcing in the vorticity equation) and periodic boundaries. The domain extent is fixed to L = 2 π, while viscosity is sampled as ν ∼ U [0 .003 , 0.008] . We discard a warmup of 50 internal steps prior to recording. We use a step size of ∆t = 0 .2 and nsub = 100 , giving δt = 0 .002 
+
+for the solver. 
+
+C.3 Initial condition families 
+
+We use two families of random initial conditions, each designed to produce diverse spatial structures while remaining smooth enough to avoid numerical instabilities. 
+
+Truncated Fourier series. For the Kuramoto–Sivashinsky and Navier–Stokes equations, we sample initial conditions from a truncated Fourier series. On a square periodic domain Ω = [0 , L ]2 discretized on an N × N grid, we first draw a spectral cutoff K ∼ U [2 , 8] and a taper exponent p ∼ U [1 , 10] .For each scalar field channel c and each retained wavevector k = ( kx, k y ) with kx ∈ { 0, . . . , K }
+
+and ky ∈ {− K, . . . , K }, we sample an amplitude ac, k ∼ U [−1, 1] and phase ϕc, k ∼ U [0 , 2π]. The initial field is then 
+
+uc(x) = X
+
+> k
+
+ac, k exp 
+
+
+
+−
+
+ ∥k∥
+
+K
+
+p
+
+cos   2πL k · x + ϕc, k
+
+ .
+
+The exponential taper suppresses high-frequency modes smoothly, with stronger suppression for larger p. After sampling, each channel is normalized to have maximum absolute value 1. This parameterization covers a wide range of spatial scales—from nearly uniform fields (small K) to highly oscillatory patterns (large K)—while the taper power controls the smoothness of the transition. Examples are shown in Figure 8. 
+
+Gaussian blob superposition. For the Gray–Scott reaction–diffusion system, we construct initial conditions by superimposing B = 8 anisotropic Gaussian blobs for the first channel. For each blob 
+
+i on channel c, we sample: an amplitude Ac,i ∼ U [0 , 1] ; a center (μix , μ iy ) with each coordinate drawn from U[0 .2L, 0.8L]; spread parameters σix , σ iy ∼ U [0 .07 , 0.1] (relative to domain size); and a correlation coefficient ρc,i ∼ U [0 , 0.1] . The covariance matrix for blob i is 
+
+Σc,i =
+
+ (Lσ ix )2 ρc,i (Lσ ix )( Lσ iy )
+
+ρc,i (Lσ ix )( Lσ iy ) (Lσ iy )2
+
+
+
+.
+
+21 The initial field combines all blobs via amplitude-weighted averaging: 
+
+uc(x) = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+Ac,i exp  − 12 (x − μc,i )⊤Σ−1 
+
+> c,i
+
+(x − μc,i ) .
+
+For Gray–Scott, which models two interacting chemical species, we set the second channel as the complement of the first: u1 ← 1 − u0. This results in 48 sampled parameters for the initial condition. This produces localized concentration patterns that evolve into the characteristic spots and stripes of the Gray–Scott system. Examples are shown in Figure 9. 
+
+Figure 8: Example of truncated fourier IC sampling with various cutoff and taper power 
+
+Figure 9: Example of gaussian blobs IC sampling with varying number of blobs 
+
+C.4 Model architectures 
+
+All surrogate models operate in an autoregressive mode: given the current PDE state ut and physics parameters λ, the model predicts the next state ut+1 . Thus when using 2-steps prediction in our setup we simply calculate two transitions applying the model two times and storing intermediaries gradients as it is usually done for a recurrent model. We evaluate three neural operator architectures spanning spectral, convolutional, and attention-based paradigms. Each physical model parameter is min-max normalized to have a scale between [0 , 1] .
+
+U-Net. We use a modern conditional U-Net adapted from AL4PDE [ 33 ]. The encoder–decoder structure has 4 resolution levels with channel multipliers [1 , 2, 2, 4] relative to a base width of 8 channels, and 2 residual blocks per level. Physics conditioning is injected into each residual block via a learned linear projection (additive conditioning). For periodic domains, we use circular padding. The model predicts a scaled residual: ˆut+1 = ut + 0 .3 ∆ u, where the scaling factor improves training stability for stiff dynamics. GELU activations and group normalization are used throughout; 
+
+Fourier Neural Operator (FNO). The FNO [ 28 ] performs learning directly in Fourier space. Our architecture uses 4 spectral convolution layers, each retaining the lowest 60 Fourier modes per spatial dimension. The hidden channel width is 32 throughout, with GELU activations and a final linear projection head (hidden dimension 128). Physics conditioning is achieved by broadcasting each physical coefficient as a new channel and concatenating with the input channels. The model predicts 22 a residual ∆u that is added to the input state. Spatial coordinates are appended as additional input channels to encode positional information. 
+
+Scalable Operator Transformer (ScOT). ScOT [ 14 ] is a Swin-style vision transformer adapted for operator learning. While the initial model is provided with several configurations, they were mainly designed for 128x128 grid. In our setup we then chose to adapt the Tiny version of the model, raising the patch size from 4 to 8 and tripling then embedding size. This yield the T 256 variant that we use in our setup. With the 8-size patch size, it yields a 32 × 32 token grid for 256 × 256 inputs. The architecture has 4 stages with depths [4 , 4, 4, 4] and head counts [3 , 6, 12 , 24] , using local attention with window size 8. The embedding dimension is 144 with MLP ratio 4. We also adapt physics conditioning to replace the existing mechanism of timestep conditioning to our autoregressive task. This mechanism is provided via a two-layer MLP that projects the parameter vector to the embedding dimension, which is then added as a learnable token (analogous to a time embedding in diffusion models). Skip connections link encoder and decoder stages, and a ConvNeXt-style residual block refines the output. The model predicts a residual that is added to the input state. 
+
+C.5 Existing software assets and licenses 
+
+We use or adapt existing software assets only as credited components. APEBench and Exponax are MIT-licensed packages, and AL4PDE is released under the MIT license. 
+
+C.6 Training protocol Shared protocol. All models are trained online in the streaming setting. Each training batch contains consecutive state pairs (ut, u t+1 , u t+2 ); we train with a two-step loss as described in Sec. 3, where ˆut+2 is obtained by autoregressively applying the model to its own prediction ˆut+1 .We use a batch size of 64 and normalize physics parameters to [0 , 1] via Min-Max scaling using the bounds defined in the experiment config before being passed to the model. Training uses FP32 precision. Additionally, we apply adaptive gradient clipping following the setup of Musekamp et al. [33] , where the clipping threshold is an exponential moving average of current gradient norms (multiplier 5.0, EMA factor 0.05). 
+
+Per-model hyperparameters. Table 2 summarizes the optimizer and scheduler settings for each architecture. Table 2: Training hyperparameters by model architecture.                                 
+
+> FNO U-Net ScOT
+> Optimizer Adam Adam AdamW Learning rate 5×10 −43×10 −46×10 −4
+> Weight decay 0010 −2
+> (β1, β 2)(0 .9,0.999) (0 .9,0.999) (0 .9,0.95)
+> Warmup steps 1000 1500 500 Scheduler Cosine decay to 0 (FNO, U-Net) or 10 −5(ScOT) Residual scale 1.0 0.3 1.0
+
+## D Extended Results and Discussion 
+
+This section reports detailed experimental results omitted from the main paper including: (i) the 1D benchmark suite, (ii) ablation studies for online sampling hyperparameters, and (iii) extended plots/tables for the 2D benchmarks. 
+
+D.1 1D Benchmark Experiments 
+
+We conduct extended experiments on 1D PDEs to validate hyperparameter choices in a controlled, lower-dimensional setting before scaling to 2D. This section describes the experimental setup, reports ablations on key algorithm parameters, and compares OGAS variants against baselines. 23 D.1.1 Setup PDEs and solver parameters. We evaluate on three 1D PDEs from APEBench [23]: • Kuramoto–Sivashinsky (KS): A fourth-order chaotic PDE exhibiting spatiotemporal chaos. We use diffusion coefficient −82 .5, hyperdiffusion −18 ,750 , and advection −150 .• Conservative KS: A variant using ∂x(u2) instead of u∂ xu for the nonlinear term. Coefficients: 
+
+−62 .5, −12 ,500 , −5.• Korteweg–de Vries (KdV): A dispersive PDE with coefficients: dispersion −2,500 , hyperdiffusion 
+
+−3,125 , convection −10 .Initial conditions are sinusoidal superpositions u0(x; λ) = PMm=1 Am sin( mx + ϕm) with M ∈{2, 3} modes, yielding parameter spaces of dimension dim(Λ) ∈ { 4, 6}.
+
+Training and evaluation protocol. Table 3 summarizes the experimental configuration. We train the U-Net surrogate provided in APEBench (6 hidden channels, 5 levels) using a simulation budget of 
+
+N = 30 ,000 trajectories and a batch size of 256 . To ensure reproducibility across runs with variable cluster loads, we employ a speed limiter that maintains a fixed ratio of 2.15 gradient updates per simulated trajectory. Validation is performed on 1,500 held-out trajectories. Table 3: 1D experimental configuration.                            
+
+> Parameter Value Solver & data
+> Spatial grid Nx= 800 points Trajectory length T= 75 timesteps Simulation budget N= 30 ,000 trajectories Validation set 1,500 trajectories (LHS)
+> Surrogate training
+> Architecture U-Net (6 channels, 5 levels) Solver clients 56 concurrent processes Speed limiter 2.15 batches/trajectory Total updates ≈64 ,500
+> Generator (DDPM)
+> Model dimension m= 128
+> Embedding dimension e= 512
+> Sampling steps 50 CFG guidance scale w= 5 .0
+> Max updates per arrival 10 AL buffer size 5,000 pairs Signal normalization EMA ( γ= 0 .9)
+
+Evaluation metrics. Following the main experiments (Sec. 5.2), we report distributional statistics of the one-step normalized L2 error over the validation set. Note that for these early experiments, we did not compute quantiles or the normalized loss. Thus, we report the mean, max, and std metrics using the standard L2 loss over 5 random seeds. The first two ablations were performed on the KS equation only, and the last study was performed on all three equations (KS, conservative KS, and KdV). 
+
+D.1.2 Ablation I: Buffer Size and Resampling Cadence 
+
+We first investigate how the surrogate buffer size and resampling frequency affect learning dynamics. Our intuition was that a smaller surrogate buffer would allow for a more accurate distribution of parameters towards the latest resampling, enabling quicker adaptation to the surrogate’s evolving difficulty using the most recent data. Larger buffers, however, could provide more stable gradient estimates at the cost of slower reaction to distribution shifts. We sweep buffer sizes across three levels and define capacity in terms of the percentage of trajectories retained from the total budget. The three levels are: small (SB, 150 trajectories ≈ 0.5% of total budget), medium (MB, 750 = 2.5%), and large (DB, 1,500 = 5%). We also vary resampling cadences 24 relative to buffer capacity: fast (FR, 0.3× buffer size), normal (NR, 1×), and slow (SR, 3×). Table 4 reports results on 1D Kuramoto–Sivashinsky. Table 4: Buffer size and resampling cadence ablation on 1D KS. Smaller buffers with faster refresh yield better robustness (lower Max and Std). Best values in bold. 
+
+Configuration Max Std Mean Large buffer (DB = 1,500 trajectories) 
+
++ Slow refresh (SR) 0.120 ± 0.057 9.57 × 10 −4 2.03 × 10 −5
+
++ Normal refresh (NR) 0.101 ± 0.024 7.48 × 10 −4 1.47 × 10 −5
+
++ Fast refresh (FR) 0.088 ± 0.027 6.17 × 10 −4 1.20 × 10 −5
+
+Medium buffer (MB = 750 trajectories) 
+
++ Slow refresh (SR) 0.116 ± 0.049 9.09 × 10 −4 1.67 × 10 −5
+
++ Normal refresh (NR) 0.089 ± 0.029 6.75 × 10 −4 1.21 × 10 −5
+
++ Fast refresh (FR) 0.072 ± 0.023 4.94 × 10 −4 9.78 × 10 −6
+
+Small buffer (SB = 150 trajectories) 
+
++ Slow refresh (SR) 0.089 ± 0.029 6.48 × 10 −4 1.45 × 10 −5
+
++ Normal refresh (NR) 0.079 ± 0.028 5.39 × 10 −4 1.20 × 10 −5
+
++ Fast refresh (FR) 0.066 ± 0.015 3.98 × 10 −4 8.03 × 10 −6
+
+These results indicate that the surrogate buffer size is the dominant factor: moving from large (DB) to small (SB) buffers reduces the worst-case error by 45% and dispersion by 58%. Within each buffer size, faster resampling consistently improves all metrics. The combination SB+FR achieves the best results across all three metrics with the lowest variance across seeds, confirming that rapid adaptation to the evolving difficulty surface outweighs potential instabilities from smaller sample sizes. 
+
+D.1.3 Ablation II: Tail Targeting and Mixture Rate 
+
+Using the SB+FR configuration, we investigate how aggressively the generator should target high-loss regions. We sample k(˜ ε) from the observed training-signal distribution by (i) drawing uniformly 
+
+within a tail slice [Quantile ρ, max] , with ρ ∈ { 0.5, 0.7, 0.9}, and (ii) mixing this with uniform coverage using rate α ∈ { 0.15 , 0.30 , 0.50 }.After selecting α = 0 .3 from this ablation, we later introduced proportional sampling (initially in 2D experiments): instead of uniform sampling within a fixed tail (requiring ρ), we sample k(˜ ε) with probability proportional to the observed signal magnitude (Sec. 4), while keeping the same mixture mechanism. We report the proportional result at α = 0 .3 for comparison. Table 5: Tail quantile and mixture rate ablation on 1D KS 
+
+Configuration (α, ρ) Max Std Mean High uniform mixture ( α = 0 .50 )
+
+ρ = 0 .7 0.107 ± 0.045 8.30 × 10 −4 1.49 × 10 −5
+
+ρ = 0 .9 0.094 ± 0.038 6.92 × 10 −4 1.32 × 10 −5
+
+Moderate uniform ( α = 0 .30 )
+
+ρ = 0 .7 0.092 ± 0.025 7.14 × 10 −4 1.33 × 10 −5
+
+ρ = 0 .9 0.082 ± 0.032 5.87 × 10 −4 1.13 × 10 −5
+
+Proportional 0.076 ± 0.028 5.40 × 10 −4 1.19 × 10 −5
+
+Low uniform mixture ( α = 0 .15 )
+
+ρ = 0 .5 0.099 ± 0.041 7.63 × 10 −4 1.35 × 10 −5
+
+ρ = 0 .7 0.079 ± 0.030 5.90 × 10 −4 1.18 × 10 −5
+
+ρ = 0 .9 0.076 ± 0.036 5.64 × 10 −4 1.10 × 10 −5
+
+We found that targeting higher quantiles ( ρ = 0 .9) consistently improves all metrics across mixture rates, confirming that focusing on the hardest 10% of observed signals is beneficial. The mixture rate presents a robustness–optimality trade-off: while α = 0 .15 attains the best tail-uniform Max 
+
+values, it exhibits higher seed-to-seed variability. The moderate setting α = 0 .30 with ρ = 0 .9 offers near-optimal performance with better stability, motivating our choice of α = 0 .3 for subsequent experiments. Once introduced, proportional sampling at α = 0 .3 yielded similar or better results 25 (improving both Max and Std in Table 5), while removing the need to tune ρ; accordingly, we finally adopted proportional sampling with α = 0 .3.
+
+Adopted configuration: α = 0 .30 , with proportional sampling. 
+
+D.1.4 Cross-PDE Comparison and Utility of Debiasing 
+
+Using the configurations selected above (SB+FR, α = 0 .30 ), we compare OGAS against baselines across all three 1D PDEs. We also evaluate the impact of density-ratio debiasing by comparing three OGAS variants: without debiasing, with random reference samples only, and with the full classifier-based ratio estimation. Table 6: Summary across PDEs and sampling strategies (reported as mean ± half-range). OGAS = main method with ratio debiasing, OGAS-NC = no ratio debiasing, OGAS-R = no ratio debiasing but trained only on uniformly sampled lambdas. Best (lowest) per PDE and metric is in bold .
+
+PDE Strategy Mean Max Std 
+
+KS Uniform 4.297e-05 ± 1.464e-05 1.784e-01 ± 5.716e-02 1.529e-03 ± 7.587e-04 KS Breed 2.365e-05 ± 1.004e-05 1.422e-01 ± 5.990e-02 1.129e-03 ± 6.433e-04 KS OGAS-NC 1.408e-05 ± 5.786e-06 9.650e-02 ± 3.730e-02 7.437e-04 ± 3.567e-04 KS OGAS-R 2.642e-05 ± 3.971e-06 1.360e-01 ± 3.209e-02 1.019e-03 ± 4.161e-04 KS OGAS 1.154e-05 ± 3.750e-06 8.082e-02 ± 2.172e-02 5.879e-04 ± 2.426e-04 
+
+KdV Uniform 2.423e-07 ± 1.152e-07 9.703e-05 ± 2.170e-04 1.503e-06 ± 3.182e-06 KdV Breed 2.091e-07 ± 6.997e-08 1.673e-06 ± 7.005e-07 1.343e-07 ± 3.474e-08 KdV OGAS-NC 2.419e-07 ± 1.627e-07 1.530e-06 ± 6.596e-07 1.379e-07 ± 5.827e-08 KdV OGAS-R 2.426e-07 ± 1.374e-07 1.622e-06 ± 7.050e-07 1.232e-07 ± 4.375e-08 
+
+KdV OGAS 2.367e-07 ± 1.155e-07 1.828e-06 ± 7.517e-07 1.447e-07 ± 4.021e-08 KS (cons.) Uniform 6.078e-06 ± 1.292e-06 5.020e-03 ± 1.045e-04 5.160e-05 ± 1.569e-06 KS (cons.) Breed 5.180e-06 ± 1.199e-06 4.186e-03 ± 1.325e-04 4.046e-05 ± 1.509e-06 KS (cons.) OGAS-NC 4.882e-06 ± 1.151e-06 2.965e-03 ± 8.037e-04 2.244e-05 ± 7.773e-06 KS (cons.) OGAS-R 5.893e-06 ± 1.420e-06 4.911e-03 ± 3.141e-04 4.876e-05 ± 4.682e-06 KS (cons.) OGAS 4.866e-06 ± 8.904e-07 2.108e-03 ± 1.441e-03 1.712e-05 ± 1.072e-05 
+
+OGAS with classifier-based density-ratio debiasing achieves 2–3 × lower dispersion than uniform sampling and outperforms Breed-style importance sampling by 40–50% across all PDEs. The improvement is consistent across equation types with varying dynamical regimes (chaotic, conser-vative, dispersive) and removing debiasing increases dispersion by 20% relative to the full method, confirming the importance of correcting for buffer-induced sampling bias. 
+
+D.2 Compute Overhead and GPU Allocation 
+
+OGAS introduces a lightweight generator and discriminator trained asynchronously alongside the surrogate. Standardizing computational costs is critical for fair comparison: • Surrogate training : The dominant cost, requiring backpropagation through the unrolled solver timesteps. • OGAS overhead : The generator is a fast MLP-based diffusion model. In our implementation, it trains on a separate GPU. This isolation allows the surrogate training loop on the main GPUs to proceed at full speed, resulting in negligible wall-time overhead ( < 1% ) compared to uniform sampling. • Deployment : If a dedicated GPU is unavailable, the lightweight generator enables time-sharing with minimal impact. However, for foundation-scale surrogates trained on multi-GPU nodes, attaching one small auxiliary device is more cost-effective than slowing down the entire high-performance cluster. 26 D.3 Cost/Overhead of pool-based baselines 
+
+Pool-based methods (SBAL, Top-K) introduce a substantial inference bottleneck that scales linearly with the pool size P . In our setting with P = 5 ,000 , selecting a batch requires rolling out the ensemble on all 5,000 candidates. 1. Inference cost : Each selection step requires P × M × Trollout forward passes. For P = 5 ,000 ,
+
+M = 2 , and Trollout = 15 , this totals 150 ,000 forward passes per batch selection. 2. Throughput impact : In our online experiment, this scoring step must block the simulation or training process until the next batch is selected. Even with parallelization, the new generation takes at least 3 minutes for each model under our configuration. This explains why we limit the resampling period to 1000 simulations (10 resamplings per experiment) in order to add approx. 17.6 min of delay, which still significantly increases the time overhead compared to OGAS. 
+
+D.4 Relative improvement across architectures 
+
+Table 7 reports the relative improvement (%) over Uniform, averaged across PDEs and seeds, stratified by architecture. The pattern supports our capacity-based interpretation of the 2D results. For lower-capacity surrogates (U-Net and, to a lesser extent, FNO), OGAS variants deliver large and consistent gains on robustness metrics (RMSE-p99 and RMSE-std), but can slightly degrade RMSE-mean on the most heterogeneous systems (notably 2D KS and β-Gray–Scott), where variations in the effective domain size change the dominant spatial scales at fixed grid resolution. In this regime, prioritizing high-signal trajectories acts as a harder curriculum: it reduces catastrophic failures (tail compression) even if the mean error does not yet improve under a tight training horizon. In contrast, the higher-capacity scOT model largely avoids this mean-error penalty while retaining substantial tail improvements. This suggests that the modest RMSE-mean degradation observed for U-Net/FNO is not intrinsic to signal-guided sampling, but rather reflects limited representational capacity (and limited optimization time) when training must simultaneously cover multiple dynamical regimes. In other words, OGAS primarily reallocates budget toward genuinely difficult regions of parameter space; whether this translates into improved mean performance within a fixed budget depends on the surrogate’s capacity. 
+
+D.5 Samples of Trajectories 
+
+We visualize example trajectories, comparing the predictions of surrogates trained with OGAS-L versus Uniform sampling against the ground truth. See Figure 10, Figure 11, and Figure 12. 
+
+D.6 Mixture Sampling Across Generations 
+
+Figures 13, 14, and 15 illustrate the evolution of the sampled parameter distributions across gener-ations for the Gray-Scott, Kuramoto-Sivashinsky, and Navier-Stokes equations, respectively. We visualize the joint distributions of physical coefficients (e.g., viscosity for Navier-Stokes) and key initial condition (IC) parameters, such as the mean position of Gaussian blobs or the spectral cutoff fre-quency. These plots demonstrate the distribution shift over generations, highlighting the convergence towards specific points or subspaces within the parameter domain. 
+
+D.7 Extended 2D Benchmark Results 
+
+We provide full tabular results for the 2D experiments across three PDEs and three architectures, complementing the summary plots in the main text. Metrics reported are Mean, Standard Deviation (Std), Maximum (Max), and tail percentiles (P99, P95, P75, P50) of the normalized one-step error on the validation set. Tables 9–11 provide complete tabular results for the 2D benchmark across PDEs and surrogate architectures. We summarize the qualitative trends below. 
+
+Navier–Stokes: OGAS improves robustness without sacrificing average accuracy. On 2D Navier–Stokes (Kolmogorov flow), OGAS consistently improves robustness indicators (tail per-centiles and worst-case errors) across architectures while maintaining essentially the same mean error 27 Table 7: Improvement ratio vs Uniform across Architectures. Values are Mean ± Std. 1 is no improvement, higher than 1 is improvement, lower than 1 is degradation 
+
+(a) UNet                                                                             
+
+> Strategy mean max p99 std
+> OGAS-L 0.94 ±0.10 1.80 ±0.53 1.45 ±0.21 1.72 ±0.27
+> OGAS-U 0.96 ±0.11 1.64 ±0.16 1.49 ±0.39 1.72 ±0.43
+> Breed 1.02 ±0.13 1.58 ±0.56 1.62 ±0.46 1.89 ±0.44
+> SBAL 0.97 ±0.08 0.98 ±0.08 0.93 ±0.21 0.92 ±0.18
+> Top-K 1.01 ±0.07 0.98 ±0.08 1.01 ±0.30 0.97 ±0.24
+> Sobol 0.95 ±0.05 0.93 ±0.12 0.91 ±0.10 0.89 ±0.11
+
+(b) FNO                                                                             
+
+> Strategy mean max p99 std
+> OGAS-L 0.93 ±0.06 1.54 ±0.23 1.50 ±0.33 1.80 ±0.40
+> OGAS-U 0.96 ±0.05 1.30 ±0.11 1.27 ±0.14 1.47 ±0.24
+> Breed 0.82 ±0.07 1.12 ±0.10 1.13 ±0.15 1.36 ±0.24
+> SBAL 0.97 ±0.06 1.29 ±0.38 1.20 ±0.28 1.10 ±0.15
+> Top-K 0.96 ±0.10 1.30 ±0.32 1.26 ±0.29 1.27 ±0.27
+> Sobol 0.98 ±0.05 1.02 ±0.10 0.99 ±0.03 0.99 ±0.03
+
+(c) scOT                                                                             
+
+> Strategy mean max p99 std
+> OGAS-L 1.04 ±0.11 1.59 ±0.25 1.32 ±0.09 1.47 ±0.12
+> OGAS-U 0.97 ±0.08 1.47 ±0.15 1.20 ±0.13 1.30 ±0.15
+> Breed 0.92 ±0.13 0.88 ±0.34 0.93 ±0.34 1.01 ±0.52
+> SBAL 1.01 ±0.09 0.99 ±0.18 0.97 ±0.14 0.98 ±0.19
+> Top-K 1.03 ±0.11 0.92 ±0.25 0.95 ±0.22 0.90 ±0.26
+> Sobol 1.05 ±0.08 1.02 ±0.12 1.01 ±0.10 0.99 ±0.11
+
+as the strongest baselines (Table 9). In other words, OGAS reduces the frequency and severity of hard trajectories without paying a noticeable average-error penalty. This behavior is aligned with the intended effect of signal-guided sampling: allocate more solver budget to regimes that currently produce large training signals, while the mixture policy rate preserves broad coverage of the parameter space so that mean performance does not collapse. 
+
+Kuramoto–Sivashinsky and Gray–Scott: mild mean shifts for small models, large tail gains. 
+
+On 2D KS and β-Gray–Scott (Table 10 and Table 11), OGAS exhibits a characteristic trade-off for lower-capacity surrogates (U-Net and, to a lesser extent, FNO): the mean error can be slightly worse than uniform/space-filling baselines, while tail and worst-case errors improve substantially. Qualitatively, OGAS reduces catastrophic failures and tightens the error distribution, even when average error changes only marginally or moves slightly in the opposite direction. Importantly, this effect is architecture-dependent: the higher-capacity scOT model shows little-to-no degradation in mean and often retains the robustness gains, suggesting that the mean penalty is not intrinsic to the sampling strategy but rather reflects limited model capacity under a constrained training horizon. 
+
+Interpretation: capacity-limited learning under heterogeneous dynamics. KS and Gray–Scott in our 2D setup include large variations in the effective domain size parameter L, which changes the characteristic spatial scales of the dynamics at fixed grid resolution. This induces a particularly heterogeneous training distribution: different parameter regimes correspond to dynamics with dif-ferent dominant wavelengths and temporal behaviors. For limited-capacity surrogates, fully fitting all regimes is difficult under a fixed simulation budget, and directing sampling toward high-signal regimes can emphasize harder cases that dominate tail metrics. In this regime, improved robustness can come before (or even temporarily trade against) improvements in average error. The fact that scOT largely avoids the mean degradation supports the interpretation that OGAS is primarily exposing 28 Table 8: Improvement ratio vs Uniform across PDEs. Values are Mean ± Std. 1 is no improvement, higher than 1 is improvement, lower than 1 is degradation 
+
+(a) Navier-Stokes                                                                             
+
+> Strategy mean max p99 std
+> OGAS-L 1.05 ±0.09 1.51 ±0.19 1.37 ±0.07 1.67 ±0.15
+> OGAS-U 1.03 ±0.02 1.55 ±0.16 1.34 ±0.10 1.64 ±0.20
+> Breed 0.93 ±0.10 1.07 ±0.19 1.06 ±0.21 1.20 ±0.31
+> SBAL 1.02 ±0.07 1.03 ±0.05 1.02 ±0.05 1.02 ±0.05
+> Top-K 1.06 ±0.06 1.07 ±0.12 1.09 ±0.09 1.13 ±0.15
+> Sobol 1.04 ±0.07 1.04 ±0.04 1.02 ±0.04 1.01 ±0.02
+
+(b) Kuramoto-Sivashinsky                                                                             
+
+> Strategy mean max p99 std
+> OGAS-L 0.89 ±0.08 1.74 ±0.21 1.66 ±0.26 1.92 ±0.37
+> OGAS-U 0.92 ±0.08 1.44 ±0.21 1.41 ±0.18 1.57 ±0.31
+> Breed 0.81 ±0.09 1.31 ±0.75 1.10 ±0.36 1.30 ±0.58
+> SBAL 0.93 ±0.06 1.19 ±0.46 1.09 ±0.38 1.00 ±0.29
+> Top-K 0.93 ±0.10 1.11 ±0.48 1.06 ±0.45 0.98 ±0.45
+> Sobol 1.00 ±0.07 0.91 ±0.11 0.96 ±0.08 0.93 ±0.10
+
+(c) Gray-Scott                                                                             
+
+> Strategy mean max p99 std
+> OGAS-L 0.96 ±0.06 1.68 ±0.57 1.25 ±0.09 1.40 ±0.08
+> OGAS-U 0.95 ±0.08 1.42 ±0.21 1.22 ±0.42 1.29 ±0.39
+> Breed 1.02 ±0.13 1.20 ±0.32 1.52 ±0.57 1.75 ±0.58
+> SBAL 0.99 ±0.08 1.03 ±0.15 0.99 ±0.19 0.98 ±0.15
+> Top-K 1.01 ±0.08 1.01 ±0.11 1.06 ±0.28 1.03 ±0.20
+> Sobol 0.96 ±0.06 1.02 ±0.15 0.94 ±0.12 0.93 ±0.12
+
+the training process to genuinely difficult regimes, and that sufficient model capacity is required to translate this harder curriculum into improved mean performance within the same budget. 
+
+Budget and training horizon effects relative to 1D. The 2D experiments are conducted under a comparatively tight training horizon: we run a fixed budget of 2D solver trajectories and, relative to the 1D suite, perform substantially fewer surrogate update steps (10k vs 30k simulations, 17k batches vs 60k batches). In the 1D long-horizon studies, improvements in tail metrics typically emerge early, whereas improvements in mean error continue to accrue later with additional updates once the model has absorbed the diversity of regimes emphasized by the sampling policy. This provides controlled evidence that the modest mean differences observed for U-Net/FNO on KS and Gray–Scott in 2D may partially reflect an early-to-mid training regime under limited budget, rather than a fundamental limitation of signal-guided sampling. We do not extrapolate beyond the reported 2D budgets; instead, we use 1D as a controlled setting to illustrate how the mean metric can continue improving with longer training under the same policy. 
+
+D.8 Mean-Error Gains Under Narrower Parameter Ranges 
+
+The 2D headline experiments use intentionally broad parameter ranges to span diverse physical regimes ( L ∈ [10 , 130] for KS; L ∈ [0 .5, 10] for GS), which produces highly heterogeneous dynamics relative to the surrogate’s capacity. To test whether the mild mean-error degradation observed for low-capacity surrogates (U-Net) on KS and GS is driven by this heterogeneity rather than by OGAS 
+
+itself, we re-run UNet/KS and UNet/GS with narrower parameter ranges that make the task easier: KS from L ∈ [10 , 130] to L ∈ [10 , 25] ; GS from L ∈ [0 .5, 10] to L ∈ [0 .5, 2.5] . All other settings are identical to the main 2D protocol (same architecture, optimizer, simulation budget N = 10 4, seeds, validation set construction). 29 (a) U-Net 
+
+> (b) FNO
+> (c) scOT
+
+Figure 10: Navier-Stokes Trajectory Samples. Comparison of rollout predictions on difficult trajectories. We compare the ground truth (GT) against surrogates trained with Uniform sampling and OGAS Table 12 reports the resulting comparison against uniform sampling. Under these narrower ranges, 
+
+OGAS-L improves both the mean RMSE and the tail/dispersion metrics on both PDEs, e.g., +4.4% mean and +14.1% p99 on GS; +4.3% mean and +7.9% p99 on KS. Combined with the per-architecture trends in Appendix D.4, this is consistent with the interpretation that mean-error degradations on the broad-range 2D headline experiments reflect a capacity-limited curriculum effect rather than a fundamental robustness–accuracy trade-off intrinsic to OGAS. We treat this as a sensitivity check, not a headline result: the broad-range setting in the main paper is the harder, more realistic benchmark. 30 (a) U-Net 
+
+> (b) FNO
+> (c) scOT
+
+Figure 11: Kuramoto-Sivashinsky Trajectory Samples. Comparison of rollout predictions on difficult trajectories. We compare the ground truth (GT) against surrogates trained with Uniform sampling and OGAS. 
+
+D.9 DDPM Training Dynamics 
+
+Figure 16 illustrates the evolution of the DDPM training loss during the optimization process for the OGAS-L strategy. We report the mean loss value averaged across 3 random seeds at each training step, with shaded regions representing one standard deviation. To improve readability, we apply moving-average smoothing with a window size of 50 steps. The results are presented for each PDE environment (Navier–Stokes, Kuramoto–Sivashinsky, and Gray–Scott) and compare the convergence profiles of the three neural backbones: U-Net, FNO, and scOT. We observe that for each case the DDPM loss converges quickly to low values during the first steps and then remains approximately 31 (a) U-Net 
+
+> (b) FNO
+> (c) scOT
+
+Figure 12: Gray-Scott Trajectory Samples. Comparison of rollout predictions on difficult trajec-tories. We compare the ground truth (GT) against surrogates trained with Uniform sampling and OGAS. stable over the remaining timesteps. After this initial transition, the loss plateaus within a relatively narrow range (with occasional fluctuations, especially on Kuramoto–Sivashinsky), which is consistent with stable optimization and suggests that the DDPM maintains an adequate fit to the evolving buffer posterior and surrogate signal distribution, supporting high-fidelity sampling. 
+
+D.10 Single model evaluation 
+
+Because we started to compute uncertainty as a metric of two models, we found fairer to train OGAS with an ensemble based loss (for its loss version) so as to provide a more comprehensive view of 32 (a) U-Net (Domain vs Amplitude) (b) FNO (Domain vs Amplitude) (c) ScOT (Domain vs Amplitude)   
+
+> (d) U-Net (Blob Centers) (e) FNO (Blob Centers) (f) ScOT (Blob Centers)
+
+Figure 13: Mixture sampling evolution for Gray-Scott.   
+
+> (a) U-Net (b) FNO (c) ScOT
+
+Figure 14: Mixture sampling evolution for Kuramoto-Sivashinsky. the method’s performance. However, this is not a requirement for the method to work. We report in Tables 13,14 and 15 the results of training OGAS with a single model (namely OGAS-L here) on each environment versus the others baselines including OGAS-L2 (with ensembling loss). In these tables we provide metrics for the first model of the ensemble when it is computed (for uncertainty based methods) or just the single model (for the other methods). 33 (a) U-Net (b) FNO (c) ScOT 
+
+Figure 15: Mixture sampling evolution for Navier-Stokes. Table 9: 2D Navier-Stokes Results. Active learning strategy comparison on Kolmogorov flow. Values show mean ± std across seeds. Best per architecture in bold .
+
+(a) UNet 
+
+Strategy Mean ( ×10 −3) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 8.93 ± 0.53 2.73 ± 0.07 4.16 ± 0.79 1.80 ± 0.06 1.44 ± 0.07 1.02 ± 0.06 8.22 ± 0.54 
+
+OGAS-U 8.91 ± 0.16 2.72 ± 0.10 3.72 ± 0.49 1.78 ± 0.05 1.42 ± 0.02 1.02 ± 0.01 8.26 ± 0.16 
+
+Breed 8.88 ± 0.36 3.24 ± 0.18 4.82 ± 0.10 1.99 ± 0.09 1.52 ± 0.08 1.03 ± 0.05 7.95 ± 0.28 
+
+Uniform 9.27 ± 0.20 4.88 ± 0.07 6.16 ± 0.10 2.56 ± 0.03 1.89 ± 0.03 1.14 ± 0.02 7.67 ± 0.22 
+
+SBAL 9.38 ± 0.39 5.01 ± 0.22 6.12 ± 0.37 2.60 ± 0.11 1.93 ± 0.08 1.17 ± 0.05 7.74 ± 0.34 
+
+Top-K 9.15 ± 0.02 4.85 ± 0.06 6.59 ± 0.07 2.52 ± 0.02 1.87 ± 0.02 1.13 ± 0.00 7.56 ± 0.04 
+
+Sobol 9.30 ± 0.06 4.90 ± 0.04 6.09 ± 0.24 2.56 ± 0.01 1.90 ± 0.00 1.15 ± 0.01 7.70 ± 0.06 
+
+(b) FNO 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 1.04 ± 0.01 3.42 ± 0.12 4.19 ± 0.14 2.22 ± 0.04 1.71 ± 0.03 1.19 ± 0.01 9.59 ± 0.17 
+
+OGAS-U 1.03 ± 0.02 3.44 ± 0.10 4.09 ± 0.18 2.22 ± 0.05 1.70 ± 0.04 1.17 ± 0.03 9.45 ± 0.22 
+
+Breed 1.23 ± 0.03 4.78 ± 0.24 5.60 ± 0.30 2.86 ± 0.11 2.17 ± 0.08 1.44 ± 0.05 11 .03 ± 0.28 
+
+Uniform 1.04 ± 0.02 5.99 ± 0.12 5.84 ± 0.11 3.02 ± 0.05 2.24 ± 0.05 1.32 ± 0.03 8.52 ± 0.20 
+
+SBAL 1.02 ± 0.01 5.74 ± 0.18 5.70 ± 0.13 2.93 ± 0.06 2.17 ± 0.05 1.28 ± 0.03 8.40 ± 0.10 
+
+Top-K 0.98 ± 0.02 4.58 ± 0.24 5.03 ± 0.12 2.55 ± 0.08 1.89 ± 0.06 1.17 ± 0.03 8.46 ± 0.19 
+
+Sobol 1.02 ± 0.02 5.88 ± 0.10 5.66 ± 0.10 2.98 ± 0.05 2.20 ± 0.03 1.29 ± 0.02 8.38 ± 0.15 
+
+(c) scOT 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.72 ± 0.19 4.42 ± 0.23 5.45 ± 0.34 3.08 ± 0.25 2.55 ± 0.24 1.96 ± 0.21 1.63 ± 0.19 
+
+OGAS-U 1.86 ± 0.04 4.75 ± 0.13 5.75 ± 0.14 3.31 ± 0.08 2.76 ± 0.06 2.11 ± 0.05 1.76 ± 0.04 
+
+Breed 2.15 ± 0.21 7.96 ± 1.07 10 .10 ± 1.44 4.87 ± 0.58 3.64 ± 0.40 2.49 ± 0.25 1.95 ± 0.19 
+
+Uniform 1.91 ± 0.22 6.54 ± 0.47 8.83 ± 0.99 4.03 ± 0.33 3.14 ± 0.29 2.23 ± 0.24 1.76 ± 0.21 
+
+SBAL 1.82 ± 0.18 6.30 ± 0.29 8.32 ± 0.34 3.86 ± 0.23 3.01 ± 0.22 2.12 ± 0.19 1.66 ± 0.17 
+
+Top-K 1.75 ± 0.16 6.19 ± 0.61 7.97 ± 0.76 3.75 ± 0.34 2.92 ± 0.27 2.06 ± 0.18 1.61 ± 0.14 
+
+Sobol 1.77 ± 0.18 6.35 ± 0.16 8.27 ± 0.26 3.85 ± 0.21 2.96 ± 0.21 2.07 ± 0.20 1.61 ± 0.19 
+
+34 Table 10: 2D Kuramoto-Sivashinsky Results. Active learning strategy comparison. Values show mean ± std across seeds. Best per architecture in bold .
+
+(a) UNet 
+
+Strategy Mean ( ×10 −3) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −3) P75 ( ×10 −3) P50 ( ×10 −3)OGAS-L 5.11 ± 0.41 1.32 ± 0.05 5.08 ± 0.41 0.87 ± 0.05 6.99 ± 0.42 5.64 ± 0.39 4.96 ± 0.40 
+
+OGAS-U 4.86 ± 0.46 1.37 ± 0.13 6.07 ± 0.81 0.94 ± 0.12 6.70 ± 0.59 5.21 ± 0.42 4.67 ± 0.39 
+
+Breed 4.91 ± 0.46 1.54 ± 0.21 4.50 ± 0.95 1.10 ± 0.16 7.07 ± 1.00 5.16 ± 0.50 4.59 ± 0.40 
+
+Uniform 4.28 ± 0.06 2.61 ± 0.14 9.53 ± 0.07 1.47 ± 0.06 7.51 ± 0.32 4.44 ± 0.07 3.66 ± 0.09 
+
+SBAL 4.44 ± 0.17 3.24 ± 0.34 10 .56 ± 0.15 1.83 ± 0.10 8.57 ± 0.60 4.51 ± 0.15 3.62 ± 0.13 
+
+Top-K 4.41 ± 0.06 3.37 ± 0.16 10 .15 ± 0.66 1.86 ± 0.12 8.87 ± 0.03 4.57 ± 0.15 3.51 ± 0.07 
+
+Sobol 4.43 ± 0.02 3.01 ± 0.18 11 .14 ± 1.68 1.59 ± 0.03 7.79 ± 0.24 4.55 ± 0.08 3.73 ± 0.03 
+
+(b) FNO 
+
+Strategy Mean ( ×10 −3) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 9.49 ± 0.28 1.76 ± 0.06 3.26 ± 0.18 1.45 ± 0.03 1.22 ± 0.04 1.02 ± 0.03 9.28 ± 0.29 
+
+OGAS-U 8.63 ± 0.02 2.73 ± 0.16 4.88 ± 0.28 2.04 ± 0.09 1.29 ± 0.04 0.93 ± 0.01 7.97 ± 0.10 
+
+Breed 11 .32 ± 0.35 2.53 ± 0.41 5.02 ± 0.58 2.18 ± 0.26 1.61 ± 0.07 1.17 ± 0.04 10 .65 ± 0.42 
+
+Uniform 8.30 ± 0.32 4.02 ± 0.16 5.95 ± 0.12 2.79 ± 0.07 1.53 ± 0.06 0.87 ± 0.04 6.93 ± 0.25 
+
+SBAL 9.26 ± 0.36 3.23 ± 0.42 3.34 ± 0.11 1.80 ± 0.12 1.57 ± 0.12 1.11 ± 0.08 8.18 ± 0.27 
+
+Top-K 9.84 ± 0.16 2.66 ± 0.36 3.49 ± 0.23 1.72 ± 0.05 1.50 ± 0.04 1.10 ± 0.08 9.41 ± 0.26 
+
+Sobol 8.56 ± 0.47 4.11 ± 0.12 6.46 ± 0.16 2.86 ± 0.12 1.56 ± 0.05 0.89 ± 0.05 7.20 ± 0.46 
+
+(c) scOT 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.22 ± 0.12 1.92 ± 0.25 3.20 ± 0.23 1.71 ± 0.15 1.51 ± 0.16 1.31 ± 0.14 1.21 ± 0.12 
+
+OGAS-U 1.30 ± 0.15 2.16 ± 0.35 3.19 ± 0.28 1.82 ± 0.23 1.63 ± 0.22 1.40 ± 0.17 1.28 ± 0.15 
+
+Breed 1.43 ± 0.15 5.09 ± 1.31 8.86 ± 1.20 3.55 ± 0.67 2.37 ± 0.53 1.48 ± 0.13 1.27 ± 0.09 
+
+Uniform 1.16 ± 0.11 2.82 ± 0.95 4.80 ± 0.39 2.32 ± 0.58 1.66 ± 0.35 1.23 ± 0.10 1.09 ± 0.07 
+
+SBAL 1.23 ± 0.11 3.46 ± 1.70 5.78 ± 1.98 2.72 ± 0.86 1.85 ± 0.46 1.30 ± 0.10 1.14 ± 0.04 
+
+Top-K 1.20 ± 0.17 5.02 ± 2.12 7.47 ± 2.19 3.30 ± 1.12 2.09 ± 0.61 1.33 ± 0.20 1.06 ± 0.07 
+
+Sobol 1.11 ± 0.11 3.05 ± 0.52 5.17 ± 0.82 2.42 ± 0.34 1.64 ± 0.24 1.18 ± 0.10 1.03 ± 0.09 
+
+(a) Navier-Stokes (b) Kuramoto-Sivashinsky (c) Gray-Scott 
+
+Figure 16: DDPM Training Loss Evolution (OGAS-L). The plots show the training loss (log scale) over optimization steps for the OGAS-L strategy, averaged over 3 seeds with standard deviation indicated by the shaded regions. Comparison is performed across three architectures: FNO, U-Net, and scOT. 35 Table 11: 2D Gray-Scott Results. Active learning strategy comparison. Values show mean ± std across seeds. Best per architecture in bold .
+
+(a) UNet 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −2) Max ( ×10 −1) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 1.37 ± 0.04 0.83 ± 0.07 1.00 ± 0.39 4.35 ± 0.50 3.16 ± 0.09 1.65 ± 0.10 10 .91 ± 0.55 
+
+OGAS-U 1.35 ± 0.23 1.02 ± 0.71 1.08 ± 0.06 4.89 ± 3.55 4.18 ± 2.98 1.48 ± 0.03 10 .16 ± 0.18 
+
+Breed 1.13 ± 0.08 0.47 ± 0.02 1.52 ± 0.51 2.42 ± 0.00 1.89 ± 0.12 1.34 ± 0.11 10 .05 ± 0.80 
+
+Uniform 1.27 ± 0.23 1.14 ± 0.41 1.78 ± 0.26 5.38 ± 2.17 4.05 ± 1.49 1.55 ± 0.29 8.41 ± 0.67 
+
+SBAL 1.36 ± 0.25 1.29 ± 0.49 1.77 ± 0.19 6.12 ± 2.81 4.50 ± 1.86 1.65 ± 0.13 8.61 ± 0.85 
+
+Top-K 1.22 ± 0.13 1.06 ± 0.28 1.67 ± 0.07 4.81 ± 1.56 3.81 ± 1.08 1.50 ± 0.19 7.94 ± 0.11 
+
+Sobol 1.42 ± 0.03 1.43 ± 0.22 2.02 ± 0.39 6.69 ± 1.15 5.21 ± 0.91 1.71 ± 0.14 8.49 ± 1.13 
+
+(b) FNO 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.41 ± 0.01 6.21 ± 0.17 7.36 ± 0.43 3.21 ± 0.03 2.71 ± 0.03 1.69 ± 0.01 1.25 ± 0.02 
+
+OGAS-U 1.42 ± 0.02 7.06 ± 0.35 8.11 ± 0.26 3.58 ± 0.14 2.99 ± 0.12 1.67 ± 0.02 1.23 ± 0.01 
+
+Breed 1.47 ± 0.06 7.01 ± 0.03 9.07 ± 0.24 3.71 ± 0.17 2.81 ± 0.05 1.82 ± 0.06 1.24 ± 0.05 
+
+Uniform 1.29 ± 0.03 8.49 ± 0.33 10 .22 ± 0.70 3.90 ± 0.13 3.23 ± 0.11 1.55 ± 0.03 1.00 ± 0.01 
+
+SBAL 1.31 ± 0.01 8.40 ± 0.02 9.74 ± 1.76 3.89 ± 0.01 3.21 ± 0.01 1.56 ± 0.02 1.01 ± 0.01 
+
+Top-K 1.35 ± 0.03 8.70 ± 0.15 10 .08 ± 0.75 4.01 ± 0.06 3.32 ± 0.05 1.61 ± 0.04 1.04 ± 0.05 
+
+Sobol 1.35 ± 0.08 8.63 ± 0.30 9.24 ± 0.82 3.99 ± 0.15 3.29 ± 0.13 1.63 ± 0.11 1.06 ± 0.08 
+
+(c) scOT 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.44 ± 0.07 6.13 ± 0.40 6.41 ± 1.57 3.25 ± 0.17 2.77 ± 0.13 1.66 ± 0.10 1.26 ± 0.06 
+
+OGAS-U 1.53 ± 0.05 7.32 ± 0.47 7.47 ± 1.04 3.80 ± 0.31 3.10 ± 0.10 1.80 ± 0.08 1.30 ± 0.03 
+
+Breed 1.44 ± 0.16 5.73 ± 1.71 8.84 ± 2.41 3.47 ± 1.13 2.54 ± 0.53 1.66 ± 0.16 1.26 ± 0.09 
+
+Uniform 1.48 ± 0.14 8.80 ± 0.66 9.98 ± 2.53 4.18 ± 0.54 3.28 ± 0.18 1.84 ± 0.14 1.16 ± 0.12 
+
+SBAL 1.46 ± 0.03 9.07 ± 0.05 10 .13 ± 1.59 4.29 ± 0.11 3.31 ± 0.03 1.82 ± 0.06 1.13 ± 0.03 
+
+Top-K 1.47 ± 0.09 9.02 ± 1.09 10 .71 ± 2.03 4.28 ± 0.69 3.30 ± 0.18 1.83 ± 0.12 1.15 ± 0.06 
+
+Sobol 1.46 ± 0.04 8.89 ± 0.78 9.63 ± 1.44 4.12 ± 0.41 3.29 ± 0.12 1.83 ± 0.08 1.14 ± 0.02 
+
+Table 12: Narrower-range sensitivity check (UNet, N = 10 4, 2D, 3 seeds). OGAS-L vs. Uniform on KS and GS with reduced domain-size ranges. Lower values are better; “Rel.” is the relative reduction of OGAS-L over Uniform. 
+
+PDE / Model Sampling RMSE-mean RMSE-std RMSE-p95 RMSE-p99 GS / UNet Uniform 2.80e −3±9.0e −5 1.19e −3±2.8e −5 4.48e −3±1.8e −4 6.33e −3±2.2e −4
+
+OGAS-L 2.68e −3±6.3e −5 9.88e −4±4.7e −5 4.20e −3±6.2e −5 5.44e −3±3.2e −5
+
+Rel. +4 .38% +17 .15% +6 .31% +14 .09% 
+
+KS / UNet Uniform 6.57e −4±2.4e −5 1.57e −4±1.3e −5 9.04e −4±3.8e −5 1.17e −3±5.2e −5
+
+OGAS-L 6.29e −4±4.1e −5 1.32e −4±2.4e −5 8.39e −4±6.9e −5 1.08e −3±1.3e −4
+
+Rel. +4 .28% +15 .76% +7 .27% +7 .93% 
+
+36 Table 13: Single-Model Navier-Stokes Results. Evaluation is performed one single model trained or on the first model of the ensemble when ensemble is required for uncertainty computation. Values show mean ± std across seeds. Best per architecture in bold .
+
+(a) UNet 
+
+Strategy Mean ( ×10 −3) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 11 .22 ± 0.64 3.09 ± 0.07 4.71 ± 0.36 2.13 ± 0.06 1.72 ± 0.06 1.27 ± 0.05 10 .51 ± 0.64 
+
+OGAS-L2 8.93 ± 0.53 2.73 ± 0.07 4.16 ± 0.79 1.80 ± 0.06 1.44 ± 0.07 1.02 ± 0.06 8.22 ± 0.54 
+
+OGAS-U 8.91 ± 0.16 2.72 ± 0.10 3.72 ± 0.49 1.78 ± 0.05 1.42 ± 0.02 1.02 ± 0.01 8.26 ± 0.16 
+
+SBAL 9.38 ± 0.39 5.01 ± 0.22 6.12 ± 0.37 2.60 ± 0.11 1.93 ± 0.08 1.17 ± 0.05 7.74 ± 0.34 
+
+Top-K 9.15 ± 0.02 4.85 ± 0.06 6.59 ± 0.07 2.52 ± 0.02 1.87 ± 0.02 1.13 ± 0.00 7.56 ± 0.04 
+
+Sobol 9.30 ± 0.06 4.90 ± 0.04 6.09 ± 0.24 2.56 ± 0.01 1.90 ± 0.00 1.15 ± 0.01 7.70 ± 0.06 
+
+Uniform 9.27 ± 0.20 4.88 ± 0.07 6.16 ± 0.10 2.56 ± 0.03 1.89 ± 0.03 1.14 ± 0.02 7.67 ± 0.22 
+
+(b) FNO 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 1.32 ± 0.04 3.81 ± 0.18 4.46 ± 0.11 2.60 ± 0.09 2.06 ± 0.08 1.50 ± 0.05 12 .39 ± 0.31 
+
+OGAS-L2 1.04 ± 0.01 3.42 ± 0.12 4.19 ± 0.14 2.22 ± 0.04 1.71 ± 0.03 1.19 ± 0.01 9.59 ± 0.17 
+
+OGAS-U 1.03 ± 0.02 3.44 ± 0.10 4.09 ± 0.18 2.22 ± 0.05 1.70 ± 0.04 1.17 ± 0.03 9.45 ± 0.22 
+
+SBAL 1.02 ± 0.01 5.74 ± 0.18 5.70 ± 0.13 2.93 ± 0.06 2.17 ± 0.05 1.28 ± 0.03 8.40 ± 0.10 
+
+Top-K 0.98 ± 0.02 4.58 ± 0.24 5.03 ± 0.12 2.55 ± 0.08 1.89 ± 0.06 1.17 ± 0.03 8.46 ± 0.19 
+
+Sobol 1.02 ± 0.02 5.88 ± 0.10 5.66 ± 0.10 2.98 ± 0.05 2.20 ± 0.03 1.29 ± 0.02 8.38 ± 0.15 
+
+Uniform 1.04 ± 0.02 5.99 ± 0.12 5.84 ± 0.11 3.02 ± 0.05 2.24 ± 0.05 1.32 ± 0.03 8.52 ± 0.20 
+
+(c) scOT 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 2.34 ± 0.22 5.37 ± 0.19 6.33 ± 0.18 3.96 ± 0.23 3.35 ± 0.25 2.63 ± 0.23 2.23 ± 0.22 
+
+OGAS-L2 1.72 ± 0.19 4.42 ± 0.23 5.45 ± 0.34 3.08 ± 0.25 2.55 ± 0.24 1.96 ± 0.21 1.63 ± 0.19 
+
+OGAS-U 1.86 ± 0.04 4.75 ± 0.13 5.75 ± 0.14 3.31 ± 0.08 2.76 ± 0.06 2.11 ± 0.05 1.76 ± 0.04 
+
+SBAL 1.82 ± 0.18 6.30 ± 0.29 8.32 ± 0.34 3.86 ± 0.23 3.01 ± 0.22 2.12 ± 0.19 1.66 ± 0.17 
+
+Top-K 1.75 ± 0.16 6.19 ± 0.61 7.97 ± 0.76 3.75 ± 0.34 2.92 ± 0.27 2.06 ± 0.18 1.61 ± 0.14 
+
+Sobol 1.77 ± 0.18 6.35 ± 0.16 8.27 ± 0.26 3.85 ± 0.21 2.96 ± 0.21 2.07 ± 0.20 1.61 ± 0.19 
+
+Uniform 1.91 ± 0.22 6.54 ± 0.47 8.83 ± 0.99 4.03 ± 0.33 3.14 ± 0.29 2.23 ± 0.24 1.76 ± 0.21 
+
+37 Table 14: Single-Model Kuramoto-Sivashinsky Results. Evaluation is performed one single model trained or on the first model of the ensemble when ensemble is required for uncertainty computation. Values show mean ± std across seeds. Best per architecture in bold .
+
+(a) UNet 
+
+Strategy Mean ( ×10 −3) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −3) P75 ( ×10 −3) P50 ( ×10 −3)OGAS-L 6.98 ± 0.63 1.79 ± 0.20 6.43 ± 1.06 1.20 ± 0.08 9.42 ± 0.94 7.63 ± 0.62 6.77 ± 0.53 
+
+OGAS-L2 5.11 ± 0.41 1.32 ± 0.05 5.08 ± 0.41 0.87 ± 0.05 6.99 ± 0.42 5.64 ± 0.39 4.96 ± 0.40 
+
+OGAS-U 4.86 ± 0.46 1.37 ± 0.13 6.07 ± 0.81 0.94 ± 0.12 6.70 ± 0.59 5.21 ± 0.42 4.67 ± 0.39 
+
+SBAL 4.44 ± 0.17 3.24 ± 0.34 10 .56 ± 0.15 1.83 ± 0.10 8.57 ± 0.60 4.51 ± 0.15 3.62 ± 0.13 
+
+Top-K 4.41 ± 0.06 3.37 ± 0.16 10 .15 ± 0.66 1.86 ± 0.12 8.87 ± 0.03 4.57 ± 0.15 3.51 ± 0.07 
+
+Sobol 4.43 ± 0.02 3.01 ± 0.18 11 .14 ± 1.68 1.59 ± 0.03 7.79 ± 0.24 4.55 ± 0.08 3.73 ± 0.03 
+
+Uniform 4.28 ± 0.06 2.61 ± 0.14 9.53 ± 0.07 1.47 ± 0.06 7.51 ± 0.32 4.44 ± 0.07 3.66 ± 0.09 
+
+(b) FNO 
+
+Strategy Mean ( ×10 −3) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 11 .00 ± 0.58 1.75 ± 0.11 3.42 ± 0.19 1.57 ± 0.11 1.33 ± 0.06 1.17 ± 0.06 10 .92 ± 0.59 
+
+OGAS-L2 9.49 ± 0.28 1.76 ± 0.06 3.26 ± 0.18 1.45 ± 0.03 1.22 ± 0.04 1.02 ± 0.03 9.28 ± 0.29 
+
+OGAS-U 8.63 ± 0.02 2.73 ± 0.16 4.88 ± 0.28 2.04 ± 0.09 1.29 ± 0.04 0.93 ± 0.01 7.97 ± 0.10 
+
+SBAL 9.26 ± 0.36 3.23 ± 0.42 3.34 ± 0.11 1.80 ± 0.12 1.57 ± 0.12 1.11 ± 0.08 8.18 ± 0.27 
+
+Top-K 9.84 ± 0.16 2.66 ± 0.36 3.49 ± 0.23 1.72 ± 0.05 1.50 ± 0.04 1.10 ± 0.08 9.41 ± 0.26 
+
+Sobol 8.56 ± 0.47 4.11 ± 0.12 6.46 ± 0.16 2.86 ± 0.12 1.56 ± 0.05 0.89 ± 0.05 7.20 ± 0.46 
+
+Uniform 8.30 ± 0.32 4.02 ± 0.16 5.95 ± 0.12 2.79 ± 0.07 1.53 ± 0.06 0.87 ± 0.04 6.93 ± 0.25 
+
+(c) scOT 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.55 ± 0.38 2.45 ± 0.71 4.26 ± 1.85 2.15 ± 0.56 1.93 ± 0.51 1.67 ± 0.42 1.54 ± 0.37 
+
+OGAS-L2 1.22 ± 0.12 1.92 ± 0.25 3.20 ± 0.23 1.71 ± 0.15 1.51 ± 0.16 1.31 ± 0.14 1.21 ± 0.12 
+
+OGAS-U 1.30 ± 0.15 2.16 ± 0.35 3.19 ± 0.28 1.82 ± 0.23 1.63 ± 0.22 1.40 ± 0.17 1.28 ± 0.15 
+
+SBAL 1.23 ± 0.11 3.46 ± 1.70 5.78 ± 1.98 2.72 ± 0.86 1.85 ± 0.46 1.30 ± 0.10 1.14 ± 0.04 
+
+Top-K 1.20 ± 0.17 5.02 ± 2.12 7.47 ± 2.19 3.30 ± 1.12 2.09 ± 0.61 1.33 ± 0.20 1.06 ± 0.07 
+
+Sobol 1.11 ± 0.11 3.05 ± 0.52 5.17 ± 0.82 2.42 ± 0.34 1.64 ± 0.24 1.18 ± 0.10 1.03 ± 0.09 
+
+Uniform 1.16 ± 0.11 2.82 ± 0.95 4.80 ± 0.39 2.32 ± 0.58 1.66 ± 0.35 1.23 ± 0.10 1.09 ± 0.07 
+
+38 Table 15: Single-Model Gray-Scott Results. Evaluation is performed one single model trained or on the first model of the ensemble when ensemble is required for uncertainty computation. Values show mean ± std across seeds. Best per architecture in bold .
+
+(a) UNet 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −2) Max ( ×10 −1) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −3)OGAS-L 1.41 ± 0.11 0.50 ± 0.04 0.73 ± 0.16 2.78 ± 0.23 2.38 ± 0.20 1.64 ± 0.13 12 .60 ± 0.92 
+
+OGAS-L2 1.37 ± 0.04 0.83 ± 0.07 1.00 ± 0.39 4.35 ± 0.50 3.16 ± 0.09 1.65 ± 0.10 10 .91 ± 0.55 
+
+OGAS-U 1.35 ± 0.23 1.02 ± 0.71 1.08 ± 0.06 4.89 ± 3.55 4.18 ± 2.98 1.48 ± 0.03 10 .16 ± 0.18 
+
+SBAL 1.36 ± 0.25 1.29 ± 0.49 1.77 ± 0.19 6.12 ± 2.81 4.50 ± 1.86 1.65 ± 0.13 8.61 ± 0.85 
+
+Top-K 1.22 ± 0.13 1.06 ± 0.28 1.67 ± 0.07 4.81 ± 1.56 3.81 ± 1.08 1.50 ± 0.19 7.94 ± 0.11 
+
+Sobol 1.42 ± 0.03 1.43 ± 0.22 2.02 ± 0.39 6.69 ± 1.15 5.21 ± 0.91 1.71 ± 0.14 8.49 ± 1.13 
+
+Uniform 1.27 ± 0.23 1.14 ± 0.41 1.78 ± 0.26 5.38 ± 2.17 4.05 ± 1.49 1.55 ± 0.29 8.41 ± 0.67 
+
+(b) FNO 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.62 ± 0.22 6.94 ± 0.84 8.83 ± 0.56 3.61 ± 0.51 3.03 ± 0.35 1.98 ± 0.27 1.42 ± 0.18 
+
+OGAS-L2 1.41 ± 0.01 6.21 ± 0.17 7.36 ± 0.43 3.21 ± 0.03 2.71 ± 0.03 1.69 ± 0.01 1.25 ± 0.02 
+
+OGAS-U 1.42 ± 0.02 7.06 ± 0.35 8.11 ± 0.26 3.58 ± 0.14 2.99 ± 0.12 1.67 ± 0.02 1.23 ± 0.01 
+
+SBAL 1.31 ± 0.01 8.40 ± 0.02 9.74 ± 1.76 3.89 ± 0.01 3.21 ± 0.01 1.56 ± 0.02 1.01 ± 0.01 
+
+Top-K 1.35 ± 0.03 8.70 ± 0.15 10 .08 ± 0.75 4.01 ± 0.06 3.32 ± 0.05 1.61 ± 0.04 1.04 ± 0.05 
+
+Sobol 1.35 ± 0.08 8.63 ± 0.30 9.24 ± 0.82 3.99 ± 0.15 3.29 ± 0.13 1.63 ± 0.11 1.06 ± 0.08 
+
+Uniform 1.29 ± 0.03 8.49 ± 0.33 10 .22 ± 0.70 3.90 ± 0.13 3.23 ± 0.11 1.55 ± 0.03 1.00 ± 0.01 
+
+(c) scOT 
+
+Strategy Mean ( ×10 −2) Std ( ×10 −3) Max ( ×10 −2) P99 ( ×10 −2) P95 ( ×10 −2) P75 ( ×10 −2) P50 ( ×10 −2)OGAS-L 1.95 ± 0.14 7.80 ± 0.10 9.30 ± 1.18 4.40 ± 0.08 3.47 ± 0.14 2.34 ± 0.14 1.69 ± 0.16 
+
+OGAS-L2 1.44 ± 0.07 6.13 ± 0.40 6.41 ± 1.57 3.25 ± 0.17 2.77 ± 0.13 1.66 ± 0.10 1.26 ± 0.06 
+
+OGAS-U 1.53 ± 0.05 7.32 ± 0.47 7.47 ± 1.04 3.80 ± 0.31 3.10 ± 0.10 1.80 ± 0.08 1.30 ± 0.03 
+
+SBAL 1.46 ± 0.03 9.07 ± 0.05 10 .13 ± 1.59 4.29 ± 0.11 3.31 ± 0.03 1.82 ± 0.06 1.13 ± 0.03 
+
+Top-K 1.47 ± 0.09 9.02 ± 1.09 10 .71 ± 2.03 4.28 ± 0.69 3.30 ± 0.18 1.83 ± 0.12 1.15 ± 0.06 
+
+Sobol 1.46 ± 0.04 8.89 ± 0.78 9.63 ± 1.44 4.12 ± 0.41 3.29 ± 0.12 1.83 ± 0.08 1.14 ± 0.02 
+
+Uniform 1.48 ± 0.14 8.80 ± 0.66 9.98 ± 2.53 4.18 ± 0.54 3.28 ± 0.18 1.84 ± 0.14 1.16 ± 0.12 
+
+39

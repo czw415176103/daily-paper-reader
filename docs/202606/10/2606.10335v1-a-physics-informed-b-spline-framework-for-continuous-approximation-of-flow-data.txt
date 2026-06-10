@@ -1,0 +1,3198 @@
+Title: A Physics-Informed B-Spline Framework for Continuous Approximation of Flow Data
+
+URL Source: https://arxiv.org/pdf/2606.10335v1
+
+Published Time: Wed, 10 Jun 2026 00:32:39 GMT
+
+Number of Pages: 59
+
+Markdown Content:
+# A Physics-Informed B-Spline Framework for Continuous Approximation of Flow Data 
+
+Junoh Jung ∗1, David Lenz 1, Emil Constantinescu 1, Tom Peterka 11Mathematics and Computer Science Division, Argonne National Laboratory, Lemont, IL 60439, USA 
+
+Abstract. Continuous approximations of flow data are useful for downstream analysis, differ-entiation, and visualization, but purely data-driven reconstructions do not, in general, preserve the governing physics. This limitation becomes particularly important when the input data are physically inconsistent, whether due to low-fidelity discretizations or unmodeled discrep-ancies. In such cases, the reconstructed fields may exhibit inaccurate PDE residuals, vio-lated balance laws, or unreliable derived quantities. To address this limitation, we propose a physics-informed B-spline framework for the continuous approximation of flow data that embeds physical constraints directly into the reconstruction process. The method constructs compact, continuously differentiable representations of discrete fields using tensor-product B-splines and determines the spline control points by solving an optimization problem that balances data fidelity with residuals of the governing partial differential equations (PDEs), together with ini-tial and boundary conditions. By leveraging exact analytical derivatives of the B-spline basis, the framework enables efficient and accurate evaluation of physical residuals without storing full-resolution fields. We refer to this approach as physics-informed multivariate functional approximation (PI-MFA), where multivariate functional approximation (MFA) is our spline-based framework for continuous representation and visualization. Numerical studies on the one-dimensional convection-diffusion equation, two-dimensional coupled Burgers equations, and two-dimensional incompressible Navier–Stokes equations show that PI-MFA reduces PDE residuals and improves global balance-law consistency. Compared with standard and regular-ized MFA, the proposed method produces more physically faithful reconstructions and, in cases involving physically inconsistent data, lower approximation errors, while also offering com-putational advantages over the tested physics-informed neural network architectures. Overall, PI-MFA preserves the compactness, local support, and exact differentiability of classical spline spaces while producing reliable continuous flow fields for scientific analysis and visualization. 
+
+# 1 Introduction 
+
+B-splines and non-uniform rational B-splines (NURBS) provide a classical framework for smooth approx-imation and geometric modeling because they combine local support, partition of unity, and controllable continuity within a piecewise-polynomial basis [1, 2, 3]. Through tensor product construction, these prop-erties extend naturally to multivariate curves, surfaces, and volumes, making spline spaces attractive for representing spatiotemporal scientific fields. Beyond computer-aided design (CAD), spline bases have long 
+
+> ∗Email address for correspondence: jjung@anl.gov
+
+1
+
+> arXiv:2606.10335v1 [physics.comp-ph] 9 Jun 2026
+
+been used for interpolation, least-squares fitting, smoothing, scattered-data reconstruction, where analytic derivatives and sparse structured operators are especially valuable [4, 5, 6]. In computational mechanics, these same advantages motivated the development of isogeometric analysis (IGA), in which spline or NURBS spaces are used to represent both geometry and solution fields [7, 8, 9]. Their higher inter-element continuity, exact CAD geometry, and flexible refinement have made spline spaces a major framework for partial differential equation (PDE) discretization, while isogeometric collocation has further shown that spline smoothness can be exploited efficiently in strong-form formulations [10, 11, 12, 13]. The present work has a different objective. Rather than computing a PDE solution directly, as in IGA, we seek a post hoc continuous reconstruction of already-generated discrete data that remains compact and differentiable for downstream analysis. This objective is increasingly important because large-scale simulations enabled by modern high-performance computing now routinely generate spatiotemporal fields with billions of degrees of freedom. Although fine-resolution finite element, finite volume, and finite difference discretizations improve predictive capability, they also produce massive snapshot data that are expensive to store, transfer, and interrogate in postprocessing. This data bottleneck is particularly severe in large-scale transient simulations, for example, in computational fluid dynamics or fluid–structure interaction problems, where reliable analysis often re-quires dense temporal sampling and repeated evaluation of derived quantities such as gradients, fluxes, and residual-based indicators. Continuous data reconstruction addresses this challenge by replacing discrete simulation outputs with a compact functional representation. One such framework based on B-splines, multivariate functional approximation (MFA) [14], enables evaluation at arbitrary resolution, analytic differentiation, and down-stream analysis directly on the reconstructed model without accessing the raw simulation data. Recent work has significantly expanded the MFA framework. These advances include adaptive regularization to suppress spurious oscillations [15], scalable rendering pipelines for large B-spline models [16, 17], adaptive refinement on varying-resolution tensor-product meshes [18], continuity recovery across parallel block inter-faces [19], domain-decomposition-based solvers [20], and topological feature extraction on the continuous representation [21, 22]. However, existing MFA models are not required to satisfy the governing physics that generated the data. From the perspective of computational mechanics, this limitation is important because visually plausible reconstructions can still be physically inadmissible. In fluid problems, for example, violations of conservation laws, boundary conditions, or initial conditions can lead to misleading gradients, incorrect fluxes, or spurious structures when users interrogate high-order derivatives or integrate quantities over space-time. Moreover, physically meaningful diagnostics such as mass balance, residual norms, and constraint satisfaction are often not explicitly stored in the raw output and therefore cannot be recovered reliably from a purely data-driven MFA. This issue is further amplified in emerging AI/ML-coupled simulation and surrogate modeling work-flows. In such settings, inexpensive low-fidelity models, such as coarse-grid simulations, reduced-order approximations, or cheaper numerical schemes, are often used to accelerate simulation speed, while data-driven models are trained to correct their discrepancy relative to high-fidelity data [23, 24, 25, 26, 27, 28, 29]. However, the approximated solution from low-fidelity simulation frequently remains the field that must be stored, transferred, reconstructed, and visualized during training, deployment, and downstream analysis. Consequently, under-resolution, discretization-induced imbalance, and numerical non-conservation present in the low-cost simulation can persist in the represented field. A related challenge arises when the available data is produced by approximating governing equations with missing or inaccurate source terms, closure relations, or other model-form deficiencies, so that the sampled field is not fully consistent with the target PDE [30]. Such cases further motivate the need for a physics-informed reconstruction framework that does more than just fit models to pointwise values. Physics-informed modeling offers a natural way to address this limitation by embedding governing 2MFA (Standard method) PI-MFA (Present work)                 
+
+> t
+> Physically inconsistent spatiotemporal discrete data
+> (e.g., coarse-grid, low-��delity, or
+> missing physics) Read data B-spline
+> ��tting Decode MFA model
+> Read data PI-MFA Model Decode Continuous approximation from data only (physically inconsistent reconstruction) Continuous approximation (physically consistent reconstruction)
+> L-BFGS optimization
+> Global ��ux analysis
+> Prescribed PDEs IC and BCs
+> Physics error analysis (2)(3)(1)
+> Output
+> PI-MFA functions MFA function
+> Weights selections Output
+> II. Data modeling III. Data analysis I. Simulation
+> uvpuvpuvpB-spline
+> ��tting
+> Compute B-spline based PDE, IC, and BC errors
+> x-momentum error y-momentum error divergence error
+> xytxytxyt
+> 1.5 1.0 0.5 0.0 -0.5 -1.0
+> Mass balance residual
+> 2.00 0.50 0.25 0
+> t
+> 0.75 1.00 1.25 1.50 1.75
+> u
+> -1.5
+> MFA PI-MFA (case 1) PI-MFA (case 3) PI-MFA (case 2) PI-MFA (case 4) Numerical data (FDM) Reg-MFA PINN
+
+Figure 1: Schematic of the proposed PI-MFA. Boxes and components shown in the gray-shaded background represent existing work, whereas those in the white background highlight the new contributions of this study. PDEs, boundary conditions (BCs), and initial conditions (ICs) directly into the approximation. Physics-informed neural and operator-learning methods have shown that enforcing governing laws can improve robustness and reconstruction fidelity, especially under sparse or noisy data [31, 32, 33]. Related efforts in scientific visualization have likewise demonstrated the value of physics-aware reconstruction for producing more interpretable fields [34, 35, 36, 37]. However, these previous approaches have not been designed as a compact spline-based functional representation for large scientific datasets, so a gap remains between data-driven MFA and physics-constrained reconstruction. To fill this gap, we propose PI-MFA, a physics-informed continuous reconstruction framework built upon the MFA architecture for the post hoc reconstruction of already-generated simulation data. As illustrated schematically in Fig. 1, PI-MFA is used to construct a compact tensor product B-spline representation by solving a weighted optimization problem that explicitly couples data fidelity with strong-form PDE, IC, and BC residuals. By leveraging analytic B-spline derivatives, these governing equations and constraints are evaluated and assembled directly in coefficient space to optimize the B-spline control points. Importantly, PI-MFA is not another direct spline-based PDE solver. Whereas isogeometric analysis, isogeometric collocation, and related spline-based discretizations [7, 10, 12, 13] use spline or NURBS spaces to compute PDE solutions from the governing equations, PI-MFA addresses a post hoc reconstruction problem. Given already-generated spatiotemporal data, it constructs a compact, dataset-specific tensor-product B-spline representation. The novelty lies in jointly optimizing the B-spline control points against data fidelity and PDE, IC, and BC residuals, so that the resulting representation is steered toward improved physical consistency. This distinguishes PI-MFA from classical spline smoothing and regularized MFA, where derivative-based terms primarily serve as roughness penalties or stabilizers [4, 5, 15], and from physics-3Table 1: Comparison of PI-MFA with related spline-based PDE discretization, data-reconstruction, regu-larized reconstruction, and physics-informed neural-network approaches.                              
+
+> Method Primary goal Parametrization / DoFs Uses exist-ing data Forward PDE solver Physics term Local sup-port Gradient Output / storage
+> IGA Forward PDE discretization using CAD-compatible smooth bases B-spline/NURBS solution coefficients No Yes PDE discretization with boundary conditions Yes Analytic Numerical PDE solution in a spline/NURBS space. MFA Post hoc continuous reconstruction of sampled scientific data Tensor-product B-spline control points Yes No None Yes Analytic Compact local spline representation. Reg-MFA Smooth post hoc reconstruction of sampled scientific data Tensor-product B-spline control points Yes No Roughness penalty Yes Analytic Compact local spline representation. PINN Physics-informed solution, inverse problem, or reconstruction Neural-network weights Optional Optional PDE, IC, and BC residuals evaluated by automatic differentiation No AD Compact global neural parametrization.
+> PI-MFA Post hoc physics-aware reconstruction of already generated flow data Tensor-product B-spline control points Yes No Data misfit plus PDE, IC/BC, and auxiliary residual penalties Yes Analytic Compact local spline model with derivative, residual, and balance diagnostics.
+
+informed neural surrogates such as PINNs [31, 32], which use globally parameterized neural networks and are often designed to learn mappings or solutions through training. For a given dataset, PI-MFA instead yields a compact, locally supported, continuously differentiable spline model that supports storage reduction, efficient derivative and residual evaluation, balance diagnostics, and downstream analysis of multifield space-time data. Table 1 compares PI-MFA with representative spline-based PDE discretization (IGA), MFA, regularized MFA, and physics-informed neural-network methodologies, and highlights the distinction between PI-MFA and the reconstruction baselines used in this work. We demonstrate the framework on the one-dimensional convection-diffusion equation, the two-dimensional Burgers equations, and the two-dimensional incompressible Navier-Stokes equations. Using data from low-fidelity simulations and models with intentional model-form discrepancies, we demonstrate that PI-MFA substantially reduces strong-form residuals and improves global balance consistency. Furthermore, de-pending on the source of the inconsistency, the method can enhance overall reconstruction accuracy and successfully recover unobserved variables, such as pressure, from velocity data alone. The main contributions of this paper are as follows. 
+
+• We present a physics-informed extension of MFA that incorporates PDE, BC, and IC information into spline-based functional approximation, producing physically consistent continuous reconstructions while preserving the compactness and differentiability of standard MFA [14]. 
+
+• We formulate a unified objective that couples data fidelity and physical constraints. Analytic derivatives of the B-spline basis enable efficient assembly of the exact PDE residuals, block Jacobians, and 4objective gradients with respect to the control points, thereby supporting robust L-BFGS minimization. 
+
+• Through canonical fluid benchmarks (1D convection-diffusion, 2D Burgers, and 2D Navier-Stokes), we demonstrate that PI-MFA systematically reduces strong-form residuals compared with data-only MFA, regularized MFA, and standard PINN. Furthermore, it restores global balance laws under model-form discrepancies, filters numerical noise from low-fidelity data, and demonstrates pressure inference in the cavity example from velocity-constrained momentum relations, up to a pressure reference condition. The remainder of the paper is organized as follows. Section 2 reviews B-splines and the standard MFA formulation. Section 3 presents the PI-MFA formulation, including the residual, Jacobian, and gradient constructions together with the L-BFGS solution strategy. Section 4 reports numerical results for the convection-diffusion, Burgers, and Navier-Stokes test problems. Section 5 summarizes the paper and discusses directions for future work. 
+
+# 2 B-splines and MFA 
+
+In this section we review B-splines and the standard MFA formulation [14] that forms the basis of our physics-informed extension. We also briefly describe regularized MFA [15], which will serve as a comparative baseline in our numerical studies. 
+
+2.1 B-splines and spline curves 
+
+B-splines are highly-differentiable functions with a compact and locally supported basis, and closed-form derivatives that support derivative-based diagnostics and PDE residual evaluation. Let {( 𝑣 𝑗 , 𝑄 𝑗 )} 𝑀 −1 
+
+> 𝑗 =0
+
+denote samples of a 𝐷 -component quantity 𝑄 𝑗 ∈ R𝐷 at parameter values 𝑣 𝑗 (e.g., time, arc length, or a mapped spatial coordinate). A degree-𝑝 B-spline representation of the underlying curve/field is 
+
+𝐶 (𝑢 ) =
+
+> 𝑛 −1
+
+∑︁ 
+
+> 𝑖 =0
+
+𝑁 𝑖, 𝑝 (𝑢 ) 𝑃 𝑖 , 𝑃 𝑖 ∈ R𝐷 , 𝑢 ∈ [ 𝑢 0, 𝑢 𝑛 + 𝑝 ], (2.1) where {𝑃 𝑖 }𝑛 −1 
+
+> 𝑖 =0
+
+are the (unknown) control points and {𝑁 𝑖, 𝑝 }𝑛 −1 
+
+> 𝑖 =0
+
+are B-spline basis functions defined over a non-decreasing knot vector U = (𝑢 0, 𝑢 1, . . . , 𝑢 𝑛 + 𝑝 ). The basis functions are piecewise polynomials. Each 
+
+𝑁 𝑖, 𝑝 is a polynomial of degree 𝑝 on each knot span [𝑢 𝑘 , 𝑢 𝑘 +1), has compact support on [𝑢 𝑖 , 𝑢 𝑖 + 𝑝 +1), and is nonnegative; and the basis functions form a partition of unity. Knot multiplicity controls smoothness: if a knot has multiplicity 𝑟 , the basis continuity across that knot is 𝐶 𝑝 −𝑟 . The basis function 𝑁 𝑖, 𝑝 is defined via the standard Cox-de Boor recursion [38, 39]. For 𝑝 = 0, 
+
+𝑁 𝑖, 0 (𝑢 ) =
+
+(
+
+1, 𝑢 𝑖 ≤ 𝑢 < 𝑢 𝑖 +1,
+
+0, otherwise , (2.2) and for 𝑝 ≥ 1, 
+
+𝑁 𝑖, 𝑝 (𝑢 ) = 𝑢 − 𝑢 𝑖 
+
+𝑢 𝑖 + 𝑝 − 𝑢 𝑖 
+
+𝑁 𝑖, 𝑝 −1 (𝑢 ) + 𝑢 𝑖 + 𝑝 +1 − 𝑢 𝑢 𝑖 + 𝑝 +1 − 𝑢 𝑖 +1
+
+𝑁 𝑖 +1, 𝑝 −1 (𝑢 ), (2.3) with the convention that terms with zero denominators are set to zero. A key advantage for mechanics applications is that exact derivatives are easily computable. For 𝑝 ≥ 1, 
+
+𝑑 𝑑𝑢 𝑁 𝑖, 𝑝 (𝑢 ) = 𝑝 𝑢 𝑖 + 𝑝 − 𝑢 𝑖 
+
+𝑁 𝑖, 𝑝 −1 (𝑢 ) − 𝑝 𝑢 𝑖 + 𝑝 +1 − 𝑢 𝑖 +1
+
+𝑁 𝑖 +1, 𝑝 −1 (𝑢 ), (2.4) 5and therefore 
+
+𝐶 ′ (𝑢 ) =
+
+> 𝑛 −1
+
+∑︁ 
+
+> 𝑖 =0
+
+𝑁 ′ 
+
+> 𝑖, 𝑝
+
+(𝑢 ) 𝑃 𝑖 . (2.5) Higher-order derivatives follow similarly and are computed stably via recursion, allowing direct evaluation of spatial/temporal derivatives required by PDE operators. 
+
+2.2 Tensor product B-splines 
+
+MFA [14] represents multidimensional, multivariate fields (e.g., space–time solution snapshots) using tensor-product B-splines. Here, we have 𝑑 ≥ 2 that denotes the number of parametric coordinates (e.g., 𝑑 =
+
+2 for (𝑥, 𝑡 ), 𝑑 = 3 for (𝑥, 𝑦, 𝑡 )). For each coordinate ℓ = 1, . . . , 𝑑 , we define a knot vector U (ℓ ) =
+
+(𝑢 (ℓ ) 
+
+> 0
+
+, . . . , 𝑢 (ℓ )   
+
+> 𝑛 ℓ+𝑝 ℓ
+
+), with degree 𝑝 ℓ and 𝑛 ℓ basis functions, and 𝑁 (ℓ )  
+
+> 𝑖 ℓ, 𝑝 ℓ
+
+(𝑢 ℓ ) is the corresponding univariate basis. With u = (𝑢 1, . . . , 𝑢 𝑑 ) and a multi-index i = (𝑖 1, . . . , 𝑖 𝑑 ), the tensor-product spline is 
+
+𝐶 (u) = 
+
+> 𝑛 1−1
+
+∑︁ 
+
+> 𝑖 1=0
+
+· · ·  
+
+> 𝑛 𝑑 −1
+
+∑︁  
+
+> 𝑖 𝑑 =0
+> 𝑑
+
+Ö
+
+> ℓ=1
+
+𝑁 (ℓ )  
+
+> 𝑖 ℓ, 𝑝 ℓ
+
+(𝑢 ℓ )
+
+!
+
+𝑃 i, 𝑃 i ∈ R𝐷 . (2.6) This separable construction yields surfaces ( 𝑑 = 2), volumes ( 𝑑 = 3), and higher-dimensional space-time representations. Importantly, partial derivatives are again analytic and inherit tensor separability. Differentiating with respect to coordinate 𝑢 ℓ yields 
+
+𝜕𝐶 𝜕𝑢 ℓ
+
+(u) =∑︁ 
+
+> i
+
+𝑑 𝑑𝑢 ℓ
+
+𝑁 (ℓ )  
+
+> 𝑖 ℓ, 𝑝 ℓ
+
+(𝑢 ℓ )
+
+Ö
+
+> 𝑘 ≠ℓ
+
+𝑁 (𝑘 )  
+
+> 𝑖 𝑘 , 𝑝 𝑘
+
+(𝑢 𝑘 )
+
+!
+
+𝑃 i, ℓ = 1, . . . , 𝑑. (2.7) This property is essential for PI–MFA because PDE residual terms can be assembled directly from spline derivatives, without resorting to any additional differentiation of the original data. 
+
+2.3 The MFA data-fitting problem 
+
+Next, we formulate the MFA data-fitting problem based on the tensor-product B-splines defined in Eq. (2.6). Let the sample locations in the spline parameter domain be v 𝑗 = (𝑣 𝑗, 1, . . . , 𝑣 𝑗,𝑑 ), 𝑗 = 1, . . . , 𝑀 , and let 
+
+𝑄 ∈ R𝑀 ×𝐷 collect the corresponding sampled field values, with the 𝑗 -th row denoted by 𝑄 ⊤ 
+
+> 𝑗
+
+∈ R𝐷 . We flatten the multi-index i = (𝑖 1, . . . , 𝑖 𝑑 ) into a single linear index ¯ 𝑖 = 1, . . . , 𝑛 𝑐 , where 𝑛 𝑐 = Î𝑑 ℓ=1 𝑛 ℓ is the total number of tensor-product control points. Evaluating the tensor-product spline at the sample points gives 
+
+𝐶 (v 𝑗 ) =
+
+> 𝑛 𝑐
+
+∑︁ 
+
+> ¯𝑖 =1
+
+𝐴 𝑗 ¯𝑖 𝑃 ¯𝑖 , 𝐴 𝑗 ¯𝑖 =
+
+> 𝑑
+
+Ö
+
+> ℓ=1
+
+𝑁 (ℓ )  
+
+> 𝑖 ℓ, 𝑝 ℓ
+
+(𝑣 𝑗,ℓ ), (2.8) where 𝑃 ¯𝑖 ∈ R𝐷 is the control point associated with the tensor-product basis function indexed by ¯ 𝑖 . Collecting the evaluations at all sample locations yields the matrix form 𝐴𝑃 , where 𝐴 ∈ R𝑀 ×𝑛 𝑐 and 𝑃 ∈ R𝑛 𝑐 ×𝐷 . The standard MFA fitting problem is therefore min  
+
+> 𝑃
+
+∥𝑄 − 𝐴𝑃 ∥2 
+
+> 𝐹
+
+, (2.9) where ∥ · ∥ 𝐹 denotes the Frobenius norm. By the local support of the B-spline basis, at most Î𝑑 ℓ=1 ( 𝑝 ℓ + 1)
+
+tensor-product basis functions are nonzero at any sample location, so each row of 𝐴 contains only a small number of nonzero entries. Thus, once the knot vectors, basis functions, and sample locations are fixed, 𝐴 is fixed, and standard MFA model fitting is a linear least-squares minimization problem in the control points. 6The physics-informed extension introduced in Section 3 retains the same spline representation but augments the objective with PDE, BC, and IC residual terms. For linear governing equations with linear constraints, the resulting objective remains quadratic in the control points, while for nonlinear governing equations, the PDE residuals make the PI-MFA optimization nonlinear. 
+
+2.4 Regularized MFA 
+
+Regularized spline approximation predates MFA by several decades. Classical penalized B-spline and spline-smoothing formulations combine least-squares fitting with roughness penalties on spline derivatives or on finite differences of neighboring coefficients, thereby suppressing overfitting and spurious oscillations while preserving the locality and sparsity of the B-spline basis [4, 5]. From this perspective, regularized MFA may be viewed as the tensor product scientific-data analogue of classical regularized B-spline approximation. The adaptive regularization framework developed for MFA [15] specializes these ideas to compact spline models of scientific fields and provides an important baseline for the present work. Although B-spline bases are smooth and locally supported, a purely data-driven MFA fit may still develop spurious oscillations when the control lattice is overly flexible relative to the sampling density or when the target field contains noise or underresolved features. A standard remedy is to augment the least-squares data-fit objective in Eq. (2.9) with penalty terms that control variation of the spline coefficients across the parametric directions. Based on the notations we defined in Section 2.3, the regularized MFA problem is then written as min  
+
+> 𝑃
+
+Lreg (𝑃 ) = ∥𝑄 − 𝐴𝑃 ∥2 
+
+> 𝐹
+
++ R ( 𝑃 ), (2.10) where R ( 𝑃 ) is a roughness penalty. In the present work, we compare our proposed method with the first-and second-order regularization in each parametric direction, 
+
+R ( 𝑃 ) =
+
+> 𝑑
+
+∑︁ 
+
+> ℓ=1
+
+∥𝐷 (1) 
+
+> ℓ
+
+𝑃 ∥2 
+
+> 𝐹
+
++
+
+> 𝑑
+
+∑︁ 
+
+> ℓ=1
+
+∥𝐷 (2) 
+
+> ℓ
+
+𝑃 ∥2 
+
+> 𝐹
+
+, (2.11) where 𝐷 (1) 
+
+> ℓ
+
+and 𝐷 (2) 
+
+> ℓ
+
+denote linear operators respectively measuring first- and second-order variation along the parametric coordinate 𝑢 ℓ . These operators may be assembled from analytic B-spline derivative matrices or equivalently from local finite-difference-type stencils on the control lattice. The first-order term limits excessive local variation, whereas the second-order term penalizes curvature and is particularly effective in damping high-frequency oscillations. Since the spline representation remains linear in the control points, the regularized problem preserves the quadratic least-squares structure of standard MFA. Hence, regularization improves stability and suppresses oscillatory artifacts without changing the basic algebraic structure of MFA. However, regularized MFA remains a data-driven approximation method. The additional penalty terms promote smoothness, but they do not explicitly enforce governing equations, BCs, or ICs. Regularized MFA controls roughness geometrically, whereas the PI-MFA formulation introduced next incorporates physics-based constraints to steer the reconstruction toward physical consistency. 
+
+# 3 Physics-informed MFA 
+
+We now extend the standard MFA framework of Section 2 to a physics-informed setting by embedding PDE, BC, and IC information into the fitting algorithm. The key idea is to retain MFA’s compact, tensor-product B-spline representation while augmenting the fitting objective with physics-based residuals that are evaluated by using analytic spline derivatives. 73.1 Physics-informed MFA formulation 
+
+We consider a physical system governed by a set of partial differential equations (PDEs), expressed in the general operator form 
+
+N [ 𝑓 ] ( 𝑧 ) = 0, 𝑧 ∈ Ω × ( 0, 𝑇 ], (3.1) where N [ 𝑓 ] ( 𝑧 ) ∈ R𝑛 eq represents the PDE residual vector of the governing equations for a physical field 
+
+𝑓 . Here, 𝑧 = (x, 𝑡 ) denotes a coordinate point in the spatiotemporal domain Ω × [ 0, 𝑇 ], with Ω ⊂ R𝑑 −1
+
+representing the spatial domain. To approximate the true solution 𝑓 , we employ the continuous B-spline reconstructed field 𝐶 defined in Eq. (2.8). This field is parameterized by a tensor of control points, 𝑃 . To facilitate standard unconstrained optimization, we flatten these control points into a single state vector 
+
+p := vec (𝑃 ) ∈ R𝑛 𝑐 𝐷 .
+
+The PI-MFA framework relies on four distinct sets of collocation points to enforce data fidelity and physical constraints across the domain 
+
+D = {( 𝑧 𝑑 𝑘 , f𝑑 𝑘 )} 𝑀 data  
+
+> 𝑘 =1
+
+, 𝑧 𝑑 𝑘 = (x𝑑 𝑘 , 𝑡 𝑑 𝑘 ), (3.2a) 
+
+R = {𝑧 𝑟 𝑘 }𝑀 pde  
+
+> 𝑘 =1
+
+, 𝑧 𝑟 𝑘 = (x𝑟 𝑘 , 𝑡 𝑟 𝑘 ), (3.2b) 
+
+B = {( 𝑧 𝑏 𝑘 , f𝑏 𝑘 )} 𝑀 BC  
+
+> 𝑘 =1
+
+, 𝑧 𝑏 𝑘 = (x𝑏 𝑘 , 𝑡 𝑏 𝑘 ), (3.2c) 
+
+I = {( x0 
+
+> 𝑘
+
+, f0 
+
+> 𝑘
+
+)} 𝑀 IC  
+
+> 𝑘 =1
+
+. (3.2d) where 𝑀 is the number of the data points. Here, the vectors f𝑑 𝑘 , f𝑏 𝑘 , and f0 
+
+> 𝑘
+
+denote the known target field values at the observation data, boundary, and initial-condition points, respectively. Evaluating the parameterized field 𝐶 (𝑧 ; p) at these discrete points yields the following pointwise residual functions 
+
+𝑅 data ,𝑘 (p) = 𝐶 (𝑧 𝑑 𝑘 ; p) − f𝑑 𝑘 , (3.3a) 
+
+𝑅 pde ,𝑘 (p) = N [ 𝐶 ] ( 𝑧 𝑟 𝑘 ; p), (3.3b) 
+
+𝑅 BC ,𝑘 (p) = 𝐶 (𝑧 𝑏 𝑘 ; p) − f𝑏 𝑘 , (3.3c) 
+
+𝑅 IC ,𝑘 (p) = 𝐶 (x0 
+
+> 𝑘
+
+, 0; p) − f0 
+
+> 𝑘
+
+. (3.3d) These pointwise residuals are subsequently aggregated into corresponding mean squared error (MSE) loss components 
+
+L★(p) = 1
+
+𝑀 ★𝑀 ★∑︁ 
+
+> 𝑘 =1
+
+∥𝑅 ★,𝑘 (p)∥ 22, ★ ∈ { data , pde , BC , IC }. (3.4) The total loss is then formulated as a weighted sum of these individual components 
+
+Ltotal (p) = 𝜆 data Ldata (p) + 𝜆 pde Lpde (p) + 𝜆 BC LBC (p) + 𝜆 IC LIC (p), (3.5) where 𝜆 ★ are user-defined penalty weights that balance the influence of the governing physics against the data and boundary and initial constraints. To efficiently minimize this composite objective using gradient-based optimizers (e.g., L-BFGS), we consolidate the pointwise residuals into stacked global vectors 
+
+r★(p) =
+
+
+
+𝑅 ★, 1 (p)
+
+...𝑅 ★,𝑛 ★ (p)
+
+
+
+, ★ ∈ { data , pde , BC , IC },
+
+8alongside their corresponding global Jacobian matrices with respect to the control variables, 
+
+𝐽 ★(p) = 𝜕 r★
+
+𝜕 p .
+
+By applying the chain rule, the exact analytical gradient of each individual loss component takes the form 
+
+∇pL★(p) = 2
+
+𝑀 ★
+
+𝐽 ★(p)⊤r★(p), ★ ∈ { data , pde , BC , IC }. (3.6) Consequently, the full expression for the gradient of the total objective function is efficiently assembled as 
+
+∇pLtotal (p) = 2𝜆 data 
+
+𝑀 data 
+
+𝐽 ⊤
+
+> data
+
+rdata + 2𝜆 pde 
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> pde
+
+rpde + 2𝜆 BC 
+
+𝑀 BC 
+
+𝐽 ⊤
+
+> BC
+
+rBC + 2𝜆 IC 
+
+𝑀 IC 
+
+𝐽 ⊤
+
+> IC
+
+rIC . (3.7) For the linear constraints, specifically those arising from observation data, Dirichlet boundary conditions, and initial conditions, the residuals can be expressed directly in matrix-vector form 
+
+rdata = 𝑁 data p − qdata , rBC = 𝑁 BC p − qBC , rIC = 𝑁 IC p − qIC , (3.8) where 𝑁 ★ represents the B-spline basis matrix constructed at the corresponding sample coordinates, and q★
+
+stores the concatenated target values. This linear relationship conveniently yields constant Jacobians 
+
+𝐽 data = 𝑁 data , 𝐽 BC = 𝑁 BC , 𝐽 IC = 𝑁 IC ,
+
+which only need to be precomputed once prior to optimization. In contrast, the structure of the PDE Jacobian depends entirely on the governing physics. For a linear PDE, 𝐽 pde remains a constant matrix. However, for nonlinear governing equations, the Jacobian 𝐽 pde (p) dynamically depends on the current state of the control points and is updated at each optimization iteration. 
+
+3.2 Optimization with L-BFGS 
+
+We minimize the PI-MFA objective in Eq. (3.5) with respect to the vectorized spline control points p = vec (𝑃 )
+
+using the limited-memory BFGS method (L-BFGS) with a strong Wolfe line search [40]. The analytical gradients derived in each example are supplied directly to the optimizer. These gradients are exact for the finite-dimensional B-spline objective because the field values and all required spatial and temporal derivatives are evaluated analytically from the B-spline basis. Thus, no finite-difference approximation of the objective gradient is required. In the implementation, the full global residual vector, weight matrix, and global Jacobian are not assembled as dense objects. Instead, the data, PDE, BC, IC, and auxiliary constraint contributions are evaluated and accumulated blockwise. For the linear data, Dirichlet BC, and IC terms used in this work, the corresponding Jacobians are fixed sparse basis-evaluation matrices. For linear PDEs, the PDE Jacobian is also fixed. For nonlinear systems, the PDE Jacobian depends on the current spline state and is updated at each optimization iteration. At iteration 𝑘 , let p𝑘 denote the current control point vector and let g𝑘 = ∇pL( p𝑘 ) be the analytical gradient of the PI-MFA objective. Given a search direction d𝑘 and a step length 𝛼 𝑘 accepted by the strong Wolfe line search, the coefficients are updated as p𝑘 +1 = p𝑘 + 𝛼 𝑘 d𝑘 . The L-BFGS curvature pair is then defined by 
+
+s𝑘 = p𝑘 +1 − p𝑘 , y𝑘 = g𝑘 +1 − g𝑘 , 𝜌 𝑘 = 1
+
+y⊤ 
+
+> 𝑘
+
+s𝑘 
+
+. (3.9) 9These curvature pairs approximate the action of the inverse Hessian on the gradient. In the limited-memory variant, the inverse-Hessian matrix is not formed explicitly. Instead, only the most recent 𝑚 pairs {( s𝑖 , y𝑖 )} 
+
+are stored, and the search direction is computed by the standard two-loop recursion, 
+
+d𝑘 = −𝐻 (𝑚 ) 
+
+> 𝑘
+
+g𝑘 ,
+
+where 𝐻 (𝑚 ) 
+
+> 𝑘
+
+denotes the implicit limited-memory inverse-Hessian approximation. The strong Wolfe line search promotes positive curvature pairs, y⊤ 
+
+> 𝑘
+
+s𝑘 > 0, which helps preserve the positive definiteness of this implicit approximation. In all examples, the data-only MFA solution is used as the initial control points. At each iteration, the current spline fields and their analytical derivatives are evaluated at the data and collocation points, the residual-block contributions and analytical gradient are assembled, and L-BFGS updates its implicit curvature approximation using the stored history pairs. The implementation uses the L-BFGS++ library [41]. Although the PI-MFA objective has a weighted nonlinear least-squares structure, we use L-BFGS rather than Gauss–Newton or Levenberg–Marquardt in the present work. The main practical reason is scalability with respect to the number of tensor-product space-time control points. In the Burgers and Navier-Stokes examples, the unknown vector contains the stacked control points of multiple coupled fields, so Gauss–Newton-type methods would require repeated solution of large linearized least-squares systems, either with explicitly assembled Jacobians or through matrix-free iterations. L-BFGS requires only objective and gradient evaluations, has a limited-memory footprint, and provides a single optimization strategy that applies uniformly to the linear and nonlinear examples considered here. A systematic comparison with Gauss–Newton, Levenberg–Marquardt, and other structure-exploiting solvers is interesting, but outside the scope of the present study. 
+
+# 4 Results 
+
+In this section we evaluate the performance of the proposed physics-informed MFA framework on three canon-ical partial differential equations: the one-dimensional convection–diffusion equation, the two-dimensional Burgers’ equations, and the two-dimensional incompressible Navier-Stokes equations. The MFA framework inherently constructs continuous representations in space and time. Thus, 1D spatial data defined over 𝑥 is naturally reconstructed in space–time as 𝑓 (𝑥, 𝑡 ), and 2D spatial data defined over (𝑥, 𝑦 ) is reconstructed as 
+
+𝑓 (𝑥, 𝑦, 𝑡 ).The performance of the PI-MFA framework is assessed with three metrics: the reconstruction error relative to the target data, the strong-form PDE residuals, and the global mass-balance discrepancy (evaluated only for the 1D convection-diffusion and 2D Burgers cases). To quantify the reconstruction accuracy, we define a scalar error metric based on the MSE. The MSE between the approximated field ( 𝑓 approx ) and a reference solution ( 𝑓 ref , representing either the analytical solution or the high-fidelity simulation data) is computed over the full space-time grid as E = 1
+
+𝑀 𝑡𝑜𝑡 𝑎𝑙 ∑︁ 𝑖,𝑛 
+
+( 𝑓 approx (𝑥 𝑖 , 𝑡 𝑛 ) − 𝑓 ref (𝑥 𝑖 , 𝑡 𝑛 )) 2. (4.1) We benchmark PI-MFA against purely data-driven MFA, regularized MFA (Reg-MFA), and PINNs. To ensure a fair comparison with our spline-based methods, the PINNs are implemented as reconstruction baselines trained separately on each fixed dataset, rather than as standard forward solvers. For all test cases, the PINN objective function combines a data misfit term with penalties for the strong-form PDE, ICs, and BCs, evaluated on the identical observational data. Regarding network architectures, the 1D convection–diffusion 10 0.2 0.4 0.6 0.8 0.0 0 0.2 0.4 0.6 0.8 1.0      
+
+> x
+> (b)(c)(d)
+> Numerical ( t=0.4 )Analytical ( t=0.4 )Initial ( t=0 )
+> 1.0 00.2 0.4 0.6 0.8 1.0
+> xt
+> 0.1 0.2 0.3 0.4 00.1 0.2 0.3 0.4 00.1 0.2 0.3 0.4 0
+> tt
+> 00.05 -0.05
+> 00.9
+> 00.9
+> Analytical Numerical Actual error
+> (a)
+
+Figure 2: One-dimensional convection-diffusion problem on 𝑥 ∈ [ 0, 1] with homogeneous Dirichlet bound-ary conditions. Left: initial condition at 𝑡 = 0 (blue dashed) and terminal-time profiles at 𝑇 = 0.4 obtained from a non-conservative finite difference simulation (orange) and the analytical reference solution (black). Right: spatiotemporal fields of the analytical solution 𝜌 ana , the numerical solution 𝜌 num , and the pointwise error 𝑒 (𝑥, 𝑡 ) = 𝜌 num (𝑥, 𝑡 ) − 𝜌 ana (𝑥, 𝑡 ).baseline employs a multilayer perceptron (MLP) with tanh activations and five hidden layers of 64 neurons, trained via Adam followed by L-BFGS. The 2D Burgers and 2D Navier–Stokes baselines utilize similar tanh MLPs but with six hidden layers of 128 neurons. More details on the hyperparameters are provided in Appendix A. 
+
+4.1 One-dimensional convection-diffusion equation 
+
+We consider the one-dimensional convection-diffusion equation 
+
+𝜕 𝜌 𝜕𝑡 + 𝑎 𝜕 𝜌 𝜕𝑥 = 𝜈 𝜕 2 𝜌 𝜕𝑥 2 , 𝑥 ∈ [ 0, 1], 𝑡 ∈ [ 0, 𝑇 ], (4.2) where 𝜌 (𝑥, 𝑡 ) denotes a transported scalar, 𝑎 is the (constant) convection speed, and 𝜈 is the diffusion coefficient. In the following experiments, we set 𝑎 = 1 and 𝜈 = 0.05. Homogeneous Dirichlet boundary conditions are imposed, 𝜌 (0, 𝑡 ) = 𝜌 (1, 𝑡 ) = 0 for all 𝑡 ∈ [ 0, 𝑇 ]. In order to ensure compatibility with these boundary conditions, the initial profile is multiplied by the vanishing factor 𝜙 (𝑥 ) = 4𝑥 (1 − 𝑥 ), which satisfies 
+
+𝜙 (0) = 𝜙 (1) = 0. In this work, we use the front-type initial condition 
+
+𝜌 (𝑥, 0) = 𝐴 f
+
+2
+
+
+
+1 + tanh 
+
+ 𝑥 𝑓 − 𝑥 𝑤 
+
+ 
+
+𝜙 (𝑥 ), 𝐴 f = 0.9, 𝑥 𝑓 = 0.65 , 𝑤 = 0.03 , (4.3) as shown in Fig. 2( a). Additional initial conditions used for supplementary tests are provided in Appendix B. The solution for Eq. (4.2) with constant coefficients and homogeneous Dirichlet boundary conditions is obtained by removing the advective drift via an exponential substitution and then applying a sine-series eigenfunction expansion [42, 43]. Introducing 
+
+𝛼 = 𝑎 
+
+2𝜈 , 𝑢 (𝑥, 𝑡 ) = 𝑒 − 𝛼𝑥 𝜌 (𝑥, 𝑡 ), (4.4) one obtains the reaction-diffusion equation 𝑢 𝑡 = 𝜈𝑢 𝑥 𝑥 − 𝑎 2 
+
+> 4𝜈
+
+𝑢 with 𝑢 (0, 𝑡 ) = 𝑢 (1, 𝑡 ) = 0. The solution can be 11 written as the modal series 
+
+𝜌 ana (𝑥, 𝑡 ) = 𝑒 𝛼𝑥 
+
+> ∞
+
+∑︁ 
+
+> 𝑛 =1
+
+𝑏 𝑛 sin (𝑛𝜋𝑥 ) exp 
+
+
+
+−
+
+
+
+𝜈 (𝑛𝜋 )2 + 𝑎 2
+
+4𝜈 
+
+
+
+𝑡 
+
+
+
+, 𝑏 𝑛 = 2
+
+∫ 10
+
+𝑒 − 𝛼𝑥 𝜌 (𝑥, 0) sin (𝑛𝜋𝑥 ) 𝑑𝑥. 
+
+(4.5) In this work, Eq. (4.5) was evaluated by truncating the modal expansion after 𝑁 𝑚 = 900 sine modes. The coefficients 𝑏 𝑛 were computed using a composite trapezoidal rule on a uniform grid with 𝑁 𝑞 = 4097 quadrature nodes on [0, 1]. As a convergence check, we repeated the evaluation with 𝑁 𝑚 = 1800 and 
+
+𝑁 𝑞 = 8193. On the full space–time grid used for the reported error metrics, the resulting change in 𝜌 ana was at most 5 .59 × 10 −5 in the 𝐿 ∞ norm and 1 .27 × 10 −6 in the relative discrete 𝐿 2 norm. As an additional diagnostic of physics consistency, we monitor the integrated mass balance implied by the conservative (flux) form of Eq. (4.2). Assuming 𝜌 is sufficiently smooth to interchange differentiation and integration, Eq. (4.2) can be written as 𝜌 𝑡 + 𝜕 𝑥 𝐽 = 0, with total flux 𝐽 (𝑥, 𝑡 ) = 𝑎 𝜌 (𝑥, 𝑡 ) − 𝜈 𝜌 𝑥 (𝑥, 𝑡 ).Integrating over a space-time control volume 𝑅 = [𝑥 0, 𝑥 1] × [ 𝑡 0, 𝑡 1] and applying the fundamental theorem of calculus in both 𝑥 and 𝑡 , we get the integral balance 
+
+∫ 𝑥 1
+
+> 𝑥 0
+
+𝜌 (𝑥, 𝑡 1) d𝑥 −
+
+∫ 𝑥 1
+
+> 𝑥 0
+
+𝜌 (𝑥, 𝑡 0) d𝑥 +
+
+∫ 𝑡 1
+
+> 𝑡 0
+
+𝐽 (𝑥 1, 𝑡 ) − 𝐽 (𝑥 0, 𝑡 ) d𝑡 = 0, (4.6) or, equivalently, after separating advective and diffusive contributions, 
+
+∫ 𝑥 1
+
+> 𝑥 0
+
+𝜌 (𝑥, 𝑡 1) − 𝜌 (𝑥, 𝑡 0) d𝑥 + 𝑎 
+
+∫ 𝑡 1
+
+> 𝑡 0
+
+𝜌 (𝑥 1, 𝑡 ) − 𝜌 (𝑥 0, 𝑡 ) d𝑡 = 𝜈 
+
+∫ 𝑡 1
+
+> 𝑡 0
+
+𝜌 𝑥 (𝑥 1, 𝑡 ) − 𝜌 𝑥 (𝑥 0, 𝑡 ) d𝑡. (4.7) This identity states that the change in total “mass” ∫ 𝑥 1 
+
+> 𝑥 0
+
+𝜌 d𝑥 between 𝑡 0 and 𝑡 1 is exactly balanced by the net advective and diffusive fluxes through the spatial boundaries, accumulated over [𝑡 0, 𝑡 1]. For the full domain [0, 1] with homogeneous Dirichlet boundaries, the advective boundary contribution vanishes (since 
+
+𝜌 (0, 𝑡 ) = 𝜌 (1, 𝑡 ) = 0), and the balance reduces to 
+
+∫ 10
+
+𝜌 (𝑥, 𝑡 1) − 𝜌 (𝑥, 𝑡 0) d𝑥 − 𝜈 
+
+∫ 𝑡 1
+
+> 𝑡 0
+
+𝜌 𝑥 (1, 𝑡 ) − 𝜌 𝑥 (0, 𝑡 ) d𝑡 = 0, (4.8) which provides an integral measure of how well a candidate field satisfies flux consistency. 
+
+4.1.1 Dataset generation and standard MFA baseline 
+
+To emulate discretization-induced conservation errors, we generate a synthetic observation dataset ( 𝜌 num )using an intentionally degraded finite difference approximation of the strong form of Eq. (4.2). Specifically, the solution is advanced in time via the explicit forward Euler method on a coarsened spatial grid, employing standard centered-difference approximations for both the convective ( 𝜌 𝑥 ) and diffusive ( 𝜌 𝑥 𝑥 ) terms. The simulation is performed with 𝑁 𝑥 = 60 spatial nodes and integrated over the interval 𝑡 ∈ [ 0, 0.4] using a time step of Δ𝑡 = 10 −3, yielding 𝑁 𝑡 = 400 temporal snapshots. This low-fidelity dataset is generated using an intentionally degraded finite-difference discretization that exhibits a measurable global flux-balance error under the diagnostic in Eq. (4.8). The resulting pointwise error, defined as 𝑒 (𝑥, 𝑡 ) = 𝜌 num (𝑥, 𝑡 ) − 𝜌 ana (𝑥, 𝑡 ),is illustrated in Fig. 2. Ultimately, the primary objective of the proposed PI-MFA framework is to mitigate this discretization-induced discrepancy while recovering a continuous field that is more consistent with the governing physics. Next, we apply the standard MFA to identify suitable control-point resolutions for the subsequent PI-MFA study. In general, increasing the number of control points improves data-fitting accuracy, but beyond a certain resolution overfitting and spurious oscillations may appear. Following previous MFA studies [14, 15, 44], 12 we use the spline degree to 𝑝 = 3 in both space and time, which provides a reasonable balance between smoothness and flexibility at the resolutions considered here. Now, we approximate 𝜌 (𝑥, 𝑡 ) by a tensor product B-spline expansion 
+
+𝜌 MFA (𝑥, 𝑡 ; 𝑃 𝜌 ) = 
+
+> 𝑛 𝑥 −1
+
+∑︁  
+
+> 𝑖 =0
+> 𝑛 𝑡 −1
+
+∑︁ 
+
+> 𝑗 =0
+
+𝑁 ( 𝑥 ) 
+
+> 𝑖
+
+(𝑥 ) 𝑁 (𝑡 ) 
+
+> 𝑗
+
+(𝑡 ) ( 𝑃 𝜌 )𝑖 𝑗 , (4.9) where 𝑁 ( 𝑥 ) 
+
+> 𝑖
+
+and 𝑁 (𝑡 ) 
+
+> 𝑗
+
+are B-spline basis functions of degree 𝑝 = 3 in space and time, respectively, and 𝑃 𝜌 is the control-point vector. The total number of control points is 𝑛 𝑥 × 𝑛 𝑡 , and we vary this resolution to study the trade-off between approximation quality and model complexity. The individual loss terms Ldata , Lpde , LIC , and LBC are each computed by using the MSE definition in Eq. (4.1). In order to establish a baseline for model comparison, the total loss Ltotal is formulated as the unweighted sum of these components (i.e., 𝜆 ∗ = 1), preserving the MSE-based structure. This unweighted setup isolates the raw magnitude of each loss term, independent of any scaling weights. Furthermore, while the continuous nature of MFA and PI-MFA allows for error evaluation on any arbitrary grid, we evaluate the error at the exact spatial and temporal locations of the input simulation data. We consider control-point grids of 10 × 10, 20 × 20, 30 × 30, 40 × 40, and 50 × 50. The corresponding MFA reconstructions, data-fitting errors, and PDE residuals are shown in Fig. 3. For resolutions finer than 30 × 30, noticeable oscillations re-emerge in the solution. These oscillations are due to the original input data generated from a coarse-grid simulation. Table 2 reports the loss components for the purely data-driven MFA fits (i.e., 𝜆 pde = 𝜆 BC = 𝜆 IC = 0) across the varying control-point resolutions. While the data-fitting error naturally decreases as the number of control points increases, the PDE loss remains relatively large. This indicates that a purely data-driven fit does not inherently enforce physical consistency, and it is further supported by the PDE residuals exhibited in Fig. 3( c, f, i, l, o). Balancing this trade-off between minimizing data-fitting error and PDE residual’s oscillatory behavior, we select a 40 × 40 control-point grid as the baseline resolution for the subsequent PI-MFA experiments. 
+
+Table 2: Individual and total loss components as a function of control-point resolution ( 𝑁 𝑥 × 𝑁 𝑡 ) for the 1D convection-diffusion equation. The losses (MSE) are reported for the purely data-driven MFA baseline. 
+
+Control-point resolution 𝑁 𝑥 × 𝑁 𝑡 
+
+Loss term 10 × 10 20 × 20 30 × 30 40 × 40 50 × 50 
+
+Ldata 4.53 × 10 −5 7.54 × 10 −6 3.55 × 10 −6 1.54 × 10 −6 3.49 × 10 −7
+
+Lpde 3.38 × 10 −1 1.87 1.41 7.68 × 10 −1 1.20 
+
+LIC 3.34 × 10 −4 5.32 × 10 −5 8.22 × 10 −6 1.67 × 10 −5 3.93 × 10 −5
+
+LBC 6.36 × 10 −5 6.59 × 10 −7 8.19 × 10 −11 4.34 × 10 −10 3.99 × 10 −20 
+
+Ltotal 3.38 × 10 −1 1.87 1.41 7.68 × 10 −1 1.20 
+
+4.1.2 PI-MFA formulation for the 1D convection-diffusion system 
+
+Following Section 3.1, we construct PI-MFA models using observation data sampled from the numerical simulation at a subset of space-time locations, together with collocation points in the interior for enforcing 13 00.9 
+
+(a) (b) (c)(d) 10×10 20×20 30×30 40×40 50×50 
+
+(e)
+
+0.4 0.3 0.2 0.1 00 0.2 0.4 0.6 0.8 1.0 
+
+tx
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+00.1 -0.1 
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+00.9 
+
+00.9 
+
+00.9 
+
+00.9 
+
+00.1 -0.1 
+
+00.1 -0.1 
+
+00.1 -0.1 
+
+00.1 -0.1 
+
+Data fitting error 
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+xxxxx
+
+00.5 -0.5 
+
+PDE residual 
+
+0 0.2 0.4 0.6 0.8 1.0 0 0.2 0.4 0.6 0.8 1.0 0 0.2 0.4 0.6 0.8 1.0 0 0.2 0.4 0.6 0.8 1.0 00.5 -0.5 
+
+00.5 -0.5 
+
+00.5 -0.5 
+
+00.5 -0.5 
+
+(f)(g) (h) (i)(j) (k) (l)(m) (n) (o)MFA Figure 3: Results of standard MFA data fitting, shown as a function of the number of control points. The number of control points in space and time (𝑁 𝑥 , 𝑁 𝑡 ) is indicated at the top of each panel. 14 the PDE, BCs, and ICs. The loss function for the control points 𝑃 𝜌 is 
+
+L( 𝑃 𝜌 ) = 𝜆 data 
+
+𝑀 data 
+
+𝑁 data 𝑃 𝜌 − 𝑄 data 22 + 𝜆 pde 
+
+𝑀 pde 
+
+𝑟 PDE (𝑃 𝜌 ) 22
+
++ 𝜆 BC 
+
+𝑀 BC 
+
+𝑁 BC 𝑃 𝜌 − 𝑄 BC 22 + 𝜆 IC 
+
+𝑀 IC 
+
+𝑁 IC 𝑃 𝜌 − 𝑄 IC 22,
+
+(4.10) where 𝑁 data evaluates the spline basis at data locations and 𝑄 data stores the corresponding observation data, 
+
+𝑁 BC and 𝑄 BC encode Dirichlet boundary values, 𝑁 IC and 𝑄 IC encode the IC in Eq. (4.3), and 𝑟 PDE (𝑃 𝜌 ) is the PDE residual evaluated at interior collocation points. The weights 𝜆 data , 𝜆 pde , 𝜆 BC , 𝜆 IC ≥ 0 balance data fidelity and physics enforcement. For the 1D convection–diffusion equation in Eq. (4.2), the PDE residual at a set of interior collocation points can be written in matrix form as 
+
+𝑟 PDE (𝑃 𝜌 ) = 𝑁 𝑡 𝑃 𝜌 + 𝑎 𝑁 𝑥 𝑃 𝜌 − 𝜈 𝑁 𝑥 𝑥 𝑃 𝜌 , (4.11) where 𝑁 𝑡 , 𝑁 𝑥 , and 𝑁 𝑥 𝑥 are basis matrices collecting, respectively, the first derivative with respect to time, the first derivative with respect to 𝑥 , and the second derivative with respect to 𝑥 of the tensor product B-spline basis, evaluated at all interior collocation points. By linearity of the MFA ansatz, the Jacobian of the PDE residual with respect to the control points is independent of 𝑃 𝜌 and given by 
+
+𝐽 PDE = 𝜕𝑟 PDE 
+
+𝜕𝑃 𝜌 
+
+= 𝑁 𝑡 + 𝑎 𝑁 𝑥 − 𝜈 𝑁 𝑥 𝑥 . (4.12) Consistent with the general formulation in Section 3.1, the gradient of the loss in Eq. (4.10) becomes 
+
+∇𝑃 𝜌 L( 𝑃 𝜌 ) = 2 𝜆 data 
+
+𝑀 data 
+
+𝑁 ⊤ 
+
+> data
+
+(𝑁 data 𝑃 𝜌 − 𝑄 data ) + 2 𝜆 pde 
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> PDE
+
+𝑟 PDE (𝑃 𝜌 )+ 2 𝜆 BC 
+
+𝑀 BC 
+
+𝑁 ⊤ 
+
+> BC
+
+(𝑁 BC 𝑃 𝜌 − 𝑄 BC ) + 2 𝜆 IC 
+
+𝑀 IC 
+
+𝑁 ⊤ 
+
+> IC
+
+(𝑁 IC 𝑃 𝜌 − 𝑄 IC ).
+
+(4.13) All basis matrices ( 𝑁 ∗) and the Jacobian 𝐽 PDE are precomputed from the analytic B-spline derivatives and reused throughout the L-BFGS iterations. Although this example involves a linear PDE, our ultimate goal is to apply the approach to nonlinear PDEs. Therefore, to validate the method in a representative setting, we use L-BFGS here rather than solving the problem directly as a linear least-squares system, as is done in the standard MFA method. 
+
+4.1.3 Mitigation of discretization-induced conservation errors 
+
+To use the standard MFA model, we set 𝜆 pde = 𝜆 BC = 𝜆 IC = 0 in Eq. (4.10) which is the same as in Eq. (2.9), so that the control points are determined only by the data misfit term. This baseline quantifies the best possible fit to the simulation data for a given spline resolution, independent of physics enforcement. In addition, we consider the regularized MFA approach [15] as another baseline described in Section 2.4. This method incorporates first- and second-derivative regularization terms, which promote smoother solu-tions. We also compare our method with a standard PINN [31]. The PINN architecture consists of layers 
+
+[2, 64 , 64 , 64 , 64 , 64 , 1], and it is trained by using the Adam optimizer. For consistency, the same dataset is used in the PINN data term. Our next task is to choose the loss weights 𝜆 that balance the relative contributions of the different components in the PI-MFA objective. We begin with a sensitivity study, that is, a 1D sweep in which we vary one weight at a time while holding the other three fixed. Figure 4 summarizes the 1D sweeps. Panel ( a) varies 15 310 410 210 110 010 -1 10 -2 10 -3 10 -4 10 
+
+> 3
+
+10 410 210 110 010 -1 10 -2 10 -3 10 -4 10 310 410 210 110 010 -1 10 -2 10 -3 10 -4 10 310 410 210 110 010 -1 10 -2 10 -3 10 -4 10 00.05 0 0
+
+> Loss Loss
+
+= = = 1 = = = 1 
+
+= = = 1 = = = 1 
+
+(a) (b)(c) (d)
+
+0
+
+ℒtotal 
+
+ℒpde 
+
+ℒdata 
+
+ℒIC 
+
+ℒBC 
+
+0.5e-3 6e-4 4e-4 2e-4 1.0e-3 0.06 0.04 0.02 0.10 0.15 0.20 1.5e-3 Figure 4: One-dimensional sweeps to choose the loss weights 𝜆 for the 1D convection–diffusion equation: (a) vary 𝜆 𝑑𝑎𝑡 𝑎 while holding the other 𝜆 values fixed; ( b) vary 𝜆 𝑝𝑑𝑒 ; ( c) vary 𝜆 𝐼𝐶 ; and ( d) vary 𝜆 𝐵𝐶 , each with all other weights fixed. ℒtotal 
+
+> ℒpde
+
+ℒdata 
+
+> -3
+
+10 -4 10 -5 10 -6 10 -2 10 -1 10 -5 10 -6 10 -4 10 -3 10 -2 10 -1 10 010 
+
+> min min Pareto front Pareto-optimal
+
+ℒpde 
+
+ℒphysics min 
+
+ℒtotal 
+
+1.6 1.4 
+
+1.2 1.0 0.8 0.6 0.4 0.2 
+
+Figure 5: Results of the 4D parameter sweep over (𝜆 data , 𝜆 pde , 𝜆 IC , 𝜆 BC ), shown in the (L data , Lpde ) plane. The black curve denotes the Pareto front. Specific configurations are highlighted by distinct markers: the green diamond (min Lpde ), the yellow star (min Ltotal ), and the red triangle (min Lphysics ). The magenta circle identifies the balanced Pareto-optimal configuration that minimizes the distance to the theoretical origin (0, 0).16 𝜆 data , panel ( b) varies 𝜆 pde , panel ( c) varies 𝜆 IC , and panel ( d) varies 𝜆 BC , with the remaining three weights held fixed in each case. As shown in Table 3, the PDE residual ( Lpde ) is generally orders of magnitude larger than the data-fitting error, so Lpde dominates Ltotal when no physics is enforced. As expected, increasing a weight 𝜆 𝑖 decreases its corresponding loss term L𝑖 but typically increases the competing terms. In particular, we observe strong sensitivity to 𝜆 pde . For example, decreasing 𝜆 pde below 10 −2 leads to a sharp increase in both Lpde and the total loss Ltotal . In contrast, Ltotal is comparatively insensitive to 𝜆 data for 𝜆 data ≲ 1, whereas very large 𝜆 data improves the data fit at the expense of a higher PDE residual. 𝜆 IC and 𝜆 BC are not dominant for changing Ltotal , as shown in Fig. 4( c) and ( d). Overall, these trends indicate that the dominant trade-off is between the data-fitting and PDE-residual terms, motivating us to treat (L data , Lpde )
+
+as the primary objective in the subsequent analysis. To account for couplings among all four weights, we perform a full 4D sweep over ( 𝜆 data , 𝜆 pde , 𝜆 IC ,
+
+𝑎𝑛𝑑𝜆 BC ). To effectively balance between data fidelity ( Ldata ) and physical consistency ( Lpde ), we consider Pareto optimality [45] rather than simply minimizing the unweighted sum of the loss components, Ltotal .This perspective is widely used in physics-informed training and loss balancing for multiobjective problems [46, 47, 48, 49, 50]. Figure 5 presents the results of this 4D sweep, projected onto the (L pde , Ldata ) plane, where the color mapping indicates the total loss Ltotal . This visualization highlights the fundamental trade-off between data fidelity and physics enforcement, which largely governs the overall behavior of Ltotal . From this parameter space, we select a Pareto-optimal configuration (identified in linear scale as the magenta circle in Fig. 5). For comparative analysis, we also evaluate the configurations that yield the minimum Lpde 
+
+and the minimum physics loss, min Lphysics , where Lphysics = Lpde + L IC + L BC encapsulates all non-data constraints. In order to accelerate the optimization process, all PI-MFA runs are warm-started using the control points already computed from the purely data-driven MFA least-squares solution. Figure 6 illustrates the resulting loss convergence histories for three representative configurations: min Lpde , the Pareto-optimal case, and min Lphysics . The min Ldata configuration is omitted from this visual comparison because the warm-started initialization causes it to converge almost instantaneously. Among these cases, the configuration targeting min Lpde requires the longest optimization trajectory. This extended iteration count reflects the numerical stiffness introduced by enforcing PDE consistency without adequately balancing the boundary constraints. Nevertheless, the optimization terminates successfully once Lpde reaches a sufficiently small threshold. The final losses and the corresponding weight choices are reported in Table 3. The data-only MFA baseline achieves an excellent data fit ( Ldata = 1.54 × 10 −6) but incurs a massive PDE residual ( Lpde =
+
+7.68 × 10 −1), confirming that physics consistency is not recovered without explicit enforcement. To establish a comprehensive machine-learning baseline, we also evaluate a standard PINN. While the PINN incorporates the governing equations and significantly reduces the PDE residual compared with standard MFA ( Lpde =
+
+3.43 × 10 −3), it requires 855 iterations to train and relatively struggles to enforce the initial and boundary conditions because of the lack of local support on the coarse grid. This results in a comparatively high total loss ( Ltotal = 3.10 × 10 −2). In contrast, the proposed PI-MFA configurations systematically improve physical consistency with fewer iterations than PINNs. The PI-MFA case minimizing Lpde explicitly drives the PDE residual down to 2.17 × 10 −7 but at the cost of increased data mismatch and larger initial and boundary constraint residuals. The Pareto-optimal selection provides a well-balanced compromise. It attains a near-minimal PDE residual (2 .02 × 10 −4) while maintaining excellent data fidelity ( Ldata = 1.99 × 10 −4), demonstrating the framework’s capability to successfully navigate the inherent trade-off between fitting the data and enforcing the continuous physics. Furthermore, the case minimizing Lphysics suppresses all physical constraints concurrently, yielding the smallest total loss ( Ltotal = 6.08 × 10 −4) among the compared configurations, outperforming the PINN by nearly two orders of magnitude. Figure 7 visually compares the continuous space-time approximations generated by the baselines (MFA, Reg-MFA, and PINN) against the proposed PI-MFA framework evaluated under the three representative 17 300 0 600 900 1200 1500 
+
+(a)(b)(c)Pareto-optimal Iterations Loss 
+
+0 800 1600 2400 4000 
+
+Iterations 
+
+> -1
+
+10 -2 10 -3 10 
+
+> Loss
+
+3200 -4 10 -5 10 -6 10 -7 10 
+
+min ℒpde Loss 
+
+> -1
+
+10 -2 10 -3 10 -4 10 010 
+
+300 0 600 900 1200 1500 
+
+Iterations 
+
+> -1
+
+10 -2 10 -3 10 -4 10 010 -5 10 
+
+min ℒphysics 
+
+ℒtotal 
+
+ℒpde 
+
+ℒdata 
+
+ℒIC 
+
+ℒBC Figure 6: Convergence histories of the optimization losses for three representative weight configurations: min Lphysics , min Lpde , and the Pareto-optimal case. These configurations correspond to the specific 𝜆 
+
+selections identified in the parameter sweep (Fig. 5). The min Ldata configuration is omitted here because of its near-instantaneous convergence. 18 00.9 
+
+(a) (b) (c)(j) (k)
+
+> 0.4 0.3 0.2 0.1 0
+
+t     
+
+> 00.2 0.4 0.6 0.8 1.0
+
+x
+
+> 0.4 0.3 0.2 0.1 0
+
+t
+
+> 0.4 0.3 0.2 0.1 0
+
+t
+
+> 0.4 0.3 0.2 0.1 0
+
+t
+
+> 00.9
+> 00.9
+> 00.9
+> 00.5 -0.5
+> 00.5 -0.5
+
+Actual error 
+
+x
+
+PDE residual      
+
+> 00.2 0.4 0.6 0.8 1.0
+
+(l)(m) (n) (o)(p) (q) (r)MFA PI-MFA (Pareto-optimal) 
+
+> 00.5 -0.5
+> 00.5 -0.5
+
+Continuous Approximation 
+
+> 00.1 -0.1
+> 00.1 -0.1
+> 00.1 -0.1
+> 00.1 -0.1
+> PI-MFA ( min  ℒ )physics PI-MFA ( min  ℒ )pde
+> 00.5 -0.5
+> 00.1 -0.1
+> 0.4 0.3 0.2 0.1 0
+
+t 
+
+> PINN
+> 00.9
+> Reg-MFA
+> 00.9 0.4 0.3 0.2 0.1 0
+
+t 00.5 -0.5 
+
+> 00.1 -0.1
+
+xt
+
+(g) (h) (i)(d) (e) (f)
+
+> 0.4 0.3 0.2 0.1 0
+
+tFigure 7: Continuous-field approximations (left column), strong-form PDE residuals (middle column), and actual relative errors with respect to the analytical solution (right column). Rows correspond to standard MFA (a–c), Reg-MFA (d–f), PINN (g–i), and PI-MFA under three representative weight selections: min Lpde 
+
+(j–l), Pareto-optimal (m–o), and min Lphysics (p–r). 19 Table 3: Final loss components and selected hyperparameter values ( 𝜆 ) for the data-only MFA baseline, regularized MFA (Reg-MFA), a physics-informed neural network (PINN), and three representative PI-MFA runs (min Lpde , Pareto-optimal, and min Lphysics ) chosen from the 4D 𝜆 -sweep in Fig. 5. The PINN model was trained utilizing the min Lphysics weights. Reported losses are evaluated at the final optimizer iterate.                                                                             
+
+> MFA Reg-MFA PINN PI-MFA
+> (data only) (smoother) (min Lphysics in PI-MFA) min Lpde Pareto-optimal min Lphysics
+> Iterations ––855 4120 1725 1835
+> 𝜆 data 1110 −110 −4510 −1
+> 𝜆 pde 0010 210 410 10 2
+> 𝜆 IC 0010 25×10 −25×10 −210 2
+> 𝜆 BC 0010 2110 −110 2
+> Ldata 1.54e-6 1.28e-6 3.44e-3 2.96e-3 1.99e-4 1.66e-4
+> Lpde 7.68e-1 1.66e+0 3.43e-3 2.17e-7 2.02e-4 3.71e-4
+> LIC 1.67e-5 1.42e-3 8.57e-3 8.70e-3 3.86e-4 5.65e-5
+> LBC 4.34e-10 8.20e-11 1.56e-2 2.33e-2 1.31e-3 1.47e-5
+> Ltotal 7.68e-1 1.66e+0 3.10e-2 3.49e-2 2.09e-3 6.08e-4
+
+weight selections (min Lpde , Pareto-optimal, and min Lphysics ). For each evaluated method, the left column displays the reconstructed continuous field, the middle column visualizes the pointwise strong-form PDE residual, and the right column maps the actual relative error with respect to the exact analytical solution. As anticipated, the purely data-driven standard MFA reconstructs a visually plausible macroscopic field that matches the discrete data accurately but structurally violates the governing equations, producing widespread, highly oscillatory PDE residuals. Adding naive smoothing penalties (Reg-MFA) does little to correct this physical discrepancy. While the PINN baseline noticeably reduces the volumetric PDE residual relative to standard MFA, it still suffers from elevated actual errors near the spatial boundaries. This visual artifact is consistent with its higher LBC value of 1 .56 × 10 −2 reported in Table 3, highlighting the persistent challenge of cleanly capturing localized, sharp flow dynamics using a continuous global neural network despite utilizing 855 training iterations. In contrast, explicitly embedding hard physical constraints directly into the locally supported B-spline objective via PI-MFA systematically suppresses PDE violations across the entire spatiotemporal domain. The min Lpde configuration naturally produces the cleanest, most suppressed residual field; however, its aggressive, unilateral PDE enforcement forces slight deviations from the true initial state, resulting in a somewhat broader actual error distribution. Both the Pareto-optimal and min Lphysics 
+
+configurations offer highly balanced, superior reconstructions. They successfully reduce the severe structural residuals present in the standard MFA while maintaining extremely low actual errors relative to the ground-truth analytical solution. We also objectively assess whether the reconstructed continuous fields satisfy the global flux-conservation criterion defined in Eq. (4.8). Figure 8 tracks the temporal evolution of the integrated mass-balance residual for the exact analytical solution, the discrete numerical data (the residual is computed by finite difference), the baseline methods (MFA, Reg-MFA, and PINN), and the proposed PI-MFA framework evaluated under the three representative weight selections (min Lpde , Pareto-optimal, and min Lphysics ). The numerical data was computed by using a non-conservative scheme. Consequently, its evaluated mass balance exhibits a severe, highly oscillatory negative drift away from the exact analytical zero-residual baseline. As expected, the purely data-driven standard MFA and smoothed Reg-MFA successfully filter out the high-frequency numerical noise but passively inherit the underlying macroscopic numerical discrepancy, perfectly tracking the flawed data and failing entirely to conserve mass. While the PINN baseline leverages physical equations 20 0.10          
+
+> 0.05 0-0.10 -0.05 -0.15 -0.20
+> Mass balance residual
+> t
+> 0.40 0.10 0.05 00.15 0.20 0.25 0.30 0.35
+> -0.25
+> MFA PI-MFA (min ℒ)pde PI-MFA(Pareto-optimal) Analytical Numerical data (FDM) Reg-MFA PINN PI-MFA (min ℒ)physics
+
+Figure 8: Temporal evolution of the integrated mass-balance (flux) residual for the 1D convection-diffusion problem. The exact analytical solution conserves mass (zero residual). The non-conservative numerical data computed by the finite difference method (FDM) exhibits a severe negative drift, which the purely data-driven MFA and Reg-MFA baselines inherently absorb. The PI-MFA configurations correct this physical discrepancy, with the min Lphysics model achieving accurate global conservation by enforcing both the PDE and the boundary constraints. to actively flatten this error curve and improve upon the data-only splines, it still suffers from a persistent, fluctuating offset throughout the temporal domain. In contrast, explicitly embedding physical constraints into the PI-MFA objective restores global flux conservation, although the extent of the correction depends heavily on the chosen constraint weights. The min Lphysics configuration delivers the most robust performance. By penalizing the PDE residual alongside the initial and boundary constraints, it effectively overrides the flawed input data, locking the continuous spline onto a mass-conserving trajectory that closely tracks the exact analytical zero line. The min Lpde configuration also dramatically improves mass conservation for the majority of the time domain. However, by unilaterally prioritizing the interior PDE at the expense of the boundary conditions (as previously noted by its higher LBC error in Table 3), this configuration allows artificial numerical flux to leak at the domain edges, causing a noticeable drop near the final time 𝑡 = 0.4. The Pareto-optimal configuration (min LPareto ) exhibits intermediate behavior, visually encapsulating the expected trade-off in the optimization. Sacrificing a degree of enforcement of physics to accommodate non-conservative observational data ultimately yields a long-term global conservation discrepancy. Overall, the 1D convection-diffusion example illustrates two central features of the proposed PI-MFA framework. First, purely data-driven MFA and mathematical smoothing (Reg-MFA) can achieve extremely low data-fitting errors with moderate spline resolutions. However, the resulting continuous surrogates remain physically oblivious, readily absorbing underlying discretization errors, non-conservative drifts, and large PDE residuals. Second, augmenting the MFA objective with explicitly formulated, physics-informed penalties ( Lpde , LIC , and LBC ) recovers physical consistency. By tuning the multiobjective weights ( 𝜆 ∗), PI-MFA acts as a powerful mathematical filter, preserving the compact, analytically differentiable B-spline representation. This canonical test case therefore provides a controlled benchmark demonstrating how the inherent tension between data fidelity and physical enforcement can be quantified and dynamically tuned. In the next subsection, we demonstrate that these capabilities scale to the more complex, higher-dimensional, nonlinear Burgers equations. 21 01.0 0.5                   
+
+> t=0 t=2.0  t=0.5 t=1.0 t=1.5
+> uv
+> x
+> 012
+> y120
+> 01.0 0.5 01.0 0.5 01.0 0.5 01.0 0.5
+> 00.8 0.4
+> 00.8 0.4 00.8 0.4 00.8 0.4 00.8 0.4
+> x
+> 012
+> x
+> 012
+> x
+> 012
+> x
+> 012
+> x
+> 012
+> 0.15 0
+> 1e-5 0
+> y120
+> y120
+> y120
+> y120
+> Reference (FEM) Absolute error Referece (FEM) Absolute error
+> Physically inconsistent data Physically inconsistent data
+> 0.5 00.5 00.7 0
+> 0
+> 1e-5 00.5 00.5 00.7 0
+> 0.15
+
+Figure 9: Snapshots of the 2D coupled viscous Burgers solution at 𝑡 = 0, 0.5, 1.0, 1.5, and 2 .0. The left panels show the 𝑢 field, and the right panels show the 𝑣 field at the corresponding times. The FEM solution serves as the high-accuracy reference, while the input data is shown separately as physically inconsistent data. The absolute error with respect to the reference solution is reported in the rightmost column for both the 𝑢 and 𝑣 fields. 
+
+4.2 Two-dimensional coupled viscous Burgers equations 
+
+We consider the two-dimensional coupled viscous Burgers system in non-conservative (advective) form on the rectangular domain Ω = (0, 𝐿 𝑥 ) × ( 0, 𝐿 𝑦 ) over 𝑡 ∈ [ 0, 𝑇 ]:
+
+𝜕𝑢 𝜕𝑡 + 𝑢 𝜕𝑢 𝜕𝑥 + 𝑣 𝜕𝑢 𝜕𝑦 = 𝜈 
+
+ 𝜕 2𝑢 𝜕𝑥 2 + 𝜕 2𝑢 𝜕𝑦 2
+
+
+
+, (4.14a) 
+
+𝜕𝑣 𝜕𝑡 + 𝑢 𝜕𝑣 𝜕𝑥 + 𝑣 𝜕𝑣 𝜕𝑦 = 𝜈 
+
+ 𝜕 2𝑣 𝜕𝑥 2 + 𝜕 2𝑣 𝜕𝑦 2
+
+
+
+. (4.14b) As in the one-dimensional convection-diffusion example in Section 4.1, homogeneous Dirichlet boundary conditions are imposed on 𝜕 Ω:
+
+𝑢 (𝑥, 𝑦, 𝑡 ) = 0, 𝑣 (𝑥, 𝑦, 𝑡 ) = 0, (𝑥, 𝑦 ) ∈ 𝜕 Ω, 𝑡 ≥ 0. (4.15) 22 Following common practice for Burgers-type benchmark problems [51, 52, 53], we prescribe smooth initial conditions as superpositions of Gaussian functions: 
+
+𝑢 IC (𝑥, 𝑦 ) = 𝐴 𝑢 ∑︁ 
+
+> 𝑘
+
+exp − (𝑥 − 𝑐 𝑢 𝑥,𝑘 )2 + ( 𝑦 − 𝑐 𝑢 𝑦,𝑘 )2
+
+2 𝑠 2
+
+> 𝑢,𝑘
+
+!
+
+, (4.16a) 
+
+𝑣 IC (𝑥, 𝑦 ) = 𝐴 𝑣 ∑︁ 
+
+> 𝑘
+
+exp − (𝑥 − 𝑐 𝑣 𝑥,𝑘 )2 + ( 𝑦 − 𝑐 𝑣 𝑦,𝑘 )2
+
+2 𝑠 2
+
+> 𝑣,𝑘
+
+!
+
+. (4.16b) The normalization constants 𝐴 𝑢 and 𝐴 𝑣 are prescribed to enforce the peak initial velocity amplitudes, yielding max ( 𝑥,𝑦 ) |𝑢 IC | = amp 𝑢 and max ( 𝑥,𝑦 ) |𝑣 IC | = amp 𝑣 . Throughout the subsequent numerical experiments, unless otherwise noted, the geometric and physical parameters are fixed at 𝐿 𝑥 = 𝐿 𝑦 = 2 and 𝜈 = 0.01, with the initial amplitudes set to amp 𝑢 = 1.0 and amp 𝑣 = 0.8. As an additional study of physics consistency, we monitor a global integral balance for each component of the two-dimensional Burgers system. To this end, we define the componentwise integral 
+
+𝑀 𝑞 (𝑡 ) =
+
+∫
+
+> Ω
+
+𝑞 (𝒙 , 𝑡 ) dΩ, 𝑞 ∈ { 𝑢, 𝑣 }. (4.17) Starting from Eq. (4.14), we use the divergence theorem and Green’s identity [54, 55]. Under the homo-geneous Dirichlet boundary condition 𝑞 = 0 on 𝜕 Ω, this yields the componentwise global integral-balance residuals 
+
+𝑟 𝑞,𝑀 (𝑡 ) = d𝑀 𝑞 
+
+d𝑡 −
+
+∫
+
+> Ω
+
+𝑞 (∇ · 𝑼 ) dΩ − 𝜈 
+
+∫
+
+> 𝜕 Ω
+
+∇𝑞 · 𝒏 d𝑠, 𝑞 ∈ { 𝑢, 𝑣 }, 𝑼 = (𝑢, 𝑣 )T, (4.18) which vanish for the exact solution of the prescribed PDE, that is, 𝑟 𝑢,𝑀 (𝑡 ) = 𝑟 𝑣,𝑀 (𝑡 ) = 0. In the numerical experiments, we evaluate 𝑟 𝑢,𝑀 (𝑡 ) and 𝑟 𝑣,𝑀 (𝑡 ) directly from the continuous PI-MFA representation. The B-spline model is used to compute d 𝑀 𝑞 /d𝑡 and the associated spatial and boundary integrals, and the resulting residuals are reported over time as diagnostics of physics consistency. Additional details are provided in Appendix C. 
+
+4.2.1 Data generation and standard MFA 
+
+To evaluate the PI-MFA framework, we construct a benchmark dataset by introducing a controlled discrepancy into the coarse-grid observations. Specifically, we inject source terms that are absent from the prescribed governing equations. This setup mimics missing or unresolved physics, which is a common source of model-form discrepancy between observed dynamics and analytical models [56, 57, 58, 59]. The corrupted ”observed” trajectory is generated on a coarse spatial grid ( 𝑛 low  
+
+> 𝑥
+
+= 𝑛 low  
+
+> 𝑦
+
+= 40) by augmenting the right-hand side of the Burgers equations with additive forcing terms 𝑓 𝑢 and 𝑓 𝑣 . These localized forcings are parameterized as 𝑓 𝑢 (𝑥, 𝑦, 𝑡 ) = Í𝑀 𝑗 =1 𝑎 (𝑘 ) 
+
+> 𝑗
+
+𝜙 𝑗 (𝑥, 𝑦 ) and 𝑓 𝑣 (𝑥, 𝑦, 𝑡 ) = Í𝑀 𝑗 =1 𝑏 (𝑘 ) 
+
+> 𝑗
+
+𝜙 𝑗 (𝑥, 𝑦 ) over intervals 𝑡 ∈[𝑡 𝑘 , 𝑡 𝑘 +1), using spatial modes 𝜙 𝑗 (𝑥, 𝑦 ) = sin (𝑚 𝑗 𝜋𝑥 /𝐿 𝑥 ) sin (𝑛 𝑗 𝜋𝑦 /𝐿 𝑦 ) with 𝑀 = 4. The modal coefficients are activated within a defined temporal window, producing a smooth, localized perturbation that preserves the initial and boundary conditions of the unforced system. This physically inconsistent coarse-grid solution is advanced by using fourth-order spatial finite differences and a fourth-order Runge–Kutta time integrator with a step size of Δ𝑡 = 10 −2. In order to serve as the ground-truth reference, a high-fidelity solution of the unforced system is computed by using the Firedrake finite element framework [60] on a fine 200 × 200 grid. This reference employs a continuous-Galerkin 𝑃 2/𝑃 1 discretization with a stringent time step of Δ𝑡 = 5×10 −4.While continuous-Galerkin FEM formulations satisfy the weak form, evaluating their pointwise strong-form residual inherently yields non-zero discretization errors. However, because the prescribed Burgers system 23 evolves from smooth Gaussian initial conditions rather than harsh wall-driven shear layers, the inherent strong-form residual of the high-fidelity Firedrake solution remains negligible. Therefore, the dominant source of physical inconsistency in the coarse dataset arises deliberately from the unmodeled macroscopic forcing, allowing us to accurately assess whether PI-MFA can successfully suppress the latent perturbation and recover the true unforced dynamics. Figure 9 illustrates representative snapshots of the velocity components (𝑢, 𝑣 ) at 𝑡 ∈ { 0, 0.5, 1.0, 1.5, 2.0},including the initial condition. Given the viscous and unforced nature of the reference system, its exact solution naturally dissipates and decays toward zero over time. In contrast, the coarse-grid observations incorporate an additive forcing term over the interval 𝑡 ∈ [ 0.1, 1.8], inducing a smooth but pronounced deviation from the reference trajectory. Since the spatial discretization error in this example is comparatively small, the dominant source of physical inconsistency stems directly from this unmodeled forcing. This discrepancy generates large residuals when the coarse data is evaluated against the prescribed unforced PDE. The resulting dataset comprises 2 𝑁 𝑥 𝑁 𝑦 (𝑛 out + 1) spatiotemporal samples across both velocity components; for the chosen parameters, this yields 2 ×41 ×41 ×201 = 675 , 762 total samples. Leveraging these simulation snapshots, we construct a standard, purely data-driven MFA baseline by representing each state variable with a three-dimensional tensor-product B-spline over (𝑥, 𝑦, 𝑡 ). For the 𝑢 -velocity component, this continuous approximation is written as 
+
+𝑢 (𝑥, 𝑦, 𝑡 ) ≈ 
+
+> 𝑃 𝑥
+
+∑︁ 
+
+> 𝑖 =1
+> 𝑃 𝑦
+
+∑︁ 
+
+> 𝑗 =1
+> 𝑃 𝑡
+
+∑︁ 
+
+> 𝑘 =1
+
+𝑁 ( 𝑝 ) 
+
+> 𝑖
+
+(𝑥 ) 𝑁 ( 𝑝 ) 
+
+> 𝑗
+
+(𝑦 ) 𝑁 ( 𝑝 ) 
+
+> 𝑘
+
+(𝑡 ) 𝑃 𝑢 𝑖 𝑗 𝑘 , (4.19) where the B-spline degree is 𝑝 = 3 in all parametric directions. The 𝑣 (𝑥, 𝑦, 𝑡 ) field is represented analogously by using an independent set of control points 𝑃 𝑣 𝑖 𝑗 𝑘 . While the global error is quantified by using the same MSE definition as in the 1D convection-diffusion example, for 3D volumetric visualization we report the pointwise absolute errors 𝑟 𝑢 and 𝑟 𝑣 . These are evaluated at each reference-data coordinate as the magnitude of the difference between the continuous approximations ( ˜ 𝑢, ˜𝑣 ) and the high-fidelity reference solutions ( 𝑢, 𝑣 )
+
+𝑟 𝑢 = | ˜𝑢 (𝑥, 𝑦, 𝑡 ) − 𝑢 (𝑥, 𝑦, 𝑡 )| , 𝑟 𝑣 = | ˜𝑣 (𝑥, 𝑦, 𝑡 ) − 𝑣 (𝑥, 𝑦, 𝑡 )| . (4.20) The rendered 3D fields for the data-fitting error, PDE residual, and actual reconstruction error are all visualized by utilizing these pointwise absolute differences. In order to establish a baseline, Table 4 and Fig. 10 present the performance of a standard, purely data-driven MFA reconstruction across varying control-point grid resolutions. As in the previous 1D example, all loss terms are evaluated by using the MSE formulation defined in Eq. (4.1), extended here to account for the additional spatial dimension 𝑦 and the science variable 𝑣 . As the space-time grid is refined from 10 × 10 × 10 to 40 × 40 × 40, the reconstructed MFA fields for both velocity components, 𝑢 and 𝑣 , become progressively better resolved. This improvement is visually evident in the 3D volumetric renderings in Fig. 10, where the spatial distribution of the data-fitting error visibly diminishes as grid density increases. This visual trend aligns with the quantitative results in Table 4, which demonstrate that the data-misfit terms ( L𝑢  
+
+> data
+
+and 
+
+L𝑣 
+
+> data
+
+), along with the initial and boundary condition losses, decrease by several orders of magnitude and become essentially negligible on the finer grids. Notably, the bulk of this improvement in interpolation fidelity is already realized at the 30 × 30 × 30 resolution. Conversely, a distinct and problematic behavior emerges regarding the physical consistency of the reconstruction. Although the PDE residuals ( L𝑢  
+
+> pde
+
+and 
+
+L𝑣 
+
+> pde
+
+) decrease moderately during the initial grid refinements, they quickly plateau and remain the dominant contributors to the total loss. As shown in both the quantitative metrics (Table 4) and the volumetric renders (Fig. 10), refining the grid from 30 × 30 × 30 to 40 × 40 × 40 yields no meaningful improvement in physical accuracy; the PDE residuals for both resolutions are remarkably similar. Consequently, the overall reduction in Ltotal stagnates, decreasing from 3 .637 × 10 −2 on the 10 × 10 × 10 grid to 2 .560 × 10 −2
+
+24 10
+
+> 10
+> 10
+> 10
+
+PDE residual   
+
+> x
+> yt30×  30×  30  20 × 20×  20  10  × 10×  10
+> 0.1 0
+
+Data ��tting 
+
+error MFA  
+
+> 0.1 0
+> uv
+> 40×  40×  40
+> 0.1 0
+> 0.1 0
+> 10
+> 10
+> 10
+> 10
+> 0.8 0
+> 0.8 0
+> 0.8 0
+> 0.8 0
+> 0.1 0
+> 0.1 0
+> 0.1 0
+> 0.1 0
+> 10
+> 10
+> 10
+> 10
+
+PDE residual Data ��tting 
+
+error MFA Figure 10: Volumetric rendering of the standard MFA reconstructions for the 2D coupled Burgers velocity fields, 𝑢 (𝑥, 𝑦, 𝑡 ) and 𝑣 (𝑥, 𝑦, 𝑡 ), evaluated across four distinct control-point grid resolutions (𝑃 𝑥 , 𝑃 𝑦 , 𝑃 𝑡 ). For each grid density, the pointwise absolute error relative to the simulation data and the corresponding strong-form PDE residuals are displayed. 25 Table 4: Contributions of individual loss components as a function of the control-point grid resolution 
+
+(𝑃 𝑥 × 𝑃 𝑦 × 𝑃 𝑡 ) for the 2D coupled Burgers equations. The total loss is defined as the unweighted sum of the data, PDE, IC, and BC losses for both velocity fields: Ltotal = L𝑢  
+
+> data
+
++ L 𝑣  
+
+> data
+
++ L 𝑢  
+
+> pde
+
++ L 𝑣  
+
+> pde
+
++ L 𝑢  
+
+> IC
+
++ L 𝑣  
+
+> IC
+
++L𝑢  
+
+> BC
+
++ L 𝑣 
+
+> BC
+
+.
+
+Control-point grid 𝑷 𝒙 × 𝑷 𝒚 × 𝑷 𝒕 
+
+Loss term 10 × 10 × 10 20 × 20 × 20 30 × 30 × 30 40 × 40 × 40 
+
+L𝑢  
+
+> data
+
+4.648 × 10 −4 1.790 × 10 −5 2.155 × 10 −6 9.236 × 10 −7
+
+L𝑣  
+
+> data
+
+3.275 × 10 −4 1.258 × 10 −5 1.188 × 10 −6 5.258 × 10 −7
+
+L𝑢  
+
+> pde
+
+1.919 × 10 −2 1.677 × 10 −2 1.464 × 10 −2 1.607 × 10 −2
+
+L𝑣  
+
+> pde
+
+1.559 × 10 −2 1.168 × 10 −2 1.096 × 10 −2 1.116 × 10 −2
+
+L𝑢  
+
+> IC
+
+2.552 × 10 −4 7.536 × 10 −7 4.317 × 10 −8 1.245 × 10 −8
+
+L𝑣  
+
+> IC
+
+4.419 × 10 −4 5.440 × 10 −7 4.838 × 10 −8 1.093 × 10 −8
+
+L𝑢  
+
+> BC
+
+4.967 × 10 −5 3.068 × 10 −8 1.206 × 10 −13 3.669 × 10 −20 
+
+L𝑣  
+
+> BC
+
+5.137 × 10 −5 4.809 × 10 −8 2.018 × 10 −13 5.512 × 10 −20 
+
+Ltotal 3.637e-2 2.849e-2 2.560e-2 2.722e-2 
+
+on the 30 × 30 × 30 grid, before shifting marginally to 2 .722 × 10 −2 on the finest grid. Even at these higher resolutions, the PDE residual fields remain highly structured and exhibit persistent error magnitudes localized around regions with pronounced velocity gradients. These results expose a critical limitation of standard MFA. The additional approximation power provided by a finer parameterization primarily improves the approximation of discrete snapshot data but does not inherently enforce consistency with the governing Burgers equations. Ultimately, a vanishing data-misfit error cannot be regarded as evidence of a physically admissible continuous reconstruction. Balancing this observation, the 30 × 30 × 30 grid yields a highly accurate approximation of the data while maintaining a moderate computational footprint. Therefore, we select this resolution as a practical compromise for all subsequent PI-MFA computations. 
+
+4.2.2 PI-MFA for the 2D Burgers system 
+
+We begin by defining the vectorized control-point arrays for the two velocity components as p𝑢 := vec (𝑃 𝑢 ) ∈ 
+
+R𝑛 𝑐 and p𝑣 := vec (𝑃 𝑣 ) ∈ R𝑛 𝑐 , where 𝑛 𝑐 = 𝑛 𝑥 𝑛 𝑦 𝑛 𝑡 is the total number of control points per field. Evaluating the tensor product B-spline basis and its analytic derivatives at the 𝑀 pde interior PDE-collocation points (where the number of collocation points is chosen such that 𝑀 pde = 𝑀 data ) yields the basis matrices 
+
+𝑁, 𝑁 𝑡 , 𝑁 𝑥 , 𝑁 𝑦 , 𝑁 𝑥 𝑥 , 𝑁 𝑦𝑦 ∈ R𝑀 pde ×𝑛 𝑐 . Consequently, the continuous reconstructed fields and their spatial and temporal derivatives at these collocation points can be expressed algebraically as 
+
+𝑢 = 𝑁 p𝑢 , 𝑢 𝑡 = 𝑁 𝑡 p𝑢 , 𝑢 𝑥 = 𝑁 𝑥 p𝑢 , 𝑢 𝑦 = 𝑁 𝑦 p𝑢 , 𝑢 𝑥 𝑥 = 𝑁 𝑥 𝑥 p𝑢 , 𝑢 𝑦𝑦 = 𝑁 𝑦𝑦 p𝑢 , (4.21a) 
+
+𝑣 = 𝑁 p𝑣 , 𝑣 𝑡 = 𝑁 𝑡 p𝑣 , 𝑣 𝑥 = 𝑁 𝑥 p𝑣 , 𝑣 𝑦 = 𝑁 𝑦 p𝑣 , 𝑣 𝑥 𝑥 = 𝑁 𝑥 𝑥 p𝑣 , 𝑣 𝑦𝑦 = 𝑁 𝑦𝑦 p𝑣 . (4.21b) Similarly, let 𝑁 data , 𝑁 IC , and 𝑁 BC represent the basis matrices restricted to the spatial and temporal coordinates of the observation data, IC, and BC sets, respectively. The corresponding target value vectors for the 𝑢 and 𝑣 fields are denoted by q𝑑 𝑢 and q𝑑 𝑣 for the observational dataset, q0 
+
+> 𝑢
+
+and q0 
+
+> 𝑣
+
+for the initial snapshots, and q𝑏 𝑢 and q𝑏 𝑣 for the prescribed boundary values. Using these discrete operators, we construct the strong-form PDE residuals for the coupled Burgers system directly in the control-point space: 
+
+𝑟 𝑢 = 𝑢 𝑡 + 𝑢 ⊙ 𝑢 𝑥 + 𝑣 ⊙ 𝑢 𝑦 − 𝜈 (𝑢 𝑥 𝑥 + 𝑢 𝑦𝑦 ), (4.22a) 
+
+𝑟 𝑣 = 𝑣 𝑡 + 𝑢 ⊙ 𝑣 𝑥 + 𝑣 ⊙ 𝑣 𝑦 − 𝜈 (𝑣 𝑥 𝑥 + 𝑣 𝑦𝑦 ), (4.22b) 26 where the operator ⊙ denotes the Hadamard (elementwise) product. The global PI-MFA objective function is then formulated as a weighted sum of the MSE associated with the data misfits and the physics-informed constraint residuals: 
+
+LBurgers (p𝑢 , p𝑣 ) = 𝜆 data 
+
+𝑀 data 
+
+
+
+𝑁 data p𝑢 − q𝑑 𝑢  
+
+> 22
+
++ 𝑁 data p𝑣 − q𝑑 𝑣 
+
+> 22
+
+
+
++ 𝜆 PDE 
+
+𝑀 pde 
+
+
+
+∥𝑟 𝑢 ∥22 + ∥ 𝑟 𝑣 ∥22
+
+
+
++ 𝜆 IC 
+
+𝑀 IC 
+
+
+
+𝑁 IC p𝑢 − q0 
+
+> 𝑢
+> 22
+
++ 𝑁 IC p𝑣 − q0
+
+> 𝑣
+> 22
+
+
+
++ 𝜆 BC 
+
+𝑀 BC 
+
+
+
+𝑁 BC p𝑢 − q𝑏 𝑢  
+
+> 22
+
++ 𝑁 BC p𝑣 − q𝑏 𝑣 
+
+> 22
+
+
+
+. (4.23) To efficiently minimize this objective using the L-BFGS algorithm, we must derive and supply the exact analytical gradients. We first define the stacked residual vector 𝑟 (p𝑢 , p𝑣 ) = [𝑟 ⊤ 
+
+> 𝑢
+
+, 𝑟 ⊤ 
+
+> 𝑣
+
+]⊤ and compute its global Jacobian with respect to the control points, 𝐽 𝑟 = 𝜕𝑟 /𝜕 (p𝑢 , p𝑣 ). This global Jacobian is partitioned into four block matrices, 
+
+𝐽 𝑟 =
+
+𝐽 𝑢𝑢 𝐽 𝑢𝑣 
+
+𝐽 𝑣𝑢 𝐽 𝑣𝑣 
+
+
+
+, (4.24) which are evaluated as 
+
+𝐽 𝑢𝑢 = 𝑁 𝑡 + diag (𝑢 𝑥 )𝑁 + diag (𝑢 )𝑁 𝑥 + diag (𝑣 )𝑁 𝑦 − 𝜈 (𝑁 𝑥 𝑥 + 𝑁 𝑦𝑦 ), (4.25a) 
+
+𝐽 𝑢𝑣 = diag (𝑢 𝑦 )𝑁, (4.25b) 
+
+𝐽 𝑣𝑢 = diag (𝑣 𝑥 )𝑁, (4.25c) 
+
+𝐽 𝑣𝑣 = 𝑁 𝑡 + diag (𝑢 )𝑁 𝑥 + diag (𝑣 𝑦 )𝑁 + diag (𝑣 )𝑁 𝑦 − 𝜈 (𝑁 𝑥 𝑥 + 𝑁 𝑦𝑦 ). (4.25d) The gradients of the PDE-residual penalty, LPDE , with respect to the control vectors are computed via the chain rule as 
+
+∇p𝑢 LPDE = 2
+
+𝑀 pde 
+
+ 𝐽 ⊤
+
+> 𝑢𝑢
+
+𝑟 𝑢 + 𝐽 ⊤
+
+> 𝑣𝑢
+
+𝑟 𝑣 
+
+ , (4.26a) 
+
+∇p𝑣 LPDE = 2
+
+𝑀 pde 
+
+ 𝐽 ⊤
+
+> 𝑢𝑣
+
+𝑟 𝑢 + 𝐽 ⊤
+
+> 𝑣𝑣
+
+𝑟 𝑣 
+
+ . (4.26b) In order to avoid the explicit construction and associated memory overhead of large diagonal matrices, these gradients are computed more efficiently in practice by using Hadamard (elementwise) products ( ⊙): 
+
+∇p𝑢 LPDE = 2
+
+𝑀 pde 
+
+h
+
+𝑁 ⊤ 
+
+> 𝑡
+
+𝑟 𝑢 + 𝑁 ⊤ (𝑢 𝑥 ⊙ 𝑟 𝑢 ) + 𝑁 ⊤ 
+
+> 𝑥
+
+(𝑢 ⊙ 𝑟 𝑢 ) + 𝑁 ⊤ 
+
+> 𝑦
+
+(𝑣 ⊙ 𝑟 𝑢 ) − 𝜈 (𝑁 ⊤ 
+
+> 𝑥 𝑥
+
++ 𝑁 ⊤ 
+
+> 𝑦𝑦
+
+)𝑟 𝑢 + 𝑁 ⊤ (𝑣 𝑥 ⊙ 𝑟 𝑣 )
+
+i
+
+,
+
+(4.27a) 
+
+∇p𝑣 LPDE = 2
+
+𝑀 pde 
+
+h
+
+𝑁 ⊤ (𝑢 𝑦 ⊙ 𝑟 𝑢 ) + 𝑁 ⊤ 
+
+> 𝑡
+
+𝑟 𝑣 + 𝑁 ⊤ 
+
+> 𝑥
+
+(𝑢 ⊙ 𝑟 𝑣 ) + 𝑁 ⊤ (𝑣 𝑦 ⊙ 𝑟 𝑣 ) + 𝑁 ⊤ 
+
+> 𝑦
+
+(𝑣 ⊙ 𝑟 𝑣 ) − 𝜈 (𝑁 ⊤ 
+
+> 𝑥 𝑥
+
++ 𝑁 ⊤ 
+
+> 𝑦𝑦
+
+)𝑟 𝑣 
+
+i
+
+.
+
+(4.27b) Assembling the contributions from the data, initial, and boundary constraints yields the full analytical 27 Table 5: Quantitative comparison of the final loss components for the 2D coupled Burgers’ equations across purely data-driven MFA, regularized MFA (Reg-MFA), a physics-informed neural network (PINN) baseline, and four representative PI-MFA configurations. The data-misfit, PDE-residual, initial condition (IC), and boundary condition (BC) terms are evaluated separately for the 𝑢 and 𝑣 velocity fields with the unweighted total composite loss. 
+
+MFA Reg-MFA PINN PI-MFA    
+
+> (data only) (smoothing) (PDE/IC)
+
+Case 1 
+
+> (naive)
+
+Case 2 
+
+> (physics)
+
+Case 3 
+
+> (data/PDE)
+
+Case 4 
+
+> (PDE/IC)
+
+Iteration 0 0 – 4 131 101 145 
+
+𝜆 data 1 1 10 −3 1 10 −2 10 10 −3
+
+𝜆 pde 0 0 10 2 1 10 2 10 2 10 2
+
+𝜆 IC 0 0 10 2 1 10 2 10 −3 10 2
+
+𝜆 BC 0 0 10 −3 1 10 2 10 −3 10 −3
+
+L𝑢  
+
+> data
+
+2.155e-6 9.296e-6 2.821e-2 4.663e-5 2.465e-3 1.312e-3 2.682e-3 
+
+L𝑣  
+
+> data
+
+1.188e-5 5.092e-6 8.196e-3 4.902e-5 7.650e-4 7.811e-4 7.821e-4 
+
+L𝑢  
+
+> pde
+
+1.464e-2 1.184e-1 2.063e-3 4.223e-3 2.549e-4 5.135e-5 2.485e-4 
+
+L𝑣  
+
+> pde
+
+1.096e-2 7.740e-2 1.926e-3 1.913e-3 2.066e-4 3.124e-5 2.037e-4 
+
+L𝑢  
+
+> IC
+
+4.317e-8 1.487e-7 2.087e-3 1.107e-6 3.923e-5 1.984e-3 3.770e-5 
+
+L𝑣  
+
+> IC
+
+4.838e-8 1.868e-7 3.347e-3 3.224e-7 6.009e-5 2.186e-3 5.519e-5 
+
+L𝑢  
+
+> BC
+
+1.206e-13 5.275e-14 9.302e-4 3.694e-7 3.819e-7 5.534e-5 2.557e-4 
+
+L𝑣  
+
+> BC
+
+2.018e-13 9.680e-14 9.294e-4 5.690e-7 5.975e-7 1.011e-5 5.061e-5 
+
+Ltotal 2.560e-2 1.958e-1 4.769e-2 6.234e-3 3.791e-3 6.411e-3 4.315e-3 
+
+gradients of the optimization objective: 
+
+∇p𝑢 LBurgers = 2𝜆 data 
+
+𝑀 data 
+
+𝑁 ⊤ 
+
+> data
+
+(𝑁 data p𝑢 − q𝑑 𝑢 ) + 𝜆 PDE ∇p𝑢 LPDE 
+
++ 2𝜆 IC 
+
+𝑀 IC 
+
+𝑁 ⊤ 
+
+> IC
+
+(𝑁 IC p𝑢 − q0
+
+> 𝑢
+
+) + 2𝜆 BC 
+
+𝑀 BC 
+
+𝑁 ⊤ 
+
+> BC
+
+(𝑁 BC p𝑢 − q𝑏 𝑢 ), (4.28a) 
+
+∇p𝑣 LBurgers = 2𝜆 data 
+
+𝑀 data 
+
+𝑁 ⊤ 
+
+> data
+
+(𝑁 data p𝑣 − q𝑑 𝑣 ) + 𝜆 PDE ∇p𝑣 LPDE 
+
++ 2𝜆 IC 
+
+𝑀 IC 
+
+𝑁 ⊤ 
+
+> IC
+
+(𝑁 IC p𝑣 − q0 
+
+> 𝑣
+
+) + 2𝜆 BC 
+
+𝑀 BC 
+
+𝑁 ⊤ 
+
+> BC
+
+(𝑁 BC p𝑣 − q𝑏 𝑣 ). (4.28b) 
+
+4.2.3 Recovery from physically inconsistent data 
+
+For the two-dimensional coupled Burgers system, the global loss function comprises four distinct penalty categories: data fidelity, PDE residual, IC, and BC enforcement. While the system governs two separate velocity components ( 𝑢 and 𝑣 ), which could theoretically introduce eight independent hyperparameters, we assign identical weights to the 𝑢 - and 𝑣 -contributions within each category. This strategy reduces the hyperparameter space to four independent weights: 𝜆 data , 𝜆 pde , 𝜆 IC , and 𝜆 BC . Given the increased computational expense of L-BFGS optimization in three space-time dimensions (𝑥, 𝑦, 𝑡 ), conducting an exhaustive 4D parameter sweep is impractical. Instead, we select representative weight configurations informed by both the insights gained from the previous 1D example and the error magnitudes observed in the purely data-driven MFA baseline (Table 4). Our primary objective in this 2D example is to suppress the unmodeled, localized forcing embedded within the coarse observation data, thereby recovering a continuous 28 trajectory that is more consistent with the prescribed, unforced Burgers equations. To evaluate the flexibility of the proposed framework, we analyze four representative weight configura-tions. Case 1 ( 𝜆 ∗ = 1) serves as a naive baseline, applying equal importance to all constraints. In Case 2 (physics-dominated), the data weight 𝜆 data is intentionally heavily reduced (10 −2) to acknowledge that the input observations are inherently polluted by unmodeled physics. This configuration forces the optimizer to prioritize the governing equations, alongside the IC and BC constraints. Case 3 (data- and PDE-dominated) maintains a strong emphasis on data interpolation ( 𝜆 data = 10) and PDE consistency ( 𝜆 pde = 10 2), while dramatically relaxing the boundary and initial constraints ( 𝜆 IC , 𝜆 BC = 10 −3). This choice is motivated by the observation that standard MFA naturally satisfies the IC and BC constraints with high precision even without explicit enforcement (Table 4). Case 4 (PDE- and IC-dominated) combines a suppressed data weight with enforcement of the PDE and initial conditions, providing an alternative strategy for filtering the internal volumetric discrepancy while locking the starting state. The performance metrics for these four PI-MFA configurations, along with standard MFA, Regularized MFA (Reg-MFA), and a PINN baseline, are summarized in Table 5. As expected, the purely data-driven standard MFA yields the smallest data-misfit errors but incurs massive PDE residuals, confirming its inability to filter out the unmodeled forcing. The Reg-MFA baseline, which applies smoothing penalties without physical knowledge, exacerbates this issue. It degrades the data fit while simultaneously increasing the PDE residuals to the highest levels observed across all methods ( Ltotal = 1.958 × 10 −1). The PINN baseline succeeds in lowering the PDE residuals compared with standard and regularized MFA but struggles significantly with boundary and initial condition enforcement, resulting in a higher total loss ( Ltotal =
+
+4.769 × 10 −2) than any of the PI-MFA configurations. In contrast, all four PI-MFA configurations successfully balance constraint enforcement, reducing the unweighted total composite loss relative to the baselines. While enforcing physical constraints inherently causes a minor degradation in data approximation fidelity compared with the data-only MFA, the PDE residuals drop by several orders of magnitude. Among the tested configurations, Case 2 achieves the lowest total loss ( Ltotal = 3.791 × 10 −3), demonstrating that down-weighting the corrupted data while enforcing the PDE and boundary conditions provides the most robust filtration of the unmodeled source term. Case 3 successfully drives the PDE residuals to their absolute minimum values but incurs noticeably larger IC and BC errors due to its relaxed constraint weights. Case 4 performs similarly to Case 2, yielding excellent physics consistency but slightly elevated data-misfit values. Furthermore, in comparison with the PINN baseline, PI-MFA benefits intrinsically from the local support of the B-spline basis. This mathematical structure allows the framework to anchor physical constraints locally and produce exceptionally smooth gradient fields, even when operating on coarse discretizations. Ultimately, these findings demonstrate that intelligently down-weighting physically inconsistent observations empowers the PI-MFA framework to reject latent perturbations and accurately recover the prescribed governing dynamics. Figure 11 complements the quantitative final losses in Table 5 by detailing the full L-BFGS convergence histories for the four PI-MFA configurations. These optimization trajectories clearly illustrate how weight selection fundamentally alters the dynamic trade-off among data interpolation, PDE residual minimization, and IC/BC constraint satisfaction. For instance, the naive baseline (Case 1, Fig. 11( a)) terminates after only a few iterations. The optimizer quickly fits the physically inconsistent observation data, causing the unweighted PDE residuals to permanently stagnate at unacceptably high levels. Conversely, configurations utilizing a reduced data weight, such as Case 2 (Fig. 11( b)) and Case 4 (Fig. 11( d)), require significantly more iterations to converge. In these physics-dominated regimes, the algorithm actively works to filter the unmodeled forcing, systematically driving the PDE residuals down by several orders of magnitude until they prominently cross below the data-misfit errors. Meanwhile, Case 3 (Fig. 11( c)) demonstrates the direct consequence of relaxing the boundary and initial constraints. While the PDE residuals are successfully driven to their absolute minimum, the LIC and LBC terms experience a rapid, pronounced surge early in the optimization process before stabilizing. Ultimately, these convergence histories visually confirm that an 29 Iterations (a) (b)(c)
+
+> -2
+
+10 -4 10 -6 10 -8 10 -10 10 -12 10 20 4 6 8 10 
+
+> -2
+
+10 -4 10 -6 10 -8 10 -10 10 -12 10 
+
+Iterations 
+
+0 40 80 120 160 200 
+
+> -2
+
+10 -4 10 -6 10 -8 10 -10 10 -12 10 
+
+> Loss Loss
+
+Iterations 
+
+20 0 40 60 80 100 
+
+Iterations 
+
+0 40 80 120 160 200 
+
+> -2
+
+10 -4 10 -6 10 -8 10 -10 10 -12 10 
+
+Case 1 
+
+(naive baseline) 
+
+Case 2 
+
+(physics-dominated) 
+
+Case 3 
+
+(data- and PDE-dominated) 
+
+Case 4 
+
+(PDE- and IC- dominated) (d)
+
+ℒtotal 
+
+ℒpde 
+
+ℒIC 
+
+ℒBC 
+
+ℒdata 
+
+> uv
+
+ℒdata 
+
+> u
+
+ℒpde 
+
+ℒIC 
+
+ℒBC 
+
+> uuvvv
+
+Figure 11: Convergence histories of the unweighted loss components during L-BFGS optimization for the four representative PI-MFA configurations applied to the 2D coupled Burgers problem. Each panel tracks the evolution of the total loss alongside the individual data-misfit, PDE-residual, initial-condition, and boundary-condition contributions for both the 𝑢 and 𝑣 velocity fields. 30 appropriate hyperparameter balance is crucial; down-weighting corrupted data prevents premature overfitting and allows the L-BFGS algorithm to actively prioritize physical consistency throughout the optimization trajectory. Figure 12 visually compares the reconstructed velocity components ( 𝑢 and 𝑣 ) across standard MFA, Reg-MFA, a PINN, and the four PI-MFA configurations. For each method, the continuous approximation is plotted alongside its corresponding strong-form PDE residual and its actual pointwise error relative to the unforced FEM reference solution. In the first row, standard MFA captures the macroscopic space-time flow patterns but exhibits broad, spatially distributed residuals and errors. This situation occurs because the purely data-driven spline fits the unmodeled forcing present in the input data (simulation data). The Reg-MFA baseline attempts to mitigate noise via blind mathematical smoothing. Because it lacks physical awareness, however, it oversmooths the true gradients of the target model. This exacerbates the physical discrepancy, resulting in a highly blurred approximation and increases in both the PDE residual and actual error. The PINN baseline incorporates the governing equations but struggles with the continuous spatial representation. As seen in the actual error and PDE residual volumes, the PINN reconstruction suffers from noticeable diagonal streaking and high-frequency artifacts, indicating an inability to capture smooth, stable gradients natively. In contrast, applying the physics-informed MFA framework (PI-MFA) systematically drives the recon-structed fields closer to the exact FEM reference. While the continuous approximations of all four PI-MFA cases appear visually reasonable, their residual and actual-error panels reveal profound, quantifiable im-provements over the baselines, especially standard MFA and Reg-MFA. For the 𝑢 velocity component, the actual error decreases from 2 .146 × 10 −2 (standard MFA) to 2 .814 × 10 −3, 2 .872 × 10 −4, 2 .478 × 10 −3, and 2.641 × 10 −4 for PI-MFA Cases 1 through 4, respectively. A similar magnitude of improvement is observed for the 𝑣 component, where the actual error drops from 5 .783 × 10 −3 (MFA) down to 1 .406 × 10 −4 (Case 4). Simultaneously, the PDE residual volumes are heavily suppressed and tightly localized compared with the standard MFA and Reg-MFA reconstruction, confirming a restoration of physical consistency. To compare with PINN reconstruction, the PINN approach needs another postprocessing to have a continuous field from the simulation data. From a computational-cost perspective, using a PINN as an intermediate model and then postprocessing it into another continuous representation is less efficient for this workflow, while the actual error can be significantly dropped. Among the four variants, Cases 2 and 4 yield the best overall performance, achieving the smallest residuals and the lowest actual errors for both velocity components. Ultimately, these visual and quantitative results demonstrate that embedding the governing equations directly into the MFA objective allows the continuous representation to reject corrupted observation data and reconstruct the true underlying physics far more effectively than the previous pure data-fitting and smoothing MFA framework. Figure 13 reports the time histories of the componentwise global integral-balance residuals, 𝑟 𝑢,𝑀 (𝑡 ) and 
+
+𝑟 𝑣,𝑀 (𝑡 ) as defined in Eq. (4.18), for the various reconstruction methods. As a baseline, the residuals computed directly from the discrete observation data using the finite difference method are included. For the exact solution of the prescribed, unforced Burgers system, the componentwise integral-balance residuals should be zero. These time histories provide a diagnostic of macroscopic physical consistency that extends beyond the localized loss metrics summarized in Table 5. The FDM evaluation of the corrupted observation data exhibits high-frequency oscillations. While the purely data-driven standard MFA leverages its continuous spline representation to smooth out the harshest numerical artifacts, its trajectory still broadly tracks the corrupted data, failing entirely to satisfy the componentwise integral-balance diagnostic. Similarly, Reg-MFA applies mathematical smoothing to further dampen the integral variance; but lacking physical constraints, it still drifts significantly from the true zero-line. In contrast, integrating physics directly into the optimization fundamentally corrects this behavior. The PINN baseline and the physics-dominated PI-MFA configurations (Cases 2, 3, and 4) successfully collapse the balance residuals tightly around zero. Case 1 (the naive baseline) improves upon standard MFA but still exhibits noticeable fluctuations due to its equal weighting, which allows the corrupted data to exert too much influence. Among the tuned variants, Cases 2 and 4 yield 31 Actual error PDE residual Continuous Approximation 
+
+> 10
+
+Reference 
+
+> 10
+> 10
+> 10
+> 10
+> 0.8 0
+> 0.8 0
+> 0.8 0
+> 0.8 0
+> 0.8 0
+> 0.8 0
+
+Actual error PDE residual 
+
+> MFA
+> (data-only)
+> Case 1
+> (naive baseline)
+
+Continuous Approximation 
+
+> Case 2
+> (physics-dominated)
+> Case 3
+> (data- and PDE-dominated)
+> Case 4
+> (PDE- and IC-dominated)
+> 10
+
+Reference  
+
+> 10
+> 10
+> 10
+> 10
+> 10
+> 10
+> 10
+> 10
+> 10
+> 10
+> uv
+
+E: 2.146e-2 E: 2.814e-3 E: 2.872e-4 E: 2.478e-3 E: 2.641e-4 E: 5.783e-3 E: 6.221e-4 E: 1.441e-4 E: 9.582e-4 E: 1.406e-4 
+
+> PINN
+> (interpolated)
+> Reg-MFA
+> (smoothing)  10
+> 10
+> 10
+> 10
+> 10
+> 10
+
+E: 4.151e-2 E: 1.868e-2 E:1.464e-2 E: 4.223e-3 E: 2.549e-4 E: 5.135e-5 E: 2.485e-4 E: 1.096e-2 E: 1.913e-3 E: 2.066e-4 E: 3.124e-5 E: 2.037e-4 E: 1.184e-1 E: 7.740e-2 E: 2.063e-3 E: 1.926e-3   
+
+> 0.8 0
+> 0.8 0
+> PI-MFA
+> xytxyt
+
+E: 7.226e-4 E: 4.203e-4 Figure 12: Volumetric comparison of the reconstructed 2D Burgers velocity fields ( 𝑢 and 𝑣 ) across standard MFA, regularized MFA (Reg-MFA), a PINN baseline, and four PI-MFA configurations. For each velocity component, the panels display the continuous approximation, the corresponding strong-form PDE residual, and the pointwise actual error relative to the high-fidelity FEM reference solution. The aggregated MSE for the PDE residual and actual error is reported beneath each respective volume. 32 1.5 
+
+1.0 0.5 0.0 -0.5 -1.0 
+
+> Integral-balance residual
+
+2.00 0.50 0.25 0
+
+t
+
+0.75 1.00 1.25 1.50 1.75 1.0 0.5 -0.5 -1.0 2.00 0.50 0.25 0
+
+t
+
+0.75 1.00 1.25 1.50 1.75 
+
+u
+
+v
+
+(a)
+
+(b)
+
+-1.5 
+
+0.0 
+
+MFA PI-MFA (case 1) PI-MFA (case 3) PI-MFA (case 2) PI-MFA (case 4) Numerical data (FDM) Reg-MFA PINN 
+
+> Integral-balance residual
+
+Figure 13: Temporal evolution of the global integral-balance residuals, (a) 𝑟 𝑢,𝑀 (𝑡 ) and (b) 𝑟 𝑣,𝑀 (𝑡 ), for the two-dimensional coupled Burgers equations (see Eq. (4.18)). 33 the tightest adherence to zero across the entire time domain, aligning perfectly with their strong emphasis on the PDE constraints. Case 3, while producing exceptionally small PDE residuals locally, exhibits marginally larger excursions in the global balance at certain time steps, reflecting its weaker enforcement of the initial and boundary conditions. Overall, Fig. 13 confirms that appropriate parameter reweighting in the PI-MFA framework not only minimizes local optimization losses but effectively guarantees the global integral-balance consistency of the prescribed 2D Burgers system. An exhaustive parametric study for larger-scale systems falls outside the scope of the present article and will be addressed in future investigations. 
+
+4.3 Two-dimensional incompressible Navier-Stokes equation 
+
+We consider the two-dimensional, unsteady, incompressible Navier-Stokes equations in a lid-driven cavity on the unit-square domain Ω = (0, 1) × ( 0, 1) over the time interval 𝑡 ∈ [ 0, 𝑇 ]. Let 𝒖 = (𝑢, 𝑣 )T denote the velocity field and 𝑝 the kinematic pressure. The governing equations in strong form are 
+
+𝜕𝑢 𝜕𝑡 + 𝑢 𝜕𝑢 𝜕𝑥 + 𝑣 𝜕𝑢 𝜕𝑦 + 𝜕 𝑝 𝜕𝑥 − 𝜈 
+
+ 𝜕 2𝑢 𝜕𝑥 2 + 𝜕 2𝑢 𝜕𝑦 2
+
+
+
+= 0, (𝑥, 𝑦 ) ∈ Ω, 𝑡 > 0, (4.29a) 
+
+𝜕𝑣 𝜕𝑡 + 𝑢 𝜕𝑣 𝜕𝑥 + 𝑣 𝜕𝑣 𝜕𝑦 + 𝜕 𝑝 𝜕𝑦 − 𝜈 
+
+ 𝜕 2𝑣 𝜕𝑥 2 + 𝜕 2𝑣 𝜕𝑦 2
+
+
+
+= 0, (𝑥, 𝑦 ) ∈ Ω, 𝑡 > 0, (4.29b) 
+
+𝜕𝑢 𝜕𝑥 + 𝜕𝑣 𝜕𝑦 = 0, (𝑥, 𝑦 ) ∈ Ω, 𝑡 > 0. (4.29c) Here 𝜈 denotes the kinematic viscosity. The flow is driven by the motion of the top lid. In the classical lid-driven cavity benchmark [61], the top boundary is assigned a uniform tangential velocity. However, this creates physical discontinuities at the top corners, (0, 1) and (1, 1), where the moving lid meets the stationary side walls. These velocity discontinuities lead to non-physical pressure singularities that can degrade the convergence order of high-fidelity numerical schemes and present significant challenges. To regularize the flow and ensure a bounded, globally smooth pressure and velocity field, we adopt the regularized lid-driven cavity formulation, which is widely used to evaluate high-order continuous numerical methods [62]. We replace the discontinuous top boundary condition with a smooth velocity profile that tapers to zero at the corners. Specifically, we prescribe a fourth-order polynomial velocity profile on the top lid ( 𝑦 = 1): 
+
+𝑢 (𝑥, 1, 𝑡 ) = 16 𝑥 2 (1 − 𝑥 )2, 𝑣 (𝑥, 1, 𝑡 ) = 0, for 𝑥 ∈ [ 0, 1], ; 𝑡 ≥ 0. (4.30) This specific polynomial is chosen because it satisfies the no-slip condition ( 𝑢 = 0) at the corners ( 𝑥 = 0 and 
+
+𝑥 = 1), effectively preventing the singularity, while maintaining a maximum tangential velocity of 𝑈 = 1 at the center of the lid ( 𝑥 = 0.5). Standard no-slip boundary conditions are imposed on the remaining three stationary walls: 
+
+𝑢 (𝑥, 𝑦, 𝑡 ) = 0, 𝑣 (𝑥, 𝑦, 𝑡 ) = 0, for 𝑥 = 0, ; 𝑥 = 1, or 𝑦 = 0, ; 𝑡 ≥ 0. (4.31) At time 𝑡 = 0, the interior velocity field and kinematic pressure are initialized from rest: 
+
+𝑢 (𝑥, 𝑦, 0) = 0, 𝑣 (𝑥, 𝑦, 0) = 0, 𝑝 (𝑥, 𝑦, 0) = 0, for (𝑥, 𝑦 ) ∈ Ω. (4.32) The cavity-length-based Reynolds number is set to 𝑅𝑒 = 𝑈 𝐿 /𝜈 = 1000, where 𝑈 = 1 is the maximum lid velocity and 𝐿 = 1 is the cavity length. 
+
+4.3.1 Dataset generation and standard MFA 
+
+To generate the benchmark dataset, we solve the regularized incompressible Navier-Stokes equations using the Firedrake finite element framework [60]. A high-fidelity reference trajectory is computed on a fine 34 -0.2 0.8       
+
+> t=0.01 t=10 t=2.5 t=5 t=7.5
+> uvy
+> -0.2 0.8
+> -0.7 0.7
+> xxxxx
+> 0.1 0
+> yyyy
+> Reference
+> (high-fidelity) Absolute error
+> -0.4 0.2
+> -0.4 0.2
+> -0.7 0.7
+> 0.1 0
+> 10
+> P
+> Reference
+> (high-fidelity) Absolute error Physically inconsistent data (low-fidelity) Reference (high-fidelity) Absolute error Physically inconsistent data (low-fidelity) Physically inconsistent data (low-fidelity)
+> yyyyxy
+
+Figure 14: Snapshots of the horizontal velocity ( 𝑢 ), vertical velocity ( 𝑣 ), and kinematic pressure ( 𝑝 ) for the regularized 2D lid-driven cavity flow at 𝑡 = 0.01 , 2.5, 5, 7.5, and 10. For each flow variable, the top row displays the exact high-fidelity FEM reference solution, the middle row shows the physically inconsistent low-fidelity observation data (degraded by spatial underresolution and numerical diffusion), and the bottom row plots the pointwise absolute error. The overlaid solid black lines indicate contours of constant vorticity. In all plots, 𝑥 ∈ [ 0, 1] and 𝑦 ∈ [ 0, 1].35 100 × 100 uniform spatial mesh. To satisfy the LBB (inf-sup) stability condition, we employ a high-order Taylor–Hood element pair, utilizing continuous Galerkin elements of degree four ( 𝑃 4) for the velocity field and degree three ( 𝑃 3) for the kinematic pressure. Time integration is performed by using the second-order, non-dissipative Crank–Nicolson scheme with a refined time step of Δ𝑡 ref = 10 −3, integrated up to a final time of 𝑇 = 10 .0. Notably, the sharp corners inherent to this flow configuration induce distinct behavior in the PDE residuals. Given that the finite element method satisfies the weak form of the equations, evaluating the strong-form pointwise residual naturally yields non-zero values clustered heavily around these geometric singularities. To emulate physically inconsistent observations, we intentionally degrade the simulation fidelity using a coarse grid and lower-order numerical schemes. Filtering discretization and numerical errors in such data is highly relevant, as many emerging AI/ML-driven frameworks rely on cheaper, low-resolution simulations to accelerate computational workflows [63, 64, 65]. Specifically, this corrupted dataset is generated on a much coarser 20 × 20 spatial mesh using lower-order 𝑃 2/𝑃 1 Taylor–Hood elements. Furthermore, the temporal integration is downgraded to the unconditionally stable but highly dissipative first-order backward Euler scheme with a larger time step of Δ𝑡 = 10 −2. This combination of spatial underresolution and first-order temporal integration deliberately introduces significant artificial numerical diffusion and truncation errors, rendering the resulting discrete data physically inconsistent with the exact continuous Navier-Stokes dynamics. Figure 14 visualizes the impact of this numerical degradation across the velocity and pressure fields. While the low-fidelity observation data broadly captures the primary macroscopic vortex driven by the sliding lid, the pointwise absolute error plots reveal substantial discrepancies. The 𝑢 and 𝑣 velocity fields suffer from noticeable numerical smearing, particularly near the high-gradient region of the moving lid and the primary vortex core. More critically, the pressure field in the low-fidelity dataset is severely degraded, failing almost entirely to capture the sharp gradients at the singular top corners. To evaluate the capabilities of the PI-MFA framework, we investigate its performance on this purely discretization-induced inconsistency, which is a common source of data discrepancy in scientific visualiza-tion. In this regime, the target data violates the continuous governing equations due to numerical diffusion. While PI-MFA successfully drives the continuous momentum and divergence residuals to near zero, produc-ing a highly smooth, mass-conserving velocity field ( ∇ · u = 0) suitable for reliable downstream visualization, the absolute error relative to the high-fidelity reference remains bounded. This behavior is mathematically expected. PI-MFA accurately projects the corrupted data onto a physically admissible macroscopic state, but macroscopic PDE constraints alone cannot spontaneously reconstruct subgrid flow features that were irreversibly damped by the coarse solver. However, since the PI-MFA objective inherently embeds the full Navier-Stokes momentum equations, it unlocks a powerful secondary capability—the ability to simultane-ously infer and recover hidden or severely corrupted physical variables, such as the continuous pressure field, directly from the observed velocity data. Similar to the approaches detailed in Sections 4.1.1 and 4.2.1, we begin by establishing a purely data-driven MFA baseline. This involves reconstructing continuous representations of the two velocity compo-nents, 𝑢 (𝑥, 𝑦, 𝑡 ) and 𝑣 (𝑥, 𝑦, 𝑡 ), and the kinematic pressure, 𝑝 (𝑥, 𝑦, 𝑡 ), directly from the physically inconsistent lid-driven cavity observation data. Each physical field is parameterized by an independent, three-dimensional tensor product B-spline over the space-time domain (𝑥, 𝑦, 𝑡 ) ∈ Ω × [ 0, 𝑇 ], as defined in Eq. (4.19). To determine the optimal complexity for the spline space, we perform a resolution study by varying the number of control points, 𝑃 𝑥 , 𝑃 𝑦 , and 𝑃 𝑡 , across the domain. The resulting loss contributions are summarized in Table 6. Given that the dataset encompasses 1,000 discrete time steps, we allocate relatively denser control-point resolution to the temporal axis. As expected, the results demonstrate a strict trade-off between data fitting fidelity and physical consistency. Increasing the spatial resolution from 10 × 10 to 20 × 20 improves the data-fitting accuracy, driving the velocity approximation errors down from ∼ 10 −4 to 
+
+∼ 10 −8. However, this tight conformity to the corrupted observation data comes at a steep physical cost. 36 Table 6: Loss contributions for varying control-point grids (𝑃 𝑥 × 𝑃 𝑦 × 𝑃 𝑡 ) in the 2D Navier-Stokes lid-driven cavity problem. The total loss reflects the sum of all data, PDE, IC, and BC penalties for the three physical fields ( 𝑢 , 𝑣 , 𝑝 ).                                                                                                                                        
+
+> Loss term Grid 10 ×10 Grid 20 ×20 Grid 30 ×30
+> 𝑃 𝑡 =10 𝑃 𝑡 =50 𝑃 𝑡 =100 𝑃 𝑡 =20 𝑃 𝑡 =50 𝑃 𝑡 =100 𝑃 𝑡 =30 𝑃 𝑡 =50 𝑃 𝑡 =100
+> L𝑢
+> data 2.487e-4 2.455e-4 2.455e-4 1.966e-7 1.800e-8 1.575e-8 1.849e-8 9.666e-9 7.419e-9
+> L𝑣
+> data 4.728e-5 4.668e-5 4.668e-5 1.637e-8 5.167e-9 5.111e-9 5.356e-10 1.654e-10 1.099e-10
+> L𝑝
+> data 7.120e-5 2.530e-5 1.206e-5 5.114e-5 2.415e-5 1.091e-5 3.872e-5 2.415e-5 1.091e-5
+> L𝑥
+> mom 3.025e-1 3.031e-1 3.032e-1 4.103e+0 4.103e+0 4.104e+0 1.581e+2 1.583e+2 1.584e+2
+> L𝑦
+> mom 8.698e-2 8.744e-2 8.759e-2 2.633e-1 2.637e-1 2.638e-1 1.836e+2 1.837e+2 1.839e+2
+> Ldiv 1.019e-1 1.024e-1 1.024e-1 2.799e-1 2.807e-1 2.807e-1 1.765e+1 1.765e+1 1.765e+1
+> L𝑢
+> IC 6.627e-4 4.023e-4 3.995e-4 8.653e-6 5.634e-6 2.675e-6 2.387e-6 5.634e-6 2.675e-6
+> L𝑣
+> IC 1.404e-5 4.978e-7 4.407e-7 2.924e-7 9.839e-8 3.963e-8 9.233e-8 9.839e-8 3.963e-8
+> L𝑢
+> BC 1.974e-1 1.941e-1 1.886e-1 1.937e-1 1.974e-1 1.928e-1 1.928e-1 1.928e-1 1.928e-1
+> L𝑣
+> BC 1.310e-2 8.900e-5 8.900e-5 7.275e-5 4.646e-3 7.278e-5 7.278e-5 7.278e-5 7.278e-5
+> Ltotal 7.029e-1 6.879e-1 6.826e-1 4.840e+0 4.850e+0 4.841e+0 3.595e+2 3.596e+2 3.599e+2
+
+The strong-form momentum and divergence residuals increase by over an order of magnitude. Pushing the spatial resolution further to 30 × 30 causes these PDE errors to explode severely ( Ltotal ≈ 3.6 × 10 2). In this highly refined regime, the B-spline basis possesses sufficient flexibility to entirely overfit the artificial numerical diffusion and truncation errors embedded in the low-fidelity observations, completely abandoning the underlying fluid dynamics. Based on this analysis, we select the 20 ×20 ×50 control-point grid for all subsequent PI-MFA evaluations. As visualized in Fig. 15, this intermediate configuration provides an ideal balance. It provides an adequate geometric fit to the input data while preventing the catastrophic degradation of the PDE residuals observed at higher grid resolutions. 
+
+4.3.2 PI-MFA formulation for the Navier-Stokes system 
+
+We define the vectorized control-point arrays for the two velocity components and the kinematic pressure as p𝑢 := vec (𝑃 𝑢 ) ∈ R𝑛 𝑐 , p𝑣 := vec (𝑃 𝑣 ) ∈ R𝑛 𝑐 , and p𝑝 := vec (𝑃 𝑝 ) ∈ R𝑛 𝑐 , where 𝑛 𝑐 denotes the total number of control points per physical field. All three fields are parameterized over the exact same tensor product B-spline space. Consequently, evaluating the basis functions and their analytic derivatives at the 
+
+𝑀 pde interior PDE-collocation points yields the shared basis matrices 𝑁, 𝑁 𝑡 , 𝑁 𝑥 , 𝑁 𝑦 , 𝑁 𝑥 𝑥 , and 𝑁 𝑦𝑦 . The continuously reconstructed fields and their relevant spatial and temporal derivatives at these collocation points can thus be expressed algebraically as 
+
+𝑢 = 𝑁 p𝑢 , 𝑢 𝑡 = 𝑁 𝑡 p𝑢 , 𝑢 𝑥 = 𝑁 𝑥 p𝑢 , 𝑢 𝑦 = 𝑁 𝑦 p𝑢 , 𝑢 𝑥 𝑥 = 𝑁 𝑥 𝑥 p𝑢 , 𝑢 𝑦𝑦 = 𝑁 𝑦𝑦 p𝑢 , (4.33a) 
+
+𝑣 = 𝑁 p𝑣 , 𝑣 𝑡 = 𝑁 𝑡 p𝑣 , 𝑣 𝑥 = 𝑁 𝑥 p𝑣 , 𝑣 𝑦 = 𝑁 𝑦 p𝑣 , 𝑣 𝑥 𝑥 = 𝑁 𝑥 𝑥 p𝑣 , 𝑣 𝑦𝑦 = 𝑁 𝑦𝑦 p𝑣 , (4.33b) 
+
+𝑝 = 𝑁 p𝑝 , 𝑝 𝑥 = 𝑁 𝑥 p𝑝 , 𝑝 𝑦 = 𝑁 𝑦 p𝑝 . (4.33c) Similarly, let 𝑁 data , 𝑁 IC , and 𝑁 BC represent the shared basis matrices restricted to the coordinates of the observation data, IC, and BC sets, respectively. Since the incompressible Navier–Stokes equations determine pressure only up to a spatially constant, time-dependent offset, an additional pressure gauge is required to fix the pressure level. In this work, we use a pointwise gauge. At a fixed spatial reference location (𝑥 𝑔 , 𝑦 𝑔 )
+
+37 0.7 -0.7     
+
+> Data ��tting
+> error MFA
+> x
+> yt
+> 1.0 -0.25
+> 0.2 -0.4
+> 1e-2 0E: 1..800e-8 E: 5.167e-9 E: 2.415e-5
+> uvp
+> 20×20×50
+
+Figure 15: Standard, purely data-driven MFA reconstruction of the horizontal velocity ( 𝑢 ), vertical velocity (𝑣 ), and kinematic pressure ( 𝑝 ) space-time fields for the 2D lid-driven cavity problem. The volumetric plots depict the continuous approximations evaluated on the selected 20 × 20 × 50 control-point grid (top row) alongside their corresponding pointwise data-fitting errors relative to the corrupted observation data (bottom row). The aggregate mean squared error ( 𝐸 ) for data interpolation is reported beneath each respective error volume. the reconstructed pressure is constrained to satisfy 
+
+𝑝 ℎ (𝑥 𝑔 , 𝑦 𝑔 , 𝑡 𝑘 ) = 𝑝 𝑔 , 𝑘 = 1, . . . , 𝑀 gauge ,
+
+where 𝑡 𝑘 denotes the sampled time levels used for the gauge condition. Let 𝑁 gauge denote the pressure-basis matrix evaluated at the gauge points (𝑥 𝑔 , 𝑦 𝑔 , 𝑡 𝑘 ), and let qgauge  
+
+> 𝑝
+
+= 𝑝 𝑔 1 denote the corresponding reference-pressure vector. Using these discrete operators, we construct the strong-form residuals for the momentum and incom-pressibility (divergence) equations directly in the control-point space: 
+
+𝑟 𝑥 = 𝑢 𝑡 + 𝑢 ⊙ 𝑢 𝑥 + 𝑣 ⊙ 𝑢 𝑦 + 𝑝 𝑥 − 𝜈 (𝑢 𝑥 𝑥 + 𝑢 𝑦𝑦 ), (4.34a) 
+
+𝑟 𝑦 = 𝑣 𝑡 + 𝑢 ⊙ 𝑣 𝑥 + 𝑣 ⊙ 𝑣 𝑦 + 𝑝 𝑦 − 𝜈 (𝑣 𝑥 𝑥 + 𝑣 𝑦𝑦 ), (4.34b) 
+
+𝑟 𝑐 = 𝑢 𝑥 + 𝑣 𝑦 , (4.34c) where the operator ⊙ denotes the Hadamard (elementwise) product. To systematically balance the physical constraints, we group the volumetric residuals into a combined PDE-residual penalty, LPDE 
+
+LPDE (p𝑢 , p𝑣 , p𝑝 ) = 𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+∥𝑟 𝑥 ∥22 + 𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+𝑟 𝑦 22 + 𝜆 div 
+
+𝑀 pde 
+
+∥𝑟 𝑐 ∥22 . (4.35) The global PI-MFA optimization objective for the Navier–Stokes system, LNS , is formulated as the 38 weighted sum of the data-fidelity, PDE-residual, IC, BC, and pressure-gauge penalties as 
+
+LNS (p𝑢 , p𝑣 , p𝑝 ) = 𝜆 𝑢 
+
+> data
+
+𝑀 data 
+
+𝑁 data p𝑢 − q𝑑 𝑢  
+
+> 22
+
++ 𝜆 𝑣 
+
+> data
+
+𝑀 data 
+
+𝑁 data p𝑣 − q𝑑 𝑣  
+
+> 22
+
++ 𝜆 𝑝 
+
+> data
+
+𝑀 data 
+
+𝑁 data p𝑝 − q𝑑 𝑝 
+
+> 22
+
++ L PDE (p𝑢 , p𝑣 , p𝑝 )+ 𝜆 𝑢 
+
+> IC
+
+𝑀 IC 
+
+𝑁 IC p𝑢 − q0 
+
+> 𝑢
+> 22
+
++ 𝜆 𝑣 
+
+> IC
+
+𝑀 IC 
+
+𝑁 IC p𝑣 − q0
+
+> 𝑣
+> 22
+
++ 𝜆 𝑢 
+
+> BC
+
+𝑀 BC 
+
+𝑁 BC p𝑢 − q𝑏 𝑢  
+
+> 22
+
++ 𝜆 𝑣 
+
+> BC
+
+𝑀 BC 
+
+𝑁 BC p𝑣 − q𝑏 𝑣 
+
+> 22
+
++ 𝜆 gauge 
+
+𝑀 gauge 
+
+𝑁 gauge p𝑝 − qgauge  
+
+> 𝑝
+> 22
+
+. (4.36) Explicit IC and BC penalties are omitted for pressure, since pressure in incompressible flow is determined through the momentum equations up to an additive gauge. The pressure level is therefore anchored through the gauge penalty. To efficiently minimize this objective using the L-BFGS algorithm, we derive the exact analytical gradients. The global Jacobian blocks for the momentum equations with respect to the control variables are evaluated as 
+
+𝐽 𝑥𝑢 = 𝑁 𝑡 + diag (𝑢 𝑥 )𝑁 + diag (𝑢 )𝑁 𝑥 + diag (𝑣 )𝑁 𝑦 − 𝜈 (𝑁 𝑥 𝑥 + 𝑁 𝑦𝑦 ), (4.37a) 
+
+𝐽 𝑥𝑣 = diag (𝑢 𝑦 )𝑁, (4.37b) 
+
+𝐽 𝑥 𝑝 = 𝑁 𝑥 , (4.37c) 
+
+𝐽 𝑦𝑢 = diag (𝑣 𝑥 )𝑁, (4.37d) 
+
+𝐽 𝑦𝑣 = 𝑁 𝑡 + diag (𝑢 )𝑁 𝑥 + diag (𝑣 𝑦 )𝑁 + diag (𝑣 )𝑁 𝑦 − 𝜈 (𝑁 𝑥 𝑥 + 𝑁 𝑦𝑦 ), (4.37e) 
+
+𝐽 𝑦 𝑝 = 𝑁 𝑦 . (4.37f) For the divergence constraint, the corresponding Jacobian blocks are simply defined as 
+
+𝐽 𝑐𝑢 = 𝑁 𝑥 , 𝐽 𝑐𝑣 = 𝑁 𝑦 , 𝐽 𝑐 𝑝 = 0. (4.38) Using the chain rule, we compute the gradients of the combined PDE-residual penalty, LPDE , with respect to the control vectors as 
+
+∇p𝑢 LPDE = 2𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑥𝑢
+
+𝑟 𝑥 + 2𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑦𝑢
+
+𝑟 𝑦 + 2𝜆 div 
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑐𝑢
+
+𝑟 𝑐 , (4.39a) 
+
+∇p𝑣 LPDE = 2𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑥𝑣
+
+𝑟 𝑥 + 2𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑦𝑣
+
+𝑟 𝑦 + 2𝜆 div 
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑐𝑣
+
+𝑟 𝑐 , (4.39b) 
+
+∇p𝑝 LPDE = 2𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑥 𝑝
+
+𝑟 𝑥 + 2𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+𝐽 ⊤
+
+> 𝑦 𝑝
+
+𝑟 𝑦 . (4.39c) In order to avoid the explicit construction and associated memory overhead of large diagonal matrices, these gradients are implemented in a highly efficient matrix-free form using Hadamard (elementwise) 39 products ( ⊙)
+
+∇p𝑢 LPDE = 2𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+h
+
+𝑁 ⊤ 
+
+> 𝑡
+
+𝑟 𝑥 + 𝑁 ⊤ (𝑢 𝑥 ⊙ 𝑟 𝑥 ) + 𝑁 ⊤ 
+
+> 𝑥
+
+(𝑢 ⊙ 𝑟 𝑥 ) + 𝑁 ⊤ 
+
+> 𝑦
+
+(𝑣 ⊙ 𝑟 𝑥 ) − 𝜈 (𝑁 ⊤ 
+
+> 𝑥 𝑥
+
++ 𝑁 ⊤ 
+
+> 𝑦𝑦
+
+)𝑟 𝑥 
+
+i
+
++ 2𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+h
+
+𝑁 ⊤ (𝑣 𝑥 ⊙ 𝑟 𝑦 )
+
+i
+
++ 2𝜆 div 
+
+𝑀 pde 
+
+𝑁 ⊤ 
+
+> 𝑥
+
+𝑟 𝑐 , (4.40a) 
+
+∇p𝑣 LPDE = 2𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+h
+
+𝑁 ⊤ (𝑢 𝑦 ⊙ 𝑟 𝑥 )
+
+i
+
++ 2𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+h
+
+𝑁 ⊤ 
+
+> 𝑡
+
+𝑟 𝑦 + 𝑁 ⊤ 
+
+> 𝑥
+
+(𝑢 ⊙ 𝑟 𝑦 ) + 𝑁 ⊤ (𝑣 𝑦 ⊙ 𝑟 𝑦 ) + 𝑁 ⊤ 
+
+> 𝑦
+
+(𝑣 ⊙ 𝑟 𝑦 ) − 𝜈 (𝑁 ⊤ 
+
+> 𝑥 𝑥
+
++ 𝑁 ⊤ 
+
+> 𝑦𝑦
+
+)𝑟 𝑦 
+
+i
+
++ 2𝜆 div 
+
+𝑀 pde 
+
+𝑁 ⊤ 
+
+> 𝑦
+
+𝑟 𝑐 , (4.40b) 
+
+∇p𝑝 LPDE = 2𝜆 𝑥 
+
+> mom
+
+𝑀 pde 
+
+𝑁 ⊤ 
+
+> 𝑥
+
+𝑟 𝑥 + 2𝜆 𝑦 
+
+> mom
+
+𝑀 pde 
+
+𝑁 ⊤ 
+
+> 𝑦
+
+𝑟 𝑦 . (4.40c) Assembling the contributions from the data, initial, boundary, and gauge constraints yields the full analytical gradients of the optimization objective 
+
+∇p𝑢 LNS = 2𝜆 𝑢 
+
+> data
+
+𝑀 data 
+
+𝑁 ⊤ 
+
+> data
+
+(𝑁 data p𝑢 − q𝑑 𝑢 ) + ∇ p𝑢 LPDE 
+
++ 2𝜆 𝑢 
+
+> IC
+
+𝑀 IC 
+
+𝑁 ⊤ 
+
+> IC
+
+(𝑁 IC p𝑢 − q0
+
+> 𝑢
+
+) + 2𝜆 𝑢 
+
+> BC
+
+𝑀 BC 
+
+𝑁 ⊤ 
+
+> BC
+
+(𝑁 BC p𝑢 − q𝑏 𝑢 ), (4.41a) 
+
+∇p𝑣 LNS = 2𝜆 𝑣 
+
+> data
+
+𝑀 data 
+
+𝑁 ⊤ 
+
+> data
+
+(𝑁 data p𝑣 − q𝑑 𝑣 ) + ∇ p𝑣 LPDE 
+
++ 2𝜆 𝑣 
+
+> IC
+
+𝑀 IC 
+
+𝑁 ⊤ 
+
+> IC
+
+(𝑁 IC p𝑣 − q0 
+
+> 𝑣
+
+) + 2𝜆 𝑣 
+
+> BC
+
+𝑀 BC 
+
+𝑁 ⊤ 
+
+> BC
+
+(𝑁 BC p𝑣 − q𝑏 𝑣 ), (4.41b) 
+
+∇p𝑝 LNS = 2𝜆 𝑝 
+
+> data
+
+𝑀 data 
+
+𝑁 ⊤ 
+
+> data
+
+(𝑁 data p𝑝 − q𝑑 𝑝 ) + ∇ p𝑝 LPDE 
+
++ 2𝜆 gauge 
+
+𝑀 gauge 
+
+𝑁 ⊤
+
+> gauge
+
+ 𝑁 gauge p𝑝 − qgauge 
+
+> 𝑝
+
+ . (4.41c) The final term in ∇p𝑝 LNS comes from the pressure-gauge penalty and removes the arbitrary pressure offset in the penalized reconstruction. When 𝜆 𝑝  
+
+> data
+
+= 0, this gauge condition is the only direct pressure-value constraint. The remaining pressure information enters through the momentum residuals. 
+
+4.3.3 Recovery of physical consistency from low-fidelity data 
+
+In this scenario we investigate the capability of the proposed PI-MFA framework to restore physical con-sistency and reconstruct high-fidelity continuous fields from coarse, low-fidelity FEM simulation data. A fundamental challenge in physics-informed modeling using FEM data is that discrete continuous-Galerkin FEM solutions satisfy the governing equations in a discrete weak (Galerkin) sense rather than pointwise in a strong form [66, 67]. Furthermore, low-fidelity simulations suffer from pronounced numerical diffusion and truncation errors, O( ℎ𝑝 ). When standard, purely data-driven MFA is applied to this low-fidelity data, the continuous B-spline representation inadvertently approximates these discretization artifacts. Consequently, evaluating exact continuous spatial derivatives on the MFA representation yields significant, non-physical spikes in the strong-form momentum and divergence residuals. By penalizing these strong-form residuals during the control-point optimization, PI-MFA acts as a physics-based regularizer, smoothing out numerical noise and coercing the representation onto a physically admissible manifold. 40 (a) (b)(c)
+
+0 40 80 120 160 
+
+> Loss Loss
+
+Iterations Iterations (d)
+
+ℒtotal 
+
+ℒdata 
+
+> uv
+
+ℒdata 
+
+> 0
+
+10 -1 10 -2 10 -3 10 -4 10 -5 10 -6 10 -7 10 -8 10 110 -1 10 -3 10 -5 10 -7 10 010 -1 10 -2 10 -3 10 -4 10 -5 10 -6 10 -7 10 -8 10 010 -1 10 -2 10 -3 10 -4 10 -5 10 -6 10 -7 10 -8 10 
+
+> p
+
+ℒdata 
+
+ℒmom 
+
+> x
+
+ℒmom 
+
+> y
+
+ℒdiv 
+
+ℒIC 
+
+> u
+
+ℒBC 
+
+> u
+
+ℒIC 
+
+> v
+
+ℒBC 
+
+> v
+
+Case 1 
+
+(naive baseline) 
+
+Case 2 
+
+(data-dominated) 
+
+Case 3 
+
+(PDE-dominated) 
+
+Case 4 
+
+(recovery of pressure ��eld) 
+
+0 600 1200 1800 2400 3000 
+
+0 4 8 12 16 20 0 6 12 18 24 30 Figure 16: Convergence histories of the PI-MFA composite loss components for the 2D lid-driven cavity problem. All configurations are warm-started from the data-only MFA solution. Cases 1 and 2 rapidly stagnate as they overfit the coarse input data, leaving the physical residuals (dashed lines) elevated. Case 3 successfully drives the PDE residuals toward zero over a prolonged optimization by relaxing the data constraints. Case 4 demonstrates hidden state inference; the pressure field undergoes an initial transient reorganization to balance the momentum equations from velocity kinematics. 41 -0.7 0.7    
+
+> u
+> Reference
+> (high-��delity
+> FEM)
+> Case 1
+> (naive baseline)
+> Case 2
+> (data-dominated)
+> MFA
+> (low-��delity
+> FEM)
+> Case 3
+> (PDE-
+> dominated)
+> Case 4
+> (recovery of pressure ��eld)
+> -0.4 0.2 -0.25 1.0
+> vp
+> xyt
+> PI-MFA
+> PINN
+> (interpolated)
+> Reg-MFA
+> (smoothing)
+
+Figure 17: Continuous space-time volumetric rendering ( 𝑥, 𝑦, 𝑡 ) of the 𝑢 -velocity, 𝑣 -velocity, and pressure (𝑝 ) fields for the lid-driven cavity problem. The high-fidelity FEM serves as the benchmark reference. The data-driven MFA accurately interpolates the noisy low-fidelity data but inherits its corrupted, smeared pressure field. The Reg-MFA and PINN baselines introduce excessive mathematical blurring and high-frequency spatial artifacts, respectively. 42 Reference  
+
+> (high-��delity
+> FEM)
+> Case 1
+> (naive baseline)
+> Case 2
+> (data-dominated)
+> MFA
+> (low-��delity
+> FEM)
+> Case 3
+> (PDE-
+> dominated)
+> Case 4
+> (recovery of pressure ��eld)
+> 01
+
+xyt
+
+> PI-MFA
+
+x-momentum error y-momentum error divergence error                    
+
+> 0101
+> E:3.90e-3 E: 2.05e-3 E: 3.57e-3 E:2.31e-2 E: 2.02e-3 E: 8.43e-3 E:7.71e-5 E: 3.21e-5 E: 2.05e-6 E:4.78e-1 E: 2.71e-1 E: 1.13e-2 E:1.26e-2 E: 4.99e-1 E: 7.23e-2
+> PINN
+> (interpolated)
+> Reg-MFA
+> (smoothing)
+> E:4.33e-2 E: 2.438e-2 E: 2.42e-1 E:9.16e-3 E: 1.25e-2 E: 2.05e-2 E:4.10e+0 E: 2.64e-1 E: 2.81e-1
+
+Figure 18: Volumetric rendering of the strong-form PDE residual errors ( 𝑥 -momentum, 𝑦 -momentum, and divergence) over the space-time domain based on the metric in Eq. (4.1). 43 To systematically evaluate the trade-off between fitting the flawed low-fidelity data and enforcing the continuous governing equations, we investigate four weighting strategies ( 𝜆 ) for the PI-MFA composite loss function, similar to the 2D Burgers problem in Section 4.2. First, Case 1 (naive baseline) sets all weights to unity ( 𝜆 ∗ = 1), providing an equal penalty across data fidelity and physics constraints. Second, Case 2 (data-dominated) assigns high weights to the data fidelity terms ( 𝜆 data = 10 2), while the PDE terms are weakly penalized ( 𝜆 mom = 𝜆 div = 1). Conversely, Case 3 (PDE-dominated) heavily penalizes the optimization for violating the continuous physics ( 𝜆 mom = 𝜆 div = 10 3) while relaxing the data fidelity constraints ( 𝜆 data = 10 −2). This forces the B-spline representation to aggressively correct the underlying simulation data to satisfy the continuous fluid dynamics. Case 4 (recovery of pressure field) demonstrates the framework’s capability for hidden state inference [68]. In this configuration, the data weight for the pressure field is completely removed ( 𝜆 𝑝  
+
+> data
+
+= 0). Instead, the pressure gradients are inferred from the momentum equations while the pressure level is fixed by the reference condition. The optimization dynamics for these four cases are illustrated in Fig. 16. For computational efficiency, all PI-MFA optimizations are warm-started using the control points from the data-only MFA solution. Given that the optimizer initializes near the data-fit minimum, the naive baseline (Case 1) and data-dominated model (Case 2) satisfy their optimization criteria rapidly, within 20 iterations. Because they remain heavily anchored to the flawed data, however, their physical PDE residuals (dashed lines) stagnate at elevated levels. In contrast, the PDE-dominated configuration (Case 3) exhibits a prolonged optimization trajectory (3,460 iterations). Here, the optimizer intentionally trades off initial data fidelity, evidenced by a slight early increase in the data loss terms, to systematically drive the momentum and divergence residuals down by several orders of magnitude. In Case 4, where the pressure field is decoupled from the data, the PI-MFA undergoes a massive initial transient reorganization to establish a valid pressure field that balances the velocity kinematics, eventually converging to a stable, physics-compliant state. The qualitative impact of these weighting strategies, alongside the Reg-MFA and PINN baselines, is presented in Fig. 17, which displays the space-time volumetric rendering ( 𝑥, 𝑦, 𝑡 ) of the 𝑢, 𝑣, and 𝑝 fields. While the data-only MFA manages to capture the macroscale velocity features of the low-fidelity data, it propagates numerical diffusion into the pressure field, yielding a highly corrupted contour. The Reg-MFA baseline attempts to mitigate this via mathematical smoothing but ultimately fails to sharpen the pressure gradients, instead blurring the kinematic features. The PINN baseline incorporates physical constraints but struggles to resolve the sharp gradients near the sliding lid, introducing visible high-frequency streaking and spatial artifacts throughout the continuous domain. PI-MFA Cases 1 through 3 attempt to balance the low-fidelity data with the governing PDEs but ultimately struggle to reconstruct the true pressure dynamics. In contrast, Case 4 sets 𝜆 𝑝  
+
+> data
+
+= 0, so no pressure observations are used in the data-misfit term. The pressure field is instead inferred from the velocity observations through the momentum and incompressibility residuals, together with the pointwise pressure gauge 𝑝 ℎ (𝑥 𝑔 , 𝑦 𝑔 , 𝑡 𝑘 ). This case demonstrates pressure recovery from velocity observations and a pressure gauge, but it does not simultaneously minimize the Navier–Stokes momentum residuals. The true advantage of the physics-informed spatial regularization is further isolated in Fig. 18, which visualizes the spatial distribution of the strong-form 𝑥 -momentum, 𝑦 -momentum, and divergence residual errors. We note that even the high-fidelity reference FEM solution exhibits non-zero strong-form errors near the moving lid (e.g., 𝑥 -momentum error 𝐸 = 1.26 × 10 −2). This is an expected artifact of evaluating exact continuous analytical derivatives on discretely integrated solutions with continuous finite elements near singular boundary conditions [69]. When the low-fidelity FEM data is encoded by using the pure data-driven MFA, the lack of spatial resolution translates into massive structural violations of the divergence-free condition ( 𝐸 = 2.81 × 10 −1). The Reg-MFA baseline retains these massive boundary errors, while the PINN baseline, although reducing the error magnitudes, exhibits highly oscillatory residual bands that permeate the entire volume. In contrast, the PDE-dominated PI-MFA configuration (Case 3) acts as a mathematical smoother. The residuals transition from wide, noisy bands to near-zero continuous fields, proving that the 44 Table 7: Comparison of MFA and PI-MFA loss values for the two-dimensional incompressible Navier-Stokes lid-driven cavity problem, alongside the Reg-MFA baseline and PINN. For each case, the data-misfit, PDE-residual, IC, and BC contributions are reported separately, followed by the total unweighted composite loss ( Ltotal ). The true pointwise errors (MSE) computed against the high-fidelity reference data and their combined sum MSE total are provided at the bottom of the table to quantify the objective accuracy of the reconstructed fields. 
+
+MFA Reg-MFA PINN PI-MFA 
+
+(data only) (smoothing) (case 4) Case 1 
+
+> (naive baseline)
+
+Case 2 
+
+> (data-dominated)
+
+Case 3 
+
+> (PDE-dominated)
+
+Case 4 
+
+> (recovery of pressure field)
+
+Iteration 0 0 – 22 35 3460 180 
+
+𝜆 𝑢  
+
+> data
+
+1 1 5 × 10 2 1 10 2 10 −2 5 × 10 2
+
+𝜆 𝑣  
+
+> data
+
+1 1 10 3 1 10 2 10 −2 10 3
+
+𝜆 𝑝  
+
+> data
+
+1 1 0 1 10 2 0 0
+
+𝜆 𝑥  
+
+> mom
+
+0 0 1 1 1 10 3 1
+
+𝜆 𝑦  
+
+> mom
+
+0 0 1 1 1 10 3 1
+
+𝜆 div 0 0 1 1 1 10 3 1
+
+𝜆 𝑢  
+
+> IC
+
+0 0 1 1 10 2 1 1
+
+𝜆 𝑣  
+
+> IC
+
+0 0 1 1 10 2 1 1
+
+𝜆 𝑢  
+
+> BC
+
+0 0 10 3 1 10 2 10 3 10 3
+
+𝜆 𝑣  
+
+> BC
+
+0 0 10 3 1 10 2 10 3 10 3
+
+L𝑢  
+
+> data
+
+1.800e-8 1.361e-8 4.913e-4 3.806e-5 4.984e-4 3.805e-3 6.635e-4 
+
+L𝑣  
+
+> data
+
+5.167e-9 2.566e-8 2.546e-4 4.266e-5 2.326e-5 2.586e-3 1.872e-5 
+
+L 𝑝  
+
+> data
+
+2.415e-5 1.362e-6 4.012e-2 7.465e-6 4.612e-6 1.963e-4 3.696e-2 
+
+L𝑥  
+
+> mom
+
+4.103e+0 4.329e-2 9.161e-3 3.905e-3 2.313e-2 7.716e-5 4.789e-1 
+
+L𝑦  
+
+> mom
+
+2.637e-1 2.425e-2 1.246e-2 2.056e-3 2.024e-3 3.208e-5 2.714e-1 
+
+Ldiv 2.807e-1 2.419e-1 2.054e-2 3.574e-3 8.433e-3 2.050e-6 1.137e-2 
+
+L𝑢  
+
+> IC
+
+5.634e-6 6.314e-3 7.112e-3 3.758e-4 2.995e-6 9.561e-3 5.317e-4 
+
+L𝑣  
+
+> IC
+
+9.839e-8 1.198e-5 1.884e-4 1.805e-4 2.252e-6 2.987e-3 1.743e-4 
+
+L𝑢  
+
+> BC
+
+1.974e-1 5.949e-3 8.163e-5 5.586e-3 5.142e-5 8.110e-6 1.772e-5 
+
+L𝑣  
+
+> BC
+
+4.646e-5 6.096e-5 6.635e-5 2.514e-4 1.074e-4 6.865e-5 9.935e-6 
+
+Ltotal 4.850e+0 3.218e-1 9.047e-2 1.602e-2 3.428e-2 1.932e-2 8.000e-1 
+
+MSE 𝑢 6.596e-4 6.599e-4 2.656e-4 6.334e-4 1.155e-4 3.152e-3 2.282e-4 MSE 𝑣 7.972e-5 7.956e-5 1.222e-4 1.011e-4 8.353e-5 2.506e-3 8.393e-5 MSE 𝑝 5.438e-2 5.366e-2 4.778e-2 5.386e-2 5.393e-2 5.487e-2 3.811e-3 MSE total 5.511e-2 5.439e-2 4.827e-2 5.460e-2 5.413e-2 6.053e-2 4.123e-3 
+
+B-spline control-point optimization has successfully coerced the low-fidelity dynamics onto a physically consistent, mass-conserving continuum (divergence error reduced to 𝐸 = 2.05 × 10 −6). Since Case 4 is designed to recover the high-fidelity pressure field from the low-fidelity solution, the errors in the x- and y-momentum and in the divergence behave similarly to those of the high-fidelity solution, although they do not match perfectly. To objectively quantify the reconstruction accuracy, we summarize in Table 7 the final optimization loss components and the MSE computed against the highly resolved, grid-converged FEM reference simulation. As expected, the purely data-driven MFA achieves a low data-misfit loss against the coarse input but exhibits unacceptably large PDE residuals. The Reg-MFA baseline marginally worsens the total actual error 45 Table 8: Representation cost, compression, and fit/train time. Raw-data DOFs count all stored scalar samples across all reconstructed fields. Model DOFs count all spline control points or all trainable network parameters. MFA, Reg-MFA, and PI-MFA use the same spline control lattice.                                                           
+
+> Method Model DOFs Compression ratio Storage reduction [%] Fit/train time [s] 1D Convection-Diffusion (Raw data DOFs: 24,000)
+> MFA 1,600 15.00 93.33 2Reg-MFA 1,600 15.00 93.33 3PI-MFA 1,600 15.00 93.33 14 PINN 16,897 1.42 29.60 45
+> 2D Burgers (Raw data DOFs: 675,762)
+> MFA 54,000 12.51 92.01 30 Reg-MFA 54,000 12.51 92.01 35 PI-MFA 54,000 12.51 92.01 301 PINN 83,330 8.11 87.67 502
+> 2D Navier-Stokes (Raw data DOFs: 1,324,323)
+> MFA 60,000 22.07 95.47 31 Reg-MFA 60,000 22.07 95.47 32 PI-MFA 60,000 22.07 95.47 602 PINN 83,459 15.87 93.70 2,520
+> Note: Burgers raw/model DOFs include both reconstructed fields (𝑢, 𝑣 ). Navier-Stokes raw/model DOFs include all three reconstructed fields (𝑢, 𝑣, 𝑝 ).
+
+(MSE total = 5.439 × 10 −2) compared with standard MFA (MSE total = 5.511 × 10 −2), confirming that the smoothing degrades physical fidelity. While the PINN baseline improves upon standard MFA, it remains an order of magnitude less accurate than PI-MFA (Case 4). PI-MFA in Cases 1, 2, and 3 also systematically reduces the physical errors. Notably, Case 4 achieves the lowest overall error relative to the ground truth, with (MSE total = 4.123 × 10 −3). This reduction is primarily driven by a more accurate pressure field reconstruction (MSE 𝑝 = 3.811 × 10 −3) despite the absence of pressure data during optimization, indicating that the framework effectively avoids the discretization errors of the low-fidelity baseline. 
+
+4.4 Computational benefits and comparison with baselines 
+
+We next evaluate the computational benefits of PI-MFA and compare it with the baseline reconstruction methods. Since PI-MFA is a post hoc reconstruction framework rather than a standalone forward PDE solver, its efficiency should be assessed in terms of representation cost, compression, and fitting/training time. This perspective is consistent with the objective of MFA to construct compact, continuous, and differentiable representations of already generated scientific data for downstream analysis and visualization. For reproducibility, all comparisons reported in this section use the same setting and parameters es-tablished in the preceding numerical examples. The spline-based methods use the same tensor-product B-spline degree, knot construction, physical-to-parametric coordinate mapping, and control lattice within each benchmark, so that MFA, Reg-MFA, and PI-MFA differ only in their optimization objectives. The selected control-point grids are 40 × 40 for the 1D convection–diffusion problem, 30 × 30 × 30 per velocity component for the 2D Burgers problem, and 20 × 20 × 50 per field for the 2D Navier–Stokes problem. In all PI-MFA runs, the data-only MFA solution is used as the initial guess for the L-BFGS optimization. The PDE, IC, BC, and gauge collocation sets are fixed during each optimization rather than resampled dynamically. The loss values reported in the numerical tables are unweighted diagnostic MSE components evaluated 46 on the specified data or collocation sets, whereas the 𝜆 -values define the weighted objective minimized during training. This distinction is important because different weight choices can lead to different trade-offs between data fidelity and physical residual reduction. The PINN baselines are used as post hoc reconstruction baselines rather than as parametric forward solvers. They are trained on the same observational datasets and use PDE, IC, and BC penalties analogous to those used in PI-MFA. The network architectures, number of trainable parameters, sampling counts, optimizer schedule, and learning-rate settings are summarized in Appendix A. The timing results in Table 8 should therefore be interpreted as implementation-level comparisons for the selected spline lattices, PINN architectures, loss weights, and optimization schedules, rather than as hardware-independent complexity bounds. Assuming a predefined spline basis, the storage footprint of the spline reconstruction is governed primarily by the number of stored control-point values. As detailed in Table 8, MFA, Reg-MFA, and PI-MFA have identical representation costs for a fixed benchmark since they use the same spline control lattice. For the 1D convection–diffusion problem, PI-MFA stores 1 ,600 control-point values for 24 ,000 raw scalar samples, corresponding to a compression ratio of 15 .00. For the 2D Burgers problem, it stores 54 ,000 control-point values for 675 ,762 raw scalar samples, corresponding to a compression ratio of 12 .51. For the 2D Navier– Stokes problem, it stores 60 ,000 control-point values for 1 ,324 ,323 raw scalar samples, corresponding to a compression ratio of 22 .07 and a 95 .47% reduction relative to the raw data. These counts include all reconstructed physical fields: (𝑢, 𝑣 ) for Burgers and (𝑢, 𝑣, 𝑝 ) for Navier–Stokes. Small representation metadata, such as spline degree, knot vectors, field names, and coordinate-domain information, are not included in the degree-of-freedom count, but they are negligible compared with the raw scalar field storage for the tested datasets. The tested PINN baselines also provide compact continuous representations, with compression ratios of 1 .42, 8 .11, and 15 .87 for the three examples. For the selected architectures, PI-MFA uses fewer model degrees of freedom than the corresponding PINN baselines in all three cases, with the largest relative advantage in the 1D example. However, the more important distinction is not only the number of stored parameters. PI-MFA stores a locally supported spline representation, so derivative evaluations, localized updates, residual mapping, and balance-law diagnostics can be performed directly from analytic B-spline basis derivatives. The PINN representation is also differentiable, but it relies on automatic differentiation of a global neural parametrization. All fitting and training times were measured on an Apple M4 Mac using CPU execution only. Embedding physical residuals into the optimization objective increases the computational cost of PI-MFA relative to standard MFA and Reg-MFA. This cost increase is expected because PI-MFA repeatedly evaluates PDE, IC, BC, and auxiliary residuals and their analytical gradients during L-BFGS optimization. Nevertheless, for the benchmark configurations considered here, PI-MFA remained faster than training the implemented PINN baselines. As reported in Table 8, the PI-MFA fit times for the 1D convection–diffusion, 2D Burgers, and 2D Navier–Stokes problems were 14 s, 301 s, and 602 s, respectively. The corresponding PINN training times were 45 s, 502 s, and 2 ,520 s. Thus, under the selected architectures, sampling strategies, and optimization schedules, PI-MFA occupies a pragmatic operational regime: it is more expensive than data-only spline fitting, but it provides stronger physics-based control over the reconstructed continuum at a lower fitting cost than the tested PINN baselines. Ultimately, the primary computational advantage of PI-MFA is not that it universally minimizes pa-rameter counts or guarantees exact satisfaction of the governing equations. Rather, its advantage is that it unifies compact data representation, local spline support, exact analytical differentiation, and penalty-based PDE/IC/BC residual reduction within a single post hoc reconstruction objective. This combination is tailored to downstream visualization and scientific data interrogation, where continuous field evaluation, residual mapping, balance-law diagnostics, and repeated derivative computations must be performed efficiently and reliably. 47 5 Conclusion 
+
+This work introduces a physics-informed extension of multivariate functional approximation (PI-MFA) for the post hoc reconstruction of spatiotemporal scientific fields. By embedding governing PDEs, along with boundary and initial conditions, directly into the optimization of tensor-product B-spline control points, the proposed framework preserves the compactness, local support, and exact analytical differentiability of standard MFA [14] while constraining the reconstructed continuous fields to be physically consistent. Leveraging exact B-spline derivatives, the formulation enables the matrix-free assembly of strong-form residuals, block Jacobians, and objective gradients, allowing the nonlinear PDE-constrained optimization problem to be solved via L-BFGS. Across three canonical fluid benchmark problems, numerical evaluations demonstrated that PI-MFA systematically outperforms purely data-driven baselines. In the 1D convection-diffusion system, PI-MFA reduced the PDE residuals and improved global flux-conservation behavior, illustrating the tunable trade-off between data-only approximation and physical consistency. For the 2D coupled Burgers equations, PI-MFA successfully rejected latent physical inconsistencies caused by unmodeled macroscopic forcing, achieving significantly lower actual errors and tighter global integral-balance conservation than both standard data-driven MFA and regularized MFA. In the 2D incompressible Navier-Stokes lid-driven cavity problem, PI-MFA acted as a powerful physics-based filter for coarse, numerically dissipative FEM data. By enforcing the divergence-free and momentum constraints, the framework not only filtered out numerical noise but also successfully inferred a pressure field from velocity observations, momentum constraints, incompressibility, and a pointwise pressure gauge, producing a pressure reconstruction with lower error than the low-fidelity pressure observations. Furthermore, relative to the tested PINN baselines, PI-MFA achieved favorable accuracy–cost trade-offs while retaining a compact, locally supported spline representation, with up to 95.47% storage reduction relative to the raw data in the Navier–Stokes example. Taken together, these results establish that PI-MFA is an effective and efficient physics-constrained continuous representation explicitly tailored for downstream scientific data interrogation, derivative evaluation, and residual-based diagnostics. Several directions for future work naturally follow from these observations. An immediate priority is the development of dynamic or adaptive weighting strategies to autonomously balance the competing data and physics loss terms during L-BFGS optimization. Additionally, investigating weak-form or mixed strong/weak physics constraints within the B-spline objective could prove highly beneficial, particularly for data generated by variational or finite-volume discretizations. A particularly compelling direction involves applying the proposed PI-MFA framework to data generated by emerging AI/ML-coupled simulations, such as hybrid physics-ML simulations accelerated via machine learning. As these data-driven accelerators can inadvertently introduce non-physical artifacts or numerical imbalances into the rapid-output data, PI-MFA is positioned to serve as a post hoc physics filter, restoring physical consistency to these computationally accelerated surrogates. Extending PI-MFA to accommodate highly sparse experimental observations, mul-tiphysics systems, and explicit discrepancy-learning formulations will further solidify its role as a critical bridge between computational mechanics, surrogate modeling, and advanced scientific visualization. 
+
+# Acknowledgments 
+
+This work was supported by the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research (ASCR), through the Scientific Discovery through Advanced Computing (SciDAC) FASTMath Institute and the Competitive Portfolios Project on Energy Efficient Computing: A Holistic Methodology, under Contract No. DE-AC02-06CH11357. JJ also acknowledges support from an Argonne Leadership Computing Facility (ALCF) postdoctoral fellowship and the Laboratory Directed Research and Development (LDRD) program. 48 Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+# Data availability 
+
+Data will be made available on request. 
+
+# Author ORCIDs 
+
+Junoh Jung https://orcid.org/0000-0003-0962-3127; David Lenz https://orcid.org/0000-0002-2587-2783; Emil Constantinescu https://orcid.org/0000-0002-7003-6899; Tom Peterka https://orcid.org/0000-0002-0525-3205. 
+
+# Appendix A PINN baseline settings 
+
+This appendix summarizes the PINN baselines used in the numerical comparisons in this work. The PINNs are deployed as post hoc reconstruction baselines rather than as parametric forward solvers. For each benchmark, the network is trained on the exact same observation data used by MFA, Reg-MFA, and PI-MFA, while the governing equations and IC/BCs are imposed through the penalty terms. The pressure gauge used for the PINN baseline is the same pointwise gauge used for PI-MFA at each sampled time level 𝑡 𝑘 .All PINNs are constructed as fully connected multilayer perceptrons with tanh activation functions. Input coordinates are affinely mapped to [− 1, 1]𝑑 , with 𝑑 = 2 for the one-dimensional space–time problem and 
+
+𝑑 = 3 for the two-dimensional space–time problems. Network weights are initialized with Xavier normal initialization using the tanh gain, and biases are initialized to zero. Spatial and temporal derivatives appearing in the physics losses are computed by automatic differentiation. Both Adam and L-BFGS (history size 50, strong-Wolfe line search) optimizers are utilized sequentially for training. A comprehensive summary of the architectures, sampling sets, and optimization schedules for the three benchmarks is shown in Table 9. Under the selected architectures, sampling, and training schedules, PI-MFA gave better accuracy/cost trade-offs than the implemented PINN baselines. 
+
+# Appendix B Additional experiments for the one-dimensional convection-diffusion example 
+
+To probe different solution regimes while maintaining compatibility with the homogeneous Dirichlet bound-ary conditions, we consider the following initial conditions in addition to the case in Eq. (4.3). All profiles are multiplied by 𝜙 (𝑥 ) = 4𝑥 (1 − 𝑥 ) to enforce 𝜌 (0, 0) = 𝜌 (1, 0) = 0(Case 2) 𝜌 (𝑥, 0) = 𝐴 sin sin (𝜋𝑥 ) + 𝐴 b 𝜙 (𝑥 ) exp 
+
+
+
+− (𝑥 − 𝑥 0)2
+
+𝜎 2
+
+
+
+, (B.1a) (Case 3) 𝜌 (𝑥, 0) = 𝜙 (𝑥 ) 𝐴 1 exp − (𝑥 − 𝑥 1)2
+
+𝑠 21
+
+!
+
++ 𝐴 2 exp − (𝑥 − 𝑥 2)2
+
+𝑠 22
+
+!! 
+
+. (B.1b) 49 Table 9: Hyperparameter settings for the physics-informed neural network (PINN) re-construction baselines. 
+
+Parameter 1D Conv–Diff 2D Burgers 2D Navier–Stokes 
+
+Network Architecture 
+
+Input ↦ → Output map (𝑥, 𝑡 ) ↦ → 𝜌 𝜃 (𝑥, 𝑦, 𝑡 ) ↦ → ( 𝑢 𝜃 , 𝑣 𝜃 ) (𝑥, 𝑦, 𝑡 ) ↦ → ( 𝑢 𝜃 , 𝑣 𝜃 , 𝑝 𝜃 )
+
+Hidden layers × width 5 × 64 6 × 128 6 × 128 Trainable parameters 16,897 83,330 83,459 
+
+Sampling Points 
+
+Observation data ( 𝑁 𝑑 ) 8,000 4,096 / 20,000 8,192 / 20,000 PDE collocation ( 𝑁 𝑟 ) 12,000 8,192 / 40,000 16,384 / 40,000 Boundary conditions ( 𝑁 BC ) All available All available 8,192 / 20,000 
+
+Optimization Schedule 
+
+Adam iterations 500 8,000 4,000 Adam learning rate 10 −3 10 −3 10 −3
+
+Step decay (rate 𝛾 = 0.5) Every 1,250 iters Every 2,000 iters Every 1,000 iters L-BFGS max iterations 400 100 100 0 0.2 0.4 0.6 0.8 1.0       
+
+> x
+> 0.0 0.1 0.2 0.3 0.4
+> 0.5 0.6 Numerical solution ( t=0.4 )Analytical solution ( t=0.4 )Initial condition ( t=0 )
+> 0.0 0.2 0.4 0.6 -0.2 00.2 0.4 0.6 0.8 1.0
+> x
+> 00.05 -0.05
+> -0.25 0.6
+> -0.25 0.6
+> 00.05 -0.05
+> 00.7
+> 00.7
+> Analytical
+> Numerical Actual error
+> t
+> 0.1
+> 0.2 0.3 0.4 00.1 0.2 0.3 0.4 00.1 0.2 0.3 0.4 0
+> ttt
+> 0.1 0.2 0.3 0.4 00.1 0.2 0.3 0.4 00.1 0.2 0.3 0.4 0
+> tt
+> Analytical Numerical Actual error (a)(b)
+
+Figure 19: One-dimensional convection-diffusion benchmarks Case 2 and Case 3 with homogeneous Dirichlet boundary conditions. Left: initial condition at 𝑡 = 0 (blue dashed) and solutions at 𝑇 = 0.4from a non-conservative finite difference simulation (colored) and the analytical reference (black). Right: spatiotemporal fields of the analytical solution, the numerical solution, and the pointwise error 𝑒 (𝑥, 𝑡 ) =
+
+𝜌 num (𝑥, 𝑡 ) − 𝜌 ana (𝑥, 𝑡 ).50 00.7                                                            
+
+> (a)(b)(c)(d)10×10 20×20 30×30 40×40 50×50
+> (e)
+> 0.4 0.3 0.2 0.1 000.2 0.4 0.6 0.8 1.0
+> tx
+> 00.2 0.4 0.6 0.8 1.0
+> x
+> 00.2 0.4 0.6 0.8 1.0
+> x
+> 00.2 0.4 0.6 0.8 1.0
+> x
+> 00.2 0.4 0.6 0.8 1.0
+> x
+> 00.1 -0.1
+> 0.4 0.3 0.2 0.1 0
+> t
+> 0.4 0.3 0.2 0.1 0
+> t
+> 0.4 0.3 0.2 0.1 0
+> t
+> 0.4 0.3 0.2 0.1 0
+> t
+> 00.7
+> 00.7
+> 00.7
+> 00.7
+> 00.1 -0.1
+> 00.1 -0.1
+> 00.1 -0.1
+> 00.1 -0.1
+> Data fitting error
+> 00.2 0.4 0.6 0.8 1.0
+> xxxxx
+> 00.5 -0.5
+> PDE residual
+> 00.2 0.4 0.6 0.8 1.0 00.2 0.4 0.6 0.8 1.0 00.2 0.4 0.6 0.8 1.0 00.2 0.4 0.6 0.8 1.0 00.5 -0.5
+> 00.5 -0.5
+> 00.5 -0.5
+> 00.5 -0.5
+> (f)(g)(h)(i)(j)(k)(l)(m)(n)(o)MFA
+
+Figure 20: Results of standard MFA data fitting for Case 2, shown as a function of the number of control points. The parameter values used in the supplementary experiments are Case 2: 𝐴 sin = 0.35 , 𝐴 b = 0.55 , 𝑥 0 = 0.25 , 𝜎 = 0.06 ,
+
+Case 3: 𝐴 1 = 0.7, 𝐴 2 = −0.35 , 𝑥 1 = 0.28 , 𝑥 2 = 0.72 , 𝑠 1 = 0.05 , 𝑠 2 = 0.09 .
+
+Fig. 19 presents the analytical and numerical solutions for Cases 2 and 3. The left panels show the solutions at the initial condition and at the final time step, whereas the right panels display the corresponding spatiotemporal fields of the analytical and numerical solutions, together with the actual error. Fig. 20 and 21 present the control-point resolution study, based on which a 40 × 40 resolution is selected, consistent with the choice made for Case 1. Table 11 summarizes the final loss values for MFA, Reg-MFA, PINN, and PI-MFA, as well as the corresponding results for the other three weight choices. 
+
+# Appendix C Detailed derivation of the componentwise integral balance for the 2D Burgers equation 
+
+Let Ω ⊂ R2 be a bounded domain with boundary 𝜕 Ω and outward unit normal 𝒏 . The two-dimensional Burgers system can be written in vector form as 
+
+𝜕 𝑡 𝑼 + ( 𝑼 · ∇) 𝑼 − 𝜈 Δ𝑼 = 0 in Ω × ( 0, 𝑇 ], (C.1) 51 (a) (b) (c)
+
+(d) 10×10 20×20 30×30 40×40 50×50 
+
+(e)
+
+0.4 
+
+0.3 0.2 0.1 00 0.2 0.4 0.6 0.8 1.0 
+
+tx
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+x
+
+00.1 -0.1 
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+0.4 0.3 0.2 0.1 0
+
+t
+
+00.1 -0.1 
+
+00.1 -0.1 
+
+00.1 -0.1 
+
+00.1 -0.1 
+
+Data fitting error 
+
+0 0.2 0.4 0.6 0.8 1.0 
+
+xxxxx
+
+00.5 -0.5 
+
+PDE residual 
+
+0 0.2 0.4 0.6 0.8 1.0 0 0.2 0.4 0.6 0.8 1.0 0 0.2 0.4 0.6 0.8 1.0 0 0.2 0.4 0.6 0.8 1.0 00.5 -0.5 
+
+00.5 -0.5 
+
+00.5 -0.5 
+
+00.5 -0.5 
+
+(f)(g) (h) (i)(j) (k) (l)(m) (n) (o)MFA 
+
+-0.25 0.6 
+
+-0.25 0.6 
+
+-0.25 0.6 
+
+-0.25 0.6 
+
+-0.25 0.6 Figure 21: Results of standard MFA data fitting for Case 3, shown as a function of the number of control points. 52 Table 10: Loss terms vs. control-point resolution (1D convection-diffusion, data-only MFA) for two addi-tional initial condition cases. 
+
+Control points per dimension 𝑁 𝑥 × 𝑁 𝑡 
+
+Loss term 10 × 10 20 × 20 30 × 30 40 × 40 50 × 50 
+
+Case 2 
+
+Ldata 3.63 × 10 −5 3.93 × 10 −6 1.35 × 10 −6 7.77 × 10 −7 2.06 × 10 −7
+
+Lpde 1.55 × 10 −1 1.04 7.66 × 10 −1 8.42 × 10 −1 7.20 
+
+LIC 8.35 × 10 −4 3.54 × 10 −5 9.08 × 10 −6 5.99 × 10 −6 2.76 × 10 −6
+
+LBC 4.46 × 10 −5 4.90 × 10 −7 2.20 × 10 −10 5.15 × 10 −11 3.91 × 10 −20 
+
+Ltotal 1.56 × 10 −1 1.04 7.66 × 10 −1 8.42 × 10 −1 7.20 
+
+Case 3 
+
+Ldata 8.58 × 10 −5 7.78 × 10 −6 2.44 × 10 −6 1.54 × 10 −6 7.64 × 10 −7
+
+Lpde 3.46 × 10 −1 3.35 × 10 −1 5.70 × 10 −1 7.68 × 10 −1 2.16 
+
+LIC 2.02 × 10 −3 1.11 × 10 −4 4.36 × 10 −5 3.72 × 10 −5 1.76 × 10 −5
+
+LBC 5.14 × 10 −5 6.29 × 10 −8 5.59 × 10 −11 9.43 × 10 −12 2.57 × 10 −20 
+
+Ltotal 3.48 × 10 −1 3.35 × 10 −1 5.70 × 10 −1 7.68 × 10 −1 2.16 
+
+with 
+
+𝑼 = (𝑢, 𝑣 )T, 𝑼 = 0 on 𝜕 Ω × ( 0, 𝑇 ]. (C.2) For either component 𝑞 ∈ { 𝑢, 𝑣 }, Eq. (C.1) yields the scalar relation 
+
+𝜕 𝑡 𝑞 + 𝑼 · ∇ 𝑞 − 𝜈 Δ𝑞 = 0 in Ω × ( 0, 𝑇 ]. (C.3) We define the componentwise integral quantity 
+
+𝑀 𝑞 (𝑡 ) =
+
+∫
+
+> Ω
+
+𝑞 (𝒙 , 𝑡 ) dΩ, 𝑞 ∈ { 𝑢, 𝑣 }. (C.4) Assuming sufficient regularity of 𝑞 , integration of Eq. (C.3) over Ω and differentiation under the integral sign give 0 =
+
+∫
+
+> Ω
+
+(𝜕 𝑡 𝑞 + 𝑼 · ∇ 𝑞 − 𝜈 Δ𝑞 ) dΩ= dd𝑡 
+
+∫
+
+> Ω
+
+𝑞 dΩ +
+
+∫
+
+> Ω
+
+𝑼 · ∇ 𝑞 dΩ − 𝜈 
+
+∫
+
+> Ω
+
+Δ𝑞 dΩ. (C.5) Next, we use the product-rule identity 
+
+𝑼 · ∇ 𝑞 = ∇ · ( 𝑞 𝑼 ) − 𝑞 (∇ · 𝑼 ), ∇ · 𝑼 = 𝜕 𝑥 𝑢 + 𝜕 𝑦 𝑣. (C.6) Substituting Eq. (C.6) into Eq. (C.5) yields 0 = dd𝑡 
+
+∫
+
+> Ω
+
+𝑞 dΩ +
+
+∫
+
+> Ω
+
+∇ · ( 𝑞 𝑼 ) dΩ −
+
+∫
+
+> Ω
+
+𝑞 (∇ · 𝑼 ) dΩ − 𝜈 
+
+∫
+
+> Ω
+
+Δ𝑞 dΩ. (C.7) Applying the divergence theorem and Green’s identity [54, 55] 
+
+∫
+
+> Ω
+
+∇ · ( 𝑞 𝑼 ) dΩ = 
+
+∫
+
+> 𝜕 Ω
+
+𝑞 (𝑼 · 𝒏 ) d𝑠, 
+
+∫
+
+> Ω
+
+Δ𝑞 dΩ = 
+
+∫
+
+> 𝜕 Ω
+
+∇𝑞 · 𝒏 d𝑠, (C.8) 53 Table 11: Final loss components for the data-only MFA baseline, regularized MFA (Reg-MFA), physics-informed neural network (PINN), and representative PI-MFA runs for two one-dimensional convection– diffusion cases. The PI-MFA configurations correspond to the minimum PDE loss (min Lpde ), a balanced Pareto-optimal selection, and the minimum total physics loss (min Lphysics ), where Lphysics = Lpde + L IC +LBC . For each case, the PINN baseline is trained using the corresponding min Lphysics weights. Reported losses are evaluated at the final optimizer iterate.                                                                                   
+
+> MFA Reg-MFA PINN PI-MFA
+> (data only) (smoother) (physics-informed) min Lpde Pareto-optimal min Lphysics
+> Case 2
+> Iterations ––808 4122 1446 1713
+> Ldata 7.77e-7 7.12e-7 1.88e-3 2.28e-2 7.59e-5 6.21e-5
+> Lpde 8.43e-1 8.35e-1 2.87e-3 2.13e-8 8.65e-5 2.06e-4
+> LIC 7.81e-4 1.52e-4 3.98e-3 4.13e-2 1.01e-3 7.12e-5
+> LBC 5.15e-11 1.85e-11 5.92e-3 5.60e-4 4.17e-4 4.63e-6
+> Ltotal 8.43e-1 8.35e-1 1.47e-2 6.46e-2 1.59e-3 3.44e-4
+> Case 3
+> Iterations ––812 4122 1485 1650
+> Ldata 1.51e-6 1.34e-6 5.44e-4 3.10e-3 7.08e-5 6.23e-5
+> Lpde 7.28e-1 7.22e-1 9.22e-4 6.84e-9 3.23e-5 1.83e-4
+> LIC 3.43e-4 3.27e-4 6.08e-3 1.81e-2 1.88e-3 1.10e-4
+> LBC 9.43e-12 8.98e-11 8.28e-4 8.03e-5 7.76e-5 4.98e-7
+> Ltotal 7.28e-1 7.22e-1 8.38e-3 2.13e-2 2.06e-3 3.56e-4
+
+we obtain dd𝑡 
+
+∫
+
+> Ω
+
+𝑞 dΩ +
+
+∫
+
+> 𝜕 Ω
+
+𝑞 (𝑼 · 𝒏 ) d𝑠 −
+
+∫
+
+> Ω
+
+𝑞 (∇ · 𝑼 ) dΩ − 𝜈 
+
+∫
+
+> 𝜕 Ω
+
+∇𝑞 · 𝒏 d𝑠 = 0, 𝑞 ∈ { 𝑢, 𝑣 }. (C.9) Under the homogeneous Dirichlet boundary condition, one has 𝑞 = 0 on 𝜕 Ω, and therefore 
+
+∫
+
+> 𝜕 Ω
+
+𝑞 (𝑼 · 𝒏 ) d𝑠 = 0. (C.10) Hence, Eq. (C.9) reduces to dd𝑡 
+
+∫
+
+> Ω
+
+𝑞 dΩ = 
+
+∫
+
+> Ω
+
+𝑞 (∇ · 𝑼 ) dΩ + 𝜈 
+
+∫
+
+> 𝜕 Ω
+
+∇𝑞 · 𝒏 d𝑠, 𝑞 ∈ { 𝑢, 𝑣 }, (C.11) which corresponds to Eq. (4.18). This identity shows that the componentwise integrals are generally not conserved, and their evolution is governed by the volumetric contribution involving ∇ · 𝑼 and the diffusive boundary flux. Accordingly, the componentwise integral-balance residual is defined by 
+
+𝑟 𝑞,𝑀 (𝑡 ) = dd𝑡 
+
+∫
+
+> Ω
+
+𝑞 dΩ −
+
+∫
+
+> Ω
+
+𝑞 (∇ · 𝑼 ) dΩ − 𝜈 
+
+∫
+
+> 𝜕 Ω
+
+∇𝑞 · 𝒏 d𝑠, 𝑞 ∈ { 𝑢, 𝑣 }. (C.12) For the exact PDE solution, one has 
+
+𝑟 𝑞,𝑀 (𝑡 ) ≡ 0, 𝑞 ∈ { 𝑢, 𝑣 }. (C.13) 54 In the numerical experiments, 𝑟 𝑢,𝑀 (𝑡 ) and 𝑟 𝑣,𝑀 (𝑡 ) are evaluated from the continuous PIMFA approx-imation by using the B-spline representation to compute d 𝑀 𝑞 /d𝑡 together with the associated volume and boundary integrals. Their temporal evolution is then reported as a diagnostic of physics consistency. 
+
+# References 
+
+[1] L. Piegl, W. Tiller, The NURBS Book, 2nd Edition, Springer, Berlin, Heidelberg, 1997. doi: 10.1007/978-3-642-59223-2 .[2] C. de Boor, A Practical Guide to Splines, revised Edition, Vol. 27 of Applied Mathematical Sciences, Springer, New York, 2001. doi:10.1007/978-1-4612-6333-3 .[3] L. L. Schumaker, Spline Functions: Basic Theory, 3rd Edition, Cambridge Mathematical Library, Cambridge University Press, Cambridge, 2007. doi:10.1017/CBO9780511618994 .[4] P. H. C. Eilers, B. D. Marx, Flexible smoothing with B-splines and penalties, Statistical Science 11 (2) (1996) 89–121. doi:10.1214/ss/1038425655 .[5] M. J. Johnson, Z. Shen, Y. Xu, Scattered data reconstruction by regularization in B-spline and associated wavelet spaces, Journal of Approximation Theory 159 (2) (2009) 197–223. doi:10.1016/j.jat. 2009.02.005 .[6] S. Merchel, B. J¨ uttler, D. Mokriˇ s, M. Pan, Fast formation of matrices for least-squares fitting by tensor-product spline surfaces, Computer-Aided Design 150 (2022) 103307. doi:10.1016/j.cad.2022. 103307 .[7] T. J. R. Hughes, J. A. Cottrell, Y. Bazilevs, Isogeometric analysis: CAD, finite elements, NURBS, exact geometry and mesh refinement, Computer Methods in Applied Mechanics and Engineering 194 (39–41) (2005) 4135–4195. doi:10.1016/j.cma.2004.10.008 .[8] Y. Bazilevs, L. Beir˜ ao da Veiga, J. A. Cottrell, T. J. R. Hughes, G. Sangalli, Isogeometric analysis: approximation, stability and error estimates for ℎ-refined meshes, Mathematical Models and Methods in Applied Sciences 16 (7) (2006) 1031–1090. doi:10.1142/S0218202506001455 .[9] J. A. Cottrell, T. J. R. Hughes, A. Reali, Studies of refinement and continuity in isogeometric structural analysis, Computer Methods in Applied Mechanics and Engineering 196 (41–44) (2007) 4160–4183. 
+
+doi:10.1016/j.cma.2007.04.007 .[10] F. Auricchio, L. Beir˜ ao da Veiga, T. J. R. Hughes, A. Reali, G. Sangalli, Isogeometric collocation methods, Mathematical Models and Methods in Applied Sciences 20 (11) (2010) 2075–2107. doi: 10.1142/S0218202510004878 .[11] F. Auricchio, L. Beir˜ ao da Veiga, T. J. R. Hughes, A. Reali, G. Sangalli, Isogeometric collocation for elastostatics and explicit dynamics, Computer Methods in Applied Mechanics and Engineering 249–252 (2012) 2–14. doi:10.1016/j.cma.2012.03.026 .[12] D. Schillinger, J. A. Evans, A. Reali, M. A. Scott, T. J. R. Hughes, Isogeometric collocation: Cost comparison with Galerkin methods and extension to adaptive hierarchical NURBS discretizations, Computer Methods in Applied Mechanics and Engineering 267 (2013) 170–232. doi:10.1016/j. cma.2013.07.017 .[13] M. Montardini, G. Sangalli, L. Tamellini, Optimal-order isogeometric collocation at Galerkin super-convergent points, Computer Methods in Applied Mechanics and Engineering 316 (2017) 741–757. 
+
+doi:10.1016/j.cma.2016.09.043 .[14] T. Peterka, Y. S. G. Nashed, I. R. Grindeanu, V. S. Mahadevan, R. Yeh, X. Tricoche, Foundations of multivariate functional approximation for scientific data, in: 2018 IEEE 8th Symposium on Large Data Analysis and Visualization (LDAV), 2018, pp. 61–71. doi:10.1109/LDAV.2018.8739195 .55 [15] D. Lenz, R. Yeh, V. Mahadevan, I. Grindeanu, T. Peterka, Customizable adaptive regularization techniques for B-spline modeling, Journal of Computational Science 71 (2023) 102037. doi:10. 1016/j.jocs.2023.102037 .[16] J. Sun, D. Lenz, H. Yu, T. Peterka, Scalable volume visualization for big scientific data modeled by functional approximation, IEEE Transactions on Visualization and Computer Graphics 30 (12) (2024) 8637–8651. doi:10.1109/TVCG.2024.3353594 .[17] J. Sun, D. Lenz, H. Yu, T. Peterka, MFA-DVR: Direct volume rendering of MFA models, Journal of Visualization 27 (2024) 109–126. doi:10.1007/s12650-023-00946-y .[18] T. Peterka, D. Lenz, I. Grindeanu, V. S. Mahadevan, Towards adaptive refinement for multivariate functional approximation of scientific data, in: 2023 IEEE 13th Symposium on Large Data Analysis and Visualization (LDAV), 2023, pp. 32–41. doi:10.1109/LDAV60332.2023.00011 .[19] I. Grindeanu, T. Peterka, V. S. Mahadevan, Y. S. G. Nashed, Scalable, high-order continuity across block boundaries of functional approximations computed in parallel, in: 2019 IEEE International Conference on Cluster Computing (CLUSTER), 2019, pp. 1–9. doi:10.1109/CLUSTER.2019.8891018 .[20] V. S. Mahadevan, D. Lenz, I. Grindeanu, T. Peterka, Accelerating multivariate functional approximation computation with domain decomposition techniques, Journal of Computational Science 78 (2024) 102268. doi:10.1016/j.jocs.2024.102268 .[21] G. Ma, D. Lenz, T. Peterka, H. Guo, B. Wang, Critical point extraction from multivariate functional approximation, in: 2024 IEEE Topological Data Analysis and Visualization (TopoInVis), 2024, pp. 12–22. doi:10.1109/TopoInVis64104.2024.00006 .[22] J. Sun, D. Lenz, H. Yu, T. Peterka, Adaptive multi-resolution encoding for interactive large-scale volume visualization through functional approximation, in: 2024 IEEE 14th Symposium on Large Data Analysis and Visualization (LDAV), IEEE, 2024, pp. 33–42. doi:10.1109/LDAV64567.2024.00006 .[23] M. Guo, A. Manzoni, M. Amendt, P. Conti, J. S. Hesthaven, Multi-fidelity regression using artificial neural networks: Efficient approximation of parameter-dependent output quantities, Computer Methods in Applied Mechanics and Engineering 389 (2022) 114378. doi:10.1016/j.cma.2021.114378 .[24] A. A. Howard, M. Perego, G. E. Karniadakis, P. Stinis, Multifidelity deep operator networks for data-driven and physics-informed problems, Journal of Computational Physics 493 (2023) 112462. 
+
+doi:10.1016/j.jcp.2023.112462 .[25] A. Kiener, S. Langer, P. Bekemeyer, Data-driven correction of coarse grid CFD simulations, Computers & Fluids 264 (2023) 105971. doi:10.1016/j.compfluid.2023.105971 .[26] S. Kang, E. M. Constantinescu, Learning subgrid-scale models with neural ordinary differential equa-tions, Computers & Fluids 261 (2023) 105919. doi:10.1016/j.compfluid.2023.105919 .[27] P. Sousa, C. V. Rodrigues, A. Afonso, Enhancing CFD solver with machine learning techniques, Computer Methods in Applied Mechanics and Engineering 429 (2024) 117133. doi:10.1016/j. cma.2024.117133 .[28] S. Kang, E. M. Constantinescu, Enhancing low-order discontinuous Galerkin methods with neural ordinary differential equations for compressible Navier–Stokes equations (2025). arXiv:2310.18897 ,
+
+doi:10.48550/arXiv.2310.18897 .[29] J. Jung, E. Constantinescu, Learning differentiable weak-form corrections to accelerate finite element simulations (2026). arXiv:2601.20019 , doi:10.48550/arXiv.2601.20019 .[30] S. Garg, S. Chakraborty, B. Hazra, Physics-integrated hybrid framework for model form error identifi-cation in nonlinear dynamical systems, Mechanical Systems and Signal Processing 173 (2022) 109039. 
+
+doi:10.1016/j.ymssp.2022.109039 .56 [31] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. doi:10.1016/j.jcp.2018.10.045 .[32] J. Yu, L. Lu, X. Meng, G. E. Karniadakis, Gradient-enhanced physics-informed neural networks for forward and inverse PDE problems, Computer Methods in Applied Mechanics and Engineering 393 (2022) 114823. doi:10.1016/j.cma.2022.114823 .[33] D. Shu, Z. Li, A. Barati Farimani, A physics-informed diffusion model for high-fidelity flow field reconstruction, Journal of Computational Physics 478 (2023) 111972. doi:10.1016/j.jcp.2023. 111972 .[34] B. L¨ utjens, B. Leshchinskiy, C. Requena-Mesa, F. Chishtie, N. D´ ıaz-Rodr´ ıguez, O. Boulais, A. Pi˜ na, D. Newman, A. Lavin, Y. Gal, C. Ra¨ ıssi, Physics-informed GANs for coastal flood visualization (2020). 
+
+arXiv:2010.08103 , doi:10.48550/arXiv.2010.08103 .[35] A. Chakravarty, S. Misra, C. S. Rai, Visualization of hydraulic fracture using physics-informed cluster-ing to process ultrasonic shear waves, International Journal of Rock Mechanics and Mining Sciences 137 (2021) 104568. doi:10.1016/j.ijrmms.2020.104568 .[36] C. Banerjee, K. Nguyen, C. Fookes, G. E. Karniadakis, Physics-informed computer vision: A review and perspectives, ACM Computing Surveys 57 (1) (2024) 1–38. doi:10.1145/3689037 .[37] N. Ohashi, L. K. Hwang, B. Kwon, Physics-informed neural networks for multi-field visualization with single-color laser induced fluorescence, AI Thermal Fluids 1 (2025) 100005. doi:10.1016/j.aitf. 2025.100005 .[38] M. G. Cox, The numerical evaluation of B-splines, IMA Journal of Applied Mathematics 10 (2) (1972) 134–149. doi:10.1093/imamat/10.2.134 .[39] C. de Boor, On calculating with B-splines, Journal of Approximation Theory 6 (1) (1972) 50–62. 
+
+doi:10.1016/0021-9045(72)90080-9 .[40] D. C. Liu, J. Nocedal, On the limited memory BFGS method for large scale optimization, Mathematical Programming 45 (1–3) (1989) 503–528. doi:10.1007/BF01589116 .[41] Y. Qiu, LBFGS++ (LBFGSpp): A header-only C++ library for L-BFGS and L-BFGS-B algorithms, GitHub repository, version v0.4.0, commit c524a40 (2025). URL https://github.com/yixuan/LBFGSpp 
+
+[42] J. Crank, The Mathematics of Diffusion, 2nd Edition, Clarendon Press, Oxford, 1975. [43] R. Haberman, Applied Partial Differential Equations: With Fourier Series and Boundary Value Prob-lems, 5th Edition, Pearson, Boston, 2013. [44] D. Lenz, O. Marin, V. S. Mahadevan, R. Yeh, T. Peterka, Fourier-informed knot placement schemes for B-spline approximation, Mathematics and Computers in Simulation 213 (2023) 374–393. doi: 10.1016/j.matcom.2023.05.017 .[45] V. Pareto, Manual of Political Economy, A. M. Kelley, New York, 1971. [46] R. T. Marler, J. S. Arora, Survey of multi-objective optimization methods for engineering, Structural and Multidisciplinary Optimization 26 (6) (2004) 369–395. doi:10.1007/s00158-003-0368-6 .[47] R. T. Marler, J. S. Arora, The weighted sum method for multi-objective optimization: new in-sights, Structural and Multidisciplinary Optimization 41 (6) (2010) 853–862. doi:10.1007/ s00158-009-0460-7 .[48] F. M. Rohrhofer, S. Posch, C. G¨ oßnitzer, B. C. Geiger, Data vs. physics: The apparent Pareto front of physics-informed neural networks, IEEE Access 11 (2023) 86252–86261. arXiv:2105.00862 ,
+
+doi:10.1109/ACCESS.2023.3302892 .57 [49] F. Heldmann, S. Berkhahn, M. Ehrhardt, K. Klamroth, PINN training using biobjective optimization: The trade-off between data loss and residual loss, Journal of Computational Physics 488 (2023) 112211. 
+
+doi:10.1016/j.jcp.2023.112211 .[50] R. Bischof, M. A. Kraus, Multi-objective loss balancing for physics-informed deep learning, Computer Methods in Applied Mechanics and Engineering 439 (2025) 117914. doi:10.1016/j.cma.2025. 117914 .[51] J. D. Cole, On a quasi-linear parabolic equation occurring in aerodynamics, Quarterly of Applied Mathematics 9 (3) (1951) 225–236. doi:10.1090/qam/42889 .[52] R. J. LeVeque, Finite Volume Methods for Hyperbolic Problems, Cambridge University Press, Cam-bridge, 2002. doi:10.1017/CBO9780511791253 .[53] P. Clark di Leoni, A. N. Hirata, P. D. Mininni, Dynamics of partially thermalized solutions of the Burgers equation, Physical Review Fluids 3 (2018) 014603. doi:10.1103/PhysRevFluids.3.014603 .[54] L. C. Evans, Partial Differential Equations, 2nd Edition, Vol. 19 of Graduate Studies in Mathematics, American Mathematical Society, Providence, RI, 2010. [55] D. Borthwick, Introduction to Partial Differential Equations, Springer, Cham, 2017. doi:10.1007/ 978-3-319-48936-0 .[56] M. C. Kennedy, A. O’Hagan, Bayesian calibration of computer models, Journal of the Royal Statistical Society: Series B (Statistical Methodology) 63 (3) (2001) 425–464. doi:10.1111/1467-9868. 00294 .[57] G. Hooker, Forcing function diagnostics for nonlinear dynamics, Biometrics 65 (3) (2009) 928–936. 
+
+doi:10.1111/j.1541-0420.2008.01172.x .[58] R. E. Morrison, T. A. Oliver, R. D. Moser, Representing model inadequacy: A stochastic operator approach, SIAM/ASA Journal on Uncertainty Quantification 6 (2) (2018) 457–496. doi:10.1137/ 16M1106419 .[59] A. Masud, S. Nashar, S. A. Goraya, Physics-constrained data-driven variational method for missing physics and model-form error, Computer Methods in Applied Mechanics and Engineering 417 (2023) 116295. doi:10.1016/j.cma.2023.116295 .[60] D. A. Ham, P. H. J. Kelly, L. Mitchell, C. J. Cotter, R. C. Kirby, K. Sagiyama, N. Bouziani, S. Vorder-wuelbecke, T. J. Gregory, J. Betteridge, D. R. Shapero, R. W. Nixon-Hill, C. J. Ward, P. E. Farrell, P. D. Brubeck, I. Marsden, T. H. Gibson, M. Homolya, T. Sun, A. T. T. McRae, F. Luporini, A. Gregory, M. Lange, S. W. Funke, F. Rathgeber, G.-T. Bercea, G. R. Markall, Firedrake User Manual, Imperial College London and University of Oxford and Baylor University and University of Washington, first edition Edition (May 2023). doi:10.25561/104839 .[61] U. Ghia, K. N. Ghia, C. T. Shin, High-Re solutions for incompressible flow using the Navier–Stokes equations and a multigrid method, Journal of Computational Physics 48 (3) (1982) 387–411. doi: 10.1016/0021-9991(82)90058-4 .[62] J. Shen, Hopf bifurcation of the unsteady regularized driven cavity flow, Journal of Computational Physics 95 (1) (1991) 228–245. doi:10.1016/0021-9991(91)90261-I .[63] D. Kochkov, J. A. Smith, A. Alieva, Q. Wang, M. P. Brenner, S. Hoyer, Machine learning-accelerated computational fluid dynamics, Proceedings of the National Academy of Sciences 118 (21) (2021) e2101784118. doi:10.1073/pnas.2101784118 .[64] J. Pathak, M. Mustafa, K. Kashinath, E. Motheau, T. Kurth, M. Day, Using machine learning to augment coarse-grid computational fluid dynamics simulations (2020). arXiv:2010.00072 , doi: 10.48550/arXiv.2010.00072 .58 [65] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, A. Anandkumar, Fourier neural operator for parametric partial differential equations, in: International Conference on Learning Representations, 2021. arXiv:2010.08895 , doi:10.48550/arXiv.2010.08895 .URL https://openreview.net/forum?id=c8P9NQVtmnO 
+
+[66] T. J. R. Hughes, The Finite Element Method: Linear Static and Dynamic Finite Element Analysis, Prentice-Hall, Englewood Cliffs, NJ, 1987. [67] A. Ern, J.-L. Guermond, Theory and Practice of Finite Elements, Vol. 159 of Applied Mathematical Sciences, Springer, New York, 2004. doi:10.1007/978-1-4757-4355-5 .[68] M. Raissi, A. Yazdani, G. E. Karniadakis, Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations, Science 367 (6481) (2020) 1026–1030. doi:10.1126/science.aaw4741 .[69] J. A. Cottrell, T. J. R. Hughes, Y. Bazilevs, Isogeometric Analysis: Toward Integration of CAD and FEA, Wiley, Chichester, 2009. doi:10.1002/9780470749081 . 
+
+> Government License (will be removed at publication): The submitted manuscript has been created by UChicago Argonne, LLC, Operator of Argonne National Laboratory (“Argonne”). Argonne, a U.S. Department of Energy Office of Science laboratory, is operated under Contract No. DE-AC02-06CH11357. The U.S. Government retains for itself, and others acting on its behalf, a paid-up nonexclusive, irrevocable worldwide license in said article to reproduce, prepare derivative works, distribute copies to the public, and perform publicly and display publicly, by or on behalf of the Government. The Department of Energy will provide public access to these results of federally sponsored research in accordance with the DOE Public Access Plan. http://energy.gov/downloads/doe-public-access-plan.
+
+59

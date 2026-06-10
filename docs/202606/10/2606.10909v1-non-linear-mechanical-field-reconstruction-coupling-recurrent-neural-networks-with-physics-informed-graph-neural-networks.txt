@@ -1,0 +1,1155 @@
+Title: Non-linear mechanical field reconstruction coupling recurrent neural networks with physics-informed graph neural networks
+
+URL Source: https://arxiv.org/pdf/2606.10909v1
+
+Published Time: Wed, 10 Jun 2026 01:21:06 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# NON -LINEAR MECHANICAL FIELD RECONSTRUCTION COUPLING RECURRENT NEURAL NETWORKS WITH PHYSICS -INFORMED GRAPH NEURAL NETWORKS 
+
+PREPRINT SUBMITTED TO COMPUTER METHODS IN APPLIED MECHANICS AND ENGINEERING 
+
+Manuel Ricardo Guevara Garban 1,2,3* Yves Chemisky 4 Étienne Prulière 5
+
+Michaël Clément 2 Martin Abendroth 3 Bjoern Kiefer 3
+
+> 1
+
+Univ. Bordeaux, CNRS, Bordeaux INP, I2M, UMR 5295, Talence, France 
+
+> 2
+
+Univ. Bordeaux, CNRS, Bordeaux INP, LaBRI, UMR 5800, Talence, France 
+
+> 3
+
+Institute of Mechanics and Fluid Dynamics, TU Bergakademie Freiberg, Freiberg, 09599, Germany 
+
+> 4
+
+Univ. Grenoble Alpes, CNRS, UMR 5525, La Tronche, 38000, France 
+
+> 5
+
+Arts et Metiers Institute of Technology, CNRS, Bordeaux INP, I2M, UMR 5295, Talence, 33400, France 
+
+## ABSTRACT 
+
+Reconstructing local stress fields in heterogeneous microstructures under non-linear, history-dependent loading remains a major computational bottleneck in multi-scale simulations. We propose a coupled LSTM-GNN framework that links the temporal and spatial aspects of local stress field re-construction. A Long Short-Term Memory network encodes macroscopic stress-strain sequences into a compact hidden state that captures the path-dependent constitutive response, while a physics-informed Graph Neural Network reconstructs the spatially-resolved stress field at each time step. We introduce a relative weighting strategy with linear warm-up to balance the data-driven recon-struction loss and a discrete divergence-based equilibrium penalty. This resolves the scale mismatch that prevents fixed-weight formulations from converging in the elasto-plastic regime. The model is trained on 10 ,000 non-proportional loading paths applied to a periodic plate-with-a-hole microstruc-ture and von Mises elasto-plasticity. The model achieves three orders of magnitude speedup over finite element simulations and generalizes to loading sequences twice the training length, with 1.9% 
+
+cumulative error. Because the graph relies on mesh connectivity instead of the specific element type, one trained surrogate can be applied directly without retraining to meshes with different ele-ment types and to both coarser and finer resolutions, while in all cases reproducing the high-fidelity quad-element FE field used during training. Indeed, the message passing characteristics inherent to GNN and MeshGraphNet architecture render the model mesh-agnostic. Analysis of the LSTM hidden states suggests a low-dimensional structure related to the internal state variables of the con-stitutive model. 
+
+Keywords Graph neural networks · Multi-scale simulation · Recurrent neural networks · Machine learning ·
+
+Architectured materials · Local stress field reconstruction · Physics-informed neural networks 
+
+## 1 Introduction 
+
+Recent manufacturing processes especially additive manufacturing make it possible to design architectured materials with far more complex geometries than before, opening new possibilities for lightweight, multi-functional components. Designing these structures still requires repeated full-field simulations under changing loads, which quickly becomes expensive. Multi-scale optimization is especially costly because it requires repeated iterations over microstructural geometries, macroscale geometries, and material parameters. The cost even becomes prohibitive once plasticity or kinematic non-linearities are included. 
+
+> ∗
+
+Corresponding author: manuel.guevara-garban@u-bordeaux.fr 
+
+> arXiv:2606.10909v1 [cs.CE] 9 Jun 2026 PREPRINT
+
+1.1 Multi-scale simulation 
+
+A computationally efficient way to simulate mechanical problems that have two (or more) characteristic length scales lies in the use of homogenization theory. If the scales are well separated, we can split the problem into microscopic and macroscopic parts. These two boundary value sub-problems are coupled in the context of a linearized two-scale finite element (FE) simulation: considering appropriate boundary conditions, the microscopic problem provides at each integration point the homogenized properties (mean stress, tangent stiffness matrix) that are required to solve the macroscopic problem. The resolution of the macroscopic PDE system, in turn, provides the predicted strain that allows defining the appro-priate local boundary condition for the microscopic problem. This method is referred to as the FE 2 method [1, 2]. In linear elasticity, the microscopic problem, which consists of six linear simulations in 3D (and three in 2D) for the determination of the homogenized stiffness matrix, needs only to be solved once since the stiffness matrix is time in-dependent, whereas for non-linear problems, like elasto-plasticity, a new homogenization of the microstructure needs to be done at each time step, at each integration point and considering an implicit solver, for each iteration inside the time step (e.g. Newton-Raphson iterations). In many cases, homogenized properties are not sufficient in the design process, for instance considering the elasticity limit or the fatigue durability, and the evaluation of mechanical strength under a specific loading scenario that involves a local non-linear response of the material. In these cases, a local criterion based on the stress components is required, so the full local stress field needs to be computed. Note that the computation of full fields comes naturally considering FE 2 methods, which suffer from poor computational efficiency, especially considering material non-linearities that require a linearized, incremental scheme. Prior to the development of FE 2 methods, micro-mechanical approaches have been developed [3] to link the average local fields of different phases with the global average. These relations are restricted to a specific geometry (i.e., ellipsoidal inhomogeneities), while approximations were developed for other geometries, the field being described as a piecewise field per phase [4]. 
+
+1.2 Reduced order models 
+
+To mitigate the high costs associated with multi-scale simulations and following micro-mechanical approaches, re-duced order models (ROMs) have been proposed to simplify simulations at the micro-scale level while retaining essential microstructure features and behaviors, such as mean stress values. Such ROMs, which have added plastic modes to better represent the local fields of non-linear heterogeneous microstructures, have been developed in [5] and extended in [6], considering the use of Proper Orthogonal Decomposition (POD) to identify those plastic modes. The plastic modes are therefore used to better represent strain localization that appears in phases subjected to the development of plastic strains. AI-based approaches were also developed to drastically cut down computational times [7], at the cost of retaining only the average stress field and tangent modulus. Hybrid approaches embedding neural networks into elasto-plastic constitutive models have also been developed [8], alongside ROM-FE 2 methods that reduce the cost of non-linear multi-scale simulations [9, 10]. A recent study com-pared these surrogate families and reports trade-offs in efficiency, accuracy, and flexibility [11, 12]. Another local field estimation has been introduced in [13], referred to as the self-consistent clustering analysis. In this approach, local fields are approximated as a group of clusters with similar mechanical features. This method is very relevant to determine the homogenized response of complex heterogeneous structures without the determination of specific local non-linear deformation modes that are microstructure-dependent. Nonetheless, all these methods are not dedicated to the precise definition of local fields, but rather focus on satisfying, computationally efficient estimation of the global response of non-linear, multi-scale structures. 
+
+1.3 Deep learning methods 
+
+Machine-learning (ML) methods are now widely used for surrogate modeling [14–16] and, in some cases, for full-field prediction beyond the specific case of multi-scale modeling. Deep Learning methods, such as Convolutional Neural Networks (CNNs) [17], have been employed to predict full stress fields on 2D geometries, as demonstrated by the framework "StressNet," which uses CNNs to estimate stress fields in cantilevered structures [18]. In addition, [19] proposed to use a U-Net [20] architecture as an end-to-end ML-driven framework to accelerate multi-scale mechanics 2PREPRINT 
+
+simulations of heterogeneous macro-structures. The U-Net architecture has also been employed for predicting stress fields in additively manufactured metals with complex defect networks [21]. Other CNN-based methods have explored the use of generative models, such as Generative Adversarial Networks (GANs) [22] and Diffusion Models [23]. For example, [24] proposed a GAN model for predicting strain and stress tensors in hierarchical composite microstructures. Similarly, [25] used Diffusion Models to estimate stress fields in 2D geometries. CNNs work well on regular grids but are awkward on unstructured meshes with varying refinement, where local features at different resolutions matter for accuracy. Point-cloud methods such as [26] avoid rasterization by using 1D convolutional layers for field predictions on parameterized geometries, yet they still miss explicit connectivity, which matters for stress localization on mesh data. To overcome the limitations of CNNs in simulating unstructured geometries, Graph Neural Networks (GNNs) [27] have gained increasing attention. By operating directly on graph-structured data, such as mesh data, GNNs can ef-fectively capture spatial relationships and multi-scale dependencies inherent in unstructured domains, offering a more flexible approach to stress field prediction. One notable contribution is MeshGraphNet , a GNN architecture proposed by [28]. This framework adopts an Encode-Message Passing-Decode architecture, enabling accurate representations of mesh-based simulations. MeshGraphNet has become a state-of-the-art approach for predicting scalar fields on mesh data [29–31]. Despite these advances, integrating physical constraints such as equilibrium conditions and periodic boundary con-ditions into GNN frameworks remains a challenge. Some exploratory works aim to incorporate physics-informed priors, also known as Physics-Informed Neural Networks (PINNs) [32], into GNNs. For instance, [33] proposed a GNN-based solver for partial differential equations (PDEs) considering boundary conditions, while [34] introduced a thermodynamics-informed GNN to predict the temporal evolution of dissipative dynamic systems. However, en-forcing equilibrium constraints on predicted stress fields using GNNs remains an unresolved issue. [35] explored the concept of divergence-free neural networks for fluid mechanics, using automatic differentiation, even so, this approach remains experimental and difficult to scale on larger meshes due to the expensive use of automatic differentiation. In a previous work [36], we addressed this gap by introducing a discrete divergence operator into the GNN loss function for linear elastic and hyperelastic materials. The present work extends this approach to the history-dependent setting. A parallel line of research has explored recurrent neural networks (RNNs) for constitutive modeling and multi-scale surrogates. Mozaffar et al. [37] demonstrated that RNNs can learn path-dependent plasticity directly from stress-strain data, while Gorji et al. [38] systematically evaluated RNN architectures for modeling path-dependent plasticity under complex loading. Ghavamian and Simone [39] used RNNs to accelerate FE 2 simulations of history-dependent materials by replacing microscale solves. Wu et al. [40] extended this to non-proportional loading with an RNN-accelerated multi-scale model for elasto-plastic composites. Bonatti and Mohr [41] highlighted the importance of self-consistency constraints in RNN-based constitutive models. These RNN-based approaches predict only the mean (homogenized) constitutive response and do not provide spatially resolved local fields. Meanwhile, GNN-based methods for local field reconstruction have been limited to the elastic and hyperelastic regimes [30, 36]. A recent physics-informed framework does combine the two architectures: a GNN extracts spatial features of the polycrystal microstructure that feed an LSTM predicting microvoid growth over the loading history [42]. There the GNN serves as a feature extractor and the prediction is a homogenized scalar, the void volume fraction. A coupling in which the GNN instead performs spatial localization to reconstruct the full local stress field in the history-dependent regime has, to our knowledge, not been addressed. Beyond classical surrogate modeling, data-driven computational mechanics [43] and thermodynamics-based neural networks [44] have emerged as principled alternatives to handcrafted constitutive laws. Im et al. [45] combined POD with LSTM (Long Short-Term Memory) for elasto-plastic surrogate modeling, while Maia et al. [46] proposed physi-cally recurrent neural networks that embed constitutive models within data-driven surrogates for path-dependent het-erogeneous materials. These approaches illustrate a growing trend toward architectures that respect physical structure while learning from data. Temporal extensions of graph-based architectures have been proposed for physics simulation. Sanchez-Gonzalez et al. [47] introduced Graph Network Simulators for learning complex particle-based dynamics, and Brandstetter et al. [48] developed message-passing PDE solvers. Hu et al. [49] proposed a temporal GNN for cross-scale modeling of polycrystals. However, these approaches usually unfold time steps autoregressively over the graph, which leads to an accumulation of errors in the graph domain where many node values evolve simultaneously. Although this strategy is 3PREPRINT 
+
+efficient for processing temporal data, it is not ideally suited for reconstructing local fields when the goal is to recover a specific snapshot of interest. This limitation continues to pose a significant challenge in this area. Neural operators such as the Fourier Neural Operator [50] and DeepONet [51] learn mappings between function spaces and have been extended to time-dependent PDEs [52, 53]. While these approaches offer mesh-independent representations, they require re-training for new geometries and do not naturally incorporate the periodic boundary conditions and mesh connectivity that are central to computational homogenization. 
+
+1.4 Contributions 
+
+In this work, we extend the physics-informed GNN localization framework introduced in our previous work [36] to non-linear, history-dependent constitutive behaviors. The main contributions are: 1. A coupled LSTM-GNN architecture that decouples homogenized temporal sequence learning from spa-tial field reconstruction, enabling local stress field prediction in elasto-plastic microstructures under non-proportional loading; 2. A relative weighting strategy with linear warm-up for the divergence-based physics-informed loss, which au-tomatically balances the reconstruction and equilibrium objectives across material regimes without problem-specific tuning; 3. A systematic evaluation of the model capabilities including out-of-distribution generalization to longer load-ing sequences, cross-mesh transfer from quadrilateral to triangular elements, and mesh refinement robustness; 4. An interpretability analysis of the LSTM hidden states, revealing a low-dimensional manifold structure aligned with the physical state variables of the constitutive model. 
+
+## 2 Background 
+
+2.1 Mechanical problem 
+
+The mechanical problem considered in this work is the microscale boundary value problem arising in periodic compu-tational homogenization. We consider a representative unit cell (RUC) occupying a domain Ω, with volume V , subject to periodic boundary conditions. The local static equilibrium, in the absence of body forces, reads 
+
+div σ(x) = 0 , ∀ x ∈ Ω , (1) which in 2D reduces to 
+
+div σ =
+
+" ∂σ xx  
+
+> ∂x
+
++ ∂σ xy  
+
+> ∂y ∂σ xy
+> ∂x
+
++ ∂σ yy 
+
+> ∂y
+
+#
+
+= 0 . (2) Considering a linearized incremental scheme, the increment of displacement ðu is decomposed using periodic bound-ary conditions [54, 55] as 
+
+ðu(x) = ð ¯ε · x + ð˜u(x) , (3) where ð ¯ε = 1
+
+> V
+
+R 
+
+> Ω
+
+ðε dV is the increment of prescribed mean strain tensor and ð˜u is a periodic fluctuation satisfying 
+
+ð˜u(x+) = ð˜u(x−) on opposite boundary faces. The linearized increment of strain tensor is defined as 
+
+ðε = 12
+
+∇ðu + ∇T ðu . (4) 
+
+2.1.1 Elasto-plastic constitutive model 
+
+The constitutive behavior is described within the framework of small-strain, rate-independent elasto-plasticity [56, 57]. The total strain tensor is decomposed additively into elastic and plastic contributions 
+
+ε = εe + εp . (5) The elastic part follows Hooke’s law for linear-elastic materials 
+
+σ = C : εe . (6) Here, C is the fourth-order elasticity tensor, which in the case of isotropy can be expressed in terms of the Young’s modulus E and the Poisson’s ratio ν.4PREPRINT 
+
+Plastic yielding is assumed to be governed by the von Mises criterion, based on the equivalent stress measure 
+
+σvm =
+
+q 32 s : s . (7) Therein, s = σ − 13 tr (σ) I is the deviatoric stress tensor. The yield function then reads 
+
+f (σ, ¯εp) = σvm (σ) − σy (¯ εp) ≤ 0, (8) where ¯εp is the accumulated equivalent plastic strain. Isotropic hardening is modeled through the power-law rule 
+
+σy (¯ εp) = σy0 + K (¯ εp)n, (9) with σy0 the initial yield stress, K a hardening parameter, and n the hardening exponent. The associative flow rule governs the evolution of plastic strain according to 
+
+˙εp = ˙λ ∂f ∂σ , (10) subject to the Karush-Kuhn-Tucker loading-unloading conditions, 
+
+˙λ ≥ 0, f ≤ 0, ˙λ f = 0 . (11) where λ is a plastic Lagrange multiplier. The accumulated plastic strain thus evolves as ˙¯εp =
+
+q 23 ˙εp : ˙ εp.This constitutive model introduces intrinsic path dependence: the stress response at any time depends on the entire history of plastic deformation through the internal variable ¯εp. This path dependence, absent in the elastic setting treated in our previous work [36], motivates coupling a recurrent architecture [7] with the GNN localization framework. 
+
+2.1.2 Stress localization in periodic homogenization 
+
+In periodic homogenization, the relationship between macroscopic and microscopic fields is mediated by localization tensors. Given a macroscopic strain increment δ ¯ε, the local strain increment at position x within the unit cell is obtained through the fourth-order strain localization tensor A,
+
+ðε(x, t ) = A(x, t ) : ð ¯ε(t). (12) The corresponding stress localization tensor B connects the local stress increment to the macroscopic stress increment, 
+
+ðσ(x, t ) = B(x, t ) : ð ¯σ(t) . (13) Note that the kinematic and kinetic localization tensors are related via B = D : A : ¯D−1, where D(x) is the local tangent modulus and ¯D = ⟨D : A⟩ the homogenized tangent modulus [54]. In linear elasticity, the tangent modulus reduces to the time-independent elasticity tensor D = C, so that B is constant and the stress takes the total form σ(x) = B(x) : ¯ σ.In elasto-plasticity, D evolves with the accumulated plastic strain among other internal variables, making the localiza-tion tensor loading path-dependent, i.e., 
+
+Bt = B(x, { ¯ετ }τ ≤t) . (14) This history dependence motivates the coupled architecture proposed in this work, where an LSTM encodes the loading history into a hidden state ht, while a GNN performs spatial localization conditioned on ht.The macroscopic stress ¯σ is defined as volume average of the local stress field over the RUC, 
+
+¯σ = 1
+
+|V |
+
+Z
+
+> Ω
+
+σ dΩ . (15a) In the FE setting the integrals are evaluated by numerical integration using Gauss quadrature on the nodal stress and strain fields. The reference volume |V | is the RUC bounding box. 
+
+2.2 Long Short-Term Memory (LSTM) 
+
+Long Short-Term Memory (LSTM) networks [58] are recurrent architectures designed to capture long-range depen-dencies in sequential data while mitigating the vanishing gradient problem [59]. Each LSTM unit maintains a cell state ct ∈ Rh regulated by three gates—forget, input, and output—that control information flow, where h denotes the dimension of the hidden state h.5PREPRINT 
+
+Given an input xt ∈ Rd and the previous hidden state ht−1 ∈ Rh, the update equations are: 
+
+ft = ˜ σ(Wf xt + Uf ht−1 + bf ) (16a) 
+
+it = ˜ σ(Wixt + Uiht−1 + bi) (16b) 
+
+ot = ˜ σ(Woxt + Uoht−1 + bo) (16c) 
+
+˜ct = tanh( Wcxt + Ucht−1 + bc) (16d) 
+
+ct = ft ⊙ ct−1 + it ⊙ ˜ct (16e) 
+
+ht = ot ⊙ tanh( ct) (16f) where ˜σ denotes the sigmoid activation, ⊙ the element-wise product, W ∈ Rh×d, U ∈ Rh×h, and b ∈ Rh are learnable parameters, with c0 = h0 = 0.In this work, a two-layer, stacked LSTM is used, following the architecture validated in [60] for mean stress prediction (Figure 1). The stacked configuration enables the second layer to operate on the hidden representations of the first, capturing higher-order temporal abstractions. 
+
+Figure 1: Implemented two-layer, stacked LSTM architecture, unrolled through time. At each step t, the mean strain 
+
+¯εt is processed through two LSTM layers, and the final hidden state h2 
+
+> t
+
+is mapped to the mean stress prediction ¯σt via a dense layer. The model takes as input the mean strain ¯εt ∈ Rd and predicts the mean stress ¯σt ∈ Rd together with its hidden state: LSTM ( ¯ εt, h2
+
+> t−1
+
+, c2
+
+> t−1
+
+) 7 → ( ¯ σt, h2 
+
+> t
+
+, c2 
+
+> t
+
+) (17) with d the number of independent components of the symmetric stress and strain tensors: d = 3 in 2D and d = 6 in 3D. The hidden state h2 
+
+> t
+
+encodes the accumulated loading history and will serve as additional input to the GNN localization model (Section 3). In the following sections, we will write ht = h2 
+
+> t
+
+, the index 2 being dropped for the sake of readability. 
+
+2.3 Graph Neural Networks 
+
+Graph Neural Networks (GNNs) [27] operate on graph-structured data. A finite element mesh is naturally a graph: the mesh nodes act as vertices and the element edges define the connections between them. We denote the resulting undirected mesh graph by M = ( V, E), where V = {v1, . . . , v n} is a set of n mesh nodes and E is a set of unordered edges {vi, v j } (vi, v j ∈ V , i ̸ = j). Each node is associated with a feature vector vi ∈ Rdv and each edge with a feature vector eij ∈ Rde . GNNs update node representations through message passing: at each layer, every node aggregates information from its neighbors N (i), enabling the network to learn spatial correlations across the graph topology. This mechanism makes GNNs particularly well-suited for FE meshes, where nodes and edges naturally encode the geometric connectivity and local refinement that grid-based methods cannot represent. 6PREPRINT 
+
+In our previous work [36], we introduced a GNN-based stress localization framework (Equation (13)) following the 
+
+MeshGraphNet architecture [28] for the linear elastic and hyperelastic cases. The implemented GNN architecture is presented in Figure 2. The architecture employs an Encode-Message Passing-Decode pipeline: MLP encoders project node and edge features into a latent space of dimension H; L message-passing steps propagate information across the graph with shared-weight MLPs and residual connections; and an MLP decoder maps the final latent node representations to the target output. 
+
+Figure 2: GNN architecture based on the encode-process-decode paradigm. The physical mesh M is mapped to a latent graph M′ through node and edge encoders. Message passing steps update node and edge features in the latent space, and a node decoder produces the output stress field. [36]. The main adaptation is the enrichment of node features with temporal information from the LSTM. In the elastic formulation [36], each node carried only vi = ( ¯ σ, xi, α i), where ¯σ is the mean stress, xi the spatial coordinates, and 
+
+αi ∈ {− 1, 0, 1} a boundary classification label. In the present work, the feature vector is augmented with the LSTM hidden state: 
+
+vi,t = ( ¯ σt, ht, xi, α i), (18) where ht ∈ R64 and ¯σt ∈ Rd are respectively the hidden state and the mean stress tensor produced by the LSTM at time step t (Equation (17)). This hidden state, broadcast uniformly to all nodes, provides the GNN with a compact encoding of the loading history up to the current increment. The GNN mapping thus becomes time-dependent: GNN ( ¯ σt, ht, vi,t , M) 7 → (σxx i,t , σ yy i,t , σ xy i,t ) (19) Each edge {vi, v j } carries the Euclidean distance between nodes as its feature. To enforce periodicity, additional edges with zero-valued features connect boundary node pairs on opposite faces, enhancing message passing across the periodic domain. The model incorporating these periodic edges is denoted P-GNN .The implemented model uses a latent space of dimension H = 128 and L = 10 message-passing steps, yielding a total of 175 ,491 trainable parameters. Every block is a multilayer perceptron of hidden width H with ReLU activations: the node and edge encoders and the per-step message-passing networks use two hidden layers followed by a layer normalization, as in [28], while the decoder is a single hidden layer that maps H to the three stress components, without normalization. These hyper-parameters were selected in our previous work [36] for a finite-strain hyperelastic case and are reused here without re-tuning. The underlying hypothesis is that the GNN’s task, spatial localization given a homogenized state, is of comparable difficulty in the present setting, since the path-dependence is factored out into the LSTM. A variant incorporating a divergence-based physics-informed loss, originally proposed in [36] and referred to as P-DivGNN , will be considered in Section 3.3. 
+
+## 3 Coupled LSTM-GNN Framework 
+
+The LSTM encodes the loading history into a compact hidden state that captures path-dependent behavior, but by itself it cannot reconstruct spatially resolved fields. To recover local stress distributions, the LSTM hidden state is coupled with the GNN localization model. 7PREPRINT 
+
+At each time step, the LSTM processes the input mean strain ¯εt and produces two outputs: the predicted mean stress ¯σt
+
+and a hidden representation ht encoding the loading history up to time t. These outputs are broadcast as uniform node features to the mesh graph, where the GNN performs message passing to reconstruct the full local stress distribution (Figure 3). The complete pipeline reads: GNN  LSTM ( ¯ εt, ht−1), vi,t , M 7 → (σxx i,t , σ yy i,t , σ xy i,t ) , (20) where vi,t contains the per-node spatial coordinates xi and boundary label αi, along with the time-dependent global features ¯σt and ht that are broadcast to all nodes (Equation (18)). 
+
+Figure 3: Architecture of the coupled LSTM-GNN framework. The LSTM processes the mean strain history to produce hidden states ht and mean stress predictions ¯σt. These outputs serve as enriched node features for the GNN, which performs message passing on the periodic mesh graph to reconstruct the local stress field at each time step. The LSTM is a two-layer network with input size 3, hidden size 64 , and output size 3, totaling 51 ,139 parameters. The GNN contains 175 ,491 parameters. These configurations are fixed for all experiments. 
+
+3.1 Database generation 
+
+A finite element database containing 10 ,000 distinct, non-proportional loading cases was generated using the open-source FE library Fedoo [61] which we develop and maintain. Each loading case consists of four strain segments, with target strain components ( ¯εxx , ¯εyy , ¯εxy ) randomly sampled within [−0.05 , 0.05] and 25 intermediate steps between successive targets, yielding approximately 110 time steps per case (Figure 4). The dataset is split into 70% training and 30% testing subsets. Simulations use plane strain conditions with periodic boundary conditions and the elasto-plastic constitutive model described in Section 2.1. The material parameters correspond to a titanium alloy (Table 1). The geometry is a square plate with a central hole, discretized with 1,402 quadrilateral elements, totaling 1,512 nodes (Figure 5). Quadrilateral elements were preferred over triangular ones because linear triangular elements, also called constant strain triangles (CST), suffer from volumetric locking under the incompressibility constraint of plastic flow [62], producing artificially stiff responses. Figures 6a and 6b illustrate this contrast. From each simulation, both macroscopic (volume-averaged, equation (15)) and local (nodal) stress fields are stored at every time step (Figure 7). Within each element, the Gauss-point stresses are projected onto the element nodes by a least-squares inversion of the shape functions, and the values from all elements sharing a node are averaged to give a single nodal stress. Before training, the inputs and outputs of each model are standardized to zero mean and unit variance, with separate statistics for inputs and outputs estimated on the training set. 8PREPRINT 0 25 50 75 100           
+
+> Time step
+> 0.06
+> 0.03
+> 0.00
+> 0.03
+> Total Strain  ε
+> εxx
+> εyy
+> εxy
+> 025 50 75 100
+> Time step
+> 0.03
+> 0.00
+> 0.03
+> 0.06
+> 0.09 εxx
+> εyy
+> εxy
+> 025 50 75 100
+> Time step
+> 0.03
+> 0.00
+> 0.03
+> 0.06
+> 0.09 εxx
+> εyy
+> εxy
+
+Figure 4: Examples of non-proportional strain paths randomly sampled from the test database. Each path consists of four segments with linearly interpolated increments. 
+
+Parameter Value 
+
+Young’s modulus E 10 5 MPa Poisson’s ratio ν 0.3
+
+Yield stress σy0 300 MPa Hardening parameter K 1000 MPa Hardening exponent n 0.3
+
+Plate width/height L 1
+
+Hole radius r 0.2
+
+Table 1: Material and geometric parameters of the hole-plate microstructure. 
+
+Figure 5: FE mesh of the plate with central hole (1,512 nodes, 1,402 quad elements). 
+
+(a) Triangular mesh ( 1,487 nodes, 2,758 CST elements): visi-ble locking artifacts. 
+
+(b) Quadrilateral mesh ( 1,512 nodes, 1,402 elements): smooth stress field. 
+
+Figure 6: Comparison of constant strain triangular (CST) and quadrilateral discretizations for the same elasto-plastic loading case. 9PREPRINT 
+
+The LSTM operates on the d macroscopic strain and stress components, each standardized independently: 
+
+ˆxc = xc − μc
+
+sc
+
+, c = 1 , . . . , d, (21) where μc and sc are the mean and standard deviation of component c over all time steps and loading cases. This per-component scaling lets components of different magnitude contribute comparably during optimization. The GNN instead uses a single global mean and standard deviation, computed over all components and all mesh nodes at once: 
+
+ˆx = x − μs . (22) This global scaling is applied to the mean stress and hidden states broadcast to the nodes and to the local stress targets, while the spatial coordinates and boundary label are passed without scaling. 
+
+Figure 7: Example of a local stress field snapshot (MPa) with its corresponding mean stress-strain curve. The red point indicates the current loading step. 
+
+3.2 LSTM training 
+
+The LSTM is trained first in isolation to predict the evolution of the mean stress tensor components from prescribed mean strain sequences. The model is optimized using Adam [63] with a learning rate of 10 −3 and a mean squared error (MSE) loss. Training runs for 2,000 epochs with a mini-batch size of 64 ; the loss convergence is shown in Figure 8. The total training time is approximately 10 minutes on an NVIDIA RTX A1000 GPU (4 GB VRAM), a substantial improvement over the ∼7 hours reported in [7] for a comparable dataset, owing to the batched GPU-oriented implementation. 10 PREPRINT 1 500 1,000 1,500 2,000 
+
+10 −4
+
+10 −3
+
+10 −2
+
+10 −1
+
+Epochs 
+
+> MSE Loss
+> LSTM Test
+> LSTM Train
+
+Figure 8: LSTM training and validation loss convergence over 2,000 epochs. 
+
+3.3 Divergence-regularized GNN training 
+
+Once the LSTM is trained, it is run in inference mode to extract the hidden state sequences for each loading path. These hidden states are incorporated as additional node features in the graphs used for GNN training (Equation (18)). To reduce memory cost, the GNN is trained only on snapshots at the four main strain steps per loading case, not on the full step trajectories. Despite this, the results presented in Section 4 show that the GNN model is capable of reconstructing the whole loading history even for intermediate increments not seen during training. Each training batch corresponds to a contiguous subsequence of a loading path, rather than randomly sampled snapshots, preserving the temporal coherence of the learning signal. The GNN is optimized, again using Adam, at a learning rate of 10 −3, using the normalized mean squared error (NMSE) loss over 100 epochs with batch size of 50 . Training takes approximately twelve hours on an NVIDIA RTX A4000 GPU (16 GB); the NMSE convergence is shown in Figure 9a. The LSTM and GNN are implemented in PyTorch [64], with the graph operations built on PyTorch Geometric [65]. The NMSE ensures equal contribution from each stress component NMSE (σ, ˆσ) = 1
+
+d
+
+> d
+
+X
+
+> c=1
+
+Pni=1 (σc,i − ˆσc,i )2
+
+Pni=1 (σc,i − 1
+
+> n
+
+Pnj=1 σc,j )2 , (23) where σc,i is the ground truth local stress computed from FEA at node i, ˆσc,i the GNN predicted local stress for the stress component c ∈ { xx, yy, xy }.A central challenge in physics-informed learning is balancing data-driven and physics-based loss terms. Wang et al. [66, 67] analyzed gradient flow pathologies in PINNs from a Neural Tangent Kernel perspective, showing that naive multi-objective losses lead to training failure. GradNorm [68] and more recent approaches [69] propose adap-tive weighting strategies based on gradient magnitudes or loss ratios. We propose a relative weighting strategy that addresses a similar challenge in the GNN context, where the scale mismatch between the NMSE and divergence terms is particularly severe for elasto-plastic materials. In our previous work [36], we introduced the P-DivGNN architecture with a physics-informed loss that guides the predicted stress field toward the local equilibrium condition div σ = 0. The penalty relies on a discrete divergence operator ˆDσ , assembled from the FE shape-function derivatives and averaged across adjacent elements at shared nodes, that maps the stacked vector of nodal stress components to its nodal divergence. Its full construction is given in [36]. The divergence penalty reads 
+
+Ldiv = ( div (ˆσ)) 2 = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+div (ˆσ)|x=xi 
+
+> 2
+
+, (24) evaluated only at interior nodes, since boundary nodes exhibit artificially high divergence values in both the FE refer-ence and the predicted fields. 11 PREPRINT 
+
+A direct application of the fixed-weight formulation L = NMSE + λ Ldiv from [36] is problematic in the elasto-plastic setting. The NMSE is a dimensionless ratio of order 10 −2, while the divergence term can reach 10 6 during early training. Any fixed λ large enough to influence equilibrium dominates the gradient signal and prevents NMSE convergence. To resolve this scale mismatch, we introduce a relative weighting strategy with linear warm-up 
+
+Ltotal = NMSE + λeff Ldiv , λeff = λrel · w(e) · NMSE 
+
+Ldiv + ε , (25) where NMSE and Ldiv are the current batch values treated as constants, and w(e) = min(1 , e/K ) is a linear warm-up over K epochs. By construction, λeff · L div ≈ λrel · w(e) · NMSE, so the divergence term contributes a controlled fraction of the total gradient regardless of absolute scales. We use λrel = 0 .1 and K = 20 , so that the physics penalty reaches approximately 10% of the total loss after warm-up. Figure 9b compares the validation NMSE of the baseline GNN and the proposed model over the 100 training epochs; both converge to comparable final values, confirming that the divergence penalty does not degrade reconstruction accuracy. The effect of λrel on reconstruction quality and generalization is not examined in depth here. A systematic study of its interaction with the remaining training hyperparameters is left for future work. 1 20 40 60 80 100 
+
+> 10 −2
+> 10 −1
+> Epochs
+> NMSE Loss
+> GNN Test
+> GNN Train
+
+(a) GNN training and validation NMSE convergence over 100 
+
+epochs. 1 20 40 60 80 100 
+
+> 10 −3
+> 10 −2
+> 10 −1
+> Epochs
+> NMSE Loss
+> GNN
+> P-DivGNN
+
+(b) Validation NMSE convergence for the baseline GNN and P-DivGNN over 100 training epochs. 
+
+Figure 9: GNN and P-DivGNN training convergence over 100 epochs. 
+
+## 4 Results 
+
+The following sections evaluate the coupled LSTM-GNN framework against reference FE solutions. Macroscopic ac-curacy is quantified using the Mean Squared Error (MSE), Mean Absolute Error (MAE), and weighted Mean Absolute Percentage Error (wMAPE): MSE (y, ˆy) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+(ˆ yi − yi)2, (26) MAE (y, ˆy) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+|ˆyi − yi| , (27) wMAPE (y, ˆy) = 
+
+PNi=1 |yi − ˆyi|
+
+PNi=1 |yi| . (28) Microscopic field accuracy is assessed using the NMSE (Equation (23)) and the discrete stress divergence (Equa-tion (24)). 
+
+4.1 Macroscopic stress predictions 
+
+The 3,000 test simulations are ranked by their MAE averaged over the three stress components. Figure 10 presents the two best predictions and Figure 11 the two worst, illustrating the range of the model’s accuracy. The two best cases stay below 0.6% wMAPE, while the two worst reach about 3% , roughly 2.5× the 1.22% test-set average (Table 2). 12 PREPRINT 0.02 0.00 0.02 0.04 
+
+Macroscopic Strain ¯εxx      
+
+> 800
+> 0
+> 800
+> 1600
+> Macroscopic Stress  ¯σxx  [MPa ] FE ¯σxx
+> LSTM ¯σxx
+> 0.030 0.015 0.000 0.015
+
+Macroscopic Strain ¯εyy       
+
+> 800
+> 0
+> 800
+> 1600
+> Macroscopic Stress  ¯σyy  [MPa ] FE ¯σyy
+> LSTM ¯σyy
+> 0.00 0.02 0.04 0.06 0.08
+
+Macroscopic Strain ¯εxy       
+
+> 0
+> 50
+> 100
+> 150
+> 200
+> Macroscopic Stress  ¯σxy  [MPa ] FE ¯σxy
+> LSTM ¯σxy 0.04 0.02 0.00 0.02 0.04
+
+Macroscopic Strain ¯εxx      
+
+> 1200
+> 600
+> 0
+> 600
+> 1200
+> Macroscopic Stress  ¯σxx  [MPa ] FE ¯σxx
+> LSTM ¯σxx
+> 0.000 0.008 0.016 0.024
+
+Macroscopic Strain ¯εyy      
+
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> Macroscopic Stress  ¯σyy  [MPa ] FE ¯σyy
+> LSTM ¯σyy
+> 0.06 0.03 0.00 0.03
+
+Macroscopic Strain ¯εxy   
+
+> 150
+> 0
+> 150
+> 300
+> Macroscopic Stress  ¯σxy  [MPa ] FE ¯σxy
+> LSTM ¯σxy
+
+Figure 10: Macroscopic stress-strain responses for the two best test predictions, ranked by mean absolute error: FE reference (solid blue) vs. LSTM prediction (dashed red). Even in the worst cases, the LSTM closely tracks the reference solution throughout the non-proportional loading path. The most notable discrepancies occur during rapid transitions between loading segments, where elastic-plastic regime changes coincide with multiaxial stress rotations. Table 2 reports the global error metrics over the full test set. Despite the localized discrepancies in the worst cases, the low MSE and MAE values confirm accurate predictions across the database, with an overall wMAPE of 1.22% .The shear component ¯σxy exhibits the largest errors due to its sensitivity to non-proportional loading and its lower magnitudes, which amplify percentage-based metrics. Table 2: LSTM prediction error metrics on the full test set ( 3,000 simulations). 
+
+Metric Overall ¯σxx ¯σyy ¯σxy 
+
+MSE 2.54 × 10 −4 1.91 × 10 −4 1.98 × 10 −4 3.73 × 10 −4
+
+MAE 1.03 × 10 −2 9.21 × 10 −3 9.32 × 10 −3 1.23 × 10 −2
+
+wMAPE 1.22% 1.09% 1.11% 1.47% 
+
+13 PREPRINT 0.02 0.00 0.02 0.04                                     
+
+> Macroscopic Strain ¯εxx
+> 1200
+> 600
+> 0
+> 600
+> 1200
+> Macroscopic Stress  ¯σxx  [MPa ] FE ¯σxx
+> LSTM ¯σxx
+> 0.04 0.02 0.00 0.02 0.04
+> Macroscopic Strain ¯εyy
+> 1200
+> 600
+> 0
+> 600
+> 1200
+> Macroscopic Stress  ¯σyy  [MPa ] FE ¯σyy
+> LSTM ¯σyy
+> 0.03 0.00 0.03 0.06 0.09
+> Macroscopic Strain ¯εxy
+> 0
+> 150
+> 300
+> Macroscopic Stress  ¯σxy  [MPa ] FE ¯σxy
+> LSTM ¯σxy 0.04 0.02 0.00 0.02
+> Macroscopic Strain ¯εxx
+> 600
+> 0
+> 600
+> 1200
+> Macroscopic Stress  ¯σxx  [MPa ] FE ¯σxx
+> LSTM ¯σxx
+> 0.030 0.015 0.000 0.015
+> Macroscopic Strain ¯εyy
+> 600
+> 0
+> 600
+> 1200
+> Macroscopic Stress  ¯σyy  [MPa ] FE ¯σyy
+> LSTM ¯σyy
+> 0.09 0.06 0.03 0.00 0.03
+> Macroscopic Strain ¯εxy
+> 150
+> 0
+> 150
+> 300
+> 450
+> Macroscopic Stress  ¯σxy  [MPa ] FE ¯σxy
+> LSTM ¯σxy
+
+Figure 11: Macroscopic stress-strain responses for the two worst test predictions, ranked by mean absolute error: FE reference (solid blue) vs. LSTM prediction (dashed red). 
+
+4.2 LSTM hidden state analysis 
+
+To gain insight into the information encoded by the LSTM, the 64 -dimensional hidden state vectors ht are analyzed using two dimensionality reduction techniques. Principal Component Analysis (PCA) [70] finds orthogonal directions that capture the most variance in the data. t-distributed Stochastic Neighbor Embedding (t-SNE) [71] provides a visual representation of the hidden-state variables; it is a non-linear method that maps nearby points in high-dimensional space to nearby points in a two-dimensional embedding, making clusters and local groupings visible. PCA gives a global, linear view of the hidden state geometry; t-SNE resolves finer structure that a linear projection would flatten. The explained variance ratio (Figure 12) shows that the first two components alone capture about 85% of the total variance, and the first three exceed 90% , which justifies inspecting ht in a two-dimensional projection. Figure 13 then shows the PCA (Figure 13a) and t-SNE (Figure 13b) embeddings of the hidden states averaged across all test simulations. In the PCA projection, four distinct clusters are clearly visible; each one corresponds to the change in direction following a macro strain increment. The low effective dimensionality of ht suggests that the hidden states lie on a low-dimensional structure related to the main constitutive variables. The activation heatmap (Figure 14) displays the 64 hidden unit activations across the loading sequence. Each plotted activation is the output-gated cell state ht ∈ (−1, 1) ; since the output gate is non-negative, a negative value reflects a negative cell-state component rather than a physical sign. Vertical band transitions at steps ≈ 25 , 50 , 75 correspond to segment boundaries. Some units maintain persistent activation throughout the sequence, consistent with encoding accumulated plastic his-tory, while others respond transiently to loading direction changes—suggesting a functional specialization between “memory” and “event” neurons. The hidden state variables do not behave like the classical internal variables in thermodynamics of irreversible pro-cesses. The second law is not enforced in the LSTM, and even if it were, the constraint would be hard to express, since the macroscopic dissipation rate of a heterogeneous unit cell has no closed form [60]. Classical internal variables grow monotonically during dissipative loading and stay constant in the transient elastic regime; most of the hidden 14 PREPRINT 1 5 10 15 20 
+
+Principal component 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Explained variance ratio
+> Cumulative
+> 95% threshold
+> Individual
+
+Figure 12: Explained variance ratio of the principal components of the LSTM hidden states. The dashed line marks the 95% cumulative threshold, reached at the fourth component; the first two components alone capture about 85% of the total variance. 0.4 0.2 0.0 0.2 0.4 
+
+> PC 1
+> 0.5
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> PC 2
+> 0
+> 20
+> 40
+> 60
+> 80
+> Timestep
+
+(a) PCA projection onto the two leading principal components. The left-to-right progression along PC 1 reflects the accumula-tion of loading history, while repeating arc patterns correspond to the four strain segments. 10 8 6 4 2
+
+> t-SNE 1
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> t-SNE 2
+> 0
+> 20
+> 40
+> 60
+> 80
+> Timestep
+
+(b) t-SNE embedding. Early time steps (dark, bottom-left clus-ter) occupy a compact region, while later steps spread progres-sively as plastic deformation accumulates. 
+
+Figure 13: Dimensionality reduction of the LSTM hidden states averaged across all test simulations. Each point corresponds to one time step, colored by its index in the loading sequence. 15 PREPRINT 0 20 40 60 80 100 
+
+Time step 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Hidden unit
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Activation
+
+Figure 14: Activation heatmap of the 64 LSTM hidden units, averaged over the test set. Persistent units encode accumulated plastic state while transient units respond to loading changes. units shown here do neither. The LSTM appears to encode a mixture: fields that evolve rapidly in the elastic regime, such as stress, together with variables that track the change of microstructural state once a dissipative process is active. The present results do not characterize that mixture, but the physical meaning of the hidden state is an open direction for data-driven models of dissipative materials. 
+
+4.3 Generalization to longer loading sequences 
+
+An important question is whether the LSTM generalizes to loading histories longer than those seen during training. The model, trained exclusively on four-segment paths ( ∼110 time steps), is evaluated on an eight-segment path with 
+
+201 time steps—approximately double the training horizon (Figure 15). Figure 16 compares the corresponding macroscopic stress-strain response. The LSTM closely reproduces the reference over all eight segments, achieving a cumulative relative error of approximately 1.9% . In this eight-segment test, the error in segments 5–8 stays comparable to that in the first four, which suggests that the recurrent model can extend beyond the training horizon without obvious drift. The hidden-state plots are consistent with this behavior. The PCA projection (Figure 17, left) reveals eight distinct arc-shaped trajectories, one per segment, while t-SNE (right) separates them into well-defined clusters. The activation heatmap (Figure 18) shows eight clear band transitions with no sign of saturation or divergence in the later segments, explaining the sustained prediction accuracy. A few points in the PCA projection sit away from the eight arcs. These are the first one to four steps after each change of strain direction, where the per-step plastic increment briefly drops and the response is close to elastic before plastic flow resumes. 16 PREPRINT 0 25 50 75 100 125 150 175 200 
+
+Time step 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+> Total Strain  ε
+
+εxx 
+
+εyy 
+
+εxy 
+
+Figure 15: Eight-segment, non-proportional strain loading path used for out-of-distribution testing ( 201 time steps, twice the training length). 0.02 0.01 0.00 0.01 0.02 0.03 
+
+Macroscopic Strain ¯εxx       
+
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> Macroscopic Stress  ¯σxx  [MPa]
+> FE 2¯σxx
+> LSTM ¯σxx
+> 0.04 0.02 0.00 0.02 0.04
+
+Macroscopic Strain ¯εyy      
+
+> Macroscopic Stress  ¯σyy  [MPa]
+> FE 2¯σyy
+> LSTM ¯σyy
+> 0.05 0.00 0.05 0.10
+
+Macroscopic Strain ¯εxy   
+
+> Macroscopic Stress  ¯σxy  [MPa]
+> FE 2¯σxy
+> LSTM ¯σxy
+
+Figure 16: Macroscopic stress-strain response for the eight-segment path: FE reference (solid blue) vs. LSTM predic-tion (dashed red). Cumulative relative error: ∼1.9%. 17 PREPRINT 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5 
+
+> PC 1
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> PC 2
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> 200
+> Timestep
+
+(a) PCA of hidden states. 15 10 5 0 5 10 15  
+
+> t-SNE 1
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> t-SNE 2
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> 200
+> Timestep
+
+(b) t-SNE of hidden states. 
+
+Figure 17: Dimensionality reduction of the LSTM hidden states for the eight-segment path. Colors indicate time step (dark: early, bright: late). Both projections reveal eight distinct segment-level clusters. 0 25 50 75 100 125 150 175 200 
+
+Time step 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Hidden unit
+
+0.8 
+
+0.6 
+
+0.4 
+
+0.2 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+> Activation
+
+Figure 18: Activation heatmap of the 64 LSTM hidden units across 201 time steps. Eight vertical band transitions are visible. Persistent units encode accumulated plastic history, while transient units respond to loading reversals. 18 PREPRINT 
+
+4.4 Microscopic local stress fields 
+
+To evaluate both the baseline GNN and P-DivGNN under non-linear, history-dependent conditions, an arbitrary load-ing path is generated for simultaneous comparison against the FE reference. The strain sequence and macroscopic stress-strain response are shown in Figure 19, where the LSTM prediction tracks the FE reference over the full path (Figure 19c). 0 20 40 60 80 100 
+
+> Loading step
+> 0.04
+> 0.00
+> 0.04
+> 0.08
+> Total strain
+> εxx
+> εyy
+> εxy
+
+(a) Three-component strain sequence. (b) Four representative points on the mesh. 0.04 0.03 0.02 0.01 0.00 
+
+¯εxx      
+
+> 1200
+> 600
+> 0
+> 600
+> 1200
+> ¯σxx  [MPa]
+> FE 2¯σxx
+> LSTM ¯σxx
+> 0.02 0.00 0.02 0.04
+
+¯εyy       
+
+> ¯σyy  [MPa]
+> FE 2¯σyy
+> LSTM ¯σyy
+> 0.000 0.025 0.050 0.075 0.100
+
+¯εxy   
+
+> ¯σxy  [MPa]
+> FE 2¯σxy
+> LSTM ¯σxy
+
+(c) Macroscopic stress-strain response (FE reference vs. LSTM prediction). 
+
+Figure 19: Microscopic loading case: prescribed strain sequence, representative mesh points, and macroscopic stress-strain response. Figure 20 presents the local stress fields at the last loading step for FE, GNN, and P-DivGNN on the quadrilateral mesh. Figure 21 maps the per-node NMSE of each model against the FE (Quad) reference. Both models stay below 
+
+0.6% per-component NMSE. The GNN reaches 0.39% , 0.51% , and 0.14% for σxx , σyy , and σxy ; P-DivGNN reaches 
+
+0.42% , 0.19% , and 0.35% . Figure 22 maps the per-node stress divergence for the three solutions. P-DivGNN lowers the divergence at the hole boundary, where FE and the plain GNN both peak. A divergence-based regularization also changes how to read the NMSE. The FE reference satisfies div (σ) = 0 only weakly: its discrete divergence is small but nonzero ( 485 , Table 3). Since the reference is itself an approximate equilibrium, a lower NMSE against it does not strictly mean a better field once the model also minimizes the divergence. Figure 23 reports the time evolution of each stress component at four representative points (Figure 19b). At these sampled locations, the predicted stress histories remain close to the FEA curves for both boundary and interior nodes. We emphasize that the GNN has only been trained on specific snapshots (5 per loading case) that correspond to the random strain values sampled during the dataset generation. In Figure 23 we can see that the GNN is accurate even on intermediate local stress fields unseen during training. Table 3 reports the prediction error metrics on the full test set ( 3,000 graph samples) together with the mean stress divergence on the representative loading path. The divergence values reported here are computed on the raw, unnor-19 PREPRINT 3.08e+01 9.82e+02 1.93e+03 
+
+FEM Stress XX 2.85e+01 1.06e+03 2.10e+03 
+
+FEM Stress YY -7.25e+02 2.00e+01 7.65e+02 
+
+FEM Stress XY 3.08e+01 9.82e+02 1.93e+03 
+
+GNN Stress XX 2.85e+01 1.06e+03 2.10e+03 
+
+GNN Stress YY -7.25e+02 2.00e+01 7.65e+02 
+
+GNN Stress XY 3.08e+01 9.82e+02 1.93e+03 
+
+P-DivGNN Stress XX 2.85e+01 1.06e+03 2.10e+03 
+
+P-DivGNN Stress YY -7.25e+02 2.00e+01 7.65e+02 
+
+P-DivGNN Stress XY 
+
+Figure 20: Local stress fields (MPa) at the last loading step: FE (top), GNN (middle), and P-DivGNN (bottom). Color scales are determined by the FE solution and shared across rows. 20 PREPRINT 
+
+Figure 21: Per-node NMSE of the local stress field at the last loading step, relative to the FE (Quad) solution: GNN (top) and P-DivGNN (bottom). Each component ( σxx , σyy , σxy ) uses its own color scale, shared between the two models. 
+
+Figure 22: Local stress divergence (MPa per unit length) at the last loading step for FE, GNN, and P-DivGNN . P-DivGNN reduces the divergence at the hole boundary relative to FE and GNN. 21 PREPRINT 1000 
+
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> Point A
+
+## σxx σyy σxy                
+
+> FEM
+> GNN
+> P-DivGNN
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> Point B
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> Point C
+> 020 40 60 80 100
+> Time step
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> Point D
+> 020 40 60 80 100
+> Time step
+> 020 40 60 80 100
+> Time step
+
+Figure 23: Time evolution of the stress state at four representative points: FE (solid blue), GNN (dashed red), and 
+
+P-DivGNN (dotted green). malized stress fields and therefore lie on a much larger scale than the NMSE. During training, the relative weighting of Equation (25) closes this gap by rescaling the divergence contribution to a fixed fraction of the NMSE. The overall NMSE decreases from 1.68 × 10 −2 (GNN) to 1.56 × 10 −2 (P-DivGNN ), a 7% relative improvement, while the mean divergence drops from 893 to 440 , a more than 50% reduction. The two metrics measure different quantities: the NMSE is the distance to the FE reference field, treated here as the ground truth, while the divergence measures how well a field satisfies local equilibrium, independently of any reference. P-DivGNN improves both at the same time, so the equilibrium term acts as a regularizer rather than trading agreement with the FE field for lower divergence. The mean divergence of P-DivGNN (440 ) also falls below that of the FE solution ( 485 ). This is not read as the surrogate being more accurate than the finite element reference: the discrete divergence is a strong, pointwise form of equilibrium that the FE method does not impose explicitly, since its weak formulation balances forces only in an integral sense. The surrogate settles on a compromise between agreement with the FE field and satisfaction of this local form, the same behavior reported for the elastic case in [36]. This compromise is most useful away from quadrilateral meshes. On linear triangular meshes the discrete divergence is harder to keep small, because the interpolation is inconsistent at curved boundaries such as the hole; a surrogate 22 PREPRINT 
+
+that has learned a low-divergence mapping on quadrilateral elements and transfers across element types (Section 4.5) carries this property to meshes where the finite element divergence itself grows. Table 3: Divergence (MPa per unit length) and NMSE comparison between GNN, P-DivGNN , and FE on the elasto-plastic test set ( 3,000 graph samples). 
+
+Divergence NMSE 
+
+GNN 893 1.68 × 10 −2
+
+P-DivGNN 440 1.56 × 10 −2
+
+FE 485 –Table 4 disaggregates the NMSE by stress component. The improvement from divergence regularization is consistent across all three components. Table 4: Per-component NMSE comparison between GNN and P-DivGNN on the full test set. 
+
+Overall ˆσxx ˆσyy ˆσxy 
+
+GNN 1.68 × 10 −2 1.82 × 10 −2 1.48 × 10 −2 1.74 × 10 −2
+
+P-DivGNN 1.56 × 10 −2 1.64 × 10 −2 1.44 × 10 −2 1.61 × 10 −2
+
+These results show that the regularization strategy from [36] can also be used in the elasto-plastic regime. Despite the added complexity of path-dependent behavior and LSTM-based history encoding, the divergence penalty remains effective at reducing equilibrium violations while preserving prediction accuracy. The relative weighting strategy (Equation (25)) avoids the need for manual tuning of the penalty weight. 
+
+4.5 Mesh-agnostic reconstruction across element types 
+
+A notable advantage of the GNN-based surrogate is its independence from element type: the graph is constructed from mesh connectivity, so the learned localization mapping operates on nodes and edges regardless of whether the underlying elements are quadrilaterals or triangles. To test this, the training quadrilateral mesh is converted into a triangular mesh by splitting each quad element by adding an additional edge between its nodes, preserving all node positions exactly (Figure 24). Quad mesh (1402 elements) Tri mesh (2804 elements) A
+
+# B C
+
+# D
+
+# A
+
+# B C
+
+# D
+
+Figure 24: Quad (left) and derived tri (right) meshes used for the cross-mesh generalization experiment. Both meshes share the same node positions; only element connectivity differs. Six simulations are performed: FE, GNN, and P-DivGNN on both the quad and tri meshes, with FE on the quad mesh taken as ground truth. Figure 25 compares the predicted stress fields at the last time step. The GNN and P-DivGNN 
+
+fields on the tri mesh remain visually close to the quad FE reference, so the surrogate reconstructs approximately the same field whether the elements are quadrilaterals or triangles. The FE (Tri) field deviates near the hole, as expected for linear triangles under plastic flow. 23 PREPRINT 3.09e+01 9.84e+02 1.94e+03 
+
+FEM(Quad) Stress XX 2.87e+01 1.07e+03 2.10e+03 
+
+FEM(Quad) Stress YY -7.26e+02 1.97e+01 7.65e+02 
+
+FEM(Quad) Stress XY 3.09e+01 9.84e+02 1.94e+03 
+
+FEM(Tri) Stress XX 2.87e+01 1.07e+03 2.10e+03 
+
+FEM(Tri) Stress YY -7.26e+02 1.97e+01 7.65e+02 
+
+FEM(Tri) Stress XY 3.09e+01 9.84e+02 1.94e+03 
+
+GNN(Tri) Stress XX 2.87e+01 1.07e+03 2.10e+03 
+
+GNN(Tri) Stress YY -7.26e+02 1.97e+01 7.65e+02 
+
+GNN(Tri) Stress XY 3.09e+01 9.84e+02 1.94e+03 
+
+P-DivGNN(Tri) Stress XX 2.87e+01 1.07e+03 2.10e+03 
+
+P-DivGNN(Tri) Stress YY -7.26e+02 1.97e+01 7.65e+02 
+
+P-DivGNN(Tri) Stress XY 
+
+Figure 25: Stress fields (MPa) at the last time step: FE (Quad) reference (a), FE (Tri) (b), GNN(Tri) (c), P-DivGNN (Tri) (d). Same color scale throughout. 24 PREPRINT 1500 
+
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> Point A
+
+## σxx σyy σxy      
+
+> FEM(Quad)
+> FEM(Tri)
+> GNN(Tri)
+> P-DivGNN(Tri)
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> Point B
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> Point C
+> 020 40 60 80 100
+
+Time step      
+
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> Point D
+> 020 40 60 80 100
+
+Time step      
+
+> 020 40 60 80 100
+
+Time step 
+
+Figure 26: Time evolution of the stress state at four points: FE (Quad) (solid blue), FE (Tri) (dash-dot orange), GNN (Tri) (dashed red), P-DivGNN (Tri) (dotted green). The time evolution at four representative points (Figure 26) shows the FE (Quad), GNN (Tri) and P-DivGNN (Tri) traces staying mutually close regardless of element type, with FE (Tri) the only outlier. 25 PREPRINT 
+
+Table 5 and Figures 27a–27b summarize the NMSE and divergence across mesh types. On the unseen triangular mesh, the GNN and P-DivGNN predict nearly the same field as on the quad mesh; their NMSE against the FE (Quad) reference changes little with element type. However, this “generalization” is more precisely a robustness to mesh topology change for the same geometry: both quad and tri meshes share identical node positions, and the GNN was never exposed to triangular element connectivity during training. Table 5: Overall NMSE relative to FE (Quad) and mean stress divergence (MPa per unit length) for all model-mesh combinations. 
+
+Mesh Type Quad Tri Model NMSE σ Divergence NMSE σ Divergence FE – 4.85 × 10 2 1.04 × 10 −2 3.50 × 10 3
+
+GNN 6.28 × 10 −3 8.93 × 10 2 8.39 × 10 −3 1.13 × 10 3
+
+P-DivGNN 7.62 × 10 −3 4.40 × 10 2 7.84 × 10 −3 7.33 × 10 2
+
+Across element types the GNN and P-DivGNN divergence stays close to its quad-mesh value, and P-DivGNN remains the lowest of the learned models. The larger FE (Tri) divergence is a well-known effect of linear triangles, which stiffen under plastic flow. Using quadratic six-node triangles removes this accuracy gap and converges to the quadrilateral solution. Quad Tri  
+
+> 0.000
+> 0.002
+> 0.004
+> 0.006
+> 0.008
+> 0.010
+> NMSE
+> 0.0104
+> 0.0063
+> 0.0084
+> 0.0076 0.0078
+> ref.
+
+Stress field NMSE across mesh types 
+
+> FEM
+> GNN
+> P-DivGNN
+
+(a) NMSE of the local stress predictions. Quad Tri 
+
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3000
+> 3500
+> Mean divergence
+> 485
+> 3500
+> 893
+> 1130
+> 440
+> 733
+
+Mean stress divergence across mesh types  
+
+> FEM
+> GNN
+> P-DivGNN
+
+(b) Mean stress divergence. 
+
+Figure 27: NMSE and mean stress divergence (MPa per unit length) for FE, GNN, and P-DivGNN on the training quad mesh and the unseen triangular mesh. Figure 28 shows the temporal evolution of the mean stress divergence. The FE (Tri) curve separates clearly from the remaining five, while the GNN and P-DivGNN curves on the tri mesh stay close to their quad counterparts, confirming that the message-passing mechanism is inherently agnostic to element-level integration. 26 PREPRINT 0 20 40 60 80 100 
+
+Time step 
+
+> 0
+> 1500
+> 3000
+> 4500
+> 6000
+> Mean Divergence
+> FEM(Quad)
+> FEM(Tri)
+> GNN(Quad)
+> GNN(Tri)
+> P-DivGNN(Quad)
+> P-DivGNN(Tri)
+
+Figure 28: Temporal evolution of the mean stress divergence (MPa per unit length) for all six model-mesh combina-tions. 
+
+4.6 Mesh refinement 
+
+To probe the surrogate across mesh resolutions, the evaluation is repeated on a coarse-to-fine sequence of triangular meshes (Figure 29), with the loading path and inference setup fixed. The linear constant-strain triangles (CST) of the previous section stiffen under the incompressibility of plastic flow, so the meshes here use quadratic six-node triangles (referred to as tri6 in several finite-element frameworks), which remove that effect and give an accurate finite-element reference compared to linear triangular elements. 
+
+Figure 29: Coarse-to-fine sequence of tri6 meshes (left to right). Figures 30–32 compare the FE, GNN and P-DivGNN stress fields across the three refinement levels. The quadratic-triangle FE fields sharpen as the mesh refines while staying accurate. The GNN and P-DivGNN reproduce the same field quality at every level without retraining, and both move closer to the FE reference as the mesh refines. Figure 33 maps the error of the coarse-mesh GNN and P-DivGNN predictions against the fine FE reference. Because the coarse and fine meshes do not share the same nodes, the coarse-mesh field is first interpolated onto the fine-mesh nodes with the quadratic triangular shape functions, using the Visualization Toolkit (VTK) [72] library. Table 6 reports the per-level NMSE against the quadratic-triangle FE solution: both surrogates improve as the mesh refines, and P-DivGNN has the lower overall error at every level. 27 PREPRINT 
+
+Figure 30: FE stress fields (MPa) across the refinement levels. Table 6: Per-component and overall NMSE of the surrogates against the FE solution at each refinement level. The lower overall value per level is in bold. Level Model (Tri6) σxx σyy σxy Overall Coarse GNN 2.47 × 10 −2 3.04 × 10 −2 5.58 × 10 −3 2.02 × 10 −2
+
+# P-DivGNN 2.73 × 10 −2 1.64 × 10 −2 7.51 × 10 −3 1.70 × 10 −2
+
+# Medium GNN 1.42 × 10 −2 2.01 × 10 −2 3.92 × 10 −3 1.27 × 10 −2
+
+# P-DivGNN 1.70 × 10 −2 7.06 × 10 −3 5.22 × 10 −3 9.75 × 10 −3
+
+# Fine GNN 9.75 × 10 −3 1.46 × 10 −2 3.89 × 10 −3 9.42 × 10 −3
+
+# P-DivGNN 1.36 × 10 −2 4.11 × 10 −3 4.43 × 10 −3 7.37 × 10 −3
+
+28 PREPRINT 
+
+Figure 31: GNN stress predictions (MPa) across the refinement levels. This experiment illustrates the mesh-agnostic behavior of the method. P-DivGNN lowers the NMSE on the coarse meshes, which are far from the quadrilateral discretization used for training. The graph-based formulation is also convenient when quadrilateral meshing is impractical: the surrogate reconstructs high-fidelity mechanical fields even on coarse, lower-quality triangular meshes. 29 PREPRINT 
+
+Figure 32: P-DivGNN stress predictions (MPa) across the refinement levels. 30 PREPRINT 
+
+Figure 33: Per-component NMSE of the coarse-mesh GNN and P-DivGNN predictions against the fine FE reference. 31 PREPRINT 
+
+4.7 Computational benchmark 
+
+Figure 34 compares the computational time of FE, LSTM-GNN, and LSTM alone, evaluated at the last step (the intended inference usage). The speedup ranges from ∼200 × at 100 nodes to ∼3,550 × at 56 ,000 nodes (results reported in Table 7). The GNN inference time scales linearly with the number of nodes, whereas the LSTM time is essentially constant since it operates only on macroscopic quantities. Across the entire mesh range, the LSTM-GNN reconstructs the response of a single RVE in under 0.2 seconds, so a complete field prediction is obtained in real time. Further speedups are expected by exploiting the batching capabilities of the GNN for multi-time step prediction. 10 2 10 3 10 4
+
+Number of mesh nodes    
+
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Time (s)
+> FEM (plastic)
+> LSTM
+> GNN (last step)
+> LSTM-GNN (total)
+
+Figure 34: Computational time comparison for FE, LSTM-GNN, and LSTM at the last inference step (double log scale). These timings compare GPU-based neural network inference (NVIDIA RTX A4000, 16 GB) against CPU-based FE solving (Intel Xeon W5-2455X). A hardware-fair comparison would require either GPU-accelerated FE or CPU-only neural network inference. Note that the reported speedups cover only the inference phase; the total training cost is approximately twelve hours for the GNN and ten minutes for the LSTM. The FE runtime also depends on Newton-Raphson convergence behavior and may vary with loading path difficulty. The computational speedup represents a substantial improvement that can be exploited in multiscale frameworks such as FE 2 to efficiently reconstruct the local stress field within a RUC. Table 7: FE and LSTM-GNN computational times (seconds) and speed gain across mesh sizes. 
+
+Number of nodes FE (s) LSTM-GNN (s) Speed Gain 
+
+100 2.379 0.012 ×194 
+
+4,196 35.769 0.027 ×1,303 
+
+12 ,342 98.149 0.058 ×1,682 
+
+28 ,805 262.384 0.127 ×2,067 
+
+40 ,494 326.295 0.176 ×1,853 
+
+56 ,206 428.071 0.121 ×3,550 32 PREPRINT 
+
+## 5 Conclusion and perspectives 
+
+We coupled an LSTM with a GNN to reconstruct local stress fields in elasto-plastic microstructures under non-proportional loading. The LSTM encodes the macroscopic stress-strain history into a compact hidden state, which the GNN uses as node-level input for spatial localization at each time step. Training in two stages reduced the optimization cost and kept both models stable. The LSTM converges in approx-imately ten minutes, while the GNN, trained on snapshots at main loading steps only, generalizes to intermediate increments not seen during training. On the test set, the model tracks the macroscopic stress-strain response across elastic-plastic transitions, load reversals, and multiaxial loading. At the microscale, the predicted stress fields remain close to the FE reference and recover the main heterogeneity near the inner surface in a classical plate with a hole benchmark problem. A single trained surrogate transfers to triangular meshes and to coarser and finer discretizations without retraining, reproducing the quadrilateral FE field in each case. This independence from element type follows from the message-passing formulation, which operates on connectivity rather than element integration. The computational speedup reaches three orders of magnitude for last-step inference at mesh sizes exceeding 50 ,000 nodes, reducing the per-RVE inference to a real-time, sub-second cost. The relative weighting strategy for the divergence-regularized loss resolves the scale mismatch between the NMSE and divergence terms that often prevents fixed-weight formulations from converging in the elasto-plastic regime. Using scale normalization and a linear warm-up, the divergence term cuts the mean stress divergence by about half while keeping the reconstruction error nearly unchanged. This makes the regularization usable in the history-dependent setting without retuning the loss for each case, thereby extending the approach introduced in [36]. PCA and t-SNE of the LSTM hidden states suggest that the network organizes the loading history into a low-dimensional structure. The first principal component appears to track accumulated plastic deformation, while sec-ondary components vary with the current loading segment. This structure persists on eight-segment paths ( 201 time steps), where the model reaches only 1.9% cumulative error, despite being trained on four-segment sequences. Notwithstanding these achievements, several limitations should also be acknowledged. The model was trained on a single periodic microstructure geometry; its generalization to unseen geometric configurations remains an open question. The constitutive model is restricted to 2D plane strain with von Mises plasticity and isotropic hardening. Ex-tensions to 3D, more complex hardening laws (kinematic, mixed) or damage-coupled models would require additional investigation. Finally, the benchmark speedups reflect GPU inference vs. CPU-based FE solving, and the training cost ought to be amortized over the number of downstream inference queries, for a fairer comparison. Future directions include extending the framework to multiple microstructure geometries through conditioned archi-tectures, incorporating more general constitutive behaviors, and investigating 3D periodic microstructures, where the computational savings would be even more significant. 
+
+## Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+## Data availability 
+
+The source code for reproducing the experiments, generating the database, and training the models is openly available at https://github.com/ricardo0115/plastic-pdivgnn . The repository also hosts an interactive abstract summarizing the main results, available at https://ricardo0115.github.io/plastic-pdivgnn/ .
+
+## Acknowledgements 
+
+The authors gratefully acknowledge the computational resources provided by the high-performance computing cluster of TU Bergakademie Freiberg for the database generation and training. This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors. 33 PREPRINT 
+
+## References 
+
+[1] F. Feyel, Multiscale FE 2 elastoviscoplastic analysis of composite structures, Computational Materials Science 16 (1999) 344–354. doi: 10.1016/s0927-0256(99)00077-4 .[2] F. Feyel, A multilevel finite element method (FE 2) to describe the response of highly non-linear structures using generalized continua, Computer Methods in Applied Mechanics and Engineering (CMAME) 192 (2003) 3233–3244. doi: 10.1016/s0045-7825(03)00348-7 .[3] J. Qu, M. Cherkaoui, Fundamentals of Micromechanics of Solids, 1st ed., Wiley, 2006. [4] G. Dvorak, Transformation field analysis of inelastic composite materials, Proceedings of the Royal Society of London. Series A: Mathematical and Physical Sciences 437 (1992) 311–327. doi: 10.1098/rspa.1992.0063 .[5] J. Michel, P. Suquet, Nonuniform transformation field analysis, International Journal of Solids and Structures 40 (2003) 6937–6955. doi: 10.1016/s0020-7683(03)00346-9 .[6] S. Roussette, J. Michel, P. Suquet, Nonuniform transformation field analysis of elastic–viscoplastic composites, Composites Science and Technology 69 (2009) 22–27. doi: 10.1016/j.compscitech.2007.10.032 .[7] A. Danoun, E. Prulière, Y. Chemisky, FE-LSTM: A hybrid approach to accelerate multiscale simulations of ar-chitectured materials using recurrent neural networks and finite element analysis, Computer Methods in Applied Mechanics and Engineering (CMAME) 429 (2024) 117192. doi: 10.1016/j.cma.2024.117192 .[8] A. Malik, M. Abendroth, G. Hütter, B. Kiefer, A hybrid approach employing neural networks to simulate the elasto–plastic deformation behavior of 3D-foam structures, Advanced Engineering Materials 24 (2022) 2100641. doi: 10.1002/adem.202100641 .[9] N. Lange, G. Hütter, B. Kiefer, An efficient monolithic solution scheme for FE 2 problems, Computer Methods in Applied Mechanics and Engineering (CMAME) 382 (2021) 113886. doi: 10.1016/j.cma.2021.113886 .[10] N. Lange, G. Hütter, B. Kiefer, A monolithic hyper ROM FE 2 method with clustered training at finite deformations, Computer Methods in Applied Mechanics and Engineering (CMAME) 418 (2024) 116522. doi: 10.1016/j.cma.2023.116522 .[11] N. Lange, A. Malik, M. Abendroth, G. Hütter, B. Kiefer, A comparison of classical phenomenological, hy-brid neural network, and high-performance ROM FE 2 models for open-cell foams: Efficiency, accuracy, and flexibility, GAMM-Mitteilungen 48 (2025) e70004. doi: 10.1002/gamm.70004 .[12] M. Abendroth, N. Lange, A. Malik, G. Hütter, B. Kiefer, Supplementary data for multi-scale simulations of a Weaire–Phelan foam, 2025. doi: 10.5281/zenodo.15076895 .[13] Z. Liu, M. Bessa, W. K. Liu, Self-consistent clustering analysis: An efficient multi-scale scheme for inelastic heterogeneous materials, Computer Methods in Applied Mechanics and Engineering (CMAME) 306 (2016) 319–341. doi: 10.1016/j.cma.2016.04.004 .[14] A. Bhaduri, Y. He, M. D. Shields, L. Graham-Brady, R. M. Kirby, Stochastic collocation approach with adaptive mesh refinement for parametric uncertainty analysis, Journal of Computational Physics 371 (2018) 732–750. doi: 10.1016/j.jcp.2018.06.003 .[15] A. Bhaduri, C. S. Meyer, J. W. Gillespie, B. Z. G. Haque, M. D. Shields, L. Graham-Brady, Probabilistic modeling of discrete structural response with application to composite plate penetration models, Journal of Engineering Mechanics 147 (2021) 04021087. doi: 10.1061/(asce)em.1943-7889.0001996 .[16] E. Haghighat, M. Raissi, A. Moure, H. Gomez, R. Juanes, A physics-informed deep learning framework for inversion and surrogate modeling in solid mechanics, Computer Methods in Applied Mechanics and Engineering (CMAME) 379 (2021) 113741. doi: 10.1016/j.cma.2021.113741 .[17] Y. Lecun, L. Bottou, Y. Bengio, P. Haffner, Gradient-based learning applied to document recognition, Proceed-ings of the IEEE 86 (1998) 2278–2324. doi: 10.1109/5.726791 .[18] Z. Nie, H. Jiang, L. B. Kara, Stress field prediction in cantilevered structures using convolutional neural networks, Journal of Computing and Information Science in Engineering 20 (2019) 011002. doi: 10.1115/1.4044097 .[19] A. Gupta, A. Bhaduri, L. Graham-Brady, Accelerated multiscale mechanics modeling in a deep learning frame-work, Mechanics of Materials 184 (2023) 104709. doi: 10.1016/j.mechmat.2023.104709 .[20] O. Ronneberger, P. Fischer, T. Brox, U-Net: Convolutional networks for biomedical image segmentation, in: Medical Image Computing and Computer-Assisted Intervention - MICCAI, 2015. [21] B. P. Croom, M. Berkson, R. K. Mueller, M. Presley, S. Storck, Deep learning prediction of stress fields in additively manufactured metals with intricate defect networks, Mechanics of Materials 165 (2022) 104191. doi: 10.1016/j.mechmat.2021.104191 .34 PREPRINT 
+
+[22] I. Goodfellow, J. Pouget-Abadie, M. Mirza, B. Xu, D. Warde-Farley, S. Ozair, A. Courville, Y. Bengio, Genera-tive adversarial nets, in: Advances in Neural Information Processing Systems, 2014. [23] J. Ho, A. Jain, P. Abbeel, Denoising diffusion probabilistic models, in: Advances in Neural Information Pro-cessing Systems 33: Annual Conference on Neural Information Processing Systems (NeurIPS), 2020. [24] Z. Yang, C.-H. Yu, K. Guo, M. J. Buehler, End-to-end deep learning method to predict complete strain and stress tensors for complex hierarchical composite microstructures, Journal of the Mechanics and Physics of Solids 154 (2021) 104506. doi: 10.1016/j.jmps.2021.104506 .[25] Y. Jadhav, J. Berthel, C. Hu, R. Panat, J. Beuth, A. Barati Farimani, StressD: 2D stress estimation using denoising diffusion model, Computer Methods in Applied Mechanics and Engineering (CMAME) 416 (2023) 116343. doi: 10.1016/j.cma.2023.116343 .[26] J. He, S. Koric, D. Abueidda, A. Najafi, I. Jasiuk, Geom-DeepONet: A point-cloud-based deep operator network for field predictions on 3D parameterized geometries, Computer Methods in Applied Mechanics and Engineering (CMAME) 429 (2024) 117130. doi: 10.1016/j.cma.2024.117130 .[27] F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, G. Monfardini, The graph neural network model, IEEE Transactions on Neural Networks 20 (2009) 61–80. doi: 10.1109/tnn.2008.2005605 .[28] T. Pfaff, M. Fortunato, A. Sanchez-Gonzalez, P. W. Battaglia, Learning mesh-based simulation with graph networks, in: International Conference on Learning Representations, (ICLR), 2021. [29] M. Maurizi, C. Gao, F. Berto, Predicting stress, strain and deformation fields in materials and structures with graph neural networks, Scientific Reports 12 (2022) 21834. doi: 10.1038/s41598-022-26424-3 .[30] J. Storm, I. Rocha, F. van der Meer, A microstructure-based graph neural network for accelerating multiscale simulations, Computer Methods in Applied Mechanics and Engineering (CMAME) 427 (2024) 117001. doi: 10 .1016/j.cma.2024.117001 .[31] M. Fortunato, T. Pfaff, P. Wirnsberger, A. Pritzel, P. W. Battaglia, MultiScale MeshGraphNets, CoRR abs/2210.00612 (2022). [32] M. Raissi, P. Perdikaris, G. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. doi: 10.1016/j.jcp.2018.10.045 .[33] M. Horie, N. Mitsume, Physics-embedded neural networks: Graph neural PDE solvers with mixed boundary conditions, in: Advances in Neural Information Processing Systems 35: Annual Conference on Neural Informa-tion Processing Systems (NeurIPS), 2022. [34] Q. Hernández, A. Badías, F. Chinesta, E. Cueto, Thermodynamics-informed graph neural networks, IEEE Transactions on Artificial Intelligence 5 (2024) 967–976. doi: 10.1109/tai.2022.3179681 .[35] J. Richter-Powell, Y. Lipman, R. T. Q. Chen, Neural conservation laws: A divergence-free perspective, in: Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems (NeurIPS), 2022. [36] M. R. Guevara Garban, Y. Chemisky, M. Clément, E. Prulière, Physics-informed graph neural networks to reconstruct local fields considering finite strain hyperelasticity, International Journal for Numerical Methods in Engineering 126 (2025) e70193. doi: 10.1002/nme.70193 .[37] M. Mozaffar, R. Bostanabad, W. Chen, K. Ehmann, J. Cao, M. A. Bessa, Deep learning predicts path-dependent plasticity, Proceedings of the National Academy of Sciences 116 (2019) 26414–26420. doi: 10.1073/pnas.1 911815116 .[38] M. B. Gorji, M. Mozaffar, J. N. Heidenreich, J. Cao, D. Mohr, On the potential of recurrent neural networks for modeling path dependent plasticity, Journal of the Mechanics and Physics of Solids 143 (2020) 103972. doi: 10.1016/j.jmps.2020.103972 .[39] F. Ghavamian, A. Simone, Accelerating multiscale finite element simulations of history-dependent materials using a recurrent neural network, Computer Methods in Applied Mechanics and Engineering (CMAME) 357 (2019) 112594. doi: 10.1016/j.cma.2019.112594 .[40] L. Wu, V. D. Nguyen, N. G. Kilingar, L. Noels, A recurrent neural network-accelerated multi-scale model for elasto-plastic heterogeneous materials subjected to random cyclic and non-proportional loading paths, Computer Methods in Applied Mechanics and Engineering (CMAME) 369 (2020) 113234. doi: 10.1016/j.cma.2020.1 13234 .35 PREPRINT 
+
+[41] C. Bonatti, D. Mohr, On the importance of self-consistency in recurrent neural network models representing elasto-plastic solids, Journal of the Mechanics and Physics of Solids 158 (2022) 104697. doi: 10.1016/j.jmps .2021.104697 .[42] Y. Wu, Y. Li, B. He, J. Liu, M. Huang, Z. Li, A physics-informed GNN-LSTM framework for prediction of microvoid growth in heterogeneous polycrystals, Engineering Fracture Mechanics 336 (2026) 111938. doi: 10.1 016/j.engfracmech.2026.111938 .[43] T. Kirchdoerfer, M. Ortiz, Data-driven computational mechanics, Computer Methods in Applied Mechanics and Engineering (CMAME) 304 (2016) 81–101. doi: 10.1016/j.cma.2016.02.001 .[44] F. Masi, I. Stefanou, P. Vannucci, V. Maffi-Berthier, Thermodynamics-based artificial neural networks for con-stitutive modeling, Journal of the Mechanics and Physics of Solids 147 (2021) 104277. doi: 10.1016/j.jmps .2020.104277 .[45] S. Im, J. Lee, M. Cho, Surrogate modeling of elasto-plastic problems via long short-term memory neural networks and proper orthogonal decomposition, Computer Methods in Applied Mechanics and Engineering (CMAME) 385 (2021) 114030. doi: 10.1016/j.cma.2021.114030 .[46] M. A. Maia, I. B. C. M. Rocha, P. Kerfriden, F. P. van der Meer, Physically recurrent neural networks for path-dependent heterogeneous materials: Embedding constitutive models in a data-driven surrogate, Computer Methods in Applied Mechanics and Engineering (CMAME) 407 (2023) 115934. doi: 10.1016/j.cma.2023.1 15934 .[47] A. Sanchez-Gonzalez, J. Godwin, T. Pfaff, R. Ying, J. Leskovec, P. W. Battaglia, Learning to simulate complex physics with graph networks, in: Proceedings of the 37th International Conference on Machine Learning (ICML), volume 119, 2020, pp. 8459–8468. [48] J. Brandstetter, D. E. Worrall, M. Welling, Message passing neural PDE solvers, in: International Conference on Learning Representations (ICLR), 2022. [49] Y. Hu, G. Zhou, M.-G. Lee, P. Wu, D. Li, A temporal graph neural network for cross-scale modelling of polycrystals considering microstructure interaction, International Journal of Plasticity 179 (2024) 104017. doi: 10 .1016/j.ijplas.2024.104017 .[50] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, A. Anandkumar, Fourier neural operator for parametric partial differential equations, in: International Conference on Learning Representations (ICLR), 2021. [51] L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators, Nature Machine Intelligence 3 (2021) 218–229. doi: 10.1038/s4 2256-021-00302-5 .[52] J. He, S. Kushwaha, J. Park, S. Koric, D. Abueidda, I. Jasiuk, Sequential deep operator networks (S-DeepONet) for predicting full-field solutions under time-dependent loads, Engineering Applications of Artificial Intelligence 127 (2024) 107258. doi: 10.1016/j.engappai.2023.107258 .[53] N. B. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. M. Stuart, A. Anandkumar, Neural operator: Learning maps between function spaces with applications to PDEs, Journal of Machine Learning Research 24 (2023) 1–97. [54] P. M. Suquet, Elements of homogenization for inelastic solid mechanics, in: E. Sanchez-Palencia, A. Zaoui (Eds.), Homogenization Techniques for Composite Media, 1987, pp. 193–198. [55] G. Chatzigeorgiou, N. Charalambakis, Y. Chemisky, F. Meraghni, Periodic homogenization for fully coupled thermomechanical modeling of dissipative generalized standard materials, International Journal of Plasticity 81 (2016) 18–39. doi: 10.1016/j.ijplas.2016.01.013 .[56] J. Lemaitre, J.-L. Chaboche, Mechanics of Solid Materials, Cambridge University Press, 1990. [57] J. C. Simo, T. J. R. Hughes, Computational Inelasticity, Springer-Verlag, New York, 1998. [58] S. Hochreiter, J. Schmidhuber, Long short-term memory, Neural computation 9 (1997) 1735–1780. doi: 10.116 2/neco.1997.9.8.1735 .[59] S. Hochreiter, The vanishing gradient problem during learning recurrent neural nets and problem solutions, International Journal of Uncertainty, Fuzziness and Knowledge-Based Systems 6 (1998) 107–116. doi: 10.114 2/S0218488598000094 .[60] A. Danoun, Numerical simulation of heterogeneous materials combining Artificial Intelligence and physics-based modeling, Ph.D. thesis, Université de Bordeaux, 2022. 36 PREPRINT 
+
+[61] E. Prulière, Y. Chemisky, 3MAH : Un ensemble de librairies pour analyser le comportement complexe de matériaux hétérogènes, in: Colloque National en Calcul des Structures (CSMA), 2023. [62] T. Belytschko, W. K. Liu, B. Moran, Nonlinear Finite Elements for Continua and Structures, John Wiley & Sons, 2000. [63] D. P. Kingma, J. Ba, Adam: A method for stochastic optimization, in: International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings, 2015. [64] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, A. Desmaison, A. Köpf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, S. Chintala, PyTorch: An imperative style, high-performance deep learning library, in: Advances in Neural Information Processing Systems (NeurIPS), volume 32, 2019. [65] M. Fey, J. E. Lenssen, Fast graph representation learning with PyTorch Geometric, in: ICLR Workshop on Representation Learning on Graphs and Manifolds, 2019. [66] S. Wang, Y. Teng, P. Perdikaris, Understanding and mitigating gradient flow pathologies in physics-informed neural networks, SIAM Journal on Scientific Computing 43 (2021) A3055–A3081. doi: 10.1137/20M1318043 .[67] S. Wang, X. Yu, P. Perdikaris, When and why PINNs fail to train: A neural tangent kernel perspective, Journal of Computational Physics 449 (2022) 110768. doi: 10.1016/j.jcp.2021.110768 .[68] Z. Chen, V. Badrinarayanan, C.-Y. Lee, A. Rabinovich, GradNorm: Gradient normalization for adaptive loss balancing in deep multitask networks, in: Proceedings of the 35th International Conference on Machine Learning (ICML), volume 80, 2018, pp. 794–803. [69] R. Bischof, M. A. Kraus, Multi-objective loss balancing for physics-informed deep learning, Computer Methods in Applied Mechanics and Engineering (CMAME) 439 (2025) 117914. doi: 10.1016/j.cma.2025.117914 .[70] I. T. Jolliffe, Principal Component Analysis, 2nd ed., Springer, 2002. doi: 10.1007/b98835 .[71] L. van der Maaten, G. Hinton, Visualizing data using t-SNE, Journal of Machine Learning Research 9 (2008) 2579–2605. [72] W. Schroeder, K. Martin, B. Lorensen, The Visualization Toolkit, 4th ed., Kitware, 2006. 37

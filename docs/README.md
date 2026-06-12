@@ -6,47 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-11
-- 运行时间：2026-06-11 22:35:28 UTC
+- 最新运行日期：2026-06-12
+- 运行时间：2026-06-12 22:12:30 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：6
+- 本次总论文数：5
+- 精读区：2
 - 速读区：3
 
 ### 今日简报（AI）
-今日共收录9篇论文，精读6篇、速读3篇，聚焦多智能体强化学习与流体/PDE模拟交叉领域。最值得精读的是9分《Multi-agent rendezvous in fluid flows》与8分《PDE-Agents: LLM编排多智能体有限元框架》。建议优先阅读这两篇精读论文，并关注速读中SirenFNO等傅里叶神经算子改进方向。
-- 详情：[/202606/11/README](/202606/11/README)
+1) 今日精读两篇高分论文，聚焦物理信息神经算子与超低数据下的稀疏模型发现，为动态系统建模提供新思路。  
+2) 最值得关注《HAMNO》的层次化自适应多尺度算子结合物理信息学习，以及《How Low Can You Go》在极低数据量下通过主动学习发现稀疏模型的方法。  
+3) 建议优先精读HAMNO论文理解物理约束与神经算子的融合设计，再学习主动学习在数据匮乏场景中的实用策略。
+- 详情：[/202606/12/README](/202606/12/README)
 
 ### 精读区论文标签
-1. [Multi-agent rendezvous in fluid flows via reinforcement learning](/202606/11/2606.11274v1-multi-agent-rendezvous-in-fluid-flows-via-reinforcement-learning)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：多智能体强化学习用于流体中的会合
-2. [PDE-Agents: An LLM-Orchestrated Multi-Agent Framework for Automated Finite Element Simulations with Knowledge Graph-Augmented Reasoning](/202606/11/2606.07850v1-pde-agents-an-llm-orchestrated-multi-agent-framework-for-automated-finite-element-simulations-with-knowledge-graph-augmented-reasoning)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：用于PDE/FEM自动仿真的多智能体框架，与CFD代理建模相关
-3. [GENERIC-FNO: Embedding Energy Conservation and Entropy Production into Fourier Neural Operators](/202606/11/2606.08343v2-generic-fno-embedding-energy-conservation-and-entropy-production-into-fourier-neural-operators)  
+1. [HAMNO: A Hierarchical Adaptive Multi-scale Neural Operator with Physics-Informed Learning for Dynamical Systems](/202606/12/2606.11963v1-hamno-a-hierarchical-adaptive-multi-scale-neural-operator-with-physics-informed-learning-for-dynamical-systems)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：用于多尺度动力系统的物理信息神经算子
+2. [How Low Can You Go? Active Learning for Sparse Model Discovery in the Ultra-Low-Data Limit](/202606/12/2606.12182v1-how-low-can-you-go-active-learning-for-sparse-model-discovery-in-the-ultra-low-data-limit)  
    标签：评分：8.0/10、query:sr-piml
-   evidence：将完整GENERIC热力学结构嵌入傅里叶神经算子，从偏微分方程学习符号模型
-4. [Self-Evolving Scientific Agent Discovers Generalizable Physically-Reasoned Fluid Control](/202606/11/2606.08405v1-self-evolving-scientific-agent-discovers-generalizable-physically-reasoned-fluid-control)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：自进化科学智能体用于物理推理流体控制
-5. [Structure-Preserving Neural Surrogates with Tractable Uncertainty Quantification](/202606/11/2606.11650v1-structure-preserving-neural-surrogates-with-tractable-uncertainty-quantification)  
-   标签：评分：8.0/10、query:sr-piml
-   evidence：面向PDE的结构保持神经代理与不确定性量化
-6. [Reliable Error Estimation for PINNs: Lower and Upper A Posteriori Bounds](/202606/11/2606.12050v1-reliable-error-estimation-for-pinns-lower-and-upper-a-posteriori-bounds)  
-   标签：评分：8.0/10、query:sr-piml
-   evidence：物理信息神经网络的先验误差界
+   evidence：使用主动学习和SINDy从数据中发现方程
 
 ### 速读区论文标签
-1. [Dmsh: A Multi-Agent Reinforcement Learning Framework for All-Quad Mesh Generation](/202606/11/2606.10601v1-dmsh-a-multi-agent-reinforcement-learning-framework-for-all-quad-mesh-generation)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：面向计算工程网格生成的多智能体强化学习
-2. [First-Order Trajectory Matching: Fast Ensemble Predictions of Chaotic, Turbulent, Stochastic Systems](/202606/11/2606.11138v1-first-order-trajectory-matching-fast-ensemble-predictions-of-chaotic-turbulent-stochastic-systems)  
+1. [The Standard Interpretable Model: A general theory of interpretable machine learning to deductively design interpretable methods using Lagrangian mechanics](/202606/12/2606.12289v1-the-standard-interpretable-model-a-general-theory-of-interpretable-machine-learning-to-deductively-design-interpretable-methods-using-lagrangian-mechanics)  
    标签：评分：7.0/10、query:sr-piml
-   evidence：通过轨迹匹配为混沌/湍流/随机系统建立代理模型，与物理信息机器学习在动力系统中的应用相关
-3. [SirenFNO: Efficient and Full Frequency Learning of Fourier Neural Operators](/202606/11/2606.11518v1-sirenfno-efficient-and-full-frequency-learning-of-fourier-neural-operators)  
-   标签：评分：7.0/10、query:sr-piml
-   evidence：用于PDE求解的傅里叶神经算子，物理信息代理
+   evidence：基于拉格朗日力学的可解释性通用理论
+2. [Entropy-Based Evaluation of AI Agents: A Lightweight Framework for Measuring Behavioral Patterns](/202606/12/2606.05872v1-entropy-based-evaluation-of-ai-agents-a-lightweight-framework-for-measuring-behavioral-patterns)  
+   标签：评分：6.0/10、query:cfd-agent
+   evidence：基于熵的AI智能体行为评估指标，可应用于CFD智能体
+3. [Sparse probes and murky physics: a case study of interpretability challenges in a foundation model for continuum dynamics](/202606/12/2606.11657v1-sparse-probes-and-murky-physics-a-case-study-of-interpretability-challenges-in-a-foundation-model-for-continuum-dynamics)  
+   标签：评分：6.0/10、query:sr-piml
+   evidence：使用稀疏探针对物理仿真器进行可解释性分析
 
 
 <div class="dpr-home-promo-card">

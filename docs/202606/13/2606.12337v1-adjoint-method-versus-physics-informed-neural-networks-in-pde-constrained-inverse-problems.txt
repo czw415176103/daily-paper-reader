@@ -1,0 +1,796 @@
+Title: Adjoint Method versus Physics-Informed Neural Networks in PDE-Constrained Inverse Problems
+
+URL Source: https://arxiv.org/pdf/2606.12337v1
+
+Published Time: Thu, 11 Jun 2026 01:27:28 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# Adjoint Method versus Physics-Informed Neural Networks in PDE-Constrained Inverse Problems 
+
+Zhen Zhang a, Alessandro Alla b, George Em Karniadakis a, ∗
+
+> aDivision of Applied Mathematic, Brown University, Providence, RI, USA
+> bDepartment of Mathematics, Sapienza Università di Roma, Rome, Italy
+
+Abstract 
+
+Inverse problems governed by partial differential equations (PDEs) are central to computational mechanics and are commonly solved by adjoint-based optimization, while physics-informed neural networks (PINNs) have emerged as a flexible alternative. Their relative performance remains difficult to assess because the two approaches are often compared under different formulations, parameterizations, optimizers, and regularization choices. We present a fair comparison of adjoint optimization and PINNs for PDE-constrained inverse problems. From a common abstract formulation, we in-stantiate both methods on identical domains, governing equations, obser-vation models, and regularization terms, while matching the optimizer, un-known parameterization, and arithmetic precision wherever applicable. The benchmarks include unsteady Burgers, noisy Darcy permeability inversion, three-dimensional Allen–Cahn reaction identification, and unsteady Navier– Stokes viscosity identification. The results show that the representation of the unknown largely deter-mines the preferred method: grid-based fields favor the discrete adjoint, whereas neural representations are native to PINNs and relevant for closure and constitutive modeling. For time-dependent problems, adjoint inversion can be dominated by trajectory storage and differentiation, while PINNs pro-vide satisfactory reconstructions at lower cost. A PINN-warm-started adjoint strategy then recovers adjoint-level accuracy at substantially reduced cost.     
+
+> ∗Corresponding author
+> Email addresses: zhen_zhang2@brown.edu (Zhen Zhang),
+> alessandro.alla@uniroma1.it (Alessandro Alla), george_karniadakis@brown.edu
+> (George Em Karniadakis)
+> arXiv:2606.12337v1 [math.NA] 10 Jun 2026
+
+Keywords: PDE constrained inverse problems, PINN, Adjoint method 
+
+1. Introduction 
+
+Inverse problems governed by partial differential equations (PDEs) are central to computational mechanics, with applications ranging from param-eter identification and source reconstruction to model calibration [1, 2]. Tra-ditionally, the unknown to be inferred is a scalar parameter or a spatially distributed field. In many emerging applications, however, the target is a more complex object: hidden physical parameterizations or state-dependent functions inferred directly from data. This shift is particularly prominent in data-driven closure and constitutive modeling across fluid and solid mechan-ics [3, 4], where the unknown is often high-dimensional, state-dependent, and more naturally represented by a neural network than by a grid-based field. This raises a basic methodological question: does an inverse solver remain efficient and accurate when the unknown moves from a discretized field to a neural functional representation? This question motivates the present study. Adjoint-based gradient optimization has long been the standard approach for PDE-constrained inverse problems [1, 2, 5, 6]. In a discretize-then-optimize formulation, the adjoint of the fully discrete forward problem pro-vides the reduced gradient at machine precision through a single backward sweep, with a cost essentially independent of the number of optimization variables. This efficiency at the gradient level is the main strength of the method, but the inverse problem is solved only after an outer direct-adjoint loop (DAL): a forward solve, an adjoint solve, and a parameter update are repeated until convergence [7, 8]. The total cost therefore depends not only on the cost of one forward–adjoint sweep, but also on the number of opti-mization iterations. Moreover, this efficiency comes with an implementation cost: for each forward discretization, the corresponding discrete adjoint must be derived, implemented, and verified. In particular, the adjoint solver re-quires the transpose of the linearized discrete forward operator and is tied to the chosen time integrator, spatial discretization, and treatment of boundary conditions. Closely related to identification and control in PDE-constrained optimization, including also feedback control was studied in e.g. [9, 10]. Physics-informed neural networks (PINNs) have recently emerged as an alternative framework for forward and inverse problems governed by PDEs [11, 4]. Instead of solving the PDE repeatedly on a fixed mesh, a PINN repre-sents the state with one neural network and the unknown with another, and 2enforces the governing equations through a soft penalty on the PDE residual evaluated by automatic differentiation [12]. The state and the unknown are then inferred jointly from the physics residual, boundary and initial condi-tions, and observation data. This mesh-free formulation requires only the PDE residual, rather than a discretization-specific adjoint or hand-derived linearization, and is therefore naturally suited to unknowns represented by neural networks, such as data-driven closures or constitutive laws. It also replaces the outer direct-adjoint loop by a single joint optimization problem. These advantages come with weaker accuracy and convergence guarantees, and with training difficulties associated with ill-conditioned PINN losses. Recent second-order quasi-Newton optimizers, such as SSBroyden [13], have narrowed this gap. However, the regimes in which PINNs provide a genuine practical advantage over adjoint optimization remain incompletely charac-terized. Despite a rapidly expanding literature on PINNs, adjoint methods, and PDE-constrained optimization, a systematic comparison of these paradigms for inverse discovery problems remains incomplete. Early PINN-based ap-proaches addressed constant-parameter identification and PDE control prob-lems [14], and recent comparisons between PINNs and adjoint-based methods have clarified important aspects of their relative performance [8, 15]. How-ever, several issues remain open. First, many existing studies are framed primarily as optimal control problems, where the governing PDE is fully known and the objective is to determine a control that minimizes a cost. This differs from inverse discovery problems, where the unknown enters the operator itself, for example as a permeability, a state-dependent reaction term, or a physical coefficient. Second, most comparisons fix a single rep-resentation of the unknown, making it difficult to separate the effect of the representation from that of the inversion algorithm. Third, algorithmic dif-ferences are often entangled with implementation choices, such as the opti-mizer, arithmetic precision, or parameterization used by the two methods. Finally, time-dependent and higher-dimensional regimes, where the storage and differentiation of the full state trajectory can dominate adjoint cost, have received comparatively less attention. As a result, the literature shows that performance is problem-dependent, but does not fully identify which problem properties determine the preferred method. The central premise of this work is that the preferred method can often be anticipated from two properties of the inverse problem. The first is the representation and structure of the unknown. A grid-defined or coarse-grid 3field is naturally aligned with a discrete adjoint solver, whereas a neural representation is native to PINNs and is the natural setting for discovering data-driven closures or constitutive laws. In an adjoint formulation, the same neural representation moves the optimization into a high-dimensional weight space, where quasi-Newton steps can become expensive and poorly condi-tioned. The second property is the cost of differentiating time-dependent trajectories. For unsteady PDEs, each adjoint iteration requires a forward solve, a backward adjoint sweep, and access to the full state history. This cost grows with the spatial resolution, the number of time steps, and the dimension of the discretized state, and can become the dominant bottleneck. PINNs avoid this discrete trajectory bottleneck, although their cost is then governed by the network architecture, collocation budget, and optimization dynamics. Building on these observations, we present a controlled comparison of ad-joint optimization and PINNs for four benchmark PDE-constrained inverse problems of increasing nonlinearity and dimensionality: forcing identification in the unsteady one-dimensional viscous Burgers equation, log-permeability identification in steady two-dimensional Darcy flow with sparse noisy ob-servations, state-dependent reaction identification in the unsteady three-dimensional Allen–Cahn equation, and scalar-viscosity identification in the unsteady two-dimensional Navier–Stokes flow past a cylinder. All bench-marks are derived from the same abstract inverse-problem formulation. For each case, the domain, governing equation, observation operator, and regular-ization are kept identical across the adjoint and PINN formulations. Where applicable, we also match the optimizer (SSBroyden [13]), the parameteriza-tion of the unknown, and the arithmetic precision. This design isolates the algorithmic differences between the two methods from confounding imple-mentation choices. The experiments lead to three main findings. First, across the bench-marks considered here, the representation of the unknown—as a grid-based field or as a neural network—is a primary determinant of relative perfor-mance, and is directly connected to the setting of data-driven closure and constitutive modeling. Second, in time-dependent problems, the storage and differentiation of the discrete state trajectory can make adjoint-based inver-sion expensive; in these regimes, PINNs can recover the unknown to sat-isfactory accuracy at substantially lower wall-clock cost. Third, when the accuracy of the discrete adjoint is desired, a hybrid strategy in which the PINN solution is used to warm start the adjoint optimization can recover 4high-fidelity accuracy at a fraction of the cost of a cold-started adjoint solve. This last construction—a lower-cost, lower-fidelity PINN reconstruction polished by the discrete adjoint—is consistent with the broader philoso-phy of multilevel optimization [16] and multiscale continuation for inverse problems [17], and has recently been advocated in PINN-based optimal con-trol [18]. Here, we bring this idea to PDE-constrained inverse discovery in a controlled, gradient-verified setting. The remainder of the paper is organized as follows. Section 2 states the abstract PDE-constrained inverse problem and describes the discrete adjoint and PINN paradigms in a unified notation. Section 3 instantiates it on the four benchmarks and reports the recovered fields, accuracies, and wall-clock costs. Conclusions and practical guidance are drawn in Section 4, with implementation details in Appendix A. 
+
+2. Inverse Problems and Solution Methods 
+
+This section formulates the class of PDE-constrained inverse problems studied in this work and describes the two solution paradigms whose perfor-mance is compared throughout the paper. We first state a generic abstract formulation that encompasses all four benchmark problems considered, later, in Section 3. We then describe the discrete adjoint approach and the PINN approach in a unified notation, emphasizing the design choices that are kept identical across the two methods so that the numerical comparisons isolate algorithmic effects rather than implementation artifacts. 
+
+2.1. General Inverse Problem Formulation 
+
+Let Ω ⊂ Rd be a bounded spatial domain and [0 , T ] a time interval. We consider PDE systems of the abstract form 
+
+ut + N  u; f  = 0 in Ω × (0 , T ],
+
+B(u) = 0 on ∂Ω × (0 , T ],u(·, 0) = u0 in Ω,
+
+(1) where u ∈ X denotes the state variable in the function space X = L2(Ω ×
+
+[0 , T ]) , f is the unknown function in PDE to be discovered, and N , B are, re-spectively, differential and boundary operators encoding the governing physics. Equation (1) defines the forward map f 7 → u(f ), which we assume to be well-posed. 5The inverse problem consists of recovering f from observations. We de-note by O : X → Y an observation operator mapping from the state space 
+
+X to the observation space Y, so that the available data are 
+
+y = O u(f ⋆) + η, (2) where f ⋆ is the unknown ground truth and η models measurement noise. The inverse problem is formulated as the regularized minimization 
+
+min  
+
+> f
+
+J(f ) = 12 O u(f ) − y 2 
+
+> Y
+
++ R(f ), subject to u(f ) solves (1) , (3) where ∥ · ∥ Y denotes the norm in the observation space, and R(f ) is a regu-larization functional. Two distinct elements of (3) drive the methodological discussion of this paper. First, the unknown function f is approximated via a finite-dimensional parameterization, denoted as f (θf ), where θf ∈ RNf represents the underly-ing degrees of freedom and Nf denotes the total number of tunable param-eters. The choice of parameterization controls the effective dimensionality of the problem and provides a first source of implicit regularization. In this work, θf may be structured in three distinct ways: (i) as a grid-defined vector consistent with the forward discretization, (ii) as a coarse-grid-defined vector interpolated to the forward simulation mesh via a prolongation operator, or (iii) as the output of an over-parameterized neural network where θf denotes the network weights. Second, two algorithmic paradigms can be used to solve (3): adjoint-based optimization [1, 5], which iterates on the discrete forward solver and provides exact gradients of J via a backward-in-time sweep, and physics-informed neural networks [11], which replace the forward solve by a neural surrogate and minimize a composite physics-informed loss. 
+
+2.2. Adjoint-Based Optimization 
+
+In this section, we recall the adjoint-based optimization. The interested reader can find an extensive description in e.g. [2, 6]. The adjoint approach treats (3) as a PDE-constrained optimization problem and computes the reduced gradient ∇θf J f (θf ) at machine precision via a single backward sweep through a discretized adjoint equation. This subsection summarizes the discrete forward problem, the discrete adjoint formulation, the verifica-tion protocol, and the optimizer. 6Discrete forward problem. Let u = ( u0, u1, . . . , uNt ) denote the discrete state trajectory produced by a chosen forward solver applied to (1), where su-perscript n denotes the n-th time step such that un ∈ RNx for all n ∈{0, 1, . . . , N t}.We work exclusively with the discretize-then-optimize paradigm: the dis-crete adjoint is derived by differentiating the fully discrete forward residual vector Rn. By replacing the temporal derivative ut and the spatial differen-tial operator N (u; f ) in (1) with their respective discrete counter-parts, the algebraic residual vector Rn : RNx × RNx × RNf → RNx at the n-th time step is defined as: 
+
+Rn un, un−1; θf
+
+ = 0, n = 1 , 2, . . . , N t, (4) where Nx denotes the number of spatial degrees of freedom resulting from the discretization mesh and Nt denotes the number of time steps. This al-gebraic formulation implicitly accounts for both the internal physics and the boundary conditions B(u) = 0 . Consequently, the continuous optimization problem (3) reduces to a finite-dimensional, constrained optimization prob-lem. By introducing the parameterization f (θf ), the target is to minimize the discrete objective function directly with respect to the parameter vector 
+
+θf :
+
+min  
+
+> θf∈RNf
+
+˜J(θf ) := J f (θf ) = 12 O(u(θf )) −y 22 +R(θf ) s.t. Rn = 0, ∀n. 
+
+(5) 
+
+Discrete adjoint equation and reduced gradient. To derive the discrete adjoint equations, we introduce the Lagrangian function L by coupling the discrete objective function (5) with the sequence of forward residual constraints via the discrete adjoint trajectory λ = ( λ1, λ2, . . . , λNt ), where λn ∈ RNx de-notes the Lagrange multiplier vector (or adjoint state) at the n-th time step: 
+
+L u, θf , λ = ˜J(θf ) + 
+
+> Nt
+
+X
+
+> n=1
+
+ λn⊤Rn un, un−1; θf
+
+. (6) By the principle of duality, the total derivative of the objective function with respect to the parameters matches the partial derivative of the Lagrangian (dθf
+
+˜J = ∂θf L) provided that the variations with respect to the state tra-jectory u vanish ( ∂uL = 0). Differentiating (6) with respect to the state 7component un at each time step yields the adjoint state equation, which satisfies the backward-in-time linear recursion: 
+
+
+
+∂un Rn
+
+⊤
+
+λn = −
+
+
+
+∂un Rn+1 
+
+⊤
+
+λn+1 − ∂un ˜J(θf ), n = Nt − 1, . . . , 1, (7) where the terminal adjoint state λNt is explicitly initialized at the final time step ( n = Nt) by solving: 
+
+
+
+∂uNt RNt
+
+⊤
+
+λNt = −∂uNt ˜J(θf ). (8) The reduced gradient is then assembled as: 
+
+∇θf
+
+˜J(θf ) = 
+
+> Nt
+
+X
+
+> n=1
+
+
+
+∂θf Rn
+
+⊤
+
+λn + ∇θf R(θf ). (9) We remark that for steady state problems, the adjoint equation (7) re-duces to a single linear adjoint solve with the transpose of the full Jacobian of the converged forward state, and (9) is computed by a single matrix–vector product. 
+
+Gradient verification. The correctness of every discrete adjoint is established before any inversion: for each benchmark, the reduced gradient ∇θf
+
+˜J is checked against centered finite differences of the discrete objective along mul-tiple randomly sampled perturbation directions, agreeing to a maximum rel-ative error below 10 −3 across all tests. This verification guarantees that the measured differences between the two methods reflect algorithmic behavior rather than an erroneous sensitivity. 
+
+Optimizer. All adjoint inverse problems are solved with a second-order quasi-Newton method, SSBroyden [13]. 
+
+2.3. Physics-Informed Neural Networks 
+
+Physics-informed neural networks [11] recast (3) as the joint training of two neural networks: one approximating the state u and one approximating the unknown function f , with the PDE constraint (1) enforced through a soft penalty on its residual. This subsection describes the architectures, the composite loss, the collocation strategy, and the optimizer used in this work. 8Network setup. Two multilayer perceptrons (MLPs) are used: a state net-work Nθu approximating the solution u, and a parameter network Nθf ap-proximating the unknown function f , where θu ∈ RNu and θf ∈ RNf denote the vectors of trainable weights and biases for the respective networks. 
+
+Composite physics-informed loss. The training objective is a weighted sum of mean-squared residuals enforcing the PDE, its boundary and initial con-ditions, and the observation data: 
+
+ℓ(θu, θf ) = wpde ℓpde (θu, θf )+ wbc ℓbc (θu)+ wic ℓic (θu)+ wdata ℓdata (θu)+ wreg R(θf ),
+
+(10) with the first four terms defined by 
+
+ℓpde (θu, θf ) = 1
+
+Npde 
+
+> Npde
+
+X
+
+> i=1
+
+∂tNθu + N  Nθu ; Nθf
+
+ 2(xi,t i)
+
+, (11) 
+
+ℓbc (θu) = 1
+
+Nbc 
+
+> Nbc
+
+X
+
+> i=1
+
+B Nθu
+
+ 2(xi,t i), (12) 
+
+ℓic (θu) = 1
+
+Nic 
+
+> Nic
+
+X
+
+> i=1
+
+Nθu (xi, 0) − u0(xi) 22, (13) 
+
+ℓdata (θu) = 1
+
+Ndata 
+
+> Ndata
+
+X
+
+> i=1
+
+O Nθu
+
+ 
+
+> i
+
+− yi
+
+> 22
+
+. (14) All spatial and temporal derivatives required to evaluate the residuals in (11)–(12) are obtained by automatic differentiation [12] of Nθu , so that ℓ is differentiable with respect to the network weights (θu, θf ). The regulariza-tion term R(θf ) matches the one used in the adjoint formulation (3), and all other loss weights are fixed to one in the experiments reported here so that no manual loss balancing is performed. 
+
+Training strategy. Both the state network Nθu and parameter network Nθf
+
+utilize tanh activation functions with Xavier-uniform weight initialization [19] and are evaluated using double-precision arithmetic. Both networks are trained jointly using the second-order quasi-Newton optimizer SSBroy-den [13], identical to the adjoint method. To prevent the networks from overfitting to a static point cloud, a budget of Npde collocation points is drawn uniformly at random over the spatio-temporal domain Ω × (0 , T ) and 9resampled after each outer quasi-Newton loop. The sampling effort is con-centrated on this PDE residual term (11) as it plays the dominant role in en-forcing physical consistency. During each loop, the mini-batch is kept strictly unchanged to satisfy the deterministic objective requirement fundamental to BFGS-type line-search and curvature updates. 
+
+2.4. Error metrics 
+
+To systematically assess and compare the performance of these two para-digms, we define discrete relative error metrics evaluated directly on the forward-solver mesh against the ground-truth arrays. Let f ⋆ ∈ RNx de-note the discrete ground-truth parameter field sampled on the grid, and let 
+
+u⋆ ∈ RNx×Nt represent the high-fidelity reference state trajectory obtained by running the numerical forward solver under this true parameter configu-ration. The reconstruction accuracy of the parameter field is quantified by the relative discrete Euclidean norm εf :
+
+εf = frecovered − f ⋆
+
+> 2
+
+f ⋆
+
+> 2
+
+, (15) where frecovered is the identified parameter vector mapped onto the solver grid coordinates. For the adjoint method, f adj recovered is obtained from the dis-crete optimization routine, which may be interpolated onto the forward-solver mesh if their grid representations differ; for the PINN formulation, f PINNs recovered 
+
+is obtained by evaluating the trained parameter network Nθf directly at the mesh coordinates. Similarly, the accuracy of the state trajectory recovery is measured by the relative discrete error εu:
+
+εu = urecovered − u⋆
+
+> 2
+
+u⋆
+
+> 2
+
+, (16) where urecovered represents discrete state vector to be compared against the reference u⋆. For the adjoint method, uadj recovered is the discrete state vector computed during the optimization process. For the PINN approach, to ensure a fair and consistent comparison, uPINNs recovered is the re-simulated state trajectory obtained by passing the parameter network’s grid predictions f PINNs recovered into the discrete forward solver rather than evaluating the neural surrogate network 
+
+Nθu .10 3. Benchmark Inverse Problems 
+
+This section instantiates the abstract inverse problem of Section 2 on four benchmark PDEs of increasing nonlinearity and dimensionality, listed in Table 1. We specify the forward operator N , the boundary operator B,the initial condition u0 and the unknown function f in the notation of (1), identify the observation operator O, instantiate the regularized inverse ob-jective (3), and report the recovered fields. Only the choices that affect the interpretation of the inverse-recovery quality are stated in the main text, whereas implementation details can be found in Appendix A. The general outcome of our test cases is summarized in Table 2. All wall-clock timings reported in this paper were measured on a single compute node equipped with an NVIDIA L40S GPU and a dual-socket AMD EPYC 9554 CPU. No parallel computing is used. 
+
+Table 1: Overview of the four inverse benchmarks. Test Governing PDE Unknown f Observation 1 unsteady 1D viscous Burgers spatial forcing f (x) terminal state 2 steady 2D Darcy log-permeability f (x) sparse noisy probes 3 unsteady 3D Allen–Cahn state-dependent forcing f (u) terminal state 4 unsteady 2D Navier–Stokes scalar viscosity ν sparse wake probes Table 2: Summary of inverse-recovery quality and wall-clock cost across inverse bench-marks. The discretization floor εsolver  
+
+> u
+
+is the relative L2 error of the forward solver against a finer-mesh reference and gives a reference on achievable εu.Test εadj  
+
+> f
+
+εPINN  
+
+> f
+
+εsolver  
+
+> u
+
+εadj  
+
+> u
+
+εPINN  
+
+> u
+
+tadj [s] tPINN [s] 1 4.16 ×10 −4 1.19 ×10 −4 4.19 ×10 −5 2.86 ×10 −5 5.72 ×10 −5 934 189 
+
+2 2.48 ×10 −1 2.37 ×10 −1 7.45 ×10 −6 8.40 ×10 −3 7.80 ×10 −3 3 169 
+
+3 5.91 ×10 −4 2.38 ×10 −3 4.40 ×10 −4 4.62 ×10 −5 5.46 ×10 −4 5469 429 
+
+4 3.99 ×10 −8 5.24 ×10 −3 — 4.24 ×10 −9 5.55 ×10 −4 1724 191 
+
+3.1. Test 1: Linear forcing identification for the 1D viscous Burgers equation 
+
+The first benchmark instantiates (1) as the one-dimensional viscous Burg-ers equation on Ω = [0 , L ) with L = 2 π and time interval [0 , T ] with T = 1 .11 Periodic boundary conditions are used so that the inverse problem is driven entirely by the forcing f (x), governed by the system: 
+
+∂tu + u ∂ xu − ν ∂ xx u = f (x), x ∈ [0 , L ), t ∈ (0 , T ],u(0 , t ) = u(L, t ), ∂ xu(0 , t ) = ∂xu(L, t ), t ∈ (0 , T ],u(x, 0) = sin( x), x ∈ [0 , L ).
+
+(17) The unknown function is the stationary forcing f (x), with reference profile 
+
+f ⋆(x) = sin(2 x). The forward problem is discretized in space by second-order centered finite differences on a uniform periodic grid of Nx = 512 
+
+nodes and in time by a Crank–Nicolson scheme. The observation y ∈ RNx
+
+is the terminal state uNt produced by the same solver under the reference forcing f ⋆ sampled on the forward grid ( Nx = 512 ). The objective function in the inverse problem (3) reduces to 
+
+˜J(θf ) = ∆x
+
+2 uNt (θf ) − y 22, (18) with no explicit regularization ( R ≡ 0). Three reconstructions are compared on this benchmark in order to sep-arate the contributions of the gradient computation and of the parame-terization: the PINN with the state network Nθu (x, t ) and the parameter network Nθf (x); the adjoint method with the same MLP parameterization 
+
+f (θf ) = Nθf (x) (“Adjoint NN”); and the adjoint method with a coarse mesh parameterization (“Adjoint coarse mesh”) in which f is represented by Nf = 64 degrees of freedom on a coarse uniform piecewise linear mesh and linearly interpolated to the forward grid. Both networks are MLPs with two hidden layers of width 32 and tanh activations. The convergence histories of all three estimators are reported in Fig. 1 and the recovered fields in Fig. 2. All three estimators recover the spatial forcing accurately with εf < 2 × 10 −3 and reproduce the terminal solution to within 10 −4.When the unknown f is represented by the same MLP architecture in both methods, the comparison reduces to the way the gradient with respect to θf is computed. The PINN and the Adjoint NN reach essentially the same parameter accuracy ( εf = 1 .19 × 10 −4 versus 4.16 × 10 −4) and the same terminal-state accuracy ( εu = 5 .72 × 10 −5 versus 2.86 × 10 −5), with both solvers achieving εu within one order of magnitude of the discretization floor εsolver  
+
+> u
+
+= 4 .19 × 10 −5. The wall-clock cost, however, differs by a factor 12 Figure 1: Test 1 - 1D unsteady Burgers . Convergence histories. Losses for PINN, objectives for adjoint, forcing errors, and the wall-clock times are shown. Horizontal axes indicate quasi-Newton iteration. 
+
+of roughly five ( 189 s for PINNs versus 934 s for adjoint). Each Adjoint NN iteration propagates sensitivities backwards through the full Crank–Nicolson trajectory, and the parameter space is the high-dimensional space of NN weights ( ∼ 10 3) on which the second-order quasi-Newton optimizer is expen-sive per step; the PINN never integrates the discrete forward solver during training and pays only the cost of automatic differentiation through Nθu and 
+
+Nθf .Within the adjoint framework, swapping the NN parameterization for the piecewise-linear coarse mesh with Nf = 64 degrees of freedom reduces the optimization dimension by an order of magnitude and brings the wall-clock cost down to 113 s, an order of magnitude faster than Adjoint NN and nearly as fast as the PINN. The terminal-state error of Adjoint coarse mesh is in fact the smallest of the three reconstructions ( εu = 1 .80 × 10 −5), confirming that the discrete adjoint extracts as much state-matching accuracy as the 13 (a) Recovered forcing frecovered and pointwise error frecovered − f ⋆.      
+
+> (b) Recovered terminal state uNt
+> recovered and pointwise error uNt
+> recovered −u⋆N t.
+
+Figure 2: Test 1 - 1D unsteady Burgers . Recovered forcing field (top) and terminal-state field (bottom). εu is calculated based on the terminal state uNt .
+
+forward discretization allows. The parameter error, however, increases by an order of magnitude ( εf = 1 .55 × 10 −3), reflecting the limited expressive resolution of the piecewise-linear basis for the smooth target f ⋆(x) = sin(2 x).This is a first concrete illustration of the parameterization trade-off central to the paper: a low-dimensional grid is the fastest deterministic choice and reaches the discretization floor on the state but caps the achievable param-eter accuracy at the resolution of its basis, while an NN parameterization removes that ceiling at the cost of a much larger optimization-space dimen-sion, which PINNs handle more efficiently than the adjoint method for this time-dependent problem. 
+
+3.2. Test 2: Linear permeability identification for 2D Darcy flow under noisy observations 
+
+The second benchmark instantiates (1) as the steady Darcy equation on the unit square Ω = (0 , 1) 2 with homogeneous Dirichlet boundary conditions 14 and known constant volumetric source g = 100 , governed by the system: 
+
+− ∇·  k(x) ∇u(x) = g, x ∈ Ω,u(x) = 0 , x ∈ ∂Ω. (19) The unknown function is the log-permeability f (x), which parameterizes the physical permeability as k(x) = exp  f (x) so that positivity of k is enforced by construction. The reference f ⋆ is a sample from a Gaussian random field with r = 128 Karhunen–Loève modes (Appendix A.3). The forward problem is discretized by continuous piecewise quadratic P2 finite elements on a structured triangular mesh of 32 × 32 cells, each split into two triangles, giving Nx = 4225 degrees of freedom.   
+
+> Figure 3: Test 2 - 2D Darcy. Convergence histories with noisy observations. Losses for PINN, objectives for adjoint, log-permeability errors, and the wall-clock times are shown. Horizontal axes indicate quasi-Newton iteration.
+
+The observation is sparse and noisy: the data y ∈ R81 are pointwise pressure measurements at a 9 × 9 uniform grid of interior locations, obtained 15 Figure 4: Test 2 - 2D Darcy. Recovered log-permeability frecovered (top) and pointwise error frecovered − f ⋆ (bottom), shown for the adjoint, PINN, and EKI estimators. The 9 × 9
+
+> observation grid is overlaid on the reference panel (green dots).
+
+by applying the exact P2 interpolation matrix P ∈ R81 ×Nx to the state u⋆
+
+produced by the same solver under the reference log-permeability f ⋆ sampled on the forward mesh, and corrupted by 1% additive Gaussian noise: 
+
+y = P u⋆ + η, η ∼ N  0, σ 2 
+
+> ε
+
+I, σε = 10 −2 · max  
+
+> i
+
+|u⋆i |. (20) The regularized inverse objective (3) reduces to 
+
+˜J(θf ) = 12 P u(θf ) − y 22 + R(θf ), (21) where R(f ) = γ
+
+> 2
+
+R
+
+> Ω
+
+|∇ f |2 dx is an H1 seminorm smoothness penalty with weight γ = 10 −3, discretized as detailed in Appendix A.3. Three reconstructions are compared: the PINN with the state network 
+
+Nθu (x) and the parameter network Nθf (x), both MLPs with three hidden layers of width 32 and tanh activations; the adjoint method optimizing di-rectly in the 128 -dimensional KL-coefficient space of the prior (“Adjoint KL”); and ensemble Kalman inversion (“EKI”) [20], a derivative-free baseline run in the same 128 -dimensional KL space. The adjoint and EKI estimators there-fore share their prior representation exactly and differ only in their inversion machinery. 16 Figure 5: Test 2 - 2D Darcy. Recovered state urecovered (top) and pointwise error    
+
+> urecovered −u⋆(bottom).
+
+The convergence histories of the two gradient-based estimators are re-ported in Fig. 3, whereas the recovered log-permeabilities in Fig. 4, and the corresponding states in Fig. 5. All three estimators recover the dominant large-scale structure of f ⋆ and reproduce the steady state to within 1% rel-ative error, but they differ in fine-scale details that the sparse noisy data cannot constrain. The three log-permeability errors fall within a narrow band: εEKI  
+
+> f
+
+=21 .08% , εPINN  
+
+> f
+
+= 23 .70% , and εAdj  
+
+> f
+
+= 24 .75% . At the state level the spread collapses, εu ∈ { 0.75% , 0.78% , 0.84% }, all three orders of magnitude above the FEM discretization floor εsolver  
+
+> u
+
+= 7 .45 × 10 −6. The gap between the three estimators is therefore set by the ill-posedness of the inverse problem rather than by algorithmic limitations: the forward map f 7 → u has a strongly contracting spectrum, so moderate differences in f project onto comparable observation residuals, and at 1% noise the 81 probe values cannot distinguish among the three reconstructions at the state level. The qualitative differences visible in Fig. 4 reflect the implicit prior of each method: the PINN reconstruction is visibly smoother than both the Adjoint KL and EKI fields, consistent with the implicit smoothness prior of the neural-field representation; the Adjoint KL and EKI fields exhibit sharper local features inherited from the explicit KL truncation that both methods 17 share. The wall-clock costs span nearly two orders of magnitude. The deter-ministic adjoint converges in 3 s by operating in a 128 -dimensional KL space on a P2 FEM stiffness matrix that admits sparse direct factorization. The PINN requires 169 s because both Nθu and Nθf are jointly represented and optimized as neural networks over a ∼ 10 3-dimensional parameter space. EKI is the most expensive at 204 s: each of its 5 iterations evaluates the forward solver once per ensemble member over 2000 members. This is the second illustration of the parameterization trade-off central to the paper, here un-der noise-limited observations: when the ill-posedness of the inverse problem dominates the achievable parameter accuracy, the choice of inverse solver becomes a question of computational efficiency rather than of asymptotic accuracy, and the deterministic adjoint method in a low-dimensional prior-aligned space is the most efficient option among the three. 
+
+3.3. Test 3: Nonlinear state-dependent forcing identification for the 3D Allen– Cahn equation 
+
+The third benchmark instantiates (1) as the three-dimensional Allen– Cahn equation on Ω = (0 , L )3 with L = 1 , interface width ε = 10 −2, and time interval [0 , T ] with T = 3 . Homogeneous Neumann boundary conditions are imposed on all faces, governed by the system: 
+
+∂tu − ε2 ∂xx u + ∂yy u + ∂zz u = f (u), x ∈ Ω, t ∈ (0 , T ],
+
+∇u · n = 0 , x ∈ ∂Ω, t ∈ (0 , T ],u(x, 0) = cos( πx ) cos( πy ) cos( πz ), x ∈ Ω.
+
+(22) The unknown function is a state-dependent reaction f (u), a scalar nonlinear functional of the solution, with reference profile f ⋆(u) = u − u3 generating bistable phase-field dynamics with a sharp transition layer. This qualitatively changes the inverse problem: the forward map f 7 → u(f ) is itself nonlinear in f , and the long-time dissipative dynamics contract any component of the sensitivity orthogonal to the leading attracting mode, so the conditioning of the terminal-state sensitivity deteriorates as T grows. The tensor-product cosine initial condition develops eight diffuse inter-faces meeting at the center of the cube, so the terminal state contains both well-separated bulk regions ( u ≈ ± 1) and sharp transition layers. The forward problem is discretized in space by the second-order seven-point finite-difference Laplacian with ghost-point Neumann closure on a uni-form tensor-product grid of Nx = Ny = Nz = 129 nodes, and in time by 18 Figure 6: Test 3 - 3D Allen–Cahn. Convergence histories. Losses for PINN, the objective for adjoint, reaction-term errors, and the wall-clock times are shown. Horizontal axes indicate quasi-Newton iteration. 
+
+a second-order IMEX BDF2/AB2 scheme with ∆t = 5 × 10 −2. Because the implicit operator is the constant-coefficient Neumann Laplacian, it is diagonalized exactly by the discrete cosine basis [21], so each step is a di-rect, matrix-free O(N log N ) transform–divide–inverse-transform operation, incurring none of the fill-in of a three-dimensional sparse factorization and reused unchanged for the adjoint transpose solve (Appendix A.4). The ob-servation y is the terminal state uNt produced by the same solver under the reference reaction f ⋆ on the forward grid, and the inverse problem (3) reduces to 
+
+˜J(θf ) = ∆x∆y∆z
+
+2 uNt (θf ) − y 22, (23) with no explicit regularization ( R ≡ 0). Two reconstructions are compared on this benchmark: the PINN with the state network Nθu (x, y, z, t ) and the parameter network Nθf (u); and the ad-19 Figure 7: Test 3 - 3D Allen–Cahn. Recovered reaction term frecovered (left) and point-wise error frecovered − f ⋆ (right) on the physical range u ∈ [−1, 1] .
+
+joint method with the same MLP parameterization f (θf ) = Nθf (u) (“Adjoint NN”). The parameter network is an MLP with two hidden layers of width 
+
+32 and tanh activations, while the state network has three hidden layers of width 32 and the same activation. The convergence histories of both estimators are reported in Fig. 6, the recovered reaction in Fig. 7, and the recovered terminal state in Fig. 8. The adjoint method is the more accurate of the two on both metrics: the pa-rameter error is εAdj  
+
+> f
+
+= 5 .91 × 10 −4 versus εPINN  
+
+> f
+
+= 2 .38 × 10 −3, and the terminal-state error is εAdj  
+
+> u
+
+= 4 .62 × 10 −5 versus εPINN  
+
+> u
+
+= 5 .46 × 10 −4. The PINN is roughly an order of magnitude less accurate, but its errors remain at the 10 −3 level, which is more than adequate for most practical identifica-tion tasks. The decisive difference, however, is in scalability. Each adjoint iteration sweeps forward and backward through the full 3D IMEX trajectory on a 129 3 grid and caches the entire state history for the backward pass, so both its runtime and its memory footprint grow with the spatial resolu-tion; in four or more dimensions, or on the fine grids needed to resolve thin interfaces, storing and differentiating the full discrete trajectory becomes in-tractable. The PINN cost, by contrast, is set by the network architecture and the collocation budget rather than by a mesh, so the method applies essentially unchanged as the dimension grows. This is the central advan-tage of the PINN approach: on this 3D benchmark it is already the cheaper option in wall-clock terms ( 429 s versus 5469 s) while remaining accurate to the 10 −3 level, and it extends to regimes where assembling and storing a discretization-consistent adjoint is no longer feasible. Restarting the discrete 20 Figure 8: Test 3 - 3D Allen–Cahn. Slice ( z = 0 .336 ) of the recovered terminal state        
+
+> uNt
+> recovered (top) and pointwise error relative to u⋆N t(bottom). εuis calculated based on the full terminal state uNt.
+
+adjoint from the PINN-recovered reaction network—the “Adjoint restart” his-tory in Fig. 6—begins the backward sweeps already inside the basin of the true reaction, so the adjoint converges in roughly half the wall-clock time of the cold-started baseline ( 2448 s versus 5469 s) while attaining a parameter error below it ( εAdj ,restart  
+
+> f
+
+= 2 .88 × 10 −4), showing the hybrid method is of practical value in time-dependent high-dimensional inverse problems. 
+
+3.4. Test 4: Scalar-viscosity identification for the 2D unsteady Navier–Stokes cylinder wake 
+
+The fourth benchmark treats the unsteady incompressible Navier–Stokes equations past a circular cylinder at Re = 100 , in the Kármán vortex-shedding regime, with the unknown now the scalar kinematic viscosity ν
+
+rather than a spatial field—the canonical problem of recovering a single phys-ical parameter from sparse wake observations, and the simplest instance of the data-driven model calibration the paper ultimately targets. Solving the cylinder wake by PINNs is itself a well-established inverse benchmark, treated previously via dense wake velocity data [11], vortex-induced vibration [22], and sparse-measurement heat transfer [23]. Our setup is distinguished by combining an explicitly resolved no-slip cylinder, sparse time-resolved probes, 21 and a fully unsteady regime in recovering the scalar viscosity that governs the shedding dynamics. The forward problem is set on the truncated fluid domain Ωf = ([ −3, 10] ×
+
+[−3, 3]) \ B((0 , 0); 0 .5) and governed by 
+
+∂tu + ( u·∇ )u + ∇p − ν ∆u = 0, x ∈ Ωf , t ∈ (0 , T ],
+
+∇· u = 0 , x ∈ Ωf , t ∈ (0 , T ],
+
+u = (1 , 0) , u = 0, v = 0 , on inlet, cylinder, top/bottom walls ,
+
+u(x, 0) = u0(x), x ∈ Ωf ,
+
+(24) with a natural outflow condition on {x = 10 }. In the abstract framework of Section 2 the unknown is the scalar f ≡ ν ∈ R>0; positivity is enforced by reparameterizing as θf = log ν, so the optimization variable is unconstrained and ν = exp( θf ). The reference value is ν⋆ = 10 −2 (that corresponds to the Reynolds number Re = 100 ). The initial condition u0 is not treated as unknown: a single warmup run generates the shedding state, which is then reused as the fixed initial condition for every inverse run. The forward problem is discretized by P2–P1 Taylor–Hood finite elements on an unstructured triangular mesh with characteristic spacings hcyl = 0 .04 
+
+near the cylinder, hwake = 0 .08 in the wake, and hfar = 0 .5 in the far field; time integration uses a second-order IMEX SBDF2 scheme. Over the observation window [0 , T ] with T = 5 , the solver is marched with fixed step ∆t = 5 ×10 −3
+
+(Nt = 1000 steps); the discrete adjoint differentiates this same trajectory ( Appendix A.5). The observation is sparse and time-resolved: both velocity components are sampled at a 4 × 4 Cartesian grid of 16 probes covering [1 , 3] × [−1, 1] 
+
+in the wake, recorded every 100 time steps for Nobs = 10 snapshots at 
+
+t ∈ { 0.5, 1.0, . . . , 5.0}, giving y ∈ R320 scalar observations (noise-free). The inverse problem (3) reduces to 
+
+˜J(θf ) = 12
+
+> Nobs
+
+X
+
+> k=1
+
+P u(θf ; tk) − yk
+
+> 22
+
+, (25) with no explicit regularization ( R ≡ 0), where P is the P2 interpolation operator at the probe locations. Two reconstructions are compared on this benchmark, both started from a deliberately poor initial guess ν0 = 10 2ν⋆ = 1 .0. The first is a PINN uti-22 lizing a streamfunction–pressure network Nθu (x, t ) outputting (ψ, p ) along-side a trainable scalar θf = log ν; the network is a multi-layer perceptron (MLP) with three hidden layers of width 32 and tanh activations. The streamfunction–pressure parameterization enforces ∇ · u = 0 exactly by con-struction ( u = ( ∂yψ, −∂xψ)). The second is the discrete adjoint method, denoted “Adjoint”, which optimizes θf directly from the same scalar initial-ization with BFGS (SSBroyden’s low-rank Hessian update is unnecessary for a single parameter).   
+
+> Figure 9: Test 4 - 2D unsteady Navier–Stokes cylinder wake. Left: PINN composite loss (top) and trainable viscosity (bottom), Adam →SSBroyden transition marked. Right: adjoint reduced objective (top) and recovered viscosity (bottom), for both the baseline adjoint and the PINN-seeded restart. Wall-clock times are annotated in the legends.
+
+The convergence histories are reported in Fig. 9. The baseline adjoint converges to machine precision in 8 iterations, reaching εAdj  
+
+> ν
+
+= 3 .99 × 10 −8 at a wall-clock cost of 1724 s—essentially exact recovery. The cost is dominated by the 1000 -step IMEX-SBDF2 forward sweep that each BFGS evaluation requires. The PINN, by contrast, converges in 191 s—almost an order of mag-23 Figure 10: Test 4 - 2D unsteady Navier–Stokes cylinder wake. Velocity-magnitude snapshots at t ∈ { 0, 2.5, 5}. Left: FEM reference with the 16 wake probe locations (green crosses). Middle: inverse-PINN field at the converged viscosity. Right: pointwise absolute error. The probes constrain only a small wake window, yet drive the recovered viscosity to within 5.2 × 10 −3 relative error. 
+
+nitude faster than the adjoint—to εPINN  
+
+> ν
+
+= 5 .24 × 10 −3. The viscosity trajec-tory in the lower-left panel of Fig. 9 shows the characteristic non-monotone behavior of a scalar PINN inversion: the SSBroyden quasi-Newton phase first over-corrects to ν ≈ 10 −3 before recovering to ν⋆ once the auxiliary state network has been adequately fit by the PDE-residual loss. Figure 10 shows the PINN’s reconstructed flow field over the full cylinder domain. The unsteady flow past a cylinder, with the body and its no-slip sur-face resolved rather than reduced to a wake patch, has remained a challenging problem [11, 22, 23] for PINNs under sparse observations, so we report the network’s own reconstruction directly—the trained state network Nθu eval-uated at the converged viscosity—rather than only the re-simulated state error εu of Table 2, which passes the recovered ν back through the forward solver for a fair cross-method comparison. The reconstruction is demanding here because the only data available are the 16 sparse wake probes—unlike the other benchmarks, no full-field or terminal-state observation constrains the network. The network nonetheless recovers the global shedding structure from this limited information, with the pointwise error concentrated in the 24 near-wake, whereas in the other benchmarks, where richer observations are available, the field is reconstructed near-perfectly. Restarting the discrete adjoint from the PINN-recovered viscosity col-lapses both the iteration count and the wall-clock cost: the restart converges in 3 BFGS iterations and 649 s to εAdj ,restart  
+
+> ν
+
+= 1 .03 × 10 −7, while reducing the total inversion time to 191 + 649 = 840 s, less than half the baseline adjoint cost, with the same machine-precision parameter accuracy. The hy-brid PINN-then-adjoint workflow combines the two: the PINN supplies a cheap, robust warm start that the adjoint then polishes to machine precision in a handful of steps. For data-driven closure modeling of unsteady fluid models, where neither a one-shot deterministic solve nor a soft-physics sur-rogate alone is fully satisfactory, this hybrid is the practical recipe the paper recommends. 
+
+4. Conclusions 
+
+We have compared adjoint-based optimization and physics-informed neu-ral networks for PDE-constrained inverse problems under a rigorous and well-controlled protocol. Both methods were instantiated from a single abstract inverse-problem formulation, with the domain, governing equation, and regu-larization held identical and the optimizer, parameterization, and arithmetic precision matched wherever applicable, so that the measured differences iso-late algorithmic effects rather than implementation choices. Achieving this required care on both sides: on the adjoint side, the discretization scheme was selected and linearized for each benchmark to ensure accuracy and efficiency; on the PINN side, a quasi-Newton optimizer, double precision, and residual resampling were used to enhance convergence. The comparison spans four benchmarks of increasing nonlinearity and dimensionality—forcing identifi-cation for the unsteady 1D Burgers equation, log-permeability identification for the steady 2D Darcy equation under sparse noisy data, state-dependent reaction identification for the unsteady 3D Allen–Cahn equation, and scalar-viscosity identification for the unsteady 2D Navier–Stokes flow past a cylin-der. Across the benchmarks considered here, the representation of the un-known emerges as a primary factor controlling the relative performance of the two methods. When it is a state-independent forcing or a scalar parame-ter admitting a low-dimensional, discretization-consistent representation, the adjoint method is both the most accurate and the cheapest: it recovers the 25 Burgers forcing near the discretization floor, identifies the cylinder viscos-ity to machine precision, and solves the steady Darcy problem in seconds in a prior-aligned space; under sparse, noisy observations the two approaches become indistinguishable at the state level, the residual gap set by the ill-posedness of the inverse problem rather than the inversion algorithm, so the choice again reduces to efficiency and favors the low-dimensional adjoint. The picture reverses once the unknown is parameterized by a neural network, as required for state-dependent functionals and data-driven closure: adjoint op-timization converges poorly in the high-dimensional weight space, whereas this representation is native to the PINN. Time dependence and dimensionality add a second axis. Each adjoint iteration stores and differentiates the entire discrete trajectory, so its run-time and memory grow with the spatial resolution and the number of time steps and can become the dominant bottleneck in three-dimensional prob-lems or over long time horizons. On the contrary, the PINN cost is set by the network architecture and the collocation budget. On the 3D Allen–Cahn problem the PINN is an order of magnitude cheaper and remains accurate where a discretization-consistent adjoint is barely affordable. Where machine precision is nonetheless required, the two methods combine: a PINN warm start supplies a cheap, robust initial guess that the discrete adjoint polishes to machine precision in a handful of iterations. This PINN-warm-started restart recovers the deterministic accuracy of the adjoint at roughly half its cost on both the 3D Allen–Cahn reaction and the unsteady cylinder viscosity, and lands the adjoint in a better minimum than a cold start. These results give concrete guidance for method selection. Use the adjoint method when a reliable discrete forward solver is available and the unknown is low-dimensional—a scalar, a coefficient, or a coarse field. Use the PINN for neural-field and state-dependent unknowns and for high-dimensional or long-horizon time-dependent problems, where the adjoint’s trajectory storage becomes prohibitive. When both are feasible and high accuracy is required, use the PINN-warm-started adjoint hybrid, which certifies a target accuracy at a fraction of the deterministic cost. These results suggest a practical hybrid strategy: use the PINN to obtain a low-cost approximation in the basin of attraction of the inverse solution, and then use the discrete adjoint to recover high-fidelity accuracy. A natural next step is to extend the comparison to large-scale three-dimensional closure and calibration problems, where the representation and cost trade-offs identified here are most pronounced. 26 Declaration of competing interest 
+
+The authors declare that they have no known competing financial inter-ests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Data Availability 
+
+The source code, benchmark configurations, and data generated dur-ing this study are available in the GitHub repository on request: https: //github.com/zhangzhen117/adjoint_PINN_inverse_comparison .
+
+Acknowledgments 
+
+This research was primarily supported by the Defense Advanced Research Projects Agency (DARPA) under the Automated Prediction Aided by Quan-tized Simulators (APAQuS) program, Grant No. HR00112490526. AA is a member of the GNCS group of INDAM. AA is partially supported by Pro-getto di Ateneo 2025: Bridging Analysis and Computation in Evolutionary PDEs. The authors would also like to thank Zhiwei Gao for implementing the EKI, and Shanqing Liu for valuable discussions. 
+
+References 
+
+[1] J. L. Lions, Optimal Control of Systems Governed by Partial Differential Equations, Springer-Verlag, 1971. [2] M. Hinze, R. Pinnau, M. Ulbrich, S. Ulbrich, Optimization with PDE Constraints, Vol. 23 of Mathematical Modelling: Theory and Applica-tions, Springer, Dordrecht, 2009. doi:10.1007/978-1-4020-8839-1 .[3] K. Duraisamy, G. Iaccarino, H. Xiao, Turbulence modeling in the age of data, Annual Review of Fluid Mechanics 51 (2019) 357–377. doi: 10.1146/annurev-fluid-010518-040547 .[4] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, L. Yang, Physics-informed machine learning, Nature Reviews Physics 3 (6) (2021) 422–440. doi:10.1038/s42254-021-00314-5 .27 [5] A. Jameson, Aerodynamic design via control theory, Journal of Scientific Computing 3 (3) (1988) 233–260. doi:10.1007/BF01061285 .[6] M. B. Giles, N. A. Pierce, An introduction to the adjoint approach to design, Flow, Turbulence and Combustion 65 (3) (2000) 393–415. [7] C. S. Skene, M. F. Eggl, P. J. Schmid, A parallel-in-time approach for accelerating direct-adjoint studies, Journal of Computational Physics 429 (2021) 110033. doi:10.1016/j.jcp.2020.110033 .[8] R. D. Nzoyem, D. A. W. Barton, T. Deakin, A comparison of mesh-free differentiable programming and data-driven strategies for optimal control under PDE constraints, in: Proceedings of the SC ’23 Work-shops of the International Conference on High Performance Computing, Network, Storage, and Analysis (SC-W ’23), Association for Computing Machinery, 2023, pp. 21–28. doi:10.1145/3624062.3626078 .[9] A. Alla, A. Pacifico, M. Palladino, A. Pesare, Online identification and control of pdes via reinforcement learning methods, Adv Comput Math 50 (2024). [10] A. Alla, A. Pacifico, A pod approach to identify and control pdes on-line through state dependent riccati equations, Dyn Games Appl 15 (1) (2025) 481–502. [11] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. [12] A. G. Baydin, B. A. Pearlmutter, A. A. Radul, J. M. Siskind, Auto-matic differentiation in machine learning: a survey, Journal of Machine Learning Research 18 (1) (2018) 5595–5637. [13] E. Kiyani, K. Shukla, J. F. Urbán, J. Darbon, G. E. Karniadakis, Optimizing the optimizer for physics-informed neural networks and kolmogorov-arnold networks, Computer Methods in Applied Mechan-ics and Engineering 446 (2025) 118308. 28 [14] A. Alla, G. Bertaglia, E. Calzola, A pinn approach for the online identi-fication and control of unknown pdes, Journal of Optimization Theory and Applications 206 (1) (2025) 8. [15] S. Mowlavi, S. Nabi, Optimal control of PDEs using physics-informed neural networks, Journal of Computational Physics 473 (2023) 111731. 
+
+doi:10.1016/j.jcp.2022.111731 .[16] S. Gratton, A. Sartenaer, P. L. Toint, Recursive trust-region methods for multiscale nonlinear optimization, SIAM Journal on Optimization 19 (1) (2008) 414–444. doi:10.1137/050623012 .[17] C. Bunks, F. M. Saleck, S. Zaleski, G. Chavent, Multiscale seismic wave-form inversion, Geophysics 60 (5) (1995) 1457–1473. doi:10.1190/1. 1443880 .[18] Z. Zhang, S. Liu, A. Alla, J. Darbon, G. E. Karniadakis, PINNs in PDE constrained optimal control problems: Direct vs indirect methods, arXiv preprint arXiv:2604.04920 (2026). [19] X. Glorot, Y. Bengio, Understanding the difficulty of training deep feed-forward neural networks, in: Proceedings of the thirteenth international conference on artificial intelligence and statistics, JMLR Workshop and Conference Proceedings, 2010, pp. 249–256. [20] M. A. Iglesias, K. J. Law, A. M. Stuart, Ensemble kalman methods for inverse problems, Inverse Problems 29 (4) (2013) 045001. [21] G. Strang, The discrete cosine transform, SIAM Review 41 (1) (1999) 135–147. doi:10.1137/S0036144598336745 .[22] M. Raissi, Z. Wang, M. S. Triantafyllou, G. E. Karniadakis, Deep learn-ing of vortex-induced vibrations, Journal of Fluid Mechanics 861 (2019) 119–137. doi:10.1017/jfm.2018.872 .[23] S. Cai, Z. Wang, S. Wang, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks for heat transfer problems, Journal of Heat Transfer 143 (6) (2021) 060801. doi:10.1115/1.4050542 .29 Appendix A. Implementation Details 
+
+This appendix collects the discretization, parameterization, regulariza-tion, and optimization details deferred from Section 3. The common ma-chinery shared by all four tests is described first in Appendix A.1, followed by the test-specific configurations (Appendix A.2–Appendix A.5). All com-putations use double-precision arithmetic throughout. 
+
+Appendix A.1. Common PINN training pattern 
+
+Unless stated otherwise, every PINN is trained in two stages. An Adam warmup with a stepwise-decaying learning rate is run first for ∼ 1000 steps to bring the composite loss into the basin of a good minimum, followed by a two-loop SSBroyden quasi-Newton phase. The outer loop resamples the collocation and boundary points; the inner loop is on the resulting fixed batch, so the objective is deterministic within each inner solve. Between outer iterations the inverse Hessian returned by SSBroyden is symmetrized and accepted as the warm start for the next iteration only if it passes a Cholesky positive-definiteness check, and is reset to the identity otherwise. This restart-with-resampling pattern supplies curvature continuity across the stochastic objective changes induced by resampling.               
+
+> Table A.3: PINN sampling budget per outer restart for the four benchmarks of Section 3. The resampled column is randomly redrawn at every outer restart of the two-loop SSBroy-den phase, while the fixed column remains constant across training. Test Benchmark Resampled Fixed 11D Burgers 20,000 PDE + 512 BC 512 IC + 512 data 22D Darcy 2000 PDE + 200 BC 4225 data 33D Allen–Cahn 20,000 PDE + 5000 BC + 80,000 data + 80,000 IC —42D NS cylinder 10,000 PDE + 6000 BC 24,745 IC + 320 data
+
+All PINN loss terms carry unit weight unless noted, except the regulariza-tion term, whose weight is the same γ used by the adjoint method; in every case the state field and the unknown parameter are represented by separate networks. The per-benchmark sampling budget is summarized in Table A.3, where the resampled columns list points redrawn uniformly at random at ev-ery outer quasi-Newton restart and the fixed columns list points held constant throughout training. For the 3D Allen–Cahn benchmark the terminal-state 30 observation is the full 129 3 field; rather than enforcing the data misfit on all 
+
+∼ 2.1 × 10 6 nodes at once, a random subset is resampled each outer loop, which both bounds the per-iteration cost and acts as a stochastic regularizer against overfitting to any fixed point cloud. 
+
+Appendix A.2. Test 1: 1D viscous Burgers Forward solver. The forward problem (17) is discretized on a uniform peri-odic grid of Nx = 512 nodes with spacing ∆x = L/N x. The first derivative and the Laplacian use centered second-order stencils assembled as periodic circulant matrices D, L x ∈ RNx×Nx . With F (u; f ) = −u ⊙ (Du ) + νL xu + f ,the Crank–Nicolson update at step n is enforced as the residual 
+
+Rn(un−1, un; f ) = un−un−1−∆t
+
+> 2
+
+F (un−1; f )+ F (un; f ) = 0 , n = 1 , . . . , N t,
+
+(A.1) with ∆t = 10 −2 (Nt = 100 steps to T = 1 ). Each implicit step is solved for 
+
+un by Newton’s method with the analytic Jacobian JF (u) = −diag( Du ) −
+
+diag( u) D + νL x to an ℓ∞ residual tolerance of 10 −10 (at most 20 iterations, explicit-Euler predictor). A mesh-refinement study confirms second-order accuracy in both ∆x and ∆t, giving the discretization floor εsolver  
+
+> u
+
+= 4 .19 ×
+
+10 −5 at the production resolution. 
+
+Discrete adjoint. Differentiating the residual (A.1) gives the step Jacobians 
+
+An = ∂R n/∂ un−1 = −I − ∆t 
+
+> 2
+
+JF (un−1) and Bn = ∂R n/∂ un = I − ∆t 
+
+> 2
+
+JF (un).The adjoint variables solve the backward sweep (BNt )⊤λNt = −∆x (uNt − y)
+
+and (Bn)⊤λn = −(An+1 )⊤λn+1 for n = Nt − 1, . . . , 1, and since ∂R n/∂f =
+
+−∆t I , the gradient with respect to the grid forcing is ∂J/∂f = −∆t PNt 
+
+> n=1
+
+λn.The reduced gradient is verified against centered finite differences of the dis-crete objective along randomly sampled perturbation directions, agreeing to a maximum relative error of ≈ 10 −8.
+
+Appendix A.3. Test 2: 2D Darcy flow Forward solver. The Darcy problem (19) is discretized by continuous P2 La-grange finite elements on a structured triangular mesh obtained by splitting each cell of a 32 × 32 grid into two triangles, giving Nx = 4225 degrees of freedom. Element integrals use a 7-point Gauss rule of order 5. The permeability enters the stiffness matrix elementwise as ke = exp( fe) via a precomputed unit-permeability assembly that is reweighted at each solve; homogeneous Dirichlet conditions are imposed by interior-degree-of-freedom 31 restriction and the linear system is solved by a sparse direct factorization. A manufactured-solution study confirms the expected P2 rates ( O(h3) in L2), giving εsolver  
+
+> u
+
+= 7 .45 × 10 −6 at the production mesh. 
+
+Prior and parameterization. The reference log-permeability and the priors of the adjoint and EKI [20] methods are samples from a Gaussian random field expressed through a truncated Karhunen–Loève expansion, 
+
+f (x) = 
+
+> r
+
+X
+
+> i=1
+
+ξi
+
+pλi φi(x), ξi ∼ N (0 , 1) , (A.2) with tensor-product cosine eigenfunctions φi(x) = cos( πk i, 1x1) cos( πk i, 2x2)
+
+indexed by integer wavenumbers ki = ( ki, 1, k i, 2) ∈ Z 2
+
+> ≥0
+
+, and corresponding eigenvalues √λi = σ π2∥ki∥2 + τ 2−α/ 2 of a Matérn-type covariance with production parameters τ = 3 , α = 2 , and amplitude σ = 1 . We truncate the expansion at r = 128 terms (ordered by descending λi) to obtain a finite-dimensional approximation of the infinite-dimensional field. Let Φsc ∈ Rr×Nx
+
+be the scaled eigenfunction matrix with rows √λi φi evaluated at the Nx
+
+FEM degrees of freedom, so the discrete log-permeability is f = Φ ⊤
+
+> sc
+
+ξ ∈ RNx
+
+and the chain rule gives ∇ξJ = Φ sc ∇f J. The adjoint and EKI methods both optimize the r = 128 KL coefficients ξ directly. The PINN instead represents the log-permeability by a neural field Nθf (x) alongside the state network Nθu (x).
+
+Discrete adjoint. For this steady problem the adjoint reduces to a single lin-ear solve with the transpose of the converged-state Jacobian, and the reduced gradient follows by the chain rule through the KL map, ∇ξJ = Φ sc ∇f J. The gradient is verified against centered finite differences of the discrete objective along randomly sampled perturbation directions, agreeing to a maximum relative error of ≈ 10 −7.
+
+Ensemble Kalman inversion. To implement EKI, we write the observation model in the equivalent form 
+
+y = G(ξ⋆) + η, η ∼ N (0 , Γ) , Γ = σ2I, (A.3) where the unknown field is parametrized by the random coefficients ξ through the expansion f = f (ξ), and 
+
+G(ξ) := O u(f (ξ)) . (A.4) 32 Thus, G includes the random-field expansion, the PDE/FEM solve, and the sparse observation operator, and σ is the observation noise level used in the experiment. EKI approximates the inverse problem by evolving an ensemble {ξ(j) 
+
+> n
+
+}Jj=1 ,where J is the ensemble size and n is the iteration index. The initial ensemble is sampled from the prior, 
+
+ξ(j)0 ∼ N (0 , I ), j = 1 , . . . , J. (A.5) At iteration n, the forward map is evaluated for each ensemble member, 
+
+g(j) 
+
+> n
+
+= G(ξ(j) 
+
+> n
+
+), and the ensemble means are 
+
+¯ξn = 1
+
+J
+
+> J
+
+X
+
+> j=1
+
+ξ(j) 
+
+> n
+
+, ¯gn = 1
+
+J
+
+> J
+
+X
+
+> j=1
+
+g(j) 
+
+> n
+
+. (A.6) The empirical cross- and observation covariances are 
+
+Cξg n = 1
+
+J − 1
+
+> J
+
+X
+
+> j=1
+
+ ξ(j) 
+
+> n
+
+−¯ξn
+
+  g(j) 
+
+> n
+
+−¯gn
+
+⊤, Cgg n = 1
+
+J − 1
+
+> J
+
+X
+
+> j=1
+
+ g(j) 
+
+> n
+
+−¯gn
+
+  g(j) 
+
+> n
+
+−¯gn
+
+⊤,
+
+(A.7) and the ensemble is updated by 
+
+ξ(j) 
+
+> n+1
+
+= ξ(j) 
+
+> n
+
++ Cξg n
+
+ Cgg n + Γ −1 y(j) 
+
+> n
+
+− g(j)
+
+> n
+
+, j = 1 , . . . , J, (A.8) with perturbed observations y(j) 
+
+> n
+
+= y + η(j) 
+
+> n
+
+, η(j) 
+
+> n
+
+∼ N (0 , Γ) ; for the deter-ministic variant we set y(j) 
+
+> n
+
+= y for all members. After N iterations the reconstructed coefficients are the ensemble mean bξ = 1
+
+> J
+
+PJj=1 ξ(j) 
+
+> N
+
+, and the reconstructed field is bf = f (bξ).
+
+Regularization. The adjoint regularizer is a discrete H1 smoothness penalty applied on the piecewise-constant log-permeability field over the FEM trian-gulation, 
+
+R(f) = γ
+
+2
+
+X 
+
+> (ei,e j)∈E int
+
+(fei − fej )2
+
+ℓij 
+
+, γ = 10 −3, (A.9) where Eint is the set of pairs of adjacent triangles sharing an interior edge, ℓij is the length of the shared edge, and fei is the log-permeability value on triangle 
+
+ei. Equivalently, this is the quadratic form γ 
+
+> 2
+
+f ⊤Lgraph f associated with the weighted graph Laplacian of the dual mesh; on piecewise-constant fields it is a finite-volume discretization of the continuous H1 seminorm R 
+
+> Ω
+
+|∇ f |2 dx.33 Appendix A.4. Test 3: 3D Allen–Cahn Forward solver. The 3D Allen–Cahn problem (22) is discretized on a uniform tensor-product grid of Nx = Ny = Nz = 129 nodes by the seven-point finite-difference Laplacian (a Kronecker sum of one-dimensional stencils) with ghost-point Neumann closure on all faces. Time integration is a second-order IMEX scheme: a first-order IMEX Euler step initializes the multistep method, after which the uniform steps use IMEX BDF2/AB2, 
+
+ 3I − 2∆ t ε 2Lh
+
+un+1 = 4 un − un−1 + 2∆ t 2f (un) − f (un−1), (A.10) with ∆t = 5 ×10 −2. Because the implicit operator is the Neumann Laplacian, each implicit solve is diagonalized by discrete cosine transforms (DCT) with eigenvalues λk = − 4 
+
+> h2
+
+sin 2  πk  
+
+> 2( N−1)
+
+ summed across directions, so each step is a transform–divide–inverse-transform operation. The discretization floor at this resolution is εsolver  
+
+> u
+
+= 4 .40 × 10 −4.
+
+Discrete adjoint. The adjoint uses the same IMEX structure with f = Nθf ,caching the current and previous reaction evaluations, the derivative ∂f /∂u 
+
+at each visited state, and the step type. The backward sweep starts from the terminal mismatch λNt = ∆ x∆y∆z (uNt − y) and applies the same DCT-diagonalized solver to adjoint loads; parameter gradients are accumulated by backpropagation through the reaction network at the stored states. The adjoint gradient is validated by random-direction finite differences (maximum relative error ≈ 1.2 × 10 −4). 
+
+Appendix A.5. Test 4: 2D unsteady Navier–Stokes cylinder wake Forward solver. The cylinder problem (24) is discretized by P2–P1 Taylor– Hood finite elements on an unstructured triangular mesh of the truncated fluid domain Ωf = ([ −3, 10] × [−3, 3]) \ B(0 , 0.5) , with characteristic spacings 
+
+hcyl = 0 .04 near the cylinder, hwake = 0 .08 in the wake, and hfar = 0 .5 in the far field. Element integrals use a 7-point Gauss rule of order 5. The inlet and cylinder Dirichlet conditions are imposed by interior-degree-of-freedom restriction; the top and bottom walls carry a slip-style v = 0 constraint; the outflow at {x = 10 } is the natural condition of the weak form (no constraint). The pressure null space is removed by a small mass-matrix regularization with parameter ϵ = 10 −10 . Time integration is a second-order IMEX SBDF2 scheme: convection is extrapolated by SBDF2 from the two previous steps while diffusion is treated implicitly, so each time step requires one sparse direct factorization of the velocity stiffness block. 34 The reference data are generated in two stages. A warmup integration to 
+
+Twarm = 80 uses adaptive time-stepping with CFL target 0.9 and a symmetry-breaking blob perturbation of amplitude 0.1 injected at t = 8 , advancing the flow into the Kármán shedding cycle. The final state is then frozen as u0
+
+and the observation window [0 , T ] with T = 5 is marched with fixed step 
+
+∆t = 5 × 10 −3 (Nt = 1000 steps). The same saved u0 is reused as the initial condition for every inverse run, so u0 is not treated as an unknown. 
+
+Discrete adjoint. The discrete adjoint linearizes the converged forward tra-jectory and is implemented as a backward sweep through the cached IMEX-SBDF2 states. The optimization variable is the scalar θf = log ν, so ν =exp( θf ) and viscosity positivity is enforced by construction; the chain rule gives dJ/dθ f = ν dJ/dν . The gradient dJ/dν is the sum, across the 1000 
+
+time steps and 10 observation snapshots, of the inner products of the cached adjoint velocity multipliers with the diffusion operator applied to the state— a single scalar derivative per step. The adjoint is verified against centered finite differences with δ = 10 −6 at viscosity offsets ν/ν ⋆ ∈ { 0.7, 0.85 , 1.2, 1.5};the worst-case relative error is below 10 −7.35

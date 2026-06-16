@@ -1,0 +1,4077 @@
+Title: CLARITree: Cholesky and Lookahead Accelerations for Regression with Interpretable Piecewise Linear Trees
+
+URL Source: https://arxiv.org/pdf/2606.12840v1
+
+Published Time: Fri, 12 Jun 2026 00:30:02 GMT
+
+Number of Pages: 78
+
+Markdown Content:
+# CLARITree: Cholesky and Lookahead Accelerations for Regression with Interpretable Piecewise Linear Trees 
+
+Yixiao Wang * 1 Hayden McTavish * 1 Varun Babbar * 1 Margo Seltzer 2 Cynthia Rudin 1
+
+## Abstract 
+
+Regression trees are among the most interpretable yet expressive model classes in machine learning. Historically, greedy induction has been the domi-nant approach for constructing well-performing regression trees. While optimal methods based on dynamic programming and branch-and-bound exist, they are computationally prohibitive for gen-eral linear regression trees, despite often achiev-ing substantially better performance than greedy approaches. Recent work has shown that spe-cialized lookahead strategies can dramatically im-prove runtime while maintaining near-optimal per-formance, primarily in classification settings. In this work, we develop a novel algorithm for near-optimal, sparse, piecewise linear regression trees that combines a lookahead-style search strategy with efficient rank-one Cholesky updates of the Gram matrix. We demonstrate, both theoretically and empirically, that our method achieves a favor-able trade-off between computational efficiency, predictive accuracy, and sparsity, and scales signif-icantly better than the current state of the art. The code is available at https://github.com/ Yixiao-Wang-Stats/CLARITree .
+
+## 1. Introduction 
+
+Decision trees for regression date back to the early work of Morgan & Sonquist (1963) and were later popularized with CART and C4.5 (Breiman et al., 1984; Quinlan, 1993). They remain cornerstone models for interpretable learn-ing (Rudin, 2019; Rudin et al., 2022; Blockeel et al., 2023), widely adopted for their simplicity, transparency, and ability to capture nonlinear relationships. 
+
+> *
+
+Equal contribution 1 Department of Computer Science, Duke University, Durham, USA 2 Department of Computer Science, University of British Columbia, Vancouver, Canada . Correspon-dence to: Yixiao Wang <yixiao.wang@duke.edu >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+Figure 1. An illustration of CLARITree on a synthetic piecewise-linear dataset. Training objective versus runtime is shown. Greedy trees are fast but suboptimal, while optimal trees take too long to run. CLARITree provides a strong trade-off, achieving near-optimal performance with much lower runtime. The reported results include both train and test performance. Test performance: 
+
+Greedy (MSE = 15 .41 , R2 = 0 .88 ); CLARITree (MSE = 4 .03 ,
+
+R2 = 0 .97 ); STreeD (MSE = 13 .72 , R2 = 0 .89 )
+
+Greedy induction for regression trees has been extensively studied for both constant and linear models (Morgan & Son-quist, 1963; Quinlan, 1992; Wang & Witten, 1997; Breiman et al., 1984; Quinlan, 1993; Loh, 2002). While constant-leaf trees are computationally efficient, they lack linear expressiveness and therefore incur more model bias; con-versely, linear-leaf trees improve modeling power but are less efficient to learn, requiring costly regressions at every node (Loh, 2014; Raymaekers et al., 2024). Greedy trees can deviate substantially from optimal solutions, with large gaps documented in both constant and linear settings (Zhang et al., 2023; Van Den Bos et al., 2024; van der Linden et al., 2024), underscoring the need for more principled approaches. To address the issue of greedy induction’s performance gap, recent work has used dynamic programming and branch-and-bound strategies to achieve provably optimal regression trees (Zhang et al., 2023; Van Den Bos et al., 2024), pre-ceded by work on these techniques for classification trees (Hu et al., 2019; Lin et al., 2020; McTavish et al., 2022; Demirovi ´c et al., 2022; Aglin et al., 2020). Yet, the cost of solving linear regressions restricts these methods to constant predictors or highly constrained linear cases (e.g., single-feature), or leads to substantial scalability losses, leaving open the challenge of scalable algorithms that combine the efficiency of greedy induction with the accuracy of optimal search. 1
+
+> arXiv:2606.12840v1 [cs.LG] 11 Jun 2026 Near-Optimal Scalable Piecewise Regression Trees
+
+Our work develops efficient near-optimal algorithms for general linear regression trees. Empirically, the pro-posed method consistently outperforms greedy baselines and achieves performance close to optimal on small and medium-scale datasets, while remaining scalable and effec-tive on large-scale problems. To address the cost of linear regressions and handle continuous features directly, we fur-ther use rank-one Cholesky updates to maintain regularized Gram factorizations while scanning thresholds, enabling nu-merically stable and efficient split evaluation for regression tree search. Our work is motivated by a recent result of SPLIT (Bab-bar et al., 2025), which optimizes splits globally up to a lookahead depth and applies greedy induction thereafter. By combining this lookahead principle with efficient rank-one Cholesky updates for linear regression, we develop CLARITree ( Cholesky and Lookahead Accelerations for 
+
+Regression with Interpretable Tree s), a scalable algorithm for learning interpretable piecewise linear regression trees. Our contributions are as follows. 1. We introduce CLARITree, an efficient, near-optimal al-gorithm for learning sparse, piecewise linear regression trees that uses lookahead-style split optimization. 2. We make continuous-feature search computationally feasible and numerically stable by maintaining leaf regressors via rank-one Cholesky updates of the regu-larized Gram matrix, enabling fast, exact evaluation of many candidate splits without repeated refitting. 3. We provide theoretical analysis characterizing the run-time/accuracy trade-off of CLARITree and demon-strate, through extensive experiments, that our method achieves near-optimal accuracy while scaling substan-tially better than existing optimal baselines. 
+
+## 2. Related Work 
+
+Greedy Regression Trees Classical greedy regression trees can be divided into piecewise constant regression trees, which predict the sample mean in each leaf, and piecewise linear regression trees, which fit local regression models in the leaves. Traditional CART and C4.5 (Breiman et al., 1984; Quinlan, 1993) exemplify the former. Among linear regression trees, M5 (Quinlan, 1992) evaluates splits ac-cording to reduction in constant regression error but places linear regressors in the leaves. This hybrid strategy can induce a mismatch between split evaluation and final predic-tion, yielding suboptimal partitions (Malerba et al., 2004). GUIDE (Loh, 2002) instead applies statistical tests on resid-ual patterns to select splits, both reducing variable-selection bias and improving the detection of informative variables. More recently, PILOT (Raymaekers et al., 2024) proposed an efficient greedy algorithm for linear model trees: it restricts itself to simple linear fits, but adaptively selects among candidate models via a BIC criterion and maintains Gram matrices with rank-one updates during split evalu-ation. Unlike our work, PILOT focuses on very small regression models and recomputes and inverts the design matrices locally at each node, without maintaining shared state across the tree-building process. Our current work is scoped to standard greedy splitting criteria (i.e., reduction in MSE), allowing the framework to accommodate a range of greedy heuristics for tree computation (i.e., Balcan & Sharma (2024)). 
+
+Optimal Decision and Regression Trees There are many methods for finding optimal trees. These range across many techniques, including mixed-integer optimization (Bertsi-mas & Dunn, 2017) and SAT solvers (Verwer & Zhang, 2019). A recent literature review (Costa & Pedreira, 2023) suggested that the most promising approach for optimal trees has been tree-specific algorithms leveraging dynamic programming with branch and bound (Lin et al., 2020; Aglin et al., 2020; Demirovi ´c et al., 2022), which have been ex-tended in more recent years (Sullivan et al., 2024; Chaouki et al., 2025; Zhang et al., 2023; van der Linden et al., 2024). Broadly speaking, these methods search through the space of decision trees while tracking lower and upper bounds at each split to prune the search space. To optimize regression trees, Zhang et al. (2023) leverage a novel k-means-based lower bound to prune search nodes. Van Den Bos et al. (2024) implement optimal algorithms for both constant and piecewise linear regression trees, employing lower bounds from (Zhang et al., 2023) to prune the search space, as well as specialized depth-2 solvers to speed up computation. Optimal tree methods have been extended to handle continu-ous features, either with heuristic preprocessing (McTavish et al., 2022) or specialized optimal methods (Mazumder et al., 2022; Bri t, a et al., 2025) but not while considering regression trees with linear functions in the leaves. 
+
+Approximately optimal strategies Because optimal tree construction methods can be slow, recent work has also focused on approximate strategies for decision tree con-struction, aiming to achieve the ideal balance between run-time and optimality. Top-k (Blanc et al., 2023) provides a principled generalization of classical greedy decision tree algorithms by considering the top-k candidate features at each split, yielding trees that perform better than greedy trees. DPDT (Kohler et al., 2025) further extends the split-ting choices by introducing a split generating function that provides a richer set of candidate splits derived from deeper CART-based greedy trees. This approach identifies qual-ified splitting positions without enumerating all possible splits, thereby balancing the efficiency of greedy algorithms with the optimality of exact solvers. Several optimal meth-2Near-Optimal Scalable Piecewise Regression Trees 
+
+ods have incorporated anytime behaviour (Demirovi ´c et al., 2023; Kiossou et al., 2025), allowing optimal methods to be terminated early if they exceed a compute budget while still affording a reasonable solution. Kiossou et al. (2024) make use of a greedy lookahead strategy, using a depth two optimal tree solver to optimize initial splits for a greedy heuristic. Babbar et al. (2025) introduced the SPLIT frame-work for classification trees, which selects split decisions using lookahead with greedy completions, potentially re-cursively. In contrast, our work is the first to make looka-head strategies practical for piecewise linear regression trees with continuous features, where exact, computationally ex-pensive least-squares fitting and numerical stability pose fundamentally different algorithmic challenges. 
+
+## 3. Preliminaries and Notation 
+
+Let F = Fc ∪F b denote the feature set with |F| = k, where 
+
+Fc and Fb are continuous and binary features, respectively. The training data is D = {(xi, y i)}ni=1 , where each feature vector xi = ( xci , xbi ) contains both continuous and binary components, and yi ∈ R is the target. Let [n] := {1, . . . , n }
+
+index the training examples. For any index set I ⊆ [n], let 
+
+DI := {(xi, y i)}i∈I for the corresponding data subset, which we refer to as the node data when I represents the samples assigned to a tree node, with XI ∈ R|I|× k and 
+
+yI ∈ R|I| denoting its design matrix and target, respec-tively. For each feature f ∈ F , let Pf denote the candidate threshold pool for feature f .We define an optimal linear sparse regression tree as a tree 
+
+Td ∈ T of depth at most d, in the space of linear regression trees T , that minimizes the sum of a prediction loss and a structural complexity penalty. Given a training dataset 
+
+D and depth budget d, each leaf t is fitted with a ridge-regularized linear predictor with regularization parameter 
+
+κ > 0, so that each sample receives the affine prediction 
+
+byi = β0 + x⊤ 
+
+> i
+
+β, where the leaf coefficients are obtained by 
+
+bβ(t)0 , bβ(t)
+
+= argmin 
+
+> β0,β
+
+X
+
+> (xi,y i)∈t
+
+(yi − β0 − x⊤ 
+
+> i
+
+β)2 + κ∥β∥22.
+
+(1) The corresponding ridge-regularized prediction loss is de-noted by Rκ(Td, D ). The overall objective is 
+
+L∗(D, d, λ, κ ) = min 
+
+> Td∈T
+
+
+
+Rκ(Td, D ) + λS (Td)
+
+
+
+, (2) where S(Td) is the number of leaves in Td, λ > 0 controls the structural complexity of the resulting tree, and κ > 0
+
+controls the complexity of the leaf-level linear models. 
+
+Incremental Ridge Regression For ridge linear regres-sion, solving the system from scratch incurs a cost of O(k3)
+
+due to matrix factorization (e.g., Cholesky or QR decompo-sition). In recursive settings, such as regression trees, it is of-ten desirable to update the solution incrementally as samples are added or removed, which substantially improves compu-tational scalability. This can be efficiently achieved using Recursive Least Squares (RLS) algorithms (Potts, 2004), which maintain sufficient statistics and support O(k2) up-dates per sample via the Sherman–Morrison formula (Sher-man & Morrison, 1950). To improve numerical stability, we use Cholesky updates rather than inverse updates, as we detail below. 
+
+Fast Rank-One Cholesky Updates We maintain numeri-cal stability by using a Cholesky decomposition implemen-tation. Consider a given ridge regression system Aβ = b,where A = X⊤X + κI. The regularized Gram matrix A is symmetric positive definite. Instead of forming A−1 explic-itly, we factorize A = LL ⊤ using a pivot-free Cholesky de-composition (Benoit, 1924; Golub & Van Loan, 2013). The solution is then obtained by solving two triangular systems, 
+
+Lz = b and L⊤β = z, a procedure that is efficient (Press et al., 1992) and numerically stable without the need for pivoting (Turing, 1948). Since the RLS formulation requires frequent updates to this system, we efficiently handle rank-one modifications of the form 
+
+Anew = A ± xx ⊤,
+
+by directly updating the Cholesky factor via a rank-one Cholesky update or downdate (Seeger, 2008), instead of recomputing the full factorization. This procedure takes 
+
+O(k2) time for a k × k system and is particularly useful when rows are incrementally added to or removed from 
+
+X. We adopt this technique to efficiently maintain the leaf statistics during the split process. 
+
+Lookahead Completions When determining the next split to add to a partially constructed tree, CLARITree con-siders all possible next splits and selects the one that leads to the best tree when completed with a greedy subroutine. This strategy can be considered a type of lookahead (Babbar et al., 2025) and also corresponds to a rollout strategy for combinatorial optimization (Bertsekas et al., 1997) and the pilot method (Voßs et al., 2005). 
+
+CholeskyTree denotes CLARITree’s greedy completion subroutine (Algorithm 4) and also serves as a standalone baseline. While similar to classical model tree algorithms such as M5 (Quinlan, 1992), CholeskyTree differs fun-damentally in that split selection is based on the down-stream ridge-regularized linear regression objective rather than node means or variance reduction. Like CLARITree, CholeskyTree uses efficient rank-one Cholesky updates and downdates throughout the recursive tree construction, which is where its name comes from. To emphasize its role as the 3Near-Optimal Scalable Piecewise Regression Trees 
+
+greedy completion procedure inside CLARITree, we occa-sionally refer to it as Greedy CholeskyTree. 
+
+## 4. Algorithm Details 
+
+4.1. CLARITree Framework 
+
+This section describes how regression trees can be computed within our lookahead-based framework. This paradigm sig-nificantly improves scalability relative to globally optimal regression trees. For the main paper, we focus on the simplified, polynomial-time one-step lookahead strategy, which is highly accurate, as shown in Section 6 (with some alternative settings of the algorithm discussed in Section F). More specifically, the algorithm explores all combinations of a single layer of splits, with Greedy CholeskyTree completion beyond this depth to find the best splitting position. For a dataset D,a given depth budget d, a structural complexity parameter 
+
+λ, and a ridge regularization parameter κ. The objective is defined as: 
+
+LCLARITree (D, d, λ, κ ) = 
+
+
+
+λ + LEAF OBJ (D), if d = 0 ,
+
+min 
+
+n
+
+λ + LEAF OBJ (D),
+
+Phase 1: Greedy CholeskyTree selection 
+
+(f ⋆, τ ⋆) = arg min f,τ 
+
+Lg (Df ≤τ , d − 1, λ, κ )+Lg (Df >τ , d − 1, λ, κ ),
+
+Phase 2: CLARITree completion 
+
+LCLARITree 
+
+ Df ⋆≤τ ⋆ , d − 1, λ, κ 
+
++LCLARITree 
+
+ Df ⋆>τ ⋆ , d − 1, λ, κ o
+
+, if d > 0.(3) where Df ≤τ and Df >τ denote the partitions induced by thresholding feature f at value τ , Lg (D, d − 1, λ, κ ) is the objective of a Greedy CholeskyTree of depth d − 1
+
+built on dataset D, and LEAF OBJ (D) denotes the loss from fitting a linear model directly on D. The over-all objective L∗(D, d, λ, κ ) in (2) is approximated by 
+
+LCLARITree (D, d, λ, κ ).
+
+4.2. CLARITree Implementation 
+
+The framework above defines the recursive optimization objective, but an efficient implementation requires scalable split evaluation. We now present the CLARITree algorithm for constructing linear regression trees. The full procedure is summarized in Algorithm 1. A key component of the implementation is the use of rank-one Cholesky updates for efficient streaming split evaluation, as described in Algo-rithm 2. 
+
+Algorithm 1 CLARITree : lookahead split selection with recursive refinement 
+
+Require: Node data DI ; node sufficient statistics 
+
+(LI , bI , ∥yI ∥2); node-wise sorted lists ΠI =
+
+{πf (I)}f ∈F ; candidate threshold pool P = {P f }f ∈F ;depth budget d
+
+1: OBJ leaf ← LEAF OBJ (LI , bI , ∥yI ∥2)
+
+2: if d = 0 then 
+
+3: β ← SolveRidge (LI , bI )
+
+4: return Leaf (β), OBJ leaf 
+
+5: end if 
+
+6: OBJ ∗ 
+
+> look
+
+← ∞ , (f ∗, τ ∗) ← None 
+
+7: U ← EnumerateSplits (DI , ΠI , P, LI , bI ,
+
+∥yI ∥2)
+
+8: for each tuple yielded by U do 
+
+9: Receive (f, τ, IL, IR, LL, bL, ∥yIL ∥2
+
+LR, bR, ∥yIR ∥2)
+
+10: Construct child sorted lists ΠIL , ΠIR
+
+11: Construct child data views DIL , D IR
+
+12: if d = 1 then 
+
+13: OBJ cand ← LEAF OBJ (LL, bL, ∥yIL ∥2) + 
+
+LEAF OBJ (LR, bR, ∥yIR ∥2)
+
+14: else ▷ Greedy completion of the remaining subtree. 
+
+15: ( eTL, gOBJ L) ←
+
+CholeskyTree ( LL, bL, D IL , ΠIL , P, d − 1 )
+
+16: ( eTR, gOBJ R) ←
+
+CholeskyTree ( LR, bR, D IR , ΠIR , P, d − 1 )
+
+17: OBJ cand ← gOBJ L + gOBJ R
+
+18: end if 
+
+19: if OBJ cand < OBJ ∗ 
+
+> look
+
+then 
+
+20: OBJ ∗ 
+
+> look
+
+← OBJ cand , (f ∗, τ ∗) ← (f, τ )
+
+21: Store the corresponding child information for the current best split: (Lbest L , bbest L , D best  
+
+> IL
+
+, Πbest  
+
+> IL
+
+) and 
+
+(Lbest R , bbest R , D best  
+
+> IR
+
+, Πbest  
+
+> IR
+
+)
+
+22: end if 
+
+23: end for 
+
+24: if (f ∗, τ ∗) = None then 
+
+25: β ← SolveRidge (LI , bI )
+
+26: return Leaf (β), OBJ leaf 
+
+27: end if 
+
+28: (TL, OBJ L) ← CLARITree (Lbest L , bbest L , D best  
+
+> IL
+
+, Πbest  
+
+> IL
+
+,
+
+P, d − 1) 
+
+29: (TR, OBJ R) ← CLARITree (Lbest R , bbest R , D best  
+
+> IR
+
+, Πbest  
+
+> IR
+
+,
+
+P, d − 1) 
+
+30: OBJ subtree ← OBJ L + OBJ R
+
+31: if OBJ subtree < OBJ leaf then 
+
+32: return Node (f ∗, τ ∗, T L, T R), OBJ subtree 
+
+33: else 
+
+34: β ← SolveRidge (LI , bI )
+
+35: return Leaf (β), OBJ leaf ▷ Prune if the refined subtree does not improve the leaf. 
+
+36: end if 
+
+4Near-Optimal Scalable Piecewise Regression Trees 
+
+For notational simplicity, the treatment of the intercept is deferred to Section A.4. The main paper also presents a sim-plified version of the algorithms that omits the full treatment of the structural complexity parameter λ and ridge regular-ization parameter κ. Complete pseudocode and additional technical details deferred to the Section C. 
+
+Algorithm 2 EnumerateSplits : streamed split enumer-ation with Cholesky updates 
+
+Require: Node data DI ; node-wise sorted lists ΠI =
+
+{πf (I)}f ∈F ; candidate threshold pool P = {P f }f ∈F ;parent sufficient statistics (LI , bI , ∥yI ∥2) 
+
+> 1:
+
+for each split feature f do  
+
+> 2:
+
+Initialize the left child as empty: LL ← chol (κI ),
+
+bL ← 0, ∥yIL ∥2 ← 0, IL ← ∅  
+
+> 3:
+
+Initialize the right child as the parent: LR ← LI ,
+
+bR ← bI , ∥yIR ∥2 ← ∥ yI ∥2 
+
+> 4:
+
+q ← 1 ▷ Pointer into the sorted threshold set Pf . 
+
+> 5:
+
+for r = 1 to |πf (I)| − 1 do  
+
+> 6:
+
+i ← πf (I)[ r] ▷ Move sample i from the right child to the left child.  
+
+> 7:
+
+bL ← bL + xiyi, bR ← bR − xiyi 
+
+> 8:
+
+∥yIL ∥2 ← ∥yIL ∥2 + y2 
+
+> i
+
+, ∥yIR ∥2 ←∥yIR ∥2 − y2 
+
+> i
+> 9:
+
+LL ← cholupdate (LL, xi, +1)  
+
+> 10:
+
+LR ← cholupdate (LR, xi, −1)  
+
+> 11:
+
+vcur ← xif , vnext ← xπf (I)[ r+1] ,f  
+
+> 12:
+
+if vcur = vnext then  
+
+> 13:
+
+continue ▷ No threshold can split identical feature values.  
+
+> 14:
+
+end if  
+
+> 15:
+
+while q ≤ |P f | and Pf [q] ≤ vcur do  
+
+> 16:
+
+q ← q + 1  
+
+> 17:
+
+end while  
+
+> 18:
+
+while q ≤ |P f | and Pf [q] < v next do ▷
+
+All thresholds in this interval reuse the same sufficient statistics.  
+
+> 19:
+
+τ ← P f [q] 
+
+> 20:
+
+yield (f, τ, IL, IR, LL, bL, ∥yIL ∥2, LR, bR,
+
+∥yIR ∥2) ▷ A stream that yields tuples for Algorithm 1’s iterative loop  
+
+> 21:
+
+q ← q + 1  
+
+> 22:
+
+end while  
+
+> 23:
+
+end for  
+
+> 24:
+
+end for Recursive CLARITree Construction. Algorithm 1 im-plements the recursive CLARITree construction procedure. Line 1 evaluates the objective obtained by terminating the current node and fitting a leaf predictor directly. Lines 2–5 return this leaf solution when the depth budget is exhausted. If the depth budget is exhausted, the algorithm immediately returns this leaf solution. Line 6 initializes the incumbent lookahead objective, so all feasible candidate splits are evaluated before a split is selected. lines 7–23 enumerate candidate splits using the 
+
+EnumerateSplits subroutine and evaluate each split via greedy CholeskyTree completion. The split with the smallest completed objective is selected. Finally, lines 24–36 recursively refine the left and right child nodes using CLARITree itself. The resulting refined subtree objective is then compared against the direct leaf objective, and the subtree is pruned whenever recursive refinement does not improve the leaf solution. 
+
+Streaming Split Enumeration with Rank-One Cholesky Updates Algorithm 2 implements the streaming split-enumeration procedure used throughout CLARITree. For each feature, samples are first traversed in sorted order, and candidate thresholds are evaluated incrementally as the threshold moves from left to right. Lines 2–3 initialize the sufficient statistics and Cholesky factors associated with the left and right partitions. Lines 5– 23 then stream through the sorted feature values and in-crementally update the corresponding ridge-regression sys-tems as samples are transferred between child nodes during the threshold sweep, rather than recomputing them from scratch. More specifically, the main bottleneck in CLARITree is eval-uating splits, since each threshold requires updating both child regressors. Rather than recomputing from scratch, we maintain the Cholesky factorization of the regularized Gram matrix A = X⊤X + κI together with the moment vector 
+
+b = X⊤y. As thresholds are scanned, samples move be-tween child nodes; each move triggers a rank-one Cholesky update to A and b, allowing both sides to be updated in 
+
+O(k2) time (see Theorem 4.1). The ridge loss is then ob-tained directly from the Cholesky factor, without solving for coefficients explicitly (see Theorem 4.2). During the sweep, we also maintain ∥yIL ∥2 and ∥yIR ∥2, the running sums of squared targets on the left and right subsets, which provide the ∥y∥2 term in the ridge loss, where IL and IR are the current left and right child node index sets. Building on these results, the EnumerateSplits subrou-tine (Algorithm 2) called in line 7 of Algorithm 1 presents our split-enumeration procedure. Beyond removing the main computational bottleneck, these incremental updates also allow us to directly handle continuous features without binarizing the dataset D, thereby reducing the complexity of a full threshold scan by an additional factor of O(n) (see Theorem 5.5). Together, these techniques make CLARITree a practical and scalable linear extension of our framework. In addition to computational efficiency, we also analyze the numerical 5Near-Optimal Scalable Piecewise Regression Trees 
+
+stability of the proposed rank-one Cholesky updates under our setting; see Section A.5 for details. Empirical results in Section 6 further demonstrate the effectiveness and stability of the approach. 
+
+Remark 4.1 (Rank-One Update for Cholesky) . Let A =
+
+LL ⊤ be the Cholesky factorization of a positive definite matrix A. For any rank-one update or downdate A′ =
+
+A ± xx ⊤, the updated Cholesky factor L′ can be computed in O(k2) time. 
+
+Remark 4.2 (Ridge Loss from Cholesky) . Let A = X⊤X +
+
+κI = LL ⊤ and b = X⊤y. Then 
+
+min  
+
+> β
+
+∥Xβ − y∥2 + κ∥β∥2 = ∥y∥2 − ∥ L−1b∥2,
+
+so the loss can be evaluated in O(k2) time using only the Cholesky factors. Proofs of these remarks are deferred to Appendix A.1. 
+
+Special Case: Constant-LeafObj Variant of CLARITree. 
+
+Setting the leaf coefficients in Equation (1) to β = 0 recov-ers the standard constant regression tree model. Therefore, constant regression trees are a strict special case of our linear-leaf framework and inherit the same split-search and implementation benefits. We report additional algorithmic details, pseudocode, theorems, multi-step further variants, and experimental results for this setting in Section F. 
+
+## 5. Theoretical Analysis 
+
+We now establish the theoretical analysis of our algorithms. We first analyze the runtime and space complexity of CLAR-ITree. Then, we show that our methods achieve lower objec-tive values than Greedy CholeskyTree and can yield arbitrar-ily large improvements in MSE in some data distributions. T
+
+denotes the number of thresholds per feature ( 1 ≤ T ≤ n). Finally, we show that rank-one Cholesky updates efficiently handle continuous feature updates. 
+
+Complexity Analysis We first analyze the runtime for CLARITree: 
+
+Theorem 5.1 (Runtime for CLARITree) . Including a one-time presort of all features, the total runtime for CLARITree is O  kn log n + d2nk 4T .
+
+At each depth d′, CLARITree enumerates O(kT ) candi-date thresholds. Each candidate is evaluated by greedily completing the remaining tree of depth d − d′, which costs 
+
+O(( d − d′)nk 3), with the rank-one Cholesky update reduc-ing the cost by an O(k) factor. Summing over all depths 
+
+d′ = 1 , . . . , d yields a total runtime of O(d2nk 4T ). We next analyze the space complexity for CLARITree: 
+
+Theorem 5.2 (Space Complexity for CLARITree) . In typ-ical regimes where n ≫ dk , CLARITree requires no addi-             
+
+> Table 1. Overview of linear regression tree methods compared in this work. Method Type Reference CholeskyTree Heuristic see Algorithm 4 GUIDE Heuristic Loh (2002) PILOT Heuristic Raymaekers et al. (2024) M5 Heuristic Quinlan (1992) STreeD-S Optimal DP Van Den Bos et al. (2024) STreeD Optimal DP Van Den Bos et al. (2024)
+
+tional asymptotic memory beyond storing the input data, and its space complexity during training is O(nk ).
+
+The detailed proofs of both the runtime and space complex-ity results are deferred to Section B.1. 
+
+Accuracy Analysis Because Greedy CholeskyTree solu-tions are explored during the construction of CLARITree, we have: 
+
+Theorem 5.3 (CLARITree Dominates Greedy) . CLAR-ITree’s returned tree always has objective ≤ that of Greedy CholeskyTree. 
+
+Moreover, the improvement can be arbitrarily large: 
+
+Theorem 5.4 (Arbitrary MSE Gap between CLARITree and Greedy) . For every depth budget d ≥ 2 and 
+
+ε ∈ (0 , 1/2) , there exist data distributions such that 
+
+MSE Greedy /MSE CLARITree ≥ 14ε .
+
+The construction of these distributions and the proof of the theorems are deferred to Section B.2. 
+
+Efficient Split Evaluation for Continuous Features We show that our split-evaluation routine can operate directly on continuous features. For comparison, we consider a bi-narization approach in which each continuous feature gives rise to T binary split predicates, corresponding to its candi-date thresholds τ .
+
+Theorem 5.5 (Continuous Features vs. Binarization) . Com-pared to binarization-based approaches that enumerate T
+
+thresholds per feature, operating directly on continuous fea-tures reduces the split-evaluation complexity by a factor of 
+
+T (and by T 3 compared to fully binarized regression). 
+
+The proof is deferred to Section A.2. 
+
+## 6. Experiments 
+
+We now compare CLARITree to state-of-the-art optimal and greedy tree methods. Following prior work (Van Den Bos et al., 2024; Loh, 2002), we distinguish between split fea-tures and leaf-regression features. Continuous features are used both for splitting and in leaf regressors, whereas binary 6Near-Optimal Scalable Piecewise Regression Trees 
+
+Table 2. Out-of-sample performance comparison of piecewise linear regression tree methods (Depth = 4, Thresholds = 20). We report Test R2 (mean ± std) for each dataset; the corresponding Test MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. Dataset statistics include the number of instances |D|,original features |F| , binary features |F b|, continuous features |F c|, and the size of the binarized feature set |F 20 |, where F20 denotes the feature set obtained by binarizing each continuous feature using 20 quantile-based thresholds. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). Scientific notation is expressed using e (e.g., 7.2e3 = 7 .2 × 10 3). MSE ratios are omitted when the CLARITree MSE is numerically zero or nearly zero, rendering the ratio unstable. 
+
+Methods 
+
+Dataset |D| |F| |F b| |F c| |F 20 | CLARITree STreeD STreeD-S GUIDE CholeskyTree PILOT M5 
+
+Small / Medium-scale datasets 
+
+Airfoil 1503 5 0 5 64 0.88 ± 0.01 (1.00) 0.89 ± 0.01 (0.92) 0.76 ± 0.02 (2.00) 0.84 ± 0.04 (1.33) 0.87 ± 0.01 (1.08) 0.51 ± 0.03 (4.08) 0.54 ± 0.04 (3.83) Auction 2043 7 2 5 31 0.94 ± 0.00 (1.00) 0.94 ± 0.01 (1.00) 0.92 ± 0.03 (1.33) 0.93 ± 0.01 (1.17) 0.92 ± 0.03 (1.33) 0.86 ± 0.03 (2.33) 0.87 ± 0.02 (2.17) Auto MPG 392 7 0 7 98 0.84 ± 0.03 (1.00) 0.85 ± 0.05 (0.94) 0.80 ± 0.05 (1.25) 0.84 ± 0.04 (1.00) 0.83 ± 0.03 (1.06) 0.80 ± 0.03 (1.25) 0.78 ± 0.04 (1.37) Energy (Cooling) 768 8 1 7 43 0.97 ± 0.01 (1.00) 0.97 ± 0.00 (1.00) 0.97 ± 0.01 (1.00) −2.1e2 ± 4.4e2 (7.2e3) 0.97 ± 0.00 (1.00) 0.89 ± 0.02 (3.67) 0.95 ± 0.01 (1.67) Energy (Heating) 768 8 1 7 43 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.92 ± 0.02 0.97 ± 0.00 Insurance 1338 9 6 3 51 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00) 0.85 ± 0.04 (1.07) 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00) 0.83 ± 0.04 (1.21) 0.84 ± 0.04 (1.14) Optical Net 630 7 1 6 93 0.92 ± 0.03 (1.00) 0.88 ± 0.04 (1.50) 0.86 ± 0.01 (1.75) 0.80 ± 0.10 (2.50) 0.91 ± 0.03 (1.13) 0.71 ± 0.17 (3.63) 0.74 ± 0.03 (3.25) Real Estate 414 6 0 6 101 0.64 ± 0.09 (1.00) 0.64 ± 0.09 (1.00) 0.55 ± 0.09 (1.25) 0.61 ± 0.06 (1.08) 0.64 ± 0.09 (1.00) 0.55 ± 0.07 (1.25) 0.53 ± 0.07 (1.31) Servo 167 2 0 2 7 0.51 ± 0.12 (1.00) 0.51 ± 0.14 (1.00) 0.48 ± 0.20 (1.06) 0.49 ± 0.20 (1.04) 0.51 ± 0.12 (1.00) 0.52 ± 0.11 (0.98) 0.52 ± 0.11 (0.98) 
+
+Synch 557 4 0 4 80 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.99 ± 0.00 Yacht 308 6 0 6 58 1.00 ± 0.00 1.00 ± 0.00 0.99 ± 0.01 1.00 ± 0.00 1.00 ± 0.00 0.87 ± 0.02 0.99 ± 0.01 
+
+Large-scale datasets 
+
+California Housing 20433 13 5 8 165 0.75 ± 0.01 (1.00) 0.70 ± 0.01 (1.20)* 0.66 ± 0.01 (1.36)* 0.73 ± 0.01 (1.08) 0.73 ± 0.01 (1.08) 0.64 ± 0.01 (1.44) 0.60 ± 0.01 (1.60) Seoul Bike 8760 9 0 9 131 0.72 ± 0.02 (1.00) 0.69 ± 0.02 (1.11)* 0.63 ± 0.03 (1.32)* 0.68 ± 0.03 (1.14) 0.71 ± 0.02 (1.04) 0.54 ± 0.01 (1.64) 0.60 ± 0.02 (1.43) Temperature (Max) 7590 21 0 21 359 0.88 ± 0.01 (1.00) 0.82 ± 0.01 (1.50)* 0.76 ± 0.01 (2.00)* 0.84 ± 0.01 (1.33) 0.84 ± 0.01 (1.33) 0.78 ± 0.02 (1.83) 0.72 ± 0.01 (2.33) Temperature (Min) 7590 21 0 21 359 0.89 ± 0.01 (1.00) 0.85 ± 0.01 (1.36)* 0.83 ± 0.01 (1.55)* 0.85 ± 0.01 (1.36) 0.88 ± 0.01 (1.09) 0.84 ± 0.01 (1.45) 0.79 ± 0.01 (1.91) Walmart 6435 5 1 4 81 0.22 ± 0.02 (1.00) 0.21 ± 0.01 (1.01)* 0.18 ± 0.01 (1.05)* 0.18 ± 0.02 (1.05) 0.19 ± 0.01 (1.04) 0.02 ± 0.01 (1.26) 0.10 ± 0.01 (1.15) 10 3 10 2 10 1 10 0 10 1 10 2
+
+Training Time (s) 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Test R²
+
+(a) Airfoil    
+
+> 4812 16
+
+Number of Leaves     
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Test R²
+> 10 110 010 110 2
+
+Training Time (s) 
+
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> Test R²
+
+(b) California Housing    
+
+> 4812 16
+
+Number of Leaves     
+
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> Test R²
+> 0.04 0.02 0.00 0.02 0.04
+
+Optimal R² CLARITree R² 
+
+> Airfoil
+> Auction
+> Auto MPG
+> Energy-C
+> Energy-H
+> Insurance
+> Optical Net
+> Real Estate
+> Servo
+> Synch
+> Yacht
+> 0.00
+> 0.00
+> +0.01
+> 0.00
+> 0.00
+> 0.00
+> -0.04
+> 0.00
+> 0.00
+> 0.00
+> 0.00
+
+(c) Accuracy Gap: Small/Medium     
+
+> 0.04 0.02 0.00 0.02 0.04
+
+Optimal R² CLARITree R² 
+
+> California
+> Seoul Bike
+> Temp Max
+> Temp Min
+> Walmart
+> +0.01
+> 0.00
+> -0.01
+> 0.00
+> 0.00
+
+(e) Accuracy Gap: Large   
+
+> 10 010 210 4
+
+Optimal / CLARITree time 
+
+> Airfoil
+> Auction
+> Auto MPG
+> Energy-C
+> Energy-H
+> Insurance
+> Optical Net
+> Real Estate
+> Servo
+> Synch
+> Yacht
+> 325×
+> 73×
+> 33×
+> 6×
+> 8×
+> 80×
+> 274×
+> 119×
+> 3×
+> 225342×
+> 48×
+
+(d) Speedup: Small/Medium   
+
+> 10 010 210 4
+
+Optimal / CLARITree time 
+
+> California
+> Seoul Bike
+> Temp Max
+> Temp Min
+> Walmart
+> >3314×
+> 2592×
+> >740×
+> >750×
+> 534×
+
+(f) Speedup: Large 
+
+Test R² Performance Linear Regression Trees (Depth = 4, Thresholds = 20) 
+
+CLARITree (Ours) STreeD (Optimal) GUIDE STreeD-S CholeskyTree PILOT M5 
+
+Figure 2. Comparison of accuracy, complexity, and efficiency across representative datasets. Panels (a)–(b) show the trade-off between test R2 and training time (top) as well as test R2 and the number of leaves (bottom) on two representative datasets. Our proposed 
+
+CLARITree (blue) consistently achieves strong accuracy–sparsity trade-offs while remaining highly efficient, often approaching or closely matching the optimal StreeD (orange) and StreeD-S (yellow) solutions at substantially lower computational cost. Panels (c)–(f) further summarize the accuracy gap relative to the optimal solver and the corresponding speedup factors across small/medium and large-scale datasets. GUIDE (pink), PILOT (sky blue), M5 (green), and Greedy CholeskyTree (gray) are included for reference. Dashed lines and hollow markers indicate runs that reached the prescribed time limit. The vertical dashed line in the top row denotes the default time limit of 10 minutes. For the large-scale experiments in Panels (e)–(f), we further increased the time limit for the optimal solver to 64 hours to evaluate whether CLARITree remains near-optimal under substantially larger computational budgets. 
+
+or one-hot encoded features are used for splitting only in our experiments. Ordinal or discretized non-one-hot variables are treated as continuous features. 
+
+6.1. Experimental Setup Datasets We evaluate our methods on a total of 16 
+
+datasets, including datasets from the UCI Machine Learning Repository (Dua & Graff, 2017), the Medical Cost Personal dataset from Choi (2018), and two publicly available regres-7Near-Optimal Scalable Piecewise Regression Trees 10 4 10 3 10 2 10 1 10 0 10 1 10 2 10 3
+
+> Training Time (s)
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Completion Rate (%)
+> Training Completion Rate Across All Datasets
+> CLARITree (number of thresholds = 20)
+> STreeD (number of thresholds = 20)
+> CLARITree (number of thresholds = 5)
+> STreeD (number of thresholds = 5)
+> Time Limit (600s) 64
+> 128
+> 256
+> 512
+> 1024
+> 2048
+> 4096
+> 8192
+> Number of samples (n)
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> Runtime speedup (×)
+> Scalability of Continuous Split Evaluation
+> Number of features
+> 1
+> 2
+> 4
+> 8
+
+Figure 3. (a) Training completion rate under a 10-minute bud-get. Empirical completion curves aggregated across all datasets. The dashed vertical line marks the 600 s time limit used in our default protocol. (b) Scalability of continuous split evaluation. 
+
+Ablation test on synthetic data showing speedup for CLARITree using rank-one updates relative to CLARITree without rank-one updates. 
+
+sion benchmarks hosted on Kaggle (Nugent, 2017; H, 2021), with a summary shown in Table 3 in Section D. 
+
+Methods We compare CLARITree with six representa-tive linear regression tree methods, summarized in Table 1. These include four greedy approaches and two optimal dy-namic programming–based methods. As is done by both GUIDE and STreeD, we use binary features only for split-ting and not as regressors in leaf models in experiments, which does not affect the complexity analysis described in Section B. STreeD-S (Van Den Bos et al., 2024) is an optimal regression-tree method that restricts each leaf to a univariate linear model, trading expressiveness for tractable optimization. 
+
+Experimental Protocol All experiments are evaluated using five independent outer 80 /20 train–test splits. To vary structural complexity, we sweep over a range of leaf-penalty regularization parameters, thereby obtaining models of different sparsity and corresponding R2 values. For each penalty and each split, hyperparameters for the leaf-level linear regressions are selected via 3-fold cross-validation on the training portion, using a grid search over the regular-ization constant. Note that GUIDE provides no leaf-level regression regularization parameters, as its node-wise linear models are unregularized. We therefore control sparsity by sweeping over the maximum number of nodes. Similarly, PILOT does not offer explicit leaf-level regularization; in-stead, its complexity is governed by varying the minimum number of samples required in internal and leaf nodes. M5 provides no explicit control over the number of candidate thresholds per feature, and therefore always uses its default split enumeration strategy. All methods are given a 10-minute training budget (the de-fault timeout for the slowest method, STreeD). We set the maximum number of thresholds to 20, noting that some features have fewer than 20 available thresholds. To further evaluate scalability and near-optimality, we additionally run STreeD with an extended 64-hour time budget on large-scale datasets, allowing the optimal solver sufficient time to approach its best attainable solutions while providing a stress-test comparison against our method; these results are reported later in Figure 2. Further, we also report results using 5 thresholds and full threshold enumeration to pro-vide an ablation study on the effect of the threshold budget and to better understand the relationship between predictive performance and the number of candidate thresholds. Fur-ther experimental details, including preprocessing steps, are presented in Section D, and full threshold results are shown in Section E. 
+
+6.2. Experimental Results 
+
+We summarize out-of-sample performance in Table 2. For each dataset, we sweep the leaf penalty to obtain mod-els at different sparsity levels and report the best test R2
+
+(mean ± std over 5 folds) across the sparsity levels for each method. We additionally report the test MSE ratio relative to CLARITree to make accuracy differences compa-rable across datasets. Across the benchmark suite, CLAR-ITree achieves the best or ties for best test R2 on nearly all datasets (with the exception of Servo, a very small and sim-ple dataset where all methods exhibit high std and unstable performance), while remaining within the 10-minute default time limit. To characterize the trade-offs among sparsity, runtime, ac-curacy, and scalability in large, high-dimensional settings, Figure 2 presents both representative dataset trajectories and aggregate benchmark comparisons. Panels (a)–(b) plot two representative datasets (one medium-scale and one large-scale). The top row shows test R2 versus training time, while the bottom row shows test R2 versus the number of leaves (i.e., sparsity). CLARITree traces a consistently fa-vorable Pareto frontier: for a given runtime budget, it attains higher test R2, and for a given sparsity level, it achieves ac-curacy comparable to STreeD while outperforming GUIDE, PILOT, and M5 in both accuracy and stability. Panels (c)–(f) further summarize the aggregate accuracy gap relative to 8Near-Optimal Scalable Piecewise Regression Trees 
+
+the optimal solver and the corresponding speedup factors across the benchmark suite for both small/medium-scale and large-scale datasets. Complete experimental results and additional ablations are presented in Section E. 6.2.1. H OW DOES CLARIT REE COMPARE TO 
+
+STATE -OF -THE -A RT PIECEWISE LINEAR 
+
+REGRESSION TREES 
+
+On large-scale datasets, Table 2 shows that CLARITree con-sistently delivers the strongest out-of-sample performance under the default 10-minute budget. On small/medium-scale datasets where optimal solvers are feasible, CLARITree re-mains highly competitive, often matching the best test R2
+
+within standard deviation. Beyond accuracy, we evaluate practical solvability within a 600-second time budget, show-ing the proportion of problems solved by our method and the SOTA solver at each moment. Figure 3 (a) reports the training completion rate aggregated across all datasets. While CLARITree reliably completes the target training runs within 600 seconds, the optimal solver STreeD fre-quently exceeds the time limit and completes only about 60% of runs, even with 20-threshold binarization, improv-ing to only around 80% even under the more favorable 5-threshold setting. This directly highlights the scalability bottleneck of exact search for large datasets. Figure 2 further illustrates that CLARITree navigates the trade-off between runtime and accuracy competitively with an optimal method. Crucially, on large-scale datasets such as California Housing and Temperature Max/Min, the opti-mal solver frequently exhausts the 10-minute limit and can only search to shallower trees (depth 2–3), whereas CLAR-ITree reliably completes the target depth-4 model. Even when extending the runtime budget to 64 hours, STreeD still fails to certify optimal solutions on datasets such as Califor-nia Housing and Temperature Max/Min. This gap directly reveals the scalability advantage of our approach: it achieves near-optimal accuracy when exact search is tractable and remains effective on large datasets where exact methods cannot instantiate the desired model class within practical budgets. Overall, CLARITree is never more than approximately 0.01 
+
+below the optimal solver in observed test R2, while achiev-ing over two orders of magnitude speedup on most datasets relative to the optimal solver. 6.2.2. SCALABILITY OF CONTINUOUS FEATURE SPLITS 
+
+Figure 3(b) compares CLARITree against an otherwise iden-tical baseline that does not use rank-one Cholesky updates. The experiment uses synthetic datasets with controllable sample size and feature dimension, as described in Sec-tion D.3. As the sample size n increases, CLARITree achieves substantial speedups that grow steadily, reaching improvements of several orders of magnitude across all tested settings of the number of features ( = 1 , 2, 4, 8). These results empirically validate the improvement predicted by Theorem 5.5 and confirm the scalability advantage of han-dling continuous features directly. 
+
+## 7. Conclusion 
+
+We presented a family of algorithms for piecewise regres-sion trees. These algorithms enable users to efficiently find trees near global optima, improving the accessibility and scalability of accurate, glass-box models. Future work could include extending our algorithms to find scalable approxi-mations of a set of near-optimal regression trees (perhaps approximating the Rashomon set of these trees, see Xin et al., 2022). One could also incorporate the accelerated depth-two solver from the MurTree family of approaches (Demirovi ´c et al., 2022; Van Den Bos et al., 2024) to decide the final splits of the tree, potentially improving quality at some additional computational cost. 
+
+## Acknowledgment 
+
+This material is based upon work supported by the National Institutes of Health/NIDA grant number R01DA054994. We acknowledge the support of the Natural Sciences and Engineering Research Council of Canada (NSERC). Nous remercions le Conseil de recherches en sciences naturelles et en g´ enie du Canada (CRSNG) de son soutien. 
+
+## Impact Statement 
+
+This paper advances the field of interpretable machine learn-ing, which is essential for (and central to) trustworthy AI. 9Near-Optimal Scalable Piecewise Regression Trees 
+
+## References 
+
+Aglin, G., Nijssen, S., and Schaus, P. Learning optimal decision trees using caching branch-and-bound search. In 
+
+Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 34, pp. 3146–3153, 2020. Babbar, V., McTavish, H., Rudin, C., and Seltzer, M. Near-optimal decision trees in a SPLIT second. In Proceedings of the 42nd International Conference on Machine Learn-ing (ICML 2025) , volume 267 of Proceedings of Machine Learning Research , pp. 2114–2175. PMLR, 2025. Balcan, M.-F. and Sharma, D. Learning accurate and inter-pretable decision trees. In Proceedings of the Fortieth Conference on Uncertainty in Artificial Intelligence (UAI 2024) , volume 244 of Proceedings of Machine Learning Research , pp. 288–307. PMLR, 2024. Benoit, C. Note sur une m ´ethode de r ´esolution des ´equations normales provenant de l’application de la m ´ethode des moindres carr ´es `a un syst `eme d’ ´equations lin ´eaires en nombre inf ´erieur `a celui des inconnues (proc ´ed ´e du com-mandant cholesky). Bulletin G ´eod ´esique , 2(1):67–77, 1924. doi: 10.1007/BF03031308. Bertsekas, D. P., Tsitsiklis, J. N., and Wu, C. Roll-out algorithms for combinatorial optimization. Jour-nal of Heuristics , 3(3):245–262, 1997. doi: 10.1023/A: 1009635226865. Bertsimas, D. and Dunn, J. Optimal classification trees. 
+
+Machine Learning , 106(7):1039–1082, 2017. doi: 10. 1007/s10994-017-5633-9. Blanc, G., Lange, J., Pabbaraju, C., Sullivan, C., Tan, L.-Y., and Tiwari, M. Harnessing the power of choices in decision tree learning. Advances in Neural Information Processing Systems , 36:80220–80232, 2023. Blockeel, H., Devos, L., Fr ´enay, B., Nanfack, G., and Ni-jssen, S. Decision trees: from efficient prediction to responsible AI. Frontiers in Artificial Intelligence , 6: 1124553, 2023. doi: 10.3389/frai.2023.1124553. Breiman, L., Friedman, J., Stone, C. J., and Olshen, R. 
+
+Classification and Regression Trees . CRC Press, 1984. Bri t, a, C. E., van der Linden, J. G., and Demirovi ´c, E. Op-timal classification trees for continuous feature data us-ing dynamic programming with branch-and-bound. In 
+
+Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 39, pp. 11131–11139, 2025. Chaouki, A., Read, J., and Bifet, A. Branches: Efficiently seeking optimal sparse decision trees via AO*. In Pro-ceedings of the 42nd International Conference on Ma-chine Learning (ICML 2025) , volume 267 of Proceedings of Machine Learning Research , pp. 7430–7484. PMLR, 2025. Choi, M. Medical cost personal datasets. 
+
+https://www.kaggle.com/datasets/ mirichoi0218/insurance , 2018. Kaggle dataset. Accessed: 2026-01-29. Costa, V. G. and Pedreira, C. E. Recent advances in decision trees: an updated survey. Artificial Intelli-gence Review , 56(5):4765–4800, 2023. doi: 10.1007/ s10462-022-10275-5. Demirovi ´c, E., Lukina, A., Hebrard, E., Chan, J., Bailey, J., Leckie, C., Ramamohanarao, K., and Stuckey, P. J. Murtree: Optimal decision trees via dynamic program-ming and search. Journal of Machine Learning Research ,23(26):1–47, 2022. Demirovi ´c, E., Hebrard, E., and Jean, L. Blossom: an any-time algorithm for computing optimal decision trees. In 
+
+Proceedings of the 40th International Conference on Ma-chine Learning (ICML 2023) , volume 202 of Proceedings of Machine Learning Research , pp. 7533–7562. PMLR, 2023. Dua, D. and Graff, C. UCI machine learning repository, 2017. URL http://archive.ics.uci.edu/ml .Gill, P. E., Golub, G. H., Murray, W., and Saunders, M. A. Methods for modifying matrix factorizations. Mathe-matics of Computation , 28(126):505–535, 1974. doi: 10.1090/S0025-5718-1974-0343558-6. Golub, G. H. and Van Loan, C. F. Matrix Computations .Johns Hopkins University Press, 4 edition, 2013. H, M. Y. Walmart dataset. https://www.kaggle. com/datasets/yasserh/walmart-dataset ,2021. Accessed: 2025. Higham, N. J. Accuracy and Stability of Numerical Al-gorithms . SIAM, 2 edition, 2002. doi: 10.1137/1. 9780898718027. Hu, X., Rudin, C., and Seltzer, M. I. Optimal sparse decision trees. In Advances in Neural Information Processing Systems , pp. 7265–7273, 2019. Kiossou, H., Schaus, P., Nijssen, S., and Aglin, G. Efficient lookahead decision trees. In Advances in Intelligent Data Analysis XXII: 22nd International Symposium on Intelli-gent Data Analysis, IDA 2024, Stockholm, Sweden, April 24–26, 2024, Proceedings, Part II , volume 14642 of Lec-ture Notes in Computer Science , pp. 133–144. Springer Cham, 2024. doi: 10.1007/978-3-031-58553-1 11. 10 Near-Optimal Scalable Piecewise Regression Trees 
+
+Kiossou, H. S., Nijssen, S., and Schaus, P. A generic complete anytime beam search for optimal decision tree. arXiv preprint arXiv:2508.06064 , 2025. doi: 10.48550/arXiv.2508.06064. Kohler, H., Akrour, R., and Preux, P. Breiman meets Bell-man: Non-greedy decision trees with mdps. In Proceed-ings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pp. 1207–1218, 2025. doi: 10.1145/3711896.3736868. Lin, J., Zhong, C., Hu, D., Rudin, C., and Seltzer, M. Gen-eralized and scalable optimal sparse decision trees. In 
+
+Proceedings of the 37th International Conference on Ma-chine Learning (ICML 2020) , volume 119 of Proceedings of Machine Learning Research , pp. 6150–6160. PMLR, 2020. Loh, W.-Y. Regression trees with unbiased variable selection and interaction detection. Statistica Sinica , 12:361–386, 2002. Loh, W.-Y. Fifty years of classification and regression trees. 
+
+International Statistical Review , 82(3):329–348, 2014. doi: 10.1111/insr.12016. Malerba, D., Esposito, F., Ceci, M., and Appice, A. Top-down induction of model trees with regression and split-ting nodes. IEEE Transactions on Pattern Analysis and Machine Intelligence , 26(5):612–625, 2004. doi: 10.1109/TPAMI.2004.1273937. Mazumder, R., Meng, X., and Wang, H. Quant-BnB: A scalable branch-and-bound method for optimal decision trees with continuous features. In Proceedings of the 39th International Conference on Machine Learning (ICML 2022) , volume 162 of Proceedings of Machine Learning Research , pp. 15255–15277. PMLR, 2022. McTavish, H., Zhong, C., Achermann, R., Karimalis, I., Chen, J., Rudin, C., and Seltzer, M. Fast sparse decision tree optimization via reference ensembles. In Proceed-ings of the AAAI Conference on Artificial Intelligence ,volume 36, pp. 9604–9613, 2022. Morgan, J. N. and Sonquist, J. A. Problems in the analysis of survey data, and a proposal. Journal of the American Statistical Association , 58(302):415–434, 1963. doi: 10. 1080/01621459.1963.10500855. Nugent, C. California housing prices. https: //www.kaggle.com/datasets/camnugent/ california-housing-prices , 2017. Accessed: 2025. Potts, D. Incremental learning of linear model trees. In Ma-chine Learning, Proceedings of the Twenty-first Interna-tional Conference (ICML 2004), Banff, Alberta, Canada, July 4–8, 2004 , volume 69 of ACM International Confer-ence Proceeding Series , pp. 663–670. ACM, 2004. doi: 10.1145/1015330.1015372. Press, W. H., Teukolsky, S. A., Vetterling, W. T., and Flan-nery, B. P. Numerical Recipes in C: The Art of Scientific Computing . Cambridge University Press, 1992. Quinlan, J. R. Learning with continuous classes. In Aus-tralian Joint Conference on Artificial Intelligence , vol-ume 92, pp. 343–348. World Scientific, 1992. Quinlan, J. R. C4. 5: Programs for Machine Learning .Morgan Kaufmann, 1993. Raymaekers, J., Rousseeuw, P. J., Verdonck, T., and Yao, R. Fast linear model trees by PILOT. Machine Learning , 113(9):6561–6610, 2024. doi: 10.1007/ s10994-024-06590-3. Rudin, C. Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. Nature Machine Intelligence , 1(5):206– 215, 2019. doi: 10.1038/s42256-019-0048-x. Rudin, C., Chen, C., Chen, Z., Huang, H., Semenova, L., and Zhong, C. Interpretable machine learning: Funda-mental principles and 10 grand challenges. Statistics Surveys , 16:1–85, 2022. doi: 10.1214/21-SS133. Seeger, M. Low rank updates for the Cholesky decomposition. Technical report, University of California, Berkeley, 2008. URL https: //infoscience.epfl.ch/bitstreams/ 69a70b7d-3d8a-4f2f-a63d-a8042c93bd1f/ download .Sherman, J. and Morrison, W. J. Adjustment of an inverse matrix corresponding to a change in one element of a given matrix. Annals of Mathematical Statistics , 21(1): 124–127, 1950. doi: 10.1214/aoms/1177729893. Sullivan, C., Tiwari, M., and Thrun, S. Maptree: Beating “optimal” decision trees with bayesian decision trees. In 
+
+Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 38, pp. 9019–9026, 2024. Turing, A. M. Rounding-off errors in matrix processes. The Quarterly Journal of Mechanics and Applied Mathemat-ics , 1(1):287–308, 1948. doi: 10.1093/qjmam/1.1.287. Van Den Bos, M., Van Der Linden, J. G. M., and Demirovi ´c, E. Piecewise constant and linear regression trees: An op-timal dynamic programming approach. In Proceedings of the 41st International Conference on Machine Learning (ICML 2024) , volume 235 of Proceedings of Machine Learning Research , pp. 48994–49007. PMLR, 2024. 11 Near-Optimal Scalable Piecewise Regression Trees 
+
+van der Linden, J. G. M., Vos, D., de Weerdt, M. M., Verwer, S., and Demirovi ´c, E. Optimal or greedy decision trees? revisiting their objectives, tuning, and performance. arXiv preprint arXiv:2409.12788 , 2024. doi: 10.48550/arXiv. 2409.12788. Verwer, S. and Zhang, Y. Learning optimal classification trees using a binary linear program formulation. In Pro-ceedings of the AAAI Conference on Artificial Intelli-gence , volume 33, pp. 1625–1632, 2019. Voßs, S., Fink, A., and Duin, C. Looking ahead with the pilot method. Annals of Operations Research , 136(1): 285–302, 2005. doi: 10.1007/s10479-005-2060-2. Wang, Y. and Witten, I. H. Inducing model trees for contin-uous classes. In Proceedings of the European Conference on Machine Learning , pp. 128–137, 1997. Xin, R., Zhong, C., Chen, Z., Takagi, T., Seltzer, M., and Rudin, C. Exploring the whole Rashomon set of sparse decision trees. Advances in Neural Information Process-ing Systems , 35:14071–14084, 2022. Zhang, R., Xin, R., Seltzer, M., and Rudin, C. Optimal sparse regression trees. In Proceedings of the AAAI Con-ference on Artificial Intelligence , volume 37, pp. 11270– 11279, 2023. 12 Near-Optimal Scalable Piecewise Regression Trees 
+
+Roadmap. In Section A, we introduce Cholesky rank-one updates and downdates, explain why we focus directly on continuous features for regression problems, and describe the implementation of the intercept. In Section B, we analyze the algorithmic complexity and accuracy. In Section C, we present pseudocode for the key subroutines. In Section D, we summarize the experimental setup, including data preparation, platforms, and hardware. In Section E, we report extensive experimental results in detail. Finally, in Section F, we introduce a representative variant of CLARITree and show that, even with constant leaves, the method maintains strong performance and scalability. 
+
+## A. Preliminaries on Incremental Regression Updates 
+
+Before presenting the full complexity analysis, we introduce two technical ingredients that underlie our algorithms: efficient Cholesky rank-one updates/downdates and direct handling of continuous features without one-hot expansion. 
+
+A.1. Rank-One Cholesky Updates and Downdates 
+
+Given a ridge regression system 
+
+A = X⊤X + κI,
+
+with Cholesky factorization A = LL ⊤, adding or removing one row x corresponds to the rank-one modification 
+
+A′ = A ± xx ⊤.
+
+Instead of recomputing the factorization, we update L via a rank-one Cholesky update/downdate in O(k2) time (Theo-rem A.1). This reduces the cost of evaluating splits from O(k3) per node to O(k2) per moved sample. 
+
+Remark A.1 (Update Recursive Cholesky Ridge, see Gill et al. 1974; Seeger 2008, recalling Theorem 4.1) . Let {(xi, y i)}ti=1 
+
+be a data stream with xi ∈ Rk and ridge parameter κ > 0. Define 
+
+At := κI +
+
+> t
+
+X
+
+> i=1
+
+xix⊤ 
+
+> i
+
+, bt := 
+
+> t
+
+X
+
+> i=1
+
+xiyi, βt := A−1 
+
+> t
+
+bt.
+
+Suppose At−1 = Lt−1L⊤ 
+
+> t−1
+
+is available. Then 
+
+Lt ← cholupdate (Lt−1, xt, +1) , bt = bt−1 + xtyt,
+
+and βt is obtained by two triangular solves with Lt. Each update costs O(k2) time. 
+
+Proof Sketch. We have At = At−1 + xtx⊤ 
+
+> t
+
+= Lt−1(I + uu ⊤)L⊤
+
+> t−1
+
+, where u = L−1
+
+> t−1
+
+xt. Thus Lt = Lt−1R with 
+
+RR ⊤ = I + uu ⊤. The factor R is computed stably by cholupdate , which applies a sequence of Givens-type rotations to maintain triangular structure; this routine is implemented in numerical libraries such as MATLAB’s cholupdate and Eigen’s LLT::rankUpdate . The moment vector bt is updated additively, and βt follows by solving LtL⊤ 
+
+> t
+
+βt = bt via forward and backward substitution. The overall complexity is O(k2) per update (Gill et al., 1974). Having established that the Cholesky factor L can be updated incrementally, we next show that the ridge regression loss itself can be evaluated directly from L without explicitly computing the coefficients. Thus, the evaluation also takes only k2
+
+time. 
+
+Remark A.2 (Cholesky-based Ridge Regression Loss Evaluation, recalling Theorem 4.2) . Following the notation in Theorem A.1, let A = X⊤X + κI = LL ⊤ be the regularized Gram matrix with Cholesky factor L, and let b = X⊤y. Then the minimum value of the ridge regression objective 
+
+L(X, y) = min 
+
+> β∈Rk
+
+∥Xβ − y∥2 + κ∥β∥2
+
+is given by 
+
+L(X, y) = ∥y∥2 − ∥ L−1b∥2.
+
+Proof. The ridge regression solution is 
+
+β∗ = ( X⊤X + κI)−1X⊤y = A−1b.
+
+13 Near-Optimal Scalable Piecewise Regression Trees 
+
+The corresponding loss value is 
+
+L(X, y) = ∥y∥2 − 2b⊤β∗ + ( β∗)⊤Aβ∗ = ∥y∥2 − b⊤A−1b.
+
+Given the Cholesky decomposition A = LL ⊤, we have A−1 = L−⊤ L−1, so 
+
+b⊤A−1b = b⊤L−⊤ L−1b = ∥L−1b∥2,
+
+which gives the desired result. 
+
+A.2. Why Handle Continuous Features Directly Instead of via Binarization 
+
+A naive binarization based on binary indicator predicates (e.g., features of the form f < τ ) over all candidate thresholds would inflate the feature dimension from k to kT , where T denotes the number of candidate split thresholds per feature. We now formalize the complexity gap between continuous regression with Cholesky rank-one updates and downdates, binarized predicates with regression on the original feature space, and fully binarized regression. 
+
+Theorem A.3 (Complexity of Continuous Features vs. Binarization) . Let n be the number of samples, k the number of original features, and T the number of candidate thresholds per continuous feature. Then: 1. Continuous regression with rank-one Cholesky updates and downdates costs O(nk 3).2. Binarized predicates with regression on the original k features cost O(nk 3T ).3. Fully binarized regression on kT features costs O(nk 3T 3).Proof. For case 1, scanning all thresholds on one continuous feature using Cholesky rank-one updates and downdates requires O(nk 2) time, and across k features the total cost is O(nk 3).For case 2, if each threshold is treated as a separate binarized predicate, we obtain kT predicates. Each predicate requires 
+
+O(nk 2) work, while leaf regressions still depend on the original k features, yielding a total cost of O(nk 3T ).For case 3, if the design matrix itself is expanded to kT binarized features and regression is performed directly in this enlarged space, each update costs O(( kT )2). With kT such features, the total cost scales as O(n(kT )3) = O(nk 3T 3).Thus, binarization introduces multiplicative factors in T , whereas direct handling of continuous features via rank-one updates remains O(nk 3). True binary features ( T = 1 ) incur no additional overhead. 
+
+Remark A.4 . Preprocessing costs differ between continuous features and binarization. For continuous features , each of the k features requires a one-time presort of its n sample values to determine the admissible thresholds. In the worst case where T ≈ n distinct values are present, this costs O(kn log n). If each feature has only T
+
+distinct values, the same result can be achieved in O(kn + kT log T ) time by first aggregating identical values. After this presort step, all subsequent threshold evaluations are performed by linear sweeps with rank-one updates, and no further sorting is required. For binarization , no sorting is required. Instead, constructing the kT binarized indicator features costs O(nkT ).In both cases, these preprocessing costs are asymptotically dominated by the regression complexities in Theorem A.3, and are therefore omitted from the main runtime bounds. 
+
+A.3. Incremental versus Bulk Ridge Solvers 
+
+We now compare two Cholesky-based strategies for solving ridge regression. When the number of thresholds is small (for example, when a feature is binary or degenerates to a binary case), it may be more efficient to form the Gram matrix once and perform a direct Cholesky factorization, rather than updating the factorization incrementally via rank-one updates. We formalize this comparison below. 
+
+Theorem A.5 (Incremental vs. Bulk Ridge Solver) . Let X ∈ Rn×k, y ∈ Rn, and κ > 0. Define the ridge Gram matrix 
+
+G = κIk + X⊤X and let bβ = arg min β ∥Xβ − y∥22 + κ∥β∥22. Consider two computational strategies: 
+
+14 Near-Optimal Scalable Piecewise Regression Trees 
+
+(i) Incremental (rank -1 update). Starting from L0 = √κIk, apply a sequence of rank-one Cholesky rank-one up-dates/downdates LiL⊤ 
+
+> i
+
+= Li−1L⊤ 
+
+> i−1
+
++ xix⊤ 
+
+> i
+
+, followed by a single triangular solve to obtain bβ.
+
+(ii) Bulk (GEMM+Cholesky). First compute G using a Level - 3 BLAS operation (e.g., syrk /gemm ), then perform a blocked Cholesky factorization G = LL ⊤, and finally solve LL ⊤ bβ = X⊤y.Their respective arithmetic complexities are: 
+
+FLOPs inc = 32 nk 2 + O(nk ), (Gill et al., 1974) ,
+
+FLOPs bulk = 2 nk 2 + 13 k3 + O(nk 2), (Golub & Van Loan, 2013, §4.1.2) .
+
+Hence, 
+
+FLOPs inc < FLOPs bulk (*) 
+
+Proof. Subtracting the leading-order terms gives 2nk 2 + 13 k3 − 32 nk 2 = 12 nk 2 + 13 k3. This expression is non-negative. 
+
+Remark A.6 (Arithmetic Intensity and Runtime Implications) . Rank-one updates operate as Level - 2 BLAS kernels with arithmetic intensity AI ≈ 1, making them memory-bound. In contrast, the bulk route uses Level -3 BLAS with intensity 
+
+AI ≈ k ≫ 1, making them compute-bound. Under the Roofline model, the effective runtime satisfies 
+
+Tinc ≈ 
+
+> 32
+
+nk 2
+
+B , Tbulk ≈ 2nk 2 + 13 k3
+
+P ,
+
+where B is memory bandwidth (bytes/sec) and P is peak fused multiply–add throughput (FLOPs/sec). Because P/B ≫ 1
+
+on modern CPUs/GPUs, the bulk approach can outperform the incremental one in wall-clock time, even when it performs more total FLOPs. This effect is especially prominent when k is large and X fits in cache-optimized blocks. 
+
+A.4. Handling Intercepts in Cholesky Rank-One Updates Theorem A.7 (Ridge with an unpenalized intercept: Cholesky loss and updates) . Let X ∈ Rn×k, y ∈ Rn, 1 ∈ Rn be the all-ones vector, and κ > 0. Consider the ridge objective with an unpenalized intercept 
+
+min 
+
+> β0∈R,β∈Rk
+
+∥y − β01 − Xβ∥22 + κ∥β∥22. (A1) 
+
+Define the augmented design and (block-diagonal) regularizer 
+
+Z := [ 1, X] ∈ Rn×(k+1) , Λ := diag(0 , κ, . . . , κ ) ∈ R(k+1) ×(k+1) .
+
+Let 
+
+H := Z⊤Z + Λ , t := Z⊤y.
+
+Then: 1. H is positive definite for n ≥ 1, hence admits a Cholesky factorization H = LL ⊤.2. The minimizer equals θ∗ = [ β∗ 
+
+> 0
+
+; β∗] = H−1t, and the minimum value is 
+
+y⊤y − ∥ L−1t∥22. (A2) 
+
+3. (Incremental updates.) For adding/removing a sample (x, y ) ∈ Rk × R, let ex := 
+
+1
+
+x
+
+
+
+. Then 
+
+H ← H ± exex⊤, t ← t ± y ex,
+
+so the new optimum can be evaluated by a rank-one Cholesky update/downdate of L in O(( k + 1) 2) time, followed by (A2). 
+
+15 Near-Optimal Scalable Piecewise Regression Trees 
+
+Proof. Writing θ = [ β0; β] ∈ Rk+1 , the objective (A1) is 
+
+∥y − Zθ∥22 + θ⊤Λθ = y⊤y − 2θ⊤Z⊤y + θ⊤(Z⊤Z + Λ) θ = y⊤y − 2θ⊤t + θ⊤Hθ.
+
+We first prove that H is positive definite. For any nonzero vector α,
+
+α⊤Hα = α⊤Z⊤Zα + α⊤Λα.
+
+The second term equals zero only when α = ( a, 0, . . . , 0) . In this case, the first term becomes a2n, which is still positive. Thus H is positive definite and a Cholesky factor exists. Since H is symmetric, the unique stationary point satisfies Hθ = t, hence θ∗ = H−1t. Completing the square (or substituting θ∗) yields that the minimum value is 
+
+y⊤y − t⊤H−1t.
+
+With H = LL ⊤, H−1 = L−⊤ L−1 and thus t⊤H−1t = ∥L−1t∥22, proving (A2). For the incremental statement, note that appending/removing one row (ex⊤, y ) changes Z⊤Z by ±exex⊤ and Z⊤y by ±y ex,leaving Λ unchanged. Rank-one Cholesky update/downdate on H gives the new L in O(( k + 1) 2), after which the minimum is evaluated by (A2). 
+
+Remark A.8 (Engineering note) . In code, handling an unpenalized intercept reduces to two surgical changes: (i) augment features with a column of ones, i.e. use Z = [ 1, X] everywhere (updates, solves, prediction); (ii) replace κI by Λ = diag(0 , κ, . . . , κ ). When initializing a child’s factorization on an empty set, Λ alone is not strictly positive definite due to the leading zero; for numerical robustness use a tiny floor, e.g. Λε = diag( ε, κ, . . . , κ ) with ε = 10 −12 . With this, every rank-one update uses ex =
+
+1
+
+x
+
+
+
+and every loss is computed by ∥y∥22 − ∥ L−1t∥22 with t = Z⊤y.
+
+A.5. Numerical Stability of Rank-One Updates and Downdates 
+
+To further address the numerical stability of rank-one Cholesky update/downdate, we analyze why these operations remain stable. In practice, we include a nonzero regularization term κ for numerical stability. Empirically, Cholesky downdates never resulted in non-positive definite matrices in our experiments; even κ = 10 −12 yields no instability. In addition, we normalize the design matrix, which ensures that the condition number of 
+
+A = X⊤X + κI
+
+remains bounded. To be more specific, we present a theoretical analysis of the error accumulation in Cholesky rank-one updates and quantify the resulting error bound for the linear system. Throughout, we use the spectral norm ∥ · ∥ 2 for matrices and the Euclidean norm for vectors. 
+
+Theorem A.9 (Error of Cholesky Rank-One Update) . Let 
+
+At = At−1 + xtx⊤ 
+
+> t
+
+, A0 = κI, At ≻ 0,
+
+and let At = LtL⊤ 
+
+> t
+
+denote its Cholesky factorization. We denote by eLt the numerically computed Cholesky factor obtained via rank-one updates: 
+
+eLt = cholupdate( eLt−1, xt),
+
+where cholupdate( ·, xt) performs a rank-one Cholesky update corresponding to adding xtx⊤ 
+
+> t
+
+. Then 
+
+eLt eL⊤ 
+
+> t
+
+= At + Et,
+
+16 Near-Optimal Scalable Piecewise Regression Trees 
+
+with 
+
+∥Et∥ ≤ (1 + cu )∥Et−1∥ + cu (∥At−1∥ + ∥xt∥2).
+
+Furthermore, 
+
+∥Et∥ = O
+
+
+
+tu max  
+
+> r≤t
+
+∥Ar ∥
+
+
+
+,
+
+where u is the machine varepsilon. Proof. Cholesky rank-one update can be viewed as a sequence of Givens rotations, as shown in Seeger (2008): 
+
+Lt = Qk · · · Q1X, X = [ Lt−1, xt].
+
+Givens rotations to be backward stable. Each computed transformation satisfies 
+
+fl( QiA) = ( Qi + ∆ Qi)A, ∥∆Qi∥ ≤ cu. 
+
+Assume that 
+
+At−1 = eLt−1 eL⊤ 
+
+> t−1
+
+− Et−1.
+
+Then the computed update is 
+
+eLt = ( Qk + ∆ Qk) · · · (Q1 + ∆ Q1)[ eLt−1, xt].
+
+Expanding and neglecting O(u2) terms, 
+
+eLt = Qk · · · Q1[eLt−1, xt] + ∆ Lt,
+
+with 
+
+∥∆Lt∥ ≤ cu ∥[eLt−1, xt]∥ ≤ cu (∥eLt−1∥ + ∥xt∥).
+
+Define 
+
+eLt = bLt + ∆ Lt,
+
+where 
+
+bLt = Qp · · · Q1[eLt−1, xt].
+
+Then 
+
+bLt bL⊤ 
+
+> t
+
+= eLt−1 eL⊤ 
+
+> t−1
+
++ xtx⊤ 
+
+> t
+
+= At−1 + Et−1 + xtx⊤ 
+
+> t
+
+= At + Et−1.
+
+Thus, 
+
+eLt eL⊤ 
+
+> t
+
+= ( bLt + ∆ Lt)( bLt + ∆ Lt)⊤ = At + Et,
+
+where 
+
+Et = bLt∆L⊤ 
+
+> t
+
++ ∆ Lt bL⊤ 
+
+> t
+
++ ∆ Lt∆L⊤ 
+
+> t
+
++ Et−1.
+
+Taking norms, 
+
+∥Et∥ ≤ 2∥bLt∥∥ ∆Lt∥ + ∥∆Lt∥2 + ∥Et−1∥.
+
+Substituting the bound on ∥∆Lt∥ and neglecting O(u2) term, 
+
+∥Et∥ ≤ cu ∥bLt∥(∥eLt−1∥ + ∥xt∥) + ∥Et−1∥.
+
+Now, 
+
+∥bLt∥2 = ∥At + Et−1∥, ∥eLt−1∥2 ≤ ∥ At−1∥ + ∥Et−1∥.
+
+17 Near-Optimal Scalable Piecewise Regression Trees 
+
+Using At = At−1 + xtx⊤ 
+
+> t
+
+, together with 
+
+√a + b ≤ √a + √b, ab ≤ a2 + b2
+
+2 ,
+
+we obtain 
+
+∥Et∥ ≤ cu ∥At + Et−1∥1/2 
+
+∥At−1∥1/2 + ∥Et−1∥1/2 + ∥xt∥
+
+
+
++ ∥Et−1∥.
+
+Applying the inequalities again, 
+
+∥Et∥ ≤ cu  ∥At + Et−1∥ + ∥At−1∥ + ∥Et−1∥ + ∥xt∥2 + ∥Et−1∥.
+
+Then 
+
+∥Et∥ ≤ cu  ∥At∥ + ∥Et−1∥ + ∥At−1∥ + ∥Et−1∥ + ∥xt∥2 + ∥Et−1∥.
+
+Thus, 
+
+∥Et∥ ≤ cu  ∥At−1∥ + ∥Et−1∥ + ∥xt∥2 + ∥Et−1∥.
+
+Therefore, 
+
+∥Et∥ ≤ (1 + cu )∥Et−1∥ + cu (∥At−1∥ + ∥xt∥2).
+
+Unrolling the recursion, 
+
+∥Et∥ ≤ (1 + cu )t∥E0∥ + cu 
+
+> t
+
+X
+
+> r=1
+
+(1 + cu )t−r(∥Ar−1∥ + ∥xr ∥2).
+
+Since A0 = κI is diagonal, its Cholesky factorization introduces only E0 = O(u) error. Thus, as u is extremely small, we conclude 
+
+∥Et∥ = O
+
+
+
+tu max  
+
+> r≤t
+
+∥Ar ∥
+
+
+
+.
+
+Theorem A.10 (Error Bound for the Linear Coefficients) . Let 
+
+At = X⊤ 
+
+> t
+
+Xt + κI, bt = X⊤ 
+
+> t
+
+yt,
+
+and define the exact and computed coefficients by 
+
+βt = A−1 
+
+> t
+
+bt, bβt = ( At + Et)−1bt,
+
+where the perturbation matrix Et satisfies 
+
+∥Et∥2 = O
+
+
+
+tu max  
+
+> r≤t
+
+∥Ar ∥2
+
+
+
+.
+
+Assume 
+
+∥A−1 
+
+> t
+
+∥2∥Et∥2 < 1.
+
+Then 
+
+∥ bβt − βt∥2
+
+∥βt∥2
+
+= O(tu κ 2(At)) ,
+
+where κ2(·) is the conditional number. Moreover, if the columns of Xt are normalized so that 
+
+κ2(At) = O(k/κ ),
+
+18 Near-Optimal Scalable Piecewise Regression Trees 
+
+then 
+
+∥ bβt − βt∥2
+
+∥βt∥2
+
+= O
+
+ tuk κ
+
+
+
+.
+
+Finally, since the Cholesky factorization is recomputed independently at each node, coefficient errors do not accumulate along the tree. Hence the worst-case coefficient error is bounded by 
+
+O
+
+ unk κ
+
+
+
+.
+
+Proof. Let 
+
+A = At, ∆A = Et, b = bt, ∆b = 0.
+
+Then the exact and computed coefficients satisfy 
+
+Aβt = bt, (A + Et) bβt = bt.
+
+We apply Theorem 7.2 with ε such that 
+
+∥∆A∥2 ≤ ε∥A∥2, ∥∆b∥2 ≤ ε∥0∥2.
+
+Since ∆b = 0, the second inequality is trivial, and we may take 
+
+ε = ∥Et∥2
+
+∥At∥2
+
+.
+
+Therefore, adding we know that εκ 2(At) = ∥A−1 
+
+> t
+
+∥2∥Et∥2 < 1, by Theorem 7.2 in Higham (2002), 
+
+∥ bβt − βt∥2
+
+∥βt∥2
+
+≤ ε
+
+1 − ε∥A−1 
+
+> t
+
+∥2∥At∥2
+
+ ∥A−1 
+
+> t
+
+∥2∥0∥2
+
+∥βt∥2
+
++ ∥A−1 
+
+> t
+
+∥2∥At∥2
+
+
+
+.
+
+Now note that 
+
+∥A−1 
+
+> t
+
+∥2∥At∥2 = κ2(At).
+
+Hence, 
+
+∥ bβt − βt∥2
+
+∥βt∥2
+
+= O (εκ 2(At)) .
+
+Using the previous theorem, 
+
+∥Et∥2 = O
+
+
+
+tu max  
+
+> r≤t
+
+∥Ar ∥2
+
+
+
+.
+
+Since Ar and At are of the same order along the update path, we obtain 
+
+ε = ∥Et∥2
+
+∥At∥2
+
+= O(tu ).
+
+Substituting this into the bound above yields 
+
+∥ bβt − βt∥2
+
+∥βt∥2
+
+= O (tu κ 2(At)) .
+
+If the columns of Xt are normalized, then 
+
+∥X⊤ 
+
+> t
+
+Xt∥2 = O(k),
+
+and since 
+
+At = X⊤ 
+
+> t
+
+Xt + κI,
+
+19 Near-Optimal Scalable Piecewise Regression Trees 
+
+its smallest eigenvalue is at least κ. Therefore, 
+
+κ2(At) = λmax (At)
+
+λmin (At) = O(k/κ ).
+
+Consequently, 
+
+∥ bβt − βt∥2
+
+∥βt∥2
+
+= O
+
+ tuk κ
+
+
+
+.
+
+Finally, the Cholesky factorization is recomputed from scratch at each tree node rather than passed recursively down the tree. Hence numerical errors in the coefficients do not accumulate across nodes. Since the number of iterations is bounded by the sample size n, the worst-case bound is 
+
+O
+
+ unk κ
+
+
+
+.
+
+Remark A.11 . The condition ∥A−1 
+
+> t
+
+∥2∥Et∥2 < 1 is reasonable. In our setting, we have 
+
+∥A−1 
+
+> t
+
+∥2∥Et∥2 = O (tuκ 2(At)) = O
+
+ tuk κ
+
+
+
+≪ 1,
+
+since u is the machine precision. 20 Near-Optimal Scalable Piecewise Regression Trees 
+
+## B. Detailed Theoretical Analysis 
+
+This section provides detailed proofs and supporting arguments for the theoretical results in the main paper. We first analyze the computational complexity of CLARITree. We then establish its performance improvement over Greedy CholeskyTree and show that, under suitable data distributions, this improvement can be arbitrarily large, yielding an arbitrary MSE gap. 
+
+B.1. Complexity Analysis 
+
+We first present both runtime and space complexity and emphasize scalability. As noted in Section 6, binary features are used only for splitting and do not enter the regression model. Consequently, the effective dimensionality in all regression and complexity analyses is given by the number of continuous features. For notational simplicity, we denote this number by 
+
+k throughout and treat all features as continuous; the regression case with binary splitting is recovered by setting T = 1 .
+
+Lemma B.1 (Complexity for Greedy CholeskyTree) . Let n be the number of training examples, k the number of continuous features, T the number of thresholds per feature, and d the total tree depth. Including a one-time global presort of cost 
+
+O(kn log n), the total runtime of Greedy CholeskyTree is 
+
+O  kn log n + dnk 3 .
+
+Proof. For the first level, the computational cost comes from scanning all thresholds and fitting the corresponding linear regressions to evaluate the MSE. For each feature, computing all the linear regressions across its thresholds requires O(nk 2)
+
+operations, and evaluating the resulting MSEs is also bounded by O(nk 2). Therefore, across all k features, the total complexity at the first level is O(nk 3).At a given level, the worst-case scenario occurs when all nodes are active, that is, every node is waiting to be split, and no branch has stopped early. In this case, the total number of training instances across all subproblems at that level remains 
+
+n. For each subproblem containing nsub samples, the computational cost of evaluating all possible splits is O(nsub k3).Summing over all active nodes gives a total cost of O(nk 3) for that level. Repeating this process over d levels yields an overall worst-case complexity of O(dnk 3).including the one-time global presort of cost O(kn log n), we obtain the final runtime bound 
+
+O  kn log n + dnk 3 .
+
+Theorem B.2 (Runtime for CLARITree, recalling Theorem 5.1) . Let n be the number of training examples, k the number of continuous features, T the number of thresholds per feature, and d the total tree depth. Including a one-time global presort of cost O(kn log n), the total runtime for CLARITree is 
+
+O  kn log n + d2nk 4T  .
+
+Proof. At each depth, the cost naturally decomposes into two parts: (i) the cost of enumerating and scoring all candidate splits, and (ii) the cost of greedily completing the remaining (d − t) levels for each candidate. At the root ( d′ = 1 ), there are kT split candidates (fj , τ ), representing feature–threshold pairs. However, we evaluate all thresholds of a given feature in a single linear sweep using rank-one Cholesky updates and downdates, so one sweep per feature suffices to score all its thresholds. Moving one instance triggers both a left and a right update, resulting in a per-feature cost of 2nk 2. Consequently, across k features, the total root enumeration cost is O(2 nk 3).Conditioned on any fixed root candidate (fj , τ ), the remaining (d − 1) levels are built greedily. Based on Theorem B.1, the complexity of building Greedy CholeskyTree is bounded by O (d − 1) nk 3. Since there are kT possible root candidates, the contribution of the Greedy CholeskyTree is O (d − 1) nk 3(kT ). Combining both parts yields: 
+
+O(2 nk 3) + O (d − 1) nk 3(kT ).
+
+At the second layer ( d′ = 2 ), the two children contain αn and (1 − α)n samples, which again sum to n. Hence, the cost of enumerating all features is still O(2 nk 3). For each candidate we must greedily complete (d − 2) layers, leading to 
+
+O(2 nk 3) + O (d − 2) nk 3(kT ).
+
+21 Near-Optimal Scalable Piecewise Regression Trees 
+
+Since this argument is linear in n, the same reasoning applies at every depth. Recursively, at depth d′ the cost is 
+
+O(2 nk 3) + O (d − d′)nk 3(kT ).
+
+Summing over all depths d′ = 1 , . . . , d , the total runtime is 
+
+> d
+
+X
+
+> d′=1
+
+O(2 nk 3) + O (d − d′)nk 3(kT ) = O
+
+
+
+2dnk 3 + d(d−1) 2 nk 4T
+
+
+
+.
+
+Since the quadratic term dominates, and including the one-time global presort of cost O(kn log n), we obtain the final runtime bound 
+
+O  kn log n + d2nk 4T  .
+
+Theorem B.3 (Space Complexity for CLARITree, recalling Theorem 5.2) . Let n be the number of training examples, k the number of continuous features, and d the maximum tree depth. In typical regimes where n ≫ dk , CLARITree requires no additional asymptotic memory beyond storing the input data, and its space complexity during training is O(nk ).Proof. The design matrix X is stored using O(nk ) memory, while the response vector y requires O(n). Each Cholesky factor requires O(k2) space. Since the algorithm proceeds via depth-first search, at any given time there are at most d
+
+Cholesky factors simultaneously active on the recursion stack, resulting in a total of O(dk 2) working memory. In typical regimes, this quantity is easily dominated by O(nk ).Each node stores a regression coefficient vector of size O(k). The total number of leaves is at most 2d, which is further bounded by n, since each leaf must contain at least one instance. Therefore, the total memory required to store all regression coefficients and intercepts is bounded by O(nk ).Therefore, the space complexity at any time is O(nk ), and no additional asymptotic memory beyond the input storage is required. 
+
+B.2. Accuracy Analysis 
+
+In this section, we first establish that CLARITree outperforms Greedy CholeskyTree. We further show that there exists a data distribution under which the MSE gap between CLARITree and Greedy CholeskyTree can be made arbitrarily large, in the sense that MSE Greedy 
+
+MSE CLARITree 
+
+≥ 14ε ,
+
+for any ε ∈ (0 , 1/2) .B.2.1. CLARIT REE DOMINATES GREEDY TREES 
+
+Before presenting the construction, we first prove a simple observation: CLARITree consistently outperforms Greedy CholeskyTree. 
+
+Theorem B.4 (CLARITree Dominates Greedy, recalling Theorem 5.3) . For any dataset, CLARITree’s returned tree always has objective ≤ that of Greedy CholeskyTree. Proof. Fix a depth budget d. For any node with data subset D and remaining depth t ≤ d, let Ct(D) denote the minimum objective value attainable by CLARITree on (D, t ), and let Gt(D) denote the objective value attained by Greedy CholeskyTree on (D, t ). We prove by induction on t that 
+
+Ct(D) ≤ Gt(D) for all D. 
+
+Base case ( t = 0 ). Both methods return the same leaf model (since no further splits are allowed), hence C0(D) = G0(D).22 Near-Optimal Scalable Piecewise Regression Trees 
+
+Inductive step. Assume that Ct−1(·) ≤ Gt−1(·) holds for depth t − 1. Consider running Greedy CholeskyTree on (D, t )
+
+and let it choose a split (f ⋆, τ ⋆) at the root, yielding left and right subsets D⋆L and D⋆R. By the definition of CholeskyTree, 
+
+Gt(D) = Gt−1(D⋆L) + Gt−1(D⋆R).
+
+CLARITree evaluates all candidate splits, which include (f ⋆, τ ⋆). Suppose CLARITree selects the split (f ⋆⋆ , τ ⋆⋆ ), inducing subsets D⋆⋆ L and D⋆⋆ R . Then we have 
+
+Ct(D) = Ct−1(D⋆⋆ L ) + Ct−1(D⋆⋆ R )
+
+≤ Gt−1(D⋆⋆ L ) + Gt−1(D⋆⋆ R )
+
+≤ Gt−1(D⋆L) + Gt−1(D⋆R)= Gt(D).
+
+The first equality follows from the definition of CLARITree. The second inequality follows from the induction hypothesis. The third inequality holds because CLARITree selects the split (f ⋆⋆ , τ ⋆⋆ ) that minimizes the objective under full Greedy completion, whereas (f ⋆, τ ⋆) is chosen to be optimal only for the one-step Greedy split. Consequently, the Greedy-completed tree induced by (f ⋆⋆ , τ ⋆⋆ ) cannot be worse than that induced by (f ⋆, τ ⋆).Finally,we have Cd(Droot ) ≤ Gd(Droot ) for the full dataset. B.2.2. A N ARBITRARY MSE G AP FOR CLARIT REE 
+
+In this section, we show that for CLARITree, there exist data distributions on which its performance can be made arbitrarily better than that of a Greedy CholeskyTree. We focus on continuous features and targets evaluated under the MSE. 
+
+Data Generating Process (DGP) Fix a depth budget d ≥ 2 and choose an integer U > d . Let the feature vector be 
+
+X = ( g, h, M, z ) ∈ {− 1, 1}1+1+2 U × R,
+
+where all binary coordinates are independent Rademacher variables, Xi ∼ Rad( 12 ). Specifically, 
+
+g := X1, h := X2, M := ( X3, . . . , X 2U +2 ),
+
+and the continuous feature z ∼ N (0 , 1) is independent of (g, h, M ).We further decompose the nuisance block M into U independent pairs: 
+
+M = (mj1, m j2) Uj=1 , (mj1, m j2) := ( X2j+1 , X 2j+2 ).
+
+Let B ∼ Ber( ε), where ε > 0, and J ∼ Unif {1, . . . , U }, independent of all features. Define the response Y by the mixture 
+
+Y =
+
+(
+
+ghz, if B = 0 ,mJ1mJ2, if B = 1 .
+
+Lemma B.5. Let (Y, X ) with X = ( g, h, M, z ) follow the DGP definition, where M are referred to as nuisance variables .Fix a t-step path {mk,i }k≤U, i ∈{ 1,2}, and let A be any event measurable with respect to the corresponding σ-field, 
+
+A ∈ σ {mk,i }k=1 ,...,t, i ∈{ 1,2}
+
+.
+
+Under the linear regression setup, splitting on any of g, h, or z yields zero gain, whereas splitting on a new coordinate mj, 1
+
+always yields a positive gain. Proof. Split on g or h. We only discuss splitting on g, since the argument for h is identical. Let s ∈ {− 1, +1 } and define 
+
+As := A ∩ { g = s}. Recall that Y = (1 − B)T + BN with T = ghz and N = mJ1mJ2. In node As, the linear leaf model class consists of functions: 
+
+f (X) = β0 + βg s + βhh + βz z + β⊤ 
+
+> M
+
+M, 
+
+23 Near-Optimal Scalable Piecewise Regression Trees 
+
+where M collects all nuisance features. For any such f ,
+
+E[( Y − f (X)) 2 | As] = E[Y 2 | As] + E[f (X)2 | As] − 2E[Y f (X) | As].
+
+The term E[Y 2 | As] does not depend on s, since T 2 = z2 and s2 = 1 . Moreover, βg s is constant on As and can be absorbed into the intercept, so the attainable minimum of E[f (X)2 | As] is independent of s.For the cross term, we decompose: 
+
+E[Y f (X) | As] = E[(1 − B)T f (X) | As] + E[BN f (X) | As].
+
+Since As ∈ σ(M, g ) and (h, z ) ⊥ (M, g ), we have 
+
+E[T f (X) | As] = 0 
+
+for any linear f , by expanding f and using E[h] = E[z] = 0 together with independence. Hence 
+
+E[(1 − B)T f (X) | As] = 0 .
+
+We next show that the population-optimal coefficient on g is zero. Consider the parent node A ∈ σ(M ), so that g ⊥ A. Let 
+
+f ⋆A be the L2(A)-projection of Y onto the linear span of (1 , g, h, z, M ). By the normal equations, the optimal coefficient β⋆g
+
+satisfies 
+
+E[( Y − f ⋆A(X)) g | A] = 0 .
+
+Now E[g | A] = 0 and g is independent of (h, z, M, B, J ) given A. Moreover, 
+
+E[Y g | A] = E[(1 − B) ghz · g | A] + E[BN · g | A] = E[(1 − B) hz | A] + E[BN | A]E[g | A] = 0 ,
+
+since E[h] = E[z] = 0 and BN ⊥ g. Also E[hg | A] = E[zg | A] = 0 and E[Mig | A] = 0 for each coordinate Mi.Therefore, the normal equation for g reduces to 
+
+β⋆g E[g2 | A] = 0 ,
+
+and hence β⋆g = 0 because E[g2 | A] = 1 .Consequently, adding g as a regressor does not reduce the MSE in node A. Conditioning on g = s only reparametrizes the intercept in the child node As, and therefore the minimal conditional MSE is identical in A and As:
+
+min  
+
+> f
+
+E[( Y − f (X)) 2 | As] = min  
+
+> f
+
+E[( Y − f (X)) 2 | A].
+
+Thus, splitting on g (or h) yields zero gain. 
+
+Split on z. Fix a node event A ∈ σ(M ) and a threshold τ ∈ R, and define 
+
+Aτ := A ∩ { z ≤ τ }, Acτ := A ∩ { z > τ }.
+
+Recall that 
+
+Y = (1 − B)ghz + BN, 
+
+and consider linear leaf predictors of the form 
+
+f (X) = β0 + βg g + βhh + β⊤ 
+
+> M
+
+M + βz z. 
+
+We first determine the population-optimal predictor in node A. Let W := (1 , g, h, M ) and write z = ez + E[z | A] with 
+
+ez := z − E[z | A]. Since 1 ∈ W , any predictor can be written as f (X) = θ⊤W + βz ez after absorbing the constant 
+
+βz E[z | A] into the intercept. 24 Near-Optimal Scalable Piecewise Regression Trees 
+
+For b ∈ R, define 
+
+LA(b) := E(Y − θ⊤W − bez)2 | A .
+
+Expanding, 
+
+LA(b) = LA(0) − 2b E[( Y − θ⊤W )ez | A] + b2E[ez2 | A].
+
+Since A ∈ σ(M ) and z ⊥ (g, h, M, B, J ), conditioning on A preserves independence between ez and (g, h, M, B, J ).Hence E[( θ⊤W )ez | A] = 0 . Moreover, 
+
+E[Y ez | A] = E[(1 − B)ghz ez | A] + E[BN ez | A].
+
+The second term is zero since BN is independent of z. For the first term, (1 − B) ⊥ (g, h, z ) and (g, h ) ⊥ z under A, and 
+
+E[gh ] = 0 , implying E[(1 − B)ghz ez | A] = 0 . Therefore E[( Y − θ⊤W )ez | A] = 0 and 
+
+LA(b) = LA(0) + b2E[ez2 | A].
+
+Since E[ez2 | A] > 0, the minimum is attained at b = 0 , so the optimal predictor in node A satisfies βz = 0 .We now repeat the same calculation in node Aτ . Write z = ezτ + E[z | Aτ ] with ezτ := z − E[z | Aτ ] and parameterize 
+
+f (X) = θ⊤W + βz ezτ . Defining 
+
+LAτ (b) := E(Y − θ⊤W − bezτ )2 | Aτ
+
+ .
+
+The same expansion applies. Since Aτ = A ∩ { z ≤ τ } and z ⊥ (g, h, M, B, J ), conditioning on Aτ still preserves independence between ezτ and (g, h, M, B, J ). Using again E[gh ] = 0 , we obtain E[( Y − θ⊤W )ezτ | Aτ ] = 0 , and hence 
+
+LAτ (b) = LAτ (0) + b2E[ez2 
+
+> τ
+
+| Aτ ].
+
+Since E[ez2 
+
+> τ
+
+| Aτ ] > 0, the minimum is attained at b = 0 , so the optimal predictor in node Aτ also satisfies βz = 0 . An identical argument applies to Acτ .Consequently, in all three nodes, the population-optimal predictor can be chosen in the form f (X) ∈ span {1, g, h, M }. For a node S ∈ { A, A τ , A cτ }, let VS := span {1, g, h, M } ⊂ L2(S) and denote by f ⋆S the L2(S)-projection of Y onto VS . The orthogonality condition uniquely characterizes such a projection E[( Y − f ⋆S )v | S] = 0 for all v ∈ V S .Let f ⋆ := f ⋆A. For any v ∈ V Aτ ,
+
+E[( Y − f ⋆)v | Aτ ] = E[(1 − B)ghz v | Aτ ] + E[( BN − f ⋆)v | Aτ ].
+
+The first term vanishes since (g, h ) ⊥ z under Aτ and E[gh ] = 0 . The second term equals E[( BN − f ⋆)v | A] because 
+
+BN , f ⋆, and v depend only on (g, h, M, B, J ) and are independent of z. This term is zero by the defining orthogonality of 
+
+f ⋆ in node A. Hence E[( Y − f ⋆)v | Aτ ] = 0 for all v ∈ V Aτ , and by uniqueness of the projection, f ⋆Aτ = f ⋆A as functions. The same argument applies to Acτ .Thus, since f ⋆A = f ⋆Aτ = f ⋆Acτ as functions, by the law of total expectation, 
+
+E[( Y − f ⋆A(X)) 2 | A] = P(Aτ | A) E[( Y − f ⋆A(X)) 2 | Aτ ] + P(Acτ | A) E[( Y − f ⋆A(X)) 2 | Acτ ]= P(Aτ | A) E[( Y − f ⋆Aτ (X)) 2 | Aτ ] + P(Acτ | A) E[( Y − f ⋆Acτ (X)) 2 | Acτ ].
+
+Therefore, splitting on z does not change the population-optimal linear leaf predictor and yields zero one-step gain. 
+
+split on M . We next consider splitting on mj1 = s, where the index j has not been split on previously. Let A denote the current node event, which depends only on nuisance variables. Let 
+
+fA ∈ arg min   
+
+> f∈L
+
+E[( Y − f (X)) 2 | A]
+
+denote the population-optimal linear predictor in the parent node A.Since A does not condition on mj2 and mj2 is independent of (g, h, z, B, J, {mk,b }(k,b )̸=( j, 2) ) with E[mj2] = 0 , we have 
+
+E[mj2 | A] = 0 , E[Y m j2 | A] = 0 , E[mj2 Xrest | A] = 0 ,
+
+25 Near-Optimal Scalable Piecewise Regression Trees 
+
+where Xrest collects all regressors except mj2. Hence the normal equation for the coefficient of mj2 implies that fA has zero coefficient on mj2, i.e., fA does not depend on mj2.Now consider splitting on mj1 and the child node As := A ∩ { mj1 = s}. Define a refined predictor in As by 
+
+fAs (X) := fA(X) + as mj2.
+
+Then, expanding the square and using E[m2 
+
+> j2
+
+| As] = 1 ,
+
+E[( Y − fAs (X)) 2 | As] = E[( Y − fA(X)) 2 | As] + a2 
+
+> s
+
+− 2as E[( Y − fA(X)) mj2 | As].
+
+Since fA does not depend on mj2 and mj2 is independent of the other regressors given As, we have E[fA(X)mj2 | As] = 0 ,and thus 
+
+E[( Y − fA(X)) mj2 | As] = E[Y m j2 | As].
+
+Next, we compute the cross term: 
+
+E[Y m j2 | As] = E[(1 − B)T m j2 | As] + E[BN m j2 | As]. (4) The first term is zero since (g, h, z ) is independent of (M, B, J ) and hence of As, and moreover T = ghz is independent of 
+
+mj2 with E[T ] = 0 :
+
+E[(1 − B)T m j2 | As] = E[1 − B] · E[T ] · E[mj2 | As] = 0 .
+
+For the second term, using B ⊥ (M, J ) and As ∈ σ(M ),
+
+E[BN m j2 | As] = E[B] · E[N m j2 | As] = ε · E[N m j2 | As].
+
+Finally, since N = mJ, 1mJ, 2 and J is uniform on {1, . . . , U },
+
+E[N m j2 | As] = 1
+
+U
+
+> U
+
+X
+
+> k=1
+
+E[mk, 1mk, 2mj2 | As]= 1
+
+U E[mj, 1m2 
+
+> j, 2
+
+| As] + 1
+
+U
+
+X 
+
+> k̸=j
+
+E[mk, 1mk, 2mj2 | As]. (5) For k̸ = j, (mk, 1, m k, 2) is independent of (mj1, m j2), while mj2 /∈ As hence the E[mj2 | As] = 0 and thus each summand is zero. For k = j, on As we have mj1 = s and m2 
+
+> j2
+
+= 1 , so 
+
+E[mj, 1m2 
+
+> j, 2
+
+| As] = E[mj1 | As] = s. 
+
+Therefore, 
+
+E[N m j2 | As] = sU , and hence E[Y m j2 | As] = ε · sU .
+
+Therefore, 
+
+E[( Y − fAs (X)) 2 | As] = E[( Y − fA(X)) 2 | As] + a2 
+
+> s
+
+− 2as · εs U .
+
+Minimizing over as ∈ R yields a∗ 
+
+> s
+
+= εs/U and 
+
+inf 
+
+> as
+
+E[( Y − fA(X) − asmj2)2 | As] = E[( Y − fA(X)) 2 | As] − ε2
+
+U 2 .
+
+Since inf f E[( Y − f (X)) 2 | As] ≤ inf as E[( Y − fA(X) − asmj2)2 | As], we obtain 
+
+inf  
+
+> f
+
+E[( Y − f (X)) 2 | As] ≤ E[( Y − fA(X)) 2 | As] − ε2
+
+U 2 .
+
+Averaging over s ∈ {± 1} and using the law of total expectation, 
+
+X
+
+> s=±1
+
+P(mj1 = s | A) inf  
+
+> f
+
+E[( Y − f (X)) 2 | As] ≤ E[( Y − fA(X)) 2 | A] − ε2
+
+U 2
+
+Hence, splitting on mj1 yields a strictly positive one-step gain of at least ε2/U 2.26 Near-Optimal Scalable Piecewise Regression Trees 
+
+Theorem B.6 (Arbitrary MSE Gap between CLARITree and Greedy, recalling Theorem 5.4) . Fix any depth d ≥ 2 and any 
+
+ε ∈ (0 , 1/2) . Let (Y, X ) with X = ( g, h, M, z ) follow the DGP definition, where M are referred to as nuisance variables .Then 
+
+MSE Greedy ≥ 1 − ε, MSE CLARITree ≤ 2ε, 
+
+and hence MSE Greedy 
+
+MSE CLARITree 
+
+≥ 1 − ε
+
+2ε > 14ε ,
+
+which can be made arbitrarily large as ε → 0.Proof. Greedy CholeskyTree never splits on g, h or z. By the Theorem B.5, at any node event A ∈ σ(M ) the population one-step gain from splitting on g, h or z is zero, while there exists at least on some mj, 1 or mj, 2 not previously split with strictly positive one-step gain. Since U > d , along the first d splits, there always remains an unresolved nuisance pair, so the greedy rule selects nuisance variables at every split. Consequently, every leaf of the depth-d Greedy CholeskyTree corresponds to some event A ∈ σ(M ) and does not condition on g or h.
+
+Lower bound for Greedy MSE. Fix any such leaf event A ∈ σ(M ). Because (g, h, z ) is independent of A, the conditional distribution of (g, h, z ) given A is unchanged. Let bfA denote the population OLS predictor in that leaf, i.e., 
+
+bfA ∈ arg min  
+
+> f
+
+E[( Y − f (X)) 2 | A],
+
+where L is the linear leaf model class. On the main component B = 0 , we have Y = T = ghz . T is L2(A)-orthogonal to the linear span of the available regressors in the leaf, hence for any linear f ,
+
+E[( T − f (X)) 2 | A] ≥ E[T 2 | A] = 1 .
+
+In particular, this holds for f = bfA. Therefore, 
+
+E[( Y − bfA(X)) 2 | A] ≥ P(B = 0) · E[( T − bfA(X)) 2 | A, B = 0] ≥ (1 − ε) · 1.
+
+Averaging over all leaves yields 
+
+MSE Greedy = E(Y − bfGreedy (X)) 2 ≥ 1 − ε. 
+
+Upper bound for CLARITree MSE. 
+
+To make the objective notation precise, for any event A with P(A) > 0, let DA denote the data distribution restricted to A.We define the weighted leaf risk by 
+
+LeafRisk( DA) := P(A) inf  
+
+> ℓ∈L
+
+E (Y − ℓ(X)) 2 | A ,
+
+where L is the class of linear leaf predictors. Thus LeafRisk( DA) already includes the probability mass of node A. Under this convention, the objective of a tree is the sum of LeafRisk over its leaves. We define the objective of the fixed depth-two candidate that first splits on g and then splits on h in both children as 
+
+Φg,h (D) := X
+
+> s,t ∈{− 1,1}
+
+LeafRisk( Dg=s,h =t).
+
+We first record a simple property of the Greedy CholeskyTree subroutine. For any node distribution DA, any remaining depth t ≥ 1, and any feasible one-step split q producing children DAL(q) and DAR(q), we have 
+
+Gt(DA) ≤ LeafRisk( DAL(q)) + LeafRisk( DAR(q)).
+
+Indeed, suppose Greedy CholeskyTree selects the one-step split (f ⋆, τ ⋆), producing children DA⋆L and DA⋆R . By the pruning rule in Algorithm 4, recursive growth cannot return an objective larger than the immediate two-leaf objective of the selected split. Hence 
+
+Gt(DA) ≤ LeafRisk( DA⋆L ) + LeafRisk( DA⋆R ).
+
+27 Near-Optimal Scalable Piecewise Regression Trees 
+
+Moreover, since (f ⋆, τ ⋆) is chosen to minimize the one-step child-leaf objective, for any feasible split q,
+
+LeafRisk( DA⋆L ) + LeafRisk( DA⋆R ) ≤ LeafRisk( DAL(q)) + LeafRisk( DAR(q)).
+
+Combining the two inequalities gives the claim. Now following the notation in Theorem B.4, let D⋆⋆ L and D⋆⋆ R denote the two children of the root split selected by CLARITree. Since CLARITree chooses the root split minimizing the Greedy-completed objective, while splitting on g is one feasible root candidate, we have 
+
+Cd(D) = Cd−1(D⋆⋆ L ) + Cd−1(D⋆⋆ R )
+
+≤ Gd−1(D⋆⋆ L ) + Gd−1(D⋆⋆ R )
+
+≤ Gd−1(Dg=−1) + Gd−1(Dg=1 )
+
+≤ X
+
+> s∈{− 1,1}
+
+[LeafRisk( Dg=s,h =−1) + LeafRisk( Dg=s,h =1 )] = Φ g,h (D).
+
+The first inequality follows from Theorem B.4. The second inequality follows from the definition of CLARITree: the split selected by CLARITree minimizes the objective under Greedy CholeskyTree completion, whereas the root split on g is only one feasible candidate. The third inequality applies the Greedy property above to each child node Dg=s, using the feasible split on h.It remains to bound Φg,h (D). Conditional on g = s and h = t, the main component satisfies 
+
+T = ghz = stz = cz, 
+
+where c = st ∈ {− 1, 1}. Hence the linear predictor bf (X) = cz represents the main component exactly on the event B = 0 .Therefore, for every s, t ∈ {− 1, 1},
+
+inf  
+
+> ℓ∈L
+
+E (Y − ℓ(X)) 2 | g = s, h = t ≤ E (Y − cz )2 | g = s, h = t
+
+= E B(N − cz )2 | g = s, h = t
+
+= ε E (N − cz )2 | g = s, h = t
+
+= 2 ε, 
+
+where N = mJ1mJ2, B2 = B, N 2 = 1 , z ∼ N (0 , 1) , and N is independent of z. Thus 
+
+LeafRisk( Dg=s,h =t) ≤ 2ε P(g = s, h = t).
+
+Summing over the four leaves gives 
+
+Φg,h (D) ≤ 2ε X
+
+> s,t ∈{− 1,1}
+
+P(g = s, h = t) = 2 ε. 
+
+Consequently, 
+
+Cd(D) ≤ Φg,h (D) ≤ 2ε. 
+
+Combining the bounds and note that when ε ∈ (0 , 1/2) ,
+
+1 − ε
+
+2ε > 14ε ,
+
+completes the proof. To further validate the theoretical gap in a simple setting, we additionally conducted a synthetic experiment with U = 8 , tree depth d = 4 , and sample size n = 1000 . We evaluated a sequence of ε values and compared the empirical performance gap between the greedy regression tree and CLARITree . The corresponding results are shown in Figure 4, where the empirical behavior closely matches the theoretical prediction as ε → 0.28 Near-Optimal Scalable Piecewise Regression Trees 10 5
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+eps 
+
+10 1
+
+10 4
+
+10 7
+
+10 10 
+
+10 13 
+
+10 16 
+
+10 19 
+
+10 22 
+
+> Greedy train MSE / CLARITree train MSE
+
+Empirical Gap Ratio 
+
+> Empirical gap ratio
+> Theory: 1 / (4 eps)
+
+Figure 4. Empirical performance gap under the synthetic DGP for varying ε with U = 8 , depth = 4 , and n = 1000 . As ε decreases, the gap between greedy regression trees and CLARITree becomes increasingly pronounced. 
+
+29 Near-Optimal Scalable Piecewise Regression Trees 
+
+## C. Full Algorithms 
+
+This appendix presents the complete pseudocode for the proposed methods and supporting routines used throughout the implementation. We first describe the preprocessing and initialization procedure in Algorithm 3, followed by the construction algorithms for 
+
+CholeskyTree and CLARITree .We then provide the streamed split enumeration routine together with auxiliary procedures for threshold construction, sorted-index maintenance, ridge sufficient statistics, and Cholesky-based linear algebra operations. 
+
+Treatment of categorical features. Categorical variables may be handled in two different ways: (a) One-hot encoded categorical variables are treated as binary splitting features; (b) Ordinal or discretized categorical variables may instead be represented as discrete-valued continuous variables. In the current implementation, one-hot encoded categorical variables are used only for split decisions and are excluded from the leaf regression models, while ordinal or discretized categorical variables are treated identically to continuous features. 
+
+Algorithm 3 FitTree : preprocessing and initialization for CholeskyTree or CLARITree 
+
+Require: Data matrix X ∈ Rn×k; response y ∈ Rn; categorical feature set G; ridge parameter κ; leaf penalty λ;maximum depth d; number of thresholds T ; threshold strategy strategy ; minimum leaf size parameter mmin ;method Method ∈ { CholeskyTree , CLARITree } 
+
+> 1:
+
+Ensure an intercept column is present in X as column 0 
+
+> 2:
+
+Detect binary features B and continuous features C 
+
+> 3:
+
+mresolved  
+
+> min
+
+←
+
+(
+
+mmin , mmin > 0,
+
+max {1, 5|C|} , mmin = 0  
+
+> 4:
+
+¯y ← n−1 Pni=1 yi, ey ← y − ¯y1 ▷ Center response unless it is already centered.  
+
+> 5:
+
+λs ← λ Pni=1 (yi − ¯y)2, κs ← nκ ▷ Use the scaled parameters from the implementation.  
+
+> 6:
+
+Standardize each continuous column c ∈ C using training mean and standard deviation  
+
+> 7:
+
+Define the ridge-regression row 
+
+ϕ⊤ 
+
+> i
+
+=  1, exi,c 1 , . . . , exi,c |C| 
+
+ ∈ R1+ |C| 
+
+▷ Leaves regress only on intercept and continuous features.  
+
+> 8:
+
+AI ← Pni=1 ϕiϕ⊤ 
+
+> i
+
++ κsI 
+
+> 9:
+
+Set the intercept ridge entry to a negligible value ▷ The intercept is effectively unpenalized.  
+
+> 10:
+
+LI ← chol (AI ) 
+
+> 11:
+
+bI ← Pni=1 ϕi eyi, ∥yI ∥2 ← Pni=1 ey2 
+
+> i
+> 12:
+
+OBJ init ← LossFromCholesky (LI , bI , ∥yI ∥2) + λs 
+
+> 13:
+
+Build global sorted index lists Π = {πf (I)}kf =1 ▷ Each list is sorted by the original feature value xif . 
+
+> 14:
+
+P ← BuildThresholdPool (X, Π, B, C, T, strategy ) 
+
+> 15:
+
+if Method = CholeskyTree then  
+
+> 16:
+
+(T, OBJ ) ← CholeskyTree (LI , bI , D I , Π, P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d, ∥yI ∥2, OBJ init ) 
+
+> 17:
+
+else  
+
+> 18:
+
+(T, OBJ ) ← CLARITree (LI , bI , D I , Π, P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d, ∥yI ∥2, OBJ init ) 
+
+> 19:
+
+end if  
+
+> 20:
+
+Fit final ridge coefficients in every leaf of T ▷ Convert coefficients back to the original feature scale for prediction.  
+
+> 21:
+
+return T, OBJ 
+
+30 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 4 CholeskyTree : greedy linear regression tree with streamed split enumeration 
+
+Require: Node Cholesky factor LI ; node vector bI ; node data DI ; node-wise sorted lists ΠI ; threshold pool P; binary features B; continuous features C; scaled ridge parameter κs; scaled leaf penalty λs; resolved minimum leaf size 
+
+mresolved  
+
+> min
+
+; depth budget d; node response norm ∥yI ∥2; initial leaf objective O BJ init 
+
+1: nI ← |I| 
+
+2: if d = 0 or OBJ init ≤ 2λs or nI < 2mresolved  
+
+> min
+
+then 
+
+3: β ← SolveRidge (LI , bI )
+
+4: return Leaf (β, OBJ init ), OBJ init 
+
+5: end if 
+
+6: OBJ ∗ 
+
+> split
+
+← ∞ , f ∗, τ ∗ ← None ▷ Avoid early stopping based on one-layer gain. 
+
+7: U ← EnumerateSplits (DI , ΠI , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, LI , bI , ∥yI ∥2)
+
+8: for each tuple yielded by U do 
+
+9: (f, τ, IL, OBJ LEAF L, OBJ LEAF R, LL, LR, bL, bR, ∥yIL ∥2, ∥yIR ∥2) ▷ Variable list from U.
+
+10: OBJ split ← OBJ LEAF L + OBJ LEAF R
+
+11: if OBJ split < OBJ ∗ 
+
+> split
+
+then 
+
+12: OBJ ∗ 
+
+> split
+
+← OBJ split , f ∗, τ ∗ ← f, τ 
+
+13: Store (IL, LL, LR, bL, bR, OBJ LEAF L, OBJ LEAF R, ∥yIL ∥2, ∥yIR ∥2) as best 
+
+14: end if 
+
+15: end for 
+
+16: if f ∗ = None then 
+
+17: β ← SolveRidge (LI , bI )
+
+18: return Leaf (β, OBJ init ), OBJ init 
+
+19: end if 
+
+20: if d = 1 then 
+
+21: if OBJ ∗ 
+
+> split
+
+≥ OBJ init then 
+
+22: β ← SolveRidge (LI , bI )
+
+23: return Leaf (β, OBJ init ), OBJ init ▷ At the last level, prune if the best split does not improve the leaf. 
+
+24: else 
+
+25: Build leaf children with objectives O BJ LEAF best L and O BJ LEAF best R
+
+26: return Node (f ∗, τ ∗, T L, T R), OBJ ∗
+
+> split
+
+27: end if 
+
+28: end if 
+
+29: ΠIbest L , ΠIbest R ← SplitSortedIndices (Π I , Ibest L )
+
+30: DIbest L , D Ibest R ← RestrictData (DI , Ibest L ) ▷ View via indices. 
+
+31: (TL, OBJ L) ← CholeskyTree (Lbest L , bbest L , D Ibest L , ΠIbest L , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d −
+
+1, ∥yIbest L ∥2, OBJ LEAF best L )
+
+32: (TR, OBJ R) ← CholeskyTree (Lbest R , bbest R , D Ibest R , ΠIbest R , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d −
+
+1, ∥yIbest R ∥2, OBJ LEAF best R )
+
+33: OBJ subtree ← OBJ L + OBJ R
+
+34: if OBJ subtree < OBJ init then 
+
+35: return Node (f ∗, τ ∗, T L, T R), OBJ subtree 
+
+36: else 
+
+37: β ← SolveRidge (LI , bI )
+
+38: return Leaf (β, OBJ init ), OBJ init ▷ Prune if recursive growth does not improve the leaf. 
+
+39: end if 
+
+31 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 5 CLARITree : Cholesky and lookahead-accelerated linear regression tree 
+
+Require: Node Cholesky factor LI ; node vector bI ; node data DI ; node-wise sorted lists ΠI ; threshold pool P; binary features B; continuous features C; scaled ridge parameter κs; scaled leaf penalty λs; resolved minimum leaf size 
+
+mresolved  
+
+> min
+
+; depth budget d; node response norm ∥yI ∥2; initial leaf objective O BJ init 
+
+1: nI ← |I| 
+
+2: if d = 0 or OBJ init ≤ 2λs or nI < 2mresolved  
+
+> min
+
+then 
+
+3: β ← SolveRidge (LI , bI )
+
+4: return Leaf (β, OBJ init ), OBJ init 
+
+5: end if 
+
+6: OBJ ∗ 
+
+> look
+
+← ∞ , f ∗, τ ∗ ← None ▷ Select the split using greedy completions. 
+
+7: U ← EnumerateSplits (DI , ΠI , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, LI , bI , ∥yI ∥2)
+
+8: for each tuple yielded by U do 
+
+9: (f, τ, IL, OBJ LEAF L, OBJ LEAF R, LL, LR, bL, bR, ∥yIL ∥2, ∥yIR ∥2) ▷ One candidate split. 
+
+10: if d = 1 then 
+
+11: OBJ cand ← OBJ LEAF L + OBJ LEAF R ▷ No remaining depth for lookahead. 
+
+12: else ▷ Greedy CholeskyTree completion of the remaining subtree. 
+
+13: ΠIL , ΠIR ← SplitSortedIndices (Π I , IL)
+
+14: DIL , D IR ← RestrictData (DI , IL) ▷ Create temporary child views for greedy completion. 
+
+15: ( eTL, gOBJ L) ← CholeskyTree (LL, bL, D IL , ΠIL , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d − 1, ∥yIL ∥2, OBJ LEAF L)
+
+16: ( eTR, gOBJ R) ← CholeskyTree (LR, bR, D IR , ΠIR , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d − 1, ∥yIR ∥2, OBJ LEAF R)
+
+17: OBJ cand ← gOBJ L + gOBJ R
+
+18: end if 
+
+19: if OBJ cand < OBJ ∗ 
+
+> look
+
+then 
+
+20: OBJ ∗ 
+
+> look
+
+← OBJ cand , f ∗, τ ∗ ← f, τ 
+
+21: Store (IL, LL, LR, bL, bR, OBJ LEAF L, OBJ LEAF R, ∥yIL ∥2, ∥yIR ∥2) as best 
+
+22: end if 
+
+23: end for 
+
+24: if f ∗ = None then 
+
+25: β ← SolveRidge (LI , bI )
+
+26: return Leaf (β, OBJ init ), OBJ init 
+
+27: end if 
+
+28: if d = 1 then 
+
+29: if OBJ ∗ 
+
+> look
+
+≥ OBJ init then 
+
+30: β ← SolveRidge (LI , bI )
+
+31: return Leaf (β, OBJ init ), OBJ init 
+
+32: else 
+
+33: Build leaf children with objectives O BJ LEAF best L and O BJ LEAF best R
+
+34: return Node (f ∗, τ ∗, T L, T R), OBJ ∗
+
+> look
+
+35: end if 
+
+36: end if 
+
+37: ΠIbest L , ΠIbest R ← SplitSortedIndices (Π I , Ibest L )
+
+38: DIbest L , D Ibest R ← RestrictData (DI , Ibest L )
+
+39: (TL, OBJ L) ← CLARITree (Lbest L , bbest L , D Ibest L , ΠIbest L , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d − 1, ∥yIbest L ∥2, OBJ LEAF best L )
+
+40: (TR, OBJ R) ← CLARITree (Lbest R , bbest R , D Ibest R , ΠIbest R , P, B, C, κ s, λ s, m resolved  
+
+> min
+
+, d − 1, ∥yIbest R ∥2, OBJ LEAF best R )
+
+▷ Replace greedy lookahead completions with CLARITree recursion. 
+
+41: OBJ f inal ← OBJ L + OBJ R
+
+42: if OBJ f inal < OBJ init then 
+
+43: return Node (f ∗, τ ∗, T L, T R), OBJ f inal 
+
+44: else 
+
+45: β ← SolveRidge (LI , bI )
+
+46: return Leaf (β, OBJ init ), OBJ init ▷ Prune if the final CLARITree recursion does not improve the leaf. 
+
+47: end if 
+
+32 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 6 EnumerateSplits : streamed split enumeration using threshold pools and Cholesky updates 
+
+Require: Node data DI ; node-wise sorted lists ΠI ; threshold pool P = {P f }f ; binary features B; continuous features C;scaled ridge parameter κs; scaled leaf penalty λs; resolved minimum leaf size mresolved  
+
+> min
+
+;parent Cholesky factor LI ;parent vector bI ; parent response norm ∥yI ∥2
+
+1: for f = 1 to k do 
+
+2: if f ∈ B then 
+
+3: IL ← { i ∈ I : xif ≤ 0.5}, IR ← I \ I L
+
+4: if |I L| < m resolved  
+
+> min
+
+or |I R| < m resolved  
+
+> min
+
+then 
+
+5: continue 
+
+6: end if 
+
+7: (LL, bL, ∥yIL ∥2) ← RecomputeStatsFromRows (IL, κ s)
+
+8: (LR, bR, ∥yIR ∥2) ← RecomputeStatsFromRows (IR, κ s)
+
+9: OBJ LEAF L ← LossFromCholesky (LL, bL, ∥yIL ∥2) + λs
+
+10: OBJ LEAF R ← LossFromCholesky (LR, bR, ∥yIR ∥2) + λs
+
+11: yield (f, 0.5, IL, OBJ LEAF L, OBJ LEAF R, LL, LR, bL, bR, ∥yIL ∥2, ∥yIR ∥2) ▷ Binary features use the fixed split threshold 0.5.
+
+12: continue 
+
+13: end if 
+
+14: if Pf = ∅ then 
+
+15: continue 
+
+16: end if 
+
+17: AL ← κsI and set the intercept ridge entry to a negligible value 
+
+18: LL ← chol (AL), bL ← 0, ∥yIL ∥2 ← 0, IL ← ∅ 
+
+19: LR ← LI , bR ← bI , ∥yIR ∥2 ← ∥ yI ∥2
+
+20: q ← 1 ▷ Pointer into the sorted threshold pool Pf .
+
+21: for r = 1 to |πf (I)| do 
+
+22: i ← πf (I)[ r] ▷ Move sample i from the right child to the left child. 
+
+23: IL ← I L ∪ { i}
+
+24: bL ← bL + ϕi eyi, bR ← bR − ϕi eyi
+
+25: ∥yIL ∥2 ← ∥ yIL ∥2 + ey2 
+
+> i
+
+, ∥yIR ∥2 ← ∥ yIR ∥2 − ey2
+
+> i
+
+26: LL ← cholupdate (LL, ϕi, +1) , LR ← cholupdate (LR, ϕi, −1) 
+
+27: if r = |πf (I)| then 
+
+28: continue ▷ The last prefix cannot define a valid split. 
+
+29: end if 
+
+30: vcur ← xif , vnext ← xπf (I)[ r+1] ,f 
+
+31: if vcur = vnext then 
+
+32: continue ▷ No threshold can split identical feature values. 
+
+33: end if 
+
+34: nL ← |I L|, nR ← |I| − nL
+
+35: if nL < m resolved  
+
+> min
+
+or nR < m resolved  
+
+> min
+
+then 
+
+36: continue 
+
+37: end if 
+
+38: while q ≤ |P f | and Pf [q] < v cur do 
+
+39: q ← q + 1 
+
+40: end while 
+
+41: q′ ← q
+
+42: while q′ ≤ |P f | and Pf [q′] < v next do 
+
+43: τ ← P f [q′]
+
+44: OBJ LEAF L ← LossFromCholesky (LL, bL, ∥yIL ∥2) + λs
+
+45: OBJ LEAF R ← LossFromCholesky (LR, bR, ∥yIR ∥2) + λs
+
+46: yield (f, τ, IL, OBJ LEAF L, OBJ LEAF R, LL, LR, bL, bR, ∥yIL ∥2, ∥yIR ∥2) ▷ All thresholds in this interval reuse the same sufficient statistics. 
+
+47: q′ ← q′ + 1 
+
+48: end while 
+
+49: q ← q′
+
+50: end for 
+
+51: end for 
+
+33 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 7 BuildThresholdPool : global candidate thresholds used at every node 
+
+Require: Data matrix X; global sorted lists Π; binary features B; continuous features C; number of thresholds T ; threshold strategy strategy  
+
+> 1:
+
+Initialize Pf ← ∅ for every feature f 
+
+> 2:
+
+for f = 1 to k do  
+
+> 3:
+
+if f ∈ B then  
+
+> 4:
+
+Pf ← { 0.5} 
+
+> 5:
+
+continue  
+
+> 6:
+
+end if  
+
+> 7:
+
+Let (v1, . . . , v n) be the feature-f values sorted according to πf (I) 
+
+> 8:
+
+if T ≤ 0 or v1 = vn then  
+
+> 9:
+
+continue  
+
+> 10:
+
+end if  
+
+> 11:
+
+(u1, . . . , u s) ← DeduplicateSortedValues (v1, . . . , v n) 
+
+> 12:
+
+if s ≤ T + 1 then  
+
+> 13:
+
+Pf ← { (uj + uj+1 )/2 : j = 1 , . . . , s − 1} ▷ Use all adjacent midpoints if there are few unique values.  
+
+> 14:
+
+else if strategy = uniform then  
+
+> 15:
+
+Pf ← UniformThresholds (v1, v n, T ) 
+
+> 16:
+
+else if strategy = quantile then  
+
+> 17:
+
+Let bQf (α) denote the empirical α-quantile of the sorted feature-f values (v1, . . . , v n) 
+
+> 18:
+
+Pf ← { bQf (k/ (T + 1)) : k = 1 , . . . , T } ▷ Empirical quantiles of the sorted feature values.  
+
+> 19:
+
+else  
+
+> 20:
+
+Raise error: unknown threshold strategy  
+
+> 21:
+
+end if  
+
+> 22:
+
+Remove duplicate values from Pf while preserving sorted order  
+
+> 23:
+
+end for  
+
+> 24:
+
+return P = {P f }kf =1 
+
+Algorithm 8 SplitSortedIndices : stable filtering of node-wise sorted lists 
+
+Require: Node-wise sorted lists ΠI = {πf (I)}f ; left index set IL 
+
+> 1:
+
+Build membership mask inLeft [i] ← 1{i ∈ I L} 
+
+> 2:
+
+for each feature f do  
+
+> 3:
+
+Initialize empty lists πf (IL) and πf (IR) 
+
+> 4:
+
+for each row index r in πf (I), in order do  
+
+> 5:
+
+if inLeft [r] = 1 then  
+
+> 6:
+
+Append r to πf (IL) 
+
+> 7:
+
+else  
+
+> 8:
+
+Append r to πf (IR) 
+
+> 9:
+
+end if  
+
+> 10:
+
+end for  
+
+> 11:
+
+end for  
+
+> 12:
+
+return ΠIL , ΠIR
+
+34 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 9 RecomputeStatsFromRows : compute ridge sufficient statistics for a row set 
+
+Require: Row set S; scaled ridge parameter κs 
+
+> 1:
+
+A ← κsI and set the intercept ridge entry to a negligible value  
+
+> 2:
+
+b ← 0, ∥yS ∥2 ← 0 
+
+> 3:
+
+for each i ∈ S do  
+
+> 4:
+
+A ← A + ϕiϕ⊤ 
+
+> i
+> 5:
+
+b ← b + ϕi eyi 
+
+> 6:
+
+∥yS ∥2 ← ∥ yS ∥2 + ey2 
+
+> i
+> 7:
+
+end for  
+
+> 8:
+
+L ← chol (A) 
+
+> 9:
+
+return L, b, ∥yS ∥2
+
+Algorithm 10 RestrictData : create child-node views via index sets 
+
+Require: Node data DI = {(xi, y i)}i∈I ; left index set IL 
+
+> 1:
+
+IR ← I \ I L 
+
+> 2:
+
+Define DIL as a view of DI restricted to indices in IL 
+
+> 3:
+
+Define DIR as a view of DI restricted to indices in IR 
+
+> 4:
+
+return DIL , D IR
+
+Algorithm 11 LossFromCholesky : ridge leaf loss from Cholesky sufficient statistics 
+
+Require: Cholesky factor L of A = Φ ⊤Φ + κsI; vector b = Φ ⊤y; response norm ∥y∥2 
+
+> 1:
+
+z ← triSolve (L, b) ▷ Solve Lz = b by forward substitution.  
+
+> 2:
+
+ℓ ← ∥ y∥2 − ∥ z∥2 
+
+> 3:
+
+return ℓ
+
+Algorithm 12 SolveRidge : solve (LL ⊤)β = b
+
+Require: Cholesky factor L and vector b 
+
+> 1:
+
+z ← triSolve (L, b) ▷ Solve Lz = b. 
+
+> 2:
+
+β ← triSolve (L⊤, z) ▷ Solve L⊤β = z. 
+
+> 3:
+
+return β
+
+Algorithm 13 triSolve : triangular solve 
+
+Require: Triangular matrix L ∈ Rk×k; vector b ∈ Rk 
+
+> 1:
+
+for i = 1 to k do  
+
+> 2:
+
+zi ←
+
+
+
+bi − Pi−1 
+
+> j=1
+
+Lij zj
+
+
+
+/L ii  
+
+> 3:
+
+end for  
+
+> 4:
+
+return z
+
+Algorithm 14 cholupdate : rank-one Cholesky update/downdate interface 
+
+Require: Cholesky factor L of A; vector x; sign s ∈ { +1 , −1} 
+
+> 1:
+
+Apply a stable rank-one Cholesky update/downdate routine to obtain L′
+
+▷ L′L′⊤ = A + sxx ⊤, see Remark Theorem A.1 and Theorem A.7.  
+
+> 2:
+
+return L′
+
+35 Near-Optimal Scalable Piecewise Regression Trees 
+
+## D. Experiment Details 
+
+This section describes the details of our experimental setup. We first introduce the regression datasets used in our study, together with their sizes and prediction targets (Section D.1). We then summarize the dataset-specific preprocessing steps applied (Section D.2). We also describe the synthetic data generating process used in our controlled benchmarks (Section D.3). Next, we describe the hardware platform on which all experiments were conducted and the runtime constraints (Section D.4). Finally, we provide implementation details of the baseline algorithms and the software packages used in our experiments (Section D.5). 
+
+D.1. Datasets 
+
+We conduct our experiments on a collection of regression datasets obtained from the UCI Machine Learning Repository (Dua & Graff, 2017), the Medical Cost Personal dataset from Choi (2018), and two publicly available regression benchmarks hosted on Kaggle, namely the California Housing dataset (Nugent, 2017) and the Walmart Store Sales dataset (H, 2021). Each dataset contains a set of numerical features (continuous and/or binary after encoding) and a designated prediction target variable as follows: • Airfoil : contains frequency, attack-angle, chord-length, free-stream-velocity, and suction-side-displacement-thickness; the prediction target is scaled-sound-pressure . License: CC BY 4.0 • Auction : contains the features capacities of bidders 1–4, price currently verified, product currently verified, and current verified winner of the product; the prediction target is runtime of the verification procedure . License: CC BY 4.0 • Auto MPG : contains displacement, cylinders, horsepower, weight, acceleration, model year, and origin; the prediction target is mpg . License: CC BY 4.0 • Energy (Cooling / Heating) : contains relative compactness ( X1), surface area ( X2), wall area ( X3), roof area ( X4), overall height ( X5), orientation ( X6), glazing area ( X7), and glazing area distribution ( X8); the prediction targets are 
+
+heating load ( Y 1) and cooling load ( Y 2). License: CC BY 4.0 • Insurance : contains age , sex , bmi , children , smoker , and categorical encodings for region northeast , region northwest ,
+
+region southeast , and region southwest ; the prediction target is charges . License: DbCL v1.0 • Optical Net : contains node number, thread number, T/R, processor utilization, channel waiting time, input waiting time, and network response time; the prediction target is channel utilization . License: CC BY 4.0 • Real Estate : contains transaction date ( X1), house age ( X2), distance to the nearest MRT station ( X3), number of convenience stores ( X4), latitude ( X5), and longitude ( X6); the prediction target is house price of unit area ( Y ).License: CC BY 4.0 • Servo : contains pgain and vgain ; the prediction target is class (numeric) . License: CC BY 4.0 • Synch : contains load current ( Iy ), power factor ( PF ), power factor error ( e), and change of excitation current ( dIf ); the prediction target is excitation current of the synchronous machine (If) . License: CC BY 4.0 • Yacht : contains longitudinal position, prismatic coefficient, length-displacement, beam-draught ratio, length-beam ratio, and Froude number; the prediction target is residuary resistance . License: CC BY 4.0 • California Housing : contains longitude, latitude, housing median age, total rooms, total bedrooms, population, households, median income, and ocean proximity; the prediction target is median house value . License: CC0: Public Domain • Temperature : contains numerical weather prediction (NWP) forecasts from the LDAPS model, present-day in-situ temperature observations, and geographical auxiliary variables over Seoul, South Korea; the prediction target is 
+
+next-day air temperature . License: CC BY 4.0 • Seoul Bike : contains hourly weather conditions and temporal information including temperature, humidity, wind speed, visibility, dew point temperature, solar radiation, rainfall, snowfall, and hour of day; the prediction target is hourly rented bike count . License: CC BY 4.0 36 Near-Optimal Scalable Piecewise Regression Trees 
+
+• Walmart : contains holiday indicator, temperature, fuel price, consumer price index (CPI), and unemployment rate; the prediction target is weekly sales . License: CC0: Public Domain  
+
+> Table 3. Dataset statistics and feature dimensionality after binarization. “20-threshold” denotes binarization using 20 uniform thresholds per continuous feature. “Full” denotes full enumeration of all possible split thresholds when computationally feasible.
+
+Dataset #Rows Original #Features #Binary #Continuous #Features (20-threshold) #Features (full) 
+
+Small / Medium-scale datasets 
+
+Airfoil 1503 5 0 5 64 158 Auction 2043 7 2 5 31 47 Auto MPG 392 7 0 7 98 629 Energy (Cooling) 768 8 1 7 43 43 Energy (Heating) 768 8 1 7 43 43 Insurance 1338 9 6 3 51 604 Optical Net 640 7 1 6 93 2553 Real Estate 414 6 0 6 101 978 Servo 167 2 0 2 7 7Synch 557 4 0 4 80 405 Yacht 308 6 0 6 58 58 
+
+Large-scale datasets (full binarization infeasible) 
+
+California Housing 20433 13 5 8 165 –Temperature (Max) 7590 21 0 21 359 –Temperature (Min) 7590 21 0 21 359 –Seoul Bike 8760 9 0 9 131 –Walmart 6435 5 1 4 81 –
+
+D.2. Data Preprocessing 
+
+Across all datasets, we preserve the original feature names and place the prediction target in the last column of each CSV. We do not apply a unified strategy to standardize or normalize feature values unless necessary. Below we list only the required preprocessing steps; datasets not mentioned require no additional preprocessing. • Auction: We drop the categorical verification label verification.result and keep seven numeric inputs ( pro-cess.b1–b4.capacity , property.price , property.product , property.winner ). • Auto MPG: We remove rows with missing horsepower (∼1.5% of rows). All seven numeric predictors are kept in the continuous split. • Energy (Heating): We use predictors X1–X8 and drop Y 2.• Energy (Cooling): We use predictors X1–X8 and drop Y 1.• Insurance: For experiments that include categorical signals we use 0/1 encodings for sex and smoker and full one-hot encoding for region .• Optical Net: The raw file is semicolon-separated with commas as decimal points; we standardize decimals, drop 
+
+Spatial Distribution , Temporal Distribution , and any unnamed columns, and retain the remaining seven continuous predictors. • Servo: We remove the categorical columns motor and screw .• Synch: The raw file uses semicolons and comma decimals; we normalize decimals to dots and cast to float. Based on the dataset notes, we rescale Iy by a factor of 10 to correct its magnitude. 37 Near-Optimal Scalable Piecewise Regression Trees 
+
+• California Housing: We remove missing entries in total bedrooms and apply full one-hot encoding to the categorical variable ocean proximity , resulting in five binary indicators. All remaining attributes are treated as continuous predictors, and the target variable is median house value .• Temperature (Max): We remove station identifiers and date information and retain meteorological forecasts, present-day maximum and minimum temperatures, and geographical variables as continuous predictors. Samples with missing values are discarded. The regression target is Next Tmax .• Temperature (Min): We remove station identifiers and date information and retain meteorological forecasts, present-day maximum and minimum temperatures, and geographical variables as continuous predictors. Samples with missing values are discarded. The regression target is Next Tmin .• Seoul Bike: We remove calendar attributes and categorical indicators ( Date , Seasons , Holiday , Functional Day ) and retain hourly meteorological variables as continuous predictors. The hour-of-day variable is treated as numeric, and the regression target is Rented Bike Count .• Walmart: We remove store identifiers and calendar variables, retaining only numeric economic and environmental predictors. The binary variable Holiday Flag is kept as a 0/1 indicator, while temperature, fuel price, CPI, and unemployment rate are treated as continuous features. The regression target is Weekly Sales .
+
+D.3. Synthetic Data Generating Process 
+
+We generate a synthetic regression dataset to test the speedup of CLARITree relative to the implementation without the rank-one Cholesky update, with a piecewise-linear structure. For i = 1 , . . . , n , covariates are sampled as 
+
+xi ∼ N (0, Σ), Σ ∈ Rk×k, Σjr = ρ|j−r|, 1 ≤ j, r ≤ k. 
+
+Samples are assigned to G latent groups using the first coordinate. Let q1, . . . , q G−1 denote the empirical (ℓ/G )-quantiles of {xi1}ni=1 , and define 
+
+gi =
+
+> G−1
+
+X
+
+> ℓ=1
+
+1{xi1 > q ℓ}, gi ∈ { 0, . . . , G − 1}.
+
+Each group g is associated with a distinct regression coefficient vector β(g) ∈ Rk given by 
+
+β(g) = sg d ⊙ ξ(g), ξ(g) ∼ N (0, Ik), d ∈ Rk,
+
+where the r-th entry of d is dr = exp 
+
+
+
+− 2 r−1
+
+> k−1
+
+
+
+, sg = 1 + 0 .5g. The response is generated according to 
+
+yi = x⊤ 
+
+> i
+
+β(gi) + εi, εi ∼ N (0 , σ 2).
+
+This construction induces correlated features, axis-aligned regime boundaries, and an exactly linear conditional mean within each regime. As a result, it provides a controlled setting in which different regression solvers operate on identical statistical problems, isolating computational effects without confounding modeling differences. 
+
+D.4. Experiment Platform 
+
+All experiments were conducted on a shared high-performance computing cluster. Each compute node is equipped with an Intel Xeon Gold 6226 CPU (2.7 GHz, 48 cores, 768 GB RAM). Unless otherwise noted, training and evaluation were performed using the CPU cores. All algorithms were executed in single-threaded mode. The time limitation is 600 seconds for all experiments. 
+
+D.5. Software Packages Generalized, Unbiased, Interaction Detection, and Estimation (GUIDE): 
+
+38 Near-Optimal Scalable Piecewise Regression Trees 
+
+We used the GUIDE executable binary guide.gz for Linux (compiled with gfortran 11.4.0 on Ubuntu 22.04 LTS, version 45.0). The executable was obtained from the official GUIDE website ( https://pages.stat.wisc.edu/ ˜loh/guide.html ). 
+
+Optimal Sparse Regression Tree (OSRT): We used the open-source implementation of OSRT (version 0.2.2), which is pub-licly available at https://github.com/ruizhang1996/optimal-sparse-regression-tree-public .
+
+Separable Trees with Dynamic Programming (STreeD): We used the open-source implementation of STreeD (version 1.3.7), which is publicly available at https://github.com/AlgTUDelft/pystreed . In our experiments, we removed the default constraint on the minimum number of instances per leaf. The original implementation enforces that each leaf must contain at least five times the number of features, which can lead to suboptimal performance on some datasets. We remove this restriction to ensure a fair comparison and to allow STreeD to achieve its best possible performance. 
+
+Fast Linear Model Trees by PILOT (PILOT): We used the open-source implementation of PILOT, which is publicly available at https://github.com/STAN-UAntwerp .
+
+Learning With Continuous Classes (M5): We used the open-source implementation of M5 (M5P), which is publicly available at https://smarie.github.io/python-m5p . The M5 algorithm performs an exhaustive threshold search at each node and selects splits based on impurity reduction computed using the target mean values rather than the linear regression error. Unlike STreeD, M5 does not provide explicit control over the number of candidate thresholds evaluated at each split. Consequently, M5 always considers the full set of possible thresholds during split selection. 39 Near-Optimal Scalable Piecewise Regression Trees 
+
+## E. Experimental Results 
+
+In this section, we present the complete set of experimental results for CLARITree across all datasets described in Section D. In addition to the main test performance results in Table 2, we also report the corresponding training R2 values in Table 4 for the configurations achieving the best test R2. To further study the impact of threshold binarization, we include results under three threshold settings: threshold = 5, threshold = 20, and the full-threshold setting. Finally, we report the training completion rates under the full-threshold setting in Figure 19. To avoid excessive space usage in the paper, for appendix figures on small- and medium-scale datasets we report results under both the full-threshold setting and the 20-threshold binarization setting. For large-scale datasets, only the 20-threshold results are shown, since even under the 20-threshold setting, optimal tree methods remain computationally intractable within the runtime budget. The 5-threshold setting is omitted from the figures because its behavior is qualitatively similar and does not substantially change the observed trends. In the appendix tables, however, we provide the complete results for all three threshold settings. For readability, all figures use “Greedy” to denote Greedy CholeskyTree. Since M5 does not rely on threshold binarization, its results are identical across different threshold settings. Therefore, we only report the M5 results together with the 20-threshold setting, which serves as our default experimental configuration. 
+
+E.1. Small / Medium-Scale Datasets Figure 
+
+40 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 5. Performance of CLARITree and baselines on Airfoil. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+41 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 6. Performance of CLARITree and baselines on Auction. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+42 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 7. Performance of CLARITree and baselines on Auto Mpg. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+43 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 8. Performance of CLARITree and baselines on Energy (Cooling). Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+44 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 9. Performance of CLARITree and baselines on Energy (Heating). Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+45 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 10. Performance of CLARITree and baselines on Insurance. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+46 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 11. Performance of CLARITree and baselines on Optical Net. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+47 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 12. Performance of CLARITree and baselines on Real Estate. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+48 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 13. Performance of CLARITree and baselines on Servo. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. Note that Servo is an extremely small dataset with only a limited number of unique feature values (at most 7 per feature), leading to unusually high variance across splits; therefore, the results should not be over-interpreted. 
+
+49 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 14. Performance of CLARITree and baselines on Synch. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. Note that Synch can be fitted extremely well using only a single-feature regression. STreeD relies on iterative optimization for node-wise regularized regression, which can be numerically unstable, whereas STreeD-S reduces each split to a one-dimensional ridge regression with a stable closed-form solution. 
+
+50 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 15. Performance of CLARITree and baselines on Yacht. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+51 Near-Optimal Scalable Piecewise Regression Trees 
+
+E.2. Large-Scale Datasets Figure 
+
+Figure 16. Performance of CLARITree and baselines on California Housing. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+52 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 17. Performance of CLARITree and baselines on Temperature (Max) and Temperature (Min). Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+53 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 18. Performance of CLARITree and baselines on Seoul Bike and Walmart. Each trained with a maximum tree depth of 4. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+54 Near-Optimal Scalable Piecewise Regression Trees 
+
+Table 4. In-sample performance comparison of piecewise linear regression tree methods (Depth = 4, Thresholds = 20). We report Train 
+
+R2 (mean ± std) for each dataset; the corresponding Train MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD STreeD-S GUIDE CholeskyTree PILOT M5 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.93 ± 0.01 (1.00) 0.93 ± 0.00 (1.00) 0.81 ± 0.00 (2.71) 0.89 ± 0.02 (1.57) 0.92 ± 0.01 (1.14) 0.52 ± 0.02 (6.86) 0.60 ± 0.01 (5.71) Auction 0.95 ± 0.00 (1.00) 0.95 ± 0.00 (1.00) 0.94 ± 0.00 (1.20) 0.94 ± 0.00 (1.20) 0.93 ± 0.01 (1.40) 0.87 ± 0.01 (2.60) 0.89 ± 0.00 (2.20) Auto MPG 0.90 ± 0.01 (1.00) 0.87 ± 0.01 (1.30) 0.84 ± 0.02 (1.60) 0.87 ± 0.01 (1.30) 0.89 ± 0.01 (1.10) 0.81 ± 0.01 (1.90) 0.90 ± 0.01 (1.00) 
+
+Energy (Cooling) 0.97 ± 0.00 (1.00) 0.97 ± 0.00 (1.00) 0.98 ± 0.00 (0.67) 0.97 ± 0.00 (1.00) 0.97 ± 0.00 (1.00) 0.89 ± 0.01 (3.67) 0.95 ± 0.00 (1.67) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.92 ± 0.00 0.98 ± 0.00 Insurance 0.87 ± 0.01 (1.00) 0.87 ± 0.01 (1.00) 0.86 ± 0.01 (1.08) 0.87 ± 0.01 (1.00) 0.87 ± 0.01 (1.00) 0.84 ± 0.01 (1.23) 0.86 ± 0.01 (1.08) Optical Net 0.97 ± 0.00 (1.00) 0.96 ± 0.00 (1.33) 0.92 ± 0.01 (2.67) 0.87 ± 0.01 (4.33) 0.95 ± 0.00 (1.67) 0.77 ± 0.03 (7.67) 0.83 ± 0.02 (5.67) Real Estate 0.68 ± 0.02 (1.00) 0.68 ± 0.02 (1.00) 0.59 ± 0.02 (1.28) 0.64 ± 0.06 (1.13) 0.68 ± 0.02 (1.00) 0.57 ± 0.02 (1.34) 0.59 ± 0.01 (1.28) Servo 0.60 ± 0.02 (1.00) 0.61 ± 0.02 (0.97) 0.62 ± 0.03 (0.95) 0.62 ± 0.03 (0.95) 0.60 ± 0.02 (1.00) 0.59 ± 0.02 (1.02) 0.59 ± 0.02 (1.02) Synch 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 
+
+Yacht 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.87 ± 0.01 0.99 ± 0.00 
+
+Large-scale datasets 
+
+California Housing 0.77 ± 0.00 (1.00) 0.71 ± 0.00 (1.26)* 0.66 ± 0.00 (1.48)* 0.74 ± 0.00 (1.13) 0.74 ± 0.00 (1.13) 0.65 ± 0.00 (1.52) 0.61 ± 0.00 (1.70) Seoul Bike 0.73 ± 0.00 (1.00) 0.70 ± 0.01 (1.11)* 0.65 ± 0.01 (1.30)* 0.72 ± 0.01 (1.04) 0.73 ± 0.01 (1.00) 0.54 ± 0.00 (1.70) 0.62 ± 0.01 (1.41) Temperature (Max) 0.90 ± 0.00 (1.00) 0.83 ± 0.02 (1.70)* 0.76 ± 0.00 (2.40)* 0.86 ± 0.00 (1.40) 0.86 ± 0.00 (1.40) 0.79 ± 0.01 (2.10) 0.74 ± 0.00 (2.60) Temperature (Min) 0.92 ± 0.00 (1.00) 0.86 ± 0.00 (1.75)* 0.83 ± 0.00 (2.13)* 0.85 ± 0.00 (1.88) 0.90 ± 0.00 (1.25) 0.84 ± 0.01 (2.00) 0.80 ± 0.00 (2.50) Walmart 0.26 ± 0.00 (1.00) 0.26 ± 0.01 (1.00)* 0.21 ± 0.01 (1.07)* 0.21 ± 0.01 (1.07) 0.22 ± 0.00 (1.05) 0.02 ± 0.00 (1.32) 0.13 ± 0.01 (1.18) 
+
+E.3. Tables 
+
+In this section, we report the training R2 results corresponding to the test R2 in Table 2 from the main paper and additionally provide both training and test R2 results for experiments using full threshold enumeration. 55 Near-Optimal Scalable Piecewise Regression Trees 
+
+Table 5. Out-of-sample performance comparison of piecewise linear regression tree methods (Depth = 4, Thresholds = 5). We report Test R2 (mean ± std) for each dataset; the corresponding Test MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD STreeD-S GUIDE CholeskyTree PILOT 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.89 ± 0.01 (1.00) 0.89 ± 0.01 (1.00) 0.74 ± 0.01 (2.36) 0.84 ± 0.04 (1.45) 0.89 ± 0.01 (1.00) 0.47 ± 0.04 (4.82) Auction 0.92 ± 0.03 (1.00) 0.92 ± 0.03 (1.00) 0.92 ± 0.03 (1.00) 0.93 ± 0.01 (0.87) 0.92 ± 0.03 (1.00) 0.86 ± 0.03 (1.75) Auto MPG 0.85 ± 0.03 (1.00) 0.85 ± 0.04 (1.00) 0.82 ± 0.06 (1.20) 0.84 ± 0.04 (1.07) 0.85 ± 0.04 (1.00) 0.80 ± 0.03 (1.33) Energy (Cooling) 0.97 ± 0.01 (1.00) 0.97 ± 0.00 (1.00) 0.97 ± 0.01 (1.00) -2.1e2 ± 4.4e2 (7.2e3) 0.97 ± 0.00 (1.00) 0.89 ± 0.02 (3.67) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.92 ± 0.02 Insurance 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00) 0.85 ± 0.04 (1.07) 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00) 0.83 ± 0.04 (1.21) Optical Net 0.90 ± 0.02 (1.00) 0.90 ± 0.03 (1.00) 0.83 ± 0.03 (1.70) 0.80 ± 0.10 (2.00) 0.91 ± 0.02 (0.90) 0.71 ± 0.17 (2.90) Real Estate 0.65 ± 0.09 (1.00) 0.65 ± 0.09 (1.00) 0.56 ± 0.10 (1.26) 0.62 ± 0.05 (1.09) 0.65 ± 0.09 (1.00) 0.55 ± 0.07 (1.29) Servo 0.51 ± 0.12 (1.00) 0.51 ± 0.14 (1.00) 0.48 ± 0.20 (1.06) 0.49 ± 0.20 (1.04) 0.51 ± 0.12 (1.00) 0.52 ± 0.11 (0.98) 
+
+Synch 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 
+
+Yacht 1.00 ± 0.00 1.00 ± 0.00 0.99 ± 0.00 0.99 ± 0.00 1.00 ± 0.00 0.70 ± 0.05 
+
+Large-scale datasets 
+
+California Housing 0.75 ± 0.01 (1.00) 0.73 ± 0.01 (1.08)* 0.67 ± 0.01 (1.32)* 0.73 ± 0.02 (1.08) 0.72 ± 0.01 (1.12) 0.65 ± 0.01 (1.40) Seoul Bike 0.71 ± 0.02 (1.00) 0.70 ± 0.03 (1.03) 0.67 ± 0.03 (1.14) 0.67 ± 0.02 (1.14) 0.70 ± 0.03 (1.03) 0.54 ± 0.01 (1.59) Temperature (Max) 0.87 ± 0.02 (1.00) 0.83 ± 0.02 (1.31)* 0.76 ± 0.01 (1.85)* 0.83 ± 0.01 (1.31) 0.84 ± 0.01 (1.23) 0.78 ± 0.01 (1.69) Temperature (Min) 0.90 ± 0.01 (1.00) 0.87 ± 0.01 (1.30)* 0.85 ± 0.01 (1.50)* 0.85 ± 0.01 (1.50) 0.88 ± 0.00 (1.20) 0.83 ± 0.01 (1.70) Walmart 0.17 ± 0.02 (1.00) 0.18 ± 0.02 (0.99) 0.13 ± 0.02 (1.05) 0.16 ± 0.02 (1.01) 0.16 ± 0.02 (1.01) 0.02 ± 0.01 (1.18) 
+
+Table 6. In-sample performance comparison of piecewise linear regression tree methods (Depth = 4, Thresholds = 5). We report Train 
+
+R2 (mean ± std) for each dataset; the corresponding Train MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD STreeD-S GUIDE CholeskyTree PILOT 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.92 ± 0.00 (1.00) 0.92 ± 0.01 (1.00) 0.79 ± 0.00 (2.63) 0.89 ± 0.02 (1.38) 0.91 ± 0.01 (1.13) 0.49 ± 0.02 (6.38) Auction 0.93 ± 0.00 (1.00) 0.93 ± 0.01 (1.00) 0.93 ± 0.01 (1.00) 0.94 ± 0.00 (0.86) 0.93 ± 0.01 (1.00) 0.87 ± 0.01 (1.86) Auto MPG 0.89 ± 0.01 (1.00) 0.91 ± 0.01 (0.82) 0.90 ± 0.01 (0.91) 0.87 ± 0.01 (1.18) 0.88 ± 0.02 (1.09) 0.81 ± 0.01 (1.73) Energy (Cooling) 0.97 ± 0.00 (1.00) 0.98 ± 0.00 (0.67) 0.98 ± 0.00 (0.67) 0.97 ± 0.00 (1.00) 0.97 ± 0.00 (1.00) 0.89 ± 0.01 (3.67) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.92 ± 0.00 Insurance 0.86 ± 0.01 (1.00) 0.86 ± 0.01 (1.00) 0.85 ± 0.01 (1.07) 0.87 ± 0.01 (0.93) 0.87 ± 0.01 (0.93) 0.84 ± 0.01 (1.14) Optical Net 0.95 ± 0.00 (1.00) 0.95 ± 0.01 (1.00) 0.91 ± 0.01 (1.80) 0.87 ± 0.01 (2.60) 0.95 ± 0.00 (1.00) 0.77 ± 0.03 (4.60) Real Estate 0.68 ± 0.02 (1.00) 0.68 ± 0.02 (1.00) 0.59 ± 0.02 (1.28) 0.65 ± 0.06 (1.09) 0.68 ± 0.02 (1.00) 0.57 ± 0.02 (1.34) Servo 0.60 ± 0.02 (1.00) 0.61 ± 0.02 (0.97) 0.62 ± 0.03 (0.95) 0.62 ± 0.03 (0.95) 0.60 ± 0.02 (1.00) 0.59 ± 0.02 (1.02) Synch 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 
+
+Yacht 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.70 ± 0.08 
+
+Large-scale datasets 
+
+California Housing 0.76 ± 0.00 (1.00) 0.74 ± 0.00 (1.08)* 0.67 ± 0.00 (1.37)* 0.74 ± 0.01 (1.08) 0.73 ± 0.00 (1.13) 0.65 ± 0.00 (1.46) Seoul Bike 0.73 ± 0.01 (1.00) 0.73 ± 0.01 (1.00) 0.69 ± 0.02 (1.15) 0.70 ± 0.01 (1.11) 0.73 ± 0.01 (1.00) 0.54 ± 0.00 (1.70) Temperature (Max) 0.90 ± 0.00 (1.00) 0.85 ± 0.00 (1.50)* 0.77 ± 0.00 (2.30)* 0.84 ± 0.00 (1.60) 0.87 ± 0.01 (1.30) 0.79 ± 0.00 (2.10) Temperature (Min) 0.91 ± 0.00 (1.00) 0.88 ± 0.00 (1.33)* 0.85 ± 0.00 (1.67)* 0.85 ± 0.00 (1.67) 0.89 ± 0.00 (1.22) 0.83 ± 0.00 (1.89) Walmart 0.21 ± 0.00 (1.00) 0.22 ± 0.00 (0.99) 0.16 ± 0.00 (1.06) 0.19 ± 0.00 (1.03) 0.18 ± 0.02 (1.04) 0.02 ± 0.00 (1.24) 
+
+56 Near-Optimal Scalable Piecewise Regression Trees 
+
+Table 7. Out-of-sample performance comparison of piecewise linear regression tree methods (Depth = 4, Thresholds = Full). We report Test R2 (mean ± std) for each dataset; the corresponding Test MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD STreeD-S GUIDE CholeskyTree PILOT 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.89 ± 0.01 (1.00) 0.89 ± 0.02 (1.00)* 0.76 ± 0.03 (2.18)* 0.84 ± 0.04 (1.45) 0.87 ± 0.02 (1.18) 0.70 ± 0.03 (2.73) Auction 0.95 ± 0.01 (1.00) 0.94 ± 0.02 (1.20) 0.95 ± 0.01 (1.00) 0.93 ± 0.01 (1.40) 0.95 ± 0.01 (1.00) 0.88 ± 0.02 (2.40) Auto MPG 0.84 ± 0.03 (1.00) 0.86 ± 0.04 (0.87)* 0.82 ± 0.06 (1.12)* 0.84 ± 0.03 (1.00) 0.84 ± 0.03 (1.00) 0.85 ± 0.02 (0.94) Energy (Cooling) 0.97 ± 0.01 (1.00) 0.97 ± 0.00 (1.00) 0.97 ± 0.01 (1.00) 0.97 ± 0.01 (1.00) 0.97 ± 0.00 (1.00) 0.95 ± 0.01 (1.67) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.96 ± 0.01 Insurance 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00)* 0.85 ± 0.04 (1.07)* 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00) 0.86 ± 0.03 (1.00) 
+
+Optical Net 0.93 ± 0.03 (1.00) 0.89 ± 0.04 (1.57)* 0.79 ± 0.08 (3.00)* 0.80 ± 0.10 (2.86) 0.91 ± 0.04 (1.29) 0.86 ± 0.03 (2.00) Real Estate 0.62 ± 0.08 (1.00) 0.62 ± 0.00 (1.00)* 0.52 ± 0.10 (1.26)* 0.61 ± 0.06 (1.03) 0.65 ± 0.09 (0.92) 0.65 ± 0.09 (0.92) 
+
+Servo 0.51 ± 0.12 (1.00) 0.51 ± 0.14 (1.00) 0.48 ± 0.20 (1.06) 0.49 ± 0.20 (1.04) 0.51 ± 0.12 (1.00) 0.52 ± 0.10 (0.98) 
+
+Synch 1.00 ± 0.00 1.00 ± 0.00* 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 
+
+Yacht 1.00 ± 0.00 1.00 ± 0.00 0.99 ± 0.01 1.00 ± 0.00 1.00 ± 0.00 0.99 ± 0.01 
+
+Table 8. In-sample performance comparison of piecewise linear regression tree methods (Depth = 4, Thresholds = Full). We report Train 
+
+R2 (mean ± std) for each dataset; the corresponding Train MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD STreeD-S GUIDE CholeskyTree PILOT 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.93 ± 0.00 (1.00) 0.93 ± 0.00 (1.00)* 0.81 ± 0.00 (2.71)* 0.88 ± 0.01 (1.71) 0.92 ± 0.01 (1.14) 0.73 ± 0.02 (3.86) Auction 0.95 ± 0.01 (1.00) 0.96 ± 0.00 (0.80) 0.96 ± 0.00 (0.80) 0.94 ± 0.00 (1.20) 0.95 ± 0.01 (1.00) 0.90 ± 0.01 (2.00) Auto MPG 0.90 ± 0.01 (1.00) 0.87 ± 0.01 (1.30)* 0.92 ± 0.00 (0.80)* 0.88 ± 0.01 (1.20) 0.91 ± 0.01 (0.90) 0.87 ± 0.01 (1.30) Energy (Cooling) 0.97 ± 0.00 (1.00) 0.97 ± 0.00 (1.00) 0.98 ± 0.00 (0.67) 0.97 ± 0.00 (1.00) 0.97 ± 0.00 (1.00) 0.95 ± 0.00 (1.67) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.96 ± 0.00 Insurance 0.87 ± 0.01 (1.00) 0.87 ± 0.01 (1.00)* 0.86 ± 0.01 (1.08)* 0.87 ± 0.01 (1.00) 0.87 ± 0.01 (1.00) 0.87 ± 0.01 (1.00) 
+
+Optical Net 0.97 ± 0.00 (1.00) 0.95 ± 0.01 (1.67)* 0.89 ± 0.01 (3.67)* 0.88 ± 0.01 (4.00) 0.95 ± 0.00 (1.67) 0.92 ± 0.00 (2.67) Real Estate 0.73 ± 0.01 (1.00) 0.69 ± 0.00 (1.15)* 0.60 ± 0.02 (1.48)* 0.64 ± 0.06 (1.33) 0.69 ± 0.02 (1.15) 0.70 ± 0.02 (1.11) Servo 0.60 ± 0.02 (1.00) 0.61 ± 0.02 (0.97) 0.62 ± 0.03 (0.95) 0.62 ± 0.03 (0.95) 0.60 ± 0.02 (1.00) 0.60 ± 0.02 (1.00) Synch 1.00 ± 0.00 1.00 ± 0.00* 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 
+
+Yacht 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.99 ± 0.00 
+
+57 Near-Optimal Scalable Piecewise Regression Trees 10 4 10 3 10 2 10 1 10 0 10 1 10 2 10 3
+
+Training Time (s) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Completion Rate (%)
+
+Training Completion Rate Across All Datasets 
+
+> CLARITree (Ours)
+> STreeD (Optimal)
+> Time Limit (600s)
+
+Figure 19. Training completion rate under a 10-minute budget. Empirical completion curves aggregated across all small/medium-scale datasets. The dashed vertical line marks the 600 s time limit used in our default protocol. 
+
+E.4. Completion Ratio 
+
+In this section, we report the completion ratio for methods using full thresholds, focusing on small- and medium-scale datasets. Even in this regime, we observe that STreeD completes only about 60% of the runs, indicating substantial computational limitations when full threshold enumeration is employed. 58 Near-Optimal Scalable Piecewise Regression Trees 
+
+## F. Special Case: Constant-Leaf Variant of CLARITree 
+
+In this section, we study a special case of CLARITree in which each leaf is an intercept-only regressor (a constant-leaf tree). Throughout this section, we refer to this variant as CLARITreeConst. We present the full algorithm and provide a theoretical runtime analysis, along with extensive experimental results demonstrating that CLARITreeConst remains competitive in the constant-leaf regime. Finally, we provide insights into extending CLARITreeConst to multi-step lookahead, following the general paradigm of (Babbar et al., 2025). 
+
+F.1. Framework 
+
+In a constant regression tree, each leaf predicts a constant. For constant leaves , the optimal value minimizing the squared loss is given by the sample mean: 
+
+by(t) = arg min 
+
+> c
+
+X
+
+> (xi,y i)∈t
+
+(yi − c)2 = 1
+
+|t|
+
+X
+
+> (xi,y i)∈t
+
+yi. (6) This corresponds to the intercept-only special case of our leaf model, hence no coefficient regularization is needed. 
+
+F.2. Full Algorithm 
+
+We present the full algorithm for CLARIT REE CONST . Its overall structure is identical to that of Algorithm 5; the only difference is that we no longer maintain a Gram matrix, so rank-one Cholesky updates are no longer necessary. The complete algorithm is summarized in Algorithm 15. Most subroutines are shared with CLARITree and are provided in Section C. 
+
+F.3. Theoretical Analysis 
+
+We also provide the runtime complexity of CLARITreeConst. After a one-time global presort of all k features in O(kn log n),evaluating every threshold of a feature costs O(n) by prefix updates. Hence: 
+
+Theorem F.1 (Runtime of CLARITreeConst) . Including a one-time presort of all features, the runtime is 
+
+O  kn log n + d2nk 2T  .
+
+We also show that there exist data distributions for which the ratio of the MSE between Greedy and CLARITreeConst can be made arbitrarily large. 
+
+Theorem F.2 (Arbitrary MSE Gap between CLARITreeConst and Greedy) . For every depth budget d ≥ 2, there exist data distributions such that MSE Greedy 
+
+MSE CLARITreeConst 
+
+≥ 12ε .
+
+59 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 15 CLARITreeConst : Constant-Leaf Variant of CLARITree 
+
+Require: node data DI = {(xi, y i)}i∈I ; node-wise sorted index lists ΠI = {πf (I)}f ∈F ; feature set F; leaf penalty λ;maximum depth d; precomputed global sorted index lists πf for each f ∈ F 
+
+Ensure: constant-regressor tree T ∗ and its objective O BJ 
+
+1: by ← Mean (yI )
+
+2: OBJ init ← MSELoss (yI , by) + λ
+
+3: if d = 0 then 
+
+4: return Leaf (by, OBJ init ), OBJ init 
+
+5: end if 
+
+6: OBJ ∗ ← ∞ 
+
+7: f ∗, τ ∗ ← None 
+
+8: for each feature f ∈ F do 
+
+9: for each threshold τ in unique values of f (consistent with πf (I)) do 
+
+10: IL, IR ← PartitionIndices (Π I , f, τ ) ▷ IL obtained from sorted indices; IR = I \ I L
+
+11: ΠIL , ΠIR ← SplitSortedIndices (Π I , IL)
+
+12: DIL , D IR ← RestrictData (DI , IL) ▷ views via indices 
+
+13: byL ← Mean (yIL )
+
+14: byR ← Mean (yIR )
+
+15: OBJ LEAF L ← MSELoss (yIL , byL) + λ
+
+16: OBJ LEAF R ← MSELoss (yIR , byR) + λ
+
+17: TL, OBJ L ← GreedyConst (byL, D IL , ΠIL , F, λ, d, d ′ + 1 , π f , OBJ LEAF L)
+
+18: TR, OBJ R ← GreedyConst (byR, D IR , ΠIR , F, λ, d − 1, π f , OBJ LEAF R)
+
+19: OBJ split ← OBJ L + OBJ R
+
+20: if OBJ split < OBJ ∗ then 
+
+21: OBJ ∗ ← OBJ split 
+
+22: f ∗ ← f, τ ∗ ← τ
+
+23: (Π best L , Ibest L ) ← (Π IL , IL)
+
+24: (Π best R , Ibest R ) ← (Π IR , IR)
+
+25: end if 
+
+26: end for 
+
+27: end for 
+
+28: if f ∗̸ = None then ▷ A feasible split was selected 
+
+29: DIbest L , D Ibest R ← RestrictData (DI , Ibest L )
+
+30: TL, OBJ L ← CLARITreeConst (DIbest L , Πbest L , F, λ, d − 1, π f )
+
+31: TR, OBJ R ← CLARITreeConst (DIbest R , Πbest R , F, λ, d − 1, π f )
+
+32: OBJ f inal ← OBJ L + OBJ R
+
+33: if OBJ f inal < OBJ init then 
+
+34: return Node (f ∗, τ ∗, T L, T R), OBJ f inal 
+
+35: else 
+
+36: return Leaf (by, OBJ init ), OBJ init 
+
+37: end if 
+
+38: else 
+
+39: return Leaf (by, OBJ init ), OBJ init 
+
+40: end if 
+
+60 Near-Optimal Scalable Piecewise Regression Trees 
+
+F.4. Further Comparisons With Other Methods for Constant-Leaf Regression 
+
+Here, we evaluate CLARITreeConst and the baselines on all the datasets. All datasets were evaluated across five 80-20 train-test splits, with the average and standard deviation reported. All datasets were evaluated across 20-thresholds for continuous features. For other methods, we also use their constant-regression versions for a fair comparison. Generally, we reduced the structural complexity penalty across all datasets to achieve a wider range of sparsity (from 1 to 32 leaves). All specific parameter settings are provided in the supplementary code package. We also show the Out-of-sample performance comparison for constant-regressor tree baselines at Depth = 5. We report Test R2 and Train R2 (mean ± std) for each dataset in Table 9, Table 10.     
+
+> Figure 20. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 1). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ±1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes.
+
+Small / Medium-Scale Datasets 
+
+61 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 21. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 2). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+62 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 22. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 3). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+63 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 23. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 4). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+64 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 24. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 5). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+65 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 25. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 6). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+66 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 26. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 1). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. Dashed lines and hollow markers indicate runs that hit the prescribed time limit. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+Large-Scale Datasets 
+
+67 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 27. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 2). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. Dashed lines and hollow markers indicate runs that hit the prescribed time limit. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+68 Near-Optimal Scalable Piecewise Regression Trees 
+
+Figure 28. Performance of constant regression variant of CLARITree and baselines on additional datasets (part 3). Each trained with a maximum tree depth of 5. Results averaged over five random 80/20 splits, with error bars showing ± 1 standard deviation. The dashed vertical line in the top row denotes the default time limit of 10 minutes. 
+
+69 Near-Optimal Scalable Piecewise Regression Trees 
+
+Table 9. Out-of-sample performance comparison of constant regression tree methods (Depth = 5, Thresholds = 20). We report Test R2
+
+(mean ± std) for each dataset; the corresponding Test MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD GUIDE CholeskyTree CART 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.67 ± 0.01 (1.00) 0.70 ± 0.02 (0.91) 0.61 ± 0.05 (1.18) 0.61 ± 0.03 (1.18) 0.61 ± 0.03 (1.18) Auction 0.92 ± 0.03 (1.00) 0.93 ± 0.03 (0.87) 0.90 ± 0.02 (1.25) 0.92 ± 0.03 (1.00) 0.92 ± 0.03 (1.00) Auto MPG 0.77 ± 0.04 (1.00) 0.80 ± 0.09 (0.87) 0.81 ± 0.04 (0.83) 0.81 ± 0.05 (0.83) 0.82 ± 0.04 (0.78) 
+
+Energy (Cooling) 0.96 ± 0.01 (1.00) 0.97 ± 0.00 (0.75) 0.96 ± 0.01 (1.00) 0.96 ± 0.01 (1.00) 0.96 ± 0.01 (1.00) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 0.98 ± 0.00 0.99 ± 0.00 0.99 ± 0.00 Insurance 0.84 ± 0.04 (1.00) 0.84 ± 0.04 (1.00) 0.85 ± 0.03 (0.94) 0.84 ± 0.04 (1.00) 0.84 ± 0.04 (1.00) Optical Net 0.84 ± 0.02 (1.00) 0.81 ± 0.02 (1.19) 0.76 ± 0.07 (1.50) 0.77 ± 0.07 (1.44) 0.76 ± 0.05 (1.50) Real Estate 0.50 ± 0.08 (1.00) 0.50 ± 0.08 (1.00) 0.59 ± 0.08 (0.82) 0.53 ± 0.04 (0.94) 0.34 ± 0.50 (1.32) Servo 0.52 ± 0.11 (1.00) 0.52 ± 0.11 (1.00) 0.52 ± 0.11 (1.00) 0.52 ± 0.11 (1.00) 0.46 ± 0.20 (1.13) Synch 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.98 ± 0.00 Yacht 0.99 ± 0.01 (1.00) 0.99 ± 0.00 (1.00) 0.99 ± 0.01 (1.00) 0.99 ± 0.00 (1.00) 0.99 ± 0.00 (1.00) 
+
+Large-scale datasets 
+
+California Housing 0.64 ± 0.01 (1.00) 0.61 ± 0.01 (1.08)* 0.62 ± 0.01 (1.06) 0.62 ± 0.01 (1.06) 0.62 ± 0.01 (1.06) Seoul Bike 0.67 ± 0.02 (1.00) 0.68 ± 0.02 (0.97)* 0.62 ± 0.03 (1.15) 0.64 ± 0.02 (1.09) 0.63 ± 0.02 (1.12) Temperature (Max) 0.75 ± 0.00 (1.00) 0.73 ± 0.01 (1.08)* 0.73 ± 0.01 (1.08) 0.75 ± 0.01 (1.00) 0.75 ± 0.01 (1.00) Temperature (Min) 0.80 ± 0.01 (1.00) 0.79 ± 0.01 (1.05)* 0.80 ± 0.01 (1.00) 0.80 ± 0.01 (1.00) 0.80 ± 0.01 (1.00) 
+
+Walmart 0.18 ± 0.02 (1.00) 0.20 ± 0.01 (0.98) 0.11 ± 0.01 (1.09) 0.11 ± 0.01 (1.09) 0.11 ± 0.01 (1.09) 
+
+F.5. Multi-Step CLARITreeConst Formulating the Multi-Step CLARITreeConst optimization problem We formulate the Multi-Step CLARITreeConst construction as a recursive optimization problem solved via dynamic programming (Lin et al., 2020; McTavish et al., 2022), with a lookahead depth parameter dℓ < d . The algorithm explores all combinations of splits up to depth dℓ, with Greedy behavior beyond this depth. For a dataset D and the current depth d′, the objective is defined as: 
+
+L(D, d ′, d ℓ, d, λ ) = 
+
+
+
+Phase 1: Recursive split (prefix) 
+
+min   
+
+> f∈F , τ ∈R
+
+n
+
+λ + LEAF (D), L(Df ≤τ , d ′ + 1 , d ℓ, d, λ ) + L(Df >τ , d ′ + 1 , d ℓ, d, λ )
+
+o
+
+, if d′ < d ℓ,
+
+Phase 2: Greedy completion (suffix) 
+
+min   
+
+> f∈F , τ ∈R
+
+n
+
+λ + LEAF (D), Lg (Df ≤τ , d − d′, λ ) + Lg (Df >τ , d − d′, λ )
+
+o
+
+, if d′ = dℓ,
+
+(7) where Df ≤τ and Df >τ denote the partitions induced by thresholding feature f at value τ , Lg (D, d − d′, λ ) is the loss of a Greedy of depth d − d′ built on dataset D, and LEAF (D) denotes the loss from fitting a constant predictor directly on D.The overall objective L∗(D, d, λ ) in (2) is approximated by L(D, 0, d ℓ, d, λ ).F.5.1. M ULTI -S TEP CLARIT REE CONST FULL ALGORITHM 
+
+We now present the Multi-Step CLARITreeConst Full Algorithm summarized in Algorithm 16. For simplicity of implemen-tation, our implementation builds upon OSRT (Zhang et al., 2023), which provides an optimal solver for constant regression trees. 70 Near-Optimal Scalable Piecewise Regression Trees 
+
+Table 10. In-sample performance comparison of constant regression tree methods (Depth = 5, Thresholds = 20). We report Train R2 (mean 
+
+± std) for each dataset; the corresponding Train MSE ratio (relative to CLARITree) is shown in parentheses. Best results per dataset are highlighted in bold, and the second-best results are underlined. An asterisk ( ∗) indicates that the selected configuration exceeded the training time limit (600s). 
+
+Dataset CLARITree STreeD GUIDE CholeskyTree CART 
+
+Small / Medium-scale datasets 
+
+Airfoil 0.77 ± 0.01 (1.00) 0.78 ± 0.00 (0.96) 0.67 ± 0.01 (1.43) 0.67 ± 0.02 (1.43) 0.67 ± 0.02 (1.43) Auction 0.94 ± 0.00 (1.00) 0.94 ± 0.00 (1.00) 0.90 ± 0.01 (1.67) 0.92 ± 0.01 (1.33) 0.92 ± 0.01 (1.33) Auto MPG 0.90 ± 0.00 (1.00) 0.93 ± 0.00 (0.70) 0.90 ± 0.01 (1.00) 0.92 ± 0.01 (0.80) 0.92 ± 0.01 (0.80) Energy (Cooling) 0.97 ± 0.00 (1.00) 0.98 ± 0.00 (0.67) 0.96 ± 0.00 (1.33) 0.96 ± 0.00 (1.33) 0.96 ± 0.00 (1.33) Energy (Heating) 1.00 ± 0.00 1.00 ± 0.00 0.98 ± 0.00 0.99 ± 0.00 0.99 ± 0.00 Insurance 0.85 ± 0.01 (1.00) 0.85 ± 0.01 (1.00) 0.87 ± 0.01 (0.87) 0.85 ± 0.01 (1.00) 0.88 ± 0.01 (0.80) 
+
+Optical Net 0.92 ± 0.00 (1.00) 0.91 ± 0.01 (1.13) 0.83 ± 0.03 (2.13) 0.87 ± 0.01 (1.63) 0.86 ± 0.01 (1.75) Real Estate 0.56 ± 0.05 (1.00) 0.56 ± 0.05 (1.00) 0.74 ± 0.03 (0.59) 0.55 ± 0.05 (1.02) 0.85 ± 0.01 (0.34) 
+
+Servo 0.59 ± 0.02 (1.00) 0.59 ± 0.02 (1.00) 0.59 ± 0.02 (1.00) 0.59 ± 0.02 (1.00) 0.60 ± 0.03 (0.98) 
+
+Synch 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 1.00 ± 0.00 0.98 ± 0.00 Yacht 0.99 ± 0.00 (1.00) 1.00 ± 0.00 (0.00) 1.00 ± 0.00 (0.00) 1.00 ± 0.00 (0.00) 1.00 ± 0.00 (0.00) 
+
+Large-scale datasets 
+
+California Housing 0.66 ± 0.01 (1.00) 0.62 ± 0.00 (1.12)* 0.63 ± 0.00 (1.09) 0.63 ± 0.00 (1.09) 0.63 ± 0.00 (1.09) Seoul Bike 0.69 ± 0.01 (1.00) 0.70 ± 0.01 (0.97)* 0.63 ± 0.02 (1.19) 0.66 ± 0.01 (1.10) 0.66 ± 0.01 (1.10) Temperature (Max) 0.78 ± 0.00 (1.00) 0.74 ± 0.00 (1.18)* 0.75 ± 0.00 (1.14) 0.76 ± 0.00 (1.09) 0.76 ± 0.00 (1.09) Temperature (Min) 0.82 ± 0.00 (1.00) 0.80 ± 0.00 (1.11)* 0.81 ± 0.00 (1.06) 0.81 ± 0.00 (1.06) 0.81 ± 0.00 (1.06) Walmart 0.22 ± 0.01 (1.00) 0.24 ± 0.00 (0.97) 0.14 ± 0.00 (1.10) 0.14 ± 0.01 (1.10) 0.15 ± 0.01 (1.09) 
+
+Algorithm 16 MultiStepCLARITreeConst (ℓ, D, λ, d l, d, p )
+
+Require: ℓ, D, λ, d l, d, p {Loss function, samples, regularizer, lookahead depth, depth budget, postprocess flag }
+
+1: ModifiedOSRT ← OSRT from (Zhang et al., 2023) reconfigured to use G ET BOUNDS (Algorithm 17) 
+
+2: tlookahead ← ModifiedOSRT (ℓ, D, λ, d l) {Call ModifiedOSRT with depth budget dl}
+
+3: if p then {Fill in the leaves of this prefix }
+
+4: for leaf u ∈ tlookahead do 
+
+5: du ← depth of leaf 
+
+6: D(u) ← subproblem associated with u
+
+7: λu ← λ |D||D(u)| {Renormalize λ for the subproblem in question }
+
+8: tu ← OSRT (D(u), d − du, λ u) {Find the optimal regression subtree for D(u)}
+
+9: if tu is not a leaf then 
+
+10: Replace leaf u with subtree tu
+
+11: end if 
+
+12: end for 
+
+13: end if 
+
+14: return tlookahead 
+
+71 Near-Optimal Scalable Piecewise Regression Trees 
+
+Algorithm 17 GET BOUNDS (D, d l, d, d ′, N ) → lb, ub 
+
+Require: D, d l, d, d ′, N {Support, lookahead depth, current search depth, maximum search depth, size of full dataset in OSRT call }
+
+1: if d′ = dl then 
+
+2: Tg ← GREEDY CONST (D, d − dl, λ ) {Find greedy constant regression tree rooted at D}
+
+3: S(Tg ) ← number of leaves in Tg
+
+4: α ← 1
+
+> N
+
+P 
+
+> (x,y )∈D
+
+(y − Tg (x)) 2 + λS (Tg )
+
+5: lb ← α
+
+6: ub ← α {Subproblem solved because ub = lb }
+
+7: else 
+
+8: lb ← Algorithm 1 in (Zhang et al., 2023) {K-Means lower bound in OSRT }
+
+9: ub ← λ {Upper bound via constant predictor loss }
+
+10: end if 
+
+11: return lb, ub {Return lower and upper bounds }
+
+F.5.2. M ULTI -S TEP CLARIT REE CONST THEORETICAL ANALYSIS 
+
+In this section, we present the theoretical analysis of the runtime complexity, identify The optimal lookahead depth of Multi-Step CLARITreeConst. We provide a runtime analysis of the Multi-Step CLARITreeConst: 
+
+Theorem F.3 (Multi-Step CLARITreeConst) . For depth d and lookahead dℓ, the runtime is 
+
+O  n(d − dℓ)kdℓ+1 T dℓ + nk d−dℓ T d−dℓ−1 .
+
+If we cache repeated subproblems, the runtime reduces to O
+
+ n(d−dℓ)kdℓ+1 T dℓ−1 
+
+> dℓ!
+
++ nk d−dℓ T d−dℓ−1
+
+> (d−dℓ)!
+
+
+
+.
+
+Thus, Multi-Step CLARITreeConst exhibits a complexity that reflects a trade-off between the prefix exploration cost and the suffix regression cost; the minimum occurs when the two terms are balanced, as formalized in the following Theorem F.4. 
+
+Corollary F.4 (Optimal Lookahead Depth for Multi-Step CLARITreeConst) . For constant regression trees, the asymptoti-cally optimal lookahead depth is dℓ = d−12 , independent of caching. 
+
+Proofs are deferred to Section F.6. F.5.3. S IMPLE EXPERIMENTAL RESULTS 
+
+In this section, we use two medium-scale datasets to illustrate the experimental results of the multi-step CLARITreeConst method implemented on top of OSRT (Zhang et al., 2023). We also present representative slices to help illustrate the intuition behind Theorem F.4. While multi-step lookahead in regression trees is an interesting direction for future work, we do not pursue it further in this paper. This decision is motivated by the fact that even one-step lookahead has already been shown to be highly effective in regression settings. 72 Near-Optimal Scalable Piecewise Regression Trees 10 4   
+
+> 10 3
+> 10 2
+> 10 1
+> 0
+> 200
+> 400
+> 600
+> Train time (s)
+
+Train Time Vs     
+
+> 12345
+
+Lookahead depth 
+
+> 0
+> 100
+> 200
+> 300
+> 400
+> Train time (s)
+
+Train Time Vs Lookahead Depth ( =0.01)     
+
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> R2train
+
+Train R² Vs     
+
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> R2test
+
+Test R² Vs 
+
+Auction Dataset Multi-Step CLARITreeConst (Depth=6) 
+
+lookahead depth = 1 lookahead depth = 2 lookahead depth = 3 lookahead depth = 4 lookahead depth = 5 (OSRT) 
+
+Figure 29. Results of the Multi-Step CLARITreeConst framework across different lookahead depths (depth = 5). We report training time, training R2, and test R2 as functions of the regularization strength λ, along with a fixed λ = 0 .01 slice illustrating the dependence on lookahead depth. 10 4   
+
+> 10 3
+> 10 2
+> 10 1
+> 0
+> 200
+> 400
+> 600
+> Train time (s)
+
+Train Time Vs     
+
+> 12345
+
+Lookahead depth 
+
+> 0
+> 200
+> 400
+> 600
+> Train time (s)
+
+Train Time Vs Lookahead Depth ( =0.01)     
+
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> R2train
+
+Train R² Vs     
+
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> R2test
+
+Test R² Vs 
+
+Yacht Dataset Multi-Step CLARITreeConst (Depth=6) 
+
+lookahead depth = 1 lookahead depth = 2 lookahead depth = 3 lookahead depth = 4 lookahead depth = 5 (OSRT) 
+
+Figure 30. Results of the Multi-Step CLARITreeConst framework across different lookahead depths (depth = 5). We report training time, training R2, and test R2 as functions of the regularization strength λ, along with a fixed λ = 0 .01 slice illustrating the dependence on lookahead depth. Dashed lines indicate runs that hit the 600-second time limitation. 
+
+73 Near-Optimal Scalable Piecewise Regression Trees 
+
+F.6. Proof Details for Special Cases Runtime Analysis In a constant regression tree, each leaf prediction is given by the sample mean. Computing the mean requires the same order of operations as computing the majority class in classification, as both procedures involve enumerating all samples within the leaf. Hence, the computational complexity is O(n).As a result, for both CLARIT REE CONST and M ULTI -S TEP CLARIT REE CONST , the overall runtime complexity analysis is identical to that of standard decision trees. We can therefore directly rely on existing complexity results for decision trees established in the literature (Theorem 6.1, Corollary 6.2, and Theorem 6.4 of Babbar et al., 2025). 
+
+Accuracy Analysis Data Generating Process (DGP). Fix a depth budget d ≥ 2 and choose an integer U > 2d. Let the features be X = ( g, H, M ) ∈ { 0, 1}1+( d−1)+ U with independent coordinates Xi ∼ Ber( 12 ):
+
+g := X1, H := ( X2, . . . , X d), M := ( Xd+1 , . . . , X d+U ).
+
+Fix ε > 0. Define Y by the mixture 
+
+Y =
+
+(
+
+g ⊕ Maj( H), with probability 1 − ε, 
+
+Maj( M ), with probability ε, 
+
+where ⊕ is XOR and Maj( ·) is the majority function. Tie-breaking rule: whenever a majority tie occurs (e.g., |H| or U is even), break it with an independent fair coin, independent of (g, H, M ). This ensures E[Maj( H)] = E[Maj( M )] = 12 .
+
+Auxiliary Lemma Lemma F.5 (Conditional one-step reduction equals 4Cov 2). Let Y, X = ( g, H, M ) follows the definition in Section F.6 and 
+
+Xi ∈ { 0, 1} is the new feature plan to split. Fix a set of prefix coordinates MS := {Xj = xj : j ∈ S} and condition on it. By the independence, Pr( Xi = 1 | MS ) = Pr( Xi = 1) = 12 . Write pb := Pr( Y = 1 | X = b, M S ) and p := E[Y | MS ].Then the MSE reduction obtained by splitting on Xi at the node MS is 
+
+∆MSE (Xi | MS ) := Var( Y | MS ) − E  Var( Y | Xi, M S ) MS
+
+ = 4Cov( Y, X i | MS )2.
+
+Proof. By definition p = E[Y | MS ] = Pr( Y = 1 | MS ) = 12 (p0 + p1). Since Y ∈ { 0, 1}, we have 
+
+Var( Y | MS ) = p(1 − p) = 12 (p0 + p1) − 14 (p0 + p1)2.
+
+Moreover, using Pr( Xi = 1 | MS ) = 12 ,
+
+E  Var( Y | Xi, M S ) MS
+
+ = 12
+
+ p0(1 − p0) + p1(1 − p1) = 12 (p0 + p1) − 12 (p20 + p21).
+
+Subtracting yields 
+
+∆MSE (Xi | MS ) = Var( Y | MS ) − E  Var( Y | Xi, M S ) MS
+
+ = 14 (p1 − p0)2.
+
+On the other hand, we have 
+
+Cov( Y, X i | MS ) = E[Y X i | MS ] − E[Y | MS ] E[Xi | MS ] = 12 p1 − 12 (p0 + p1) · 12 = 14 (p1 − p0),
+
+so ∆MSE (Xi | MS ) = 4Cov( Y, X i | MS )2.
+
+Remark F.6 . By Theorem F.5, one-step greedy MSE splitting in our DGP is equivalent to choosing the feature with maximal 
+
+|Cov( Y, X | MS )|.
+
+Lemma F.7 (Conditional covariance–influence identity) . Let f : {0, 1}n → { 0, 1} be monotone and X ∼ Ber( 12 )n. Fix 
+
+S ⊆ [n] and condition on MS := {Xj = xj : j ∈ S} . Define the conditional influence for i / ∈ S by 
+
+Inf i(f | MS ) := Pr  f (X)̸ = f (X⊕i) MS
+
+,
+
+where X⊕i denotes the random vector obtained by flipping the i-th coordinate of X, i.e. X⊕i = ( X1, . . . , 1 − Xi, . . . , X n).Then, for all i / ∈ S ,
+
+Cov( f (X), X i | MS ) = 14 Inf i(f | MS ).
+
+74 Near-Optimal Scalable Piecewise Regression Trees 
+
+Proof. Because conditioning on MS fixes the coordinates in S, the remaining bits are still independent Ber( 12 ). In particular, for i / ∈ S we have Pr( Xi = 1 | MS ) = 12 .By definition, 
+
+Cov( f (X), X i | MS ) = E[f (X)Xi | MS ] − E[f (X) | MS ] E[Xi | MS ].
+
+Using E[Xi | MS ] = 12 , we obtain 
+
+Cov( f (X), X i | MS ) = 12
+
+
+
+E[f (X) | Xi = 1 , M S ] − E[f (X) | MS ]
+
+
+
+.
+
+Expanding E[f (X) | MS ] via the law of total expectation, 
+
+E[f (X) | MS ] = 12 E[f (X) | Xi = 1 , M S ] + 12 E[f (X) | Xi = 0 , M S ],
+
+so that 
+
+Cov( f (X), X i | MS ) = 14
+
+
+
+E[f (X) | Xi = 1 , M S ] − E[f (X) | Xi = 0 , M S ]
+
+
+
+.
+
+For monotone f , the difference 
+
+E[f (X) | Xi = 1 , M S ] − E[f (X) | Xi = 0 , M S ] = Pr( f (X)̸ = f (X⊕i) | MS ) = Inf i(f | MS ).
+
+Thus, 
+
+Cov( f (X), X i | MS ) = 14 Inf i(f | MS ).
+
+Lemma F.8 (Conditional influence of majority) . Let Maj( M ) follows the definition in Section F.6. Fix S ⊆ [U ] and condition on MS := {Xj = xj : j ∈ S} , where we assume all the MS is sampled from M . For any ℓ / ∈ S , if k = P 
+
+> j∈S
+
+xj
+
+is the number of fixed ones, then when U is odd, we have 
+
+Inf ℓ(Maj( M ) | MS ) = 
+
+U − 1 − |S| ⌊U/ 2⌋ − k
+
+
+
+2−(U −1−|S| ),
+
+and when U is even, we have 
+
+Inf ℓ(Maj( M ) | MS ) = 12
+
+h U − 1 − |S| ⌊U/ 2⌋ − 1 − k
+
+
+
+2−(U −1−|S| ) +
+
+U − 1 − |S| ⌊U/ 2⌋ − k
+
+
+
+2−(U −1−|S| )i
+
+.
+
+(with the convention that the binomial coefficient is 0 if its lower index is negative or exceeds the upper index). Moreover, there exist absolute constants c−, c + > 0 such that, for all U ≥ 2,
+
+c−
+
+pU − |S| ≤ Inf ℓ(Maj( M ) | MS ) ≤ c+
+
+pU − |S| .
+
+Proof. By definition, 
+
+Inf ℓ(Maj( M ) | MS ) = Pr  Maj( M )̸ = Maj( M ⊕ℓ) | MS
+
+
+
+= 12
+
+ Pr  Maj( M )̸ = Maj( M ⊕ℓ) | Xℓ = 1 , M S
+
+ + Pr  Maj( M )̸ = Maj( M ⊕ℓ) | Xℓ = 0 , M S
+
+ 
+
+= 12
+
+ Pr(Maj( M ) = 1 , Maj( M ⊕ℓ) = 0 | Xℓ = 1 , M S ) + Pr(Maj( M ) = 0 , Maj( M ⊕ℓ) = 1 | Xℓ = 0 , M S )
+
+= Pr(Maj( M ) = 1 , Maj( M ⊕ℓ) = 0 | Xℓ = 1 , M S )
+
+Thus, we only need to consider the case before flipping Xℓ to one. When U is odd, the number of ones should equal to ⌊U/ 2⌋. Under the conditioning MS , suppose k of these ones are already fixed; then the remaining U − 1 − |S| free bits must contribute exactly ⌊U/ 2⌋ − k ones. Since the free bits are independent 
+
+Ber( 12 ) variables, the corresponding probability is 
+
+U − 1 − |S| ⌊U/ 2⌋ − k
+
+
+
+2−(U −1−|S| ).
+
+75 Near-Optimal Scalable Piecewise Regression Trees 
+
+When U is even, the situation is slightly more involved. We need to consider two possibilities: (1) before flipping Xℓ to one, there are U/ 2 − 1 ones, and after the flip, the tie-breaking rule makes Maj = 1 ; or (2) before the flip, there are U/ 2 ones, and the tie-breaking rule makes Maj = 0 , so flipping Xℓ changes the majority. As defined in Section F.6, the tie-breaking rule is an independent Bernoulli random variable, so each case occurs with probability 1/2. Hence, the total probability is 
+
+12
+
+h U − 1 − |S| ⌊U/ 2⌋ − 1 − k
+
+
+
+2−(U −1−|S| ) +
+
+U − 1 − |S| ⌊U/ 2⌋ − k
+
+
+
+2−(U −1−|S| )i
+
+.
+
+Upper bound. Let m = U − 1 − |S| . By unimodality and Stirling’s formula, 
+
+Inf ℓ(Maj( M ) | MS ) ≤
+
+ m
+
+⌊m/ 2⌋
+
+
+
+2−m ≤
+
+r 2
+
+πm ≤ c+
+
+pU − |S| with c+ = 2 
+
+q 2 
+
+> π
+
+.
+
+Lower bound. Write the target count among the m free bits as m/ 2 + δ, where δ = |S| /2 − k if U is odd and 
+
+δ = |S| /2 ± 12 − k if U is even. If |δ| ≤ C0 for some absolute constant C0, then the local CLT yields 
+
+ m 
+
+> m
+> 2
+
++ δ
+
+
+
+2−m ≥ c(C0)
+
+√m ⇒ Inf ℓ(Maj( M ) | MS ) ≥ c−
+
+pU − |S| .
+
+Remark F.9 . In the regression-tree setting, the conditioning set S corresponds to the variables that have already been fixed along the current path, so its size satisfies |S| < d , where d is the depth budget of the tree. Consequently, δ = |S| /2 − k (or 
+
+δ = |S| /2 ± 12 − k) is automatically bounded by |S| < d . In particular, as long as the path depth d is a fixed constant, the balance condition |δ| ≤ C0 in the lower bound above holds with an absolute C0, and hence the same constant c− applies. 
+
+Main Theorem: Optimality of CLARITree under the DGP Theorem F.10 (CLARITree can be arbitrarily better than greedy under MSE) . For any depth budget d ≥ 2 and any ε > 0,under the distribution above with U > d ,
+
+1 Greedy lower bound. Every depth-d greedy constant regression tree never queries g or any H-coordinate along any root-to-leaf path of length at most d. Consequently, 
+
+MSE Greedy ≥ 1 − ε2
+
+4 .
+
+2 CLARITree upper bound. The depth-d CLARITree tree with lookahead 1 splits on g at the root and then, on each branch, greedily splits only on H for the remaining d−1 levels, thereby computing Maj( H) exactly on the (1 −ε)-mass. Its MSE satisfies 
+
+MSE CLARITreeConst = ε
+
+2 − ε2
+
+4 .
+
+Thus we have MSE Greedy 
+
+MSE CLARITreeConst 
+
+≥ 12ε .
+
+Consequently, MSE CLARITreeConst → 0 as ε → 0, whereas MSE Greedy ≥ (1 − ε2)/4 stays bounded away from 0; the gap can be made arbitrarily large. Proof. Greedy selects only M -bits for the first d levels. Fix any node defined by conditioning on a subset S ⊆{d+1 , . . . , d +U } of M -indices, with MS = ( Xj )j∈S . We compute the conditional covariances. 
+
+Covariance with g. Since g ⊥ (H, M ) and Maj( H) ⊥ M ,
+
+Cov( Y, g | MS ) = E[Y g | MS ] − E[Y | MS ] E[g]= (1 − ε) E[g(g ⊕ Maj( H)) | MS ] + ε E[gMaj( M ) | MS ]
+
+76 Near-Optimal Scalable Piecewise Regression Trees 
+
+−
+
+
+
+(1 − ε) E[g ⊕ Maj( H) | MS ] + ε E[Maj( M ) | MS ]
+
+ 12
+
+= 1 − ε
+
+4 + ε
+
+2 Pr(Maj( M )=1 | MS )
+
+− 12
+
+ 1 − ε
+
+2 + ε Pr(Maj( M )=1 | MS )
+
+
+
+= 0 ,
+
+where we used E[g(g ⊕ Maj( H))] = 14 and E[g ⊕ Maj( H)] = 12 , both consequences of g ∼ Ber( 12 ) and g ⊥ Maj( H).
+
+Covariance with Hj . Since Hj ⊥ M and E[Hj ] = 12 ,
+
+Cov( Y, H j | MS ) = (1 − ε) E[Hj (g ⊕ Maj( H)) | MS ] + ε E[Hj Maj( M ) | MS ]
+
+−
+
+
+
+(1 − ε) E[g ⊕ Maj( H) | MS ] + ε E[Maj( M ) | MS ]
+
+ 12
+
+= (1 − ε) E Hj (g + Maj( H) − 2gMaj( H))  + ε 
+
+> 2
+
+E[Maj( M )] 
+
+− 12
+
+
+
+(1 − ε) E[g + Maj( H) − 2gMaj( H)] + ε E[Maj( M )] 
+
+
+
+= (1 − ε)  14 + E[Hj Maj( H)] − 2 12 E[Hj Maj( H)] 
+
+= 0 ,
+
+using g ⊥ (H, M ) so that E[Hj g] = 14 and E[Hj gMaj( H)] = 12 E[Hj Maj( H)] .
+
+Covariance with Mℓ. By the same expansion and using independence of (g, H ) and M ,
+
+Cov( Y, M ℓ | MS ) = εCov(Maj( M ), M ℓ | MS ).
+
+By Theorems F.7 and F.8, Cov(Maj( M ), M ℓ | MS ) = 14 Inf ℓ(Maj U | MS ) = Θ  1/pU − |S|  > 0 for any unseen 
+
+Mℓ /∈ S . Therefore, by Theorem F.5, the one-step MSE gain is zero for g and all Hj , and strictly positive for some unseen 
+
+Mℓ. Greedy must split on M . Inducting on depth and using U > d shows greedy picks only unseen M -bits for the first d
+
+levels. 
+
+Greedy MSE lower bound. Fix a leaf L of a depth-d greedy tree. Since only M was queried, on the (1 − ε)-mass the label 
+
+g ⊕ Maj( H) remains unbiased with Pr( Y = 1 | L, (1 − ε)-mass ) = 12 ; on the ε-mass, Y = Maj( M ) may be biased by the M -splits. Let qL := Pr(Maj( M ) = 1 | L). Then 
+
+pL := Pr( Y = 1 | L) = (1 − ε) · 12 + εq L ∈
+
+h 1−ε 
+
+> 2
+
+, 1+ ε
+
+> 2
+
+i
+
+.
+
+The optimal constant prediction in L has MSE pL(1 − pL), minimized at the endpoints, giving pL(1 − pL) ≥ (1 − ε2)/4.Averaging over leaves yields MSE Greedy ≥ (1 − ε2)/4.
+
+CLARITree splits on g, then on H. Consider the CLARITree objective with lookahead 1. A root split on g produces children where, on the (1 − ε)-mass, Y equals either Maj( H) or 1 − Maj( H), while the ε-mass remains Maj( M ). Thus, in either child, for any step with r ∈ { 1, . . . , d − 1} remaining unseen H-bits and at least one unseen M -bit, 
+
+max   
+
+> Xj∈H
+
+|Cov( Y, X j | g)| ≍ (1 − ε) 1
+
+√r , max  
+
+> Xℓ∈M
+
+|Cov( Y, X ℓ | g)| ≍ ε 1
+
+√U ,
+
+by Theorems F.7 and F.8 applied to H and to M , respectively. As long as ε is small enough, then the second step MSE gain is then larger for an unseen H-bit. By Theorem F.5, the one-step MSE gain is then always larger for an unseen H-bit, so the greedy completion after splitting on g selects only H for the remaining d − 1 levels. Since |H| = d − 1, the (1 − ε)-mass becomes perfectly pure in every leaf. 
+
+Leaf-wise MSE under the mixture. In any leaf after this policy, write the (1 − ε)-mass label as a constant y⋆ ∈ { 0, 1}. Let 
+
+Z ∼ Ber( ε) indicate the ε-mass, independent of everything else. Then 
+
+Y =
+
+(
+
+y⋆, Z = 0 (prob. 1 − ε),
+
+Ber( 12 ), Z = 1 (prob. ε).
+
+77 Near-Optimal Scalable Piecewise Regression Trees 
+
+Hence E[Y | leaf ] = (1 − ε)y⋆ + ε 
+
+> 2
+
+and Var( Y | leaf ) = E[Y | leaf ] 1 − E[Y | leaf ] = ε 
+
+> 2
+
+− ε2 
+
+> 4
+
+, independent of y⋆. This equals the optimal constant-regression MSE within each leaf; averaging over all leaves yields 
+
+MSE CLARITreeConst = ε
+
+2 − ε2
+
+4 .
+
+Hence, a tree that first splits on g achieves this error. Although g need not be the globally optimal first split, any tree chosen by the one-step lookahead rule of CLARITree, which maximizes the same objective, can only perform at least as well as the tree that splits on g at the root. Finally note that 
+
+  1 − ε2
+
+4
+
+/  ε
+
+2 − ε2
+
+4
+
+ = 1 + ε
+
+2ε ≥ 12ε (8) 
+
+Remark F.11 (Finite samples) . With n i.i.d. samples, each empirical covariance concentrates around its mean at rate 
+
+O p log( d + U )/n  by Hoeffding plus a union bound. For large enough n, the empirical order of covariances matches the population order with high probability, so empirical greedy and CLARITree trees achieve the same bounds up to o(1) .78

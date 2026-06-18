@@ -6,44 +6,40 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-17
-- 运行时间：2026-06-17 22:06:04 UTC
+- 最新运行日期：2026-06-18
+- 运行时间：2026-06-18 22:21:48 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：4
-- 速读区：4
+- 本次总论文数：6
+- 精读区：3
+- 速读区：3
 
 ### 今日简报（AI）
-今日精选8篇论文，重点精读数物驱动暗能量参数化与浅水方程摩擦估计的逆PINN两篇高分研究。最值得关注的是暗能量穿越Phantom边界的简单参数化发现，以及稀疏噪声对物理信息神经网络性能的系统性影响。后续可尝试将逆PINN方法拓展至其他流体力学摩擦参数估计问题。
-- 详情：[/202606/17/README](/202606/17/README)
+今日聚焦可训练光子测量与正交正则化两大高分方法，推进物理信息学习与神经符号系统。  
+建议重点关注《Trainable Photonic Measurement》与《OrthoReg》两篇9分论文，分别解决PDE学习中的可编程测量和动力系统的符号-神经混合正则化。  
+后续可尝试将光子测量架构或正交正则化方法应用于实际物理仿真任务，提速并提升可解释性。
+- 详情：[/202606/18/README](/202606/18/README)
 
 ### 精读区论文标签
-1. [Data-Driven Discovery of a Simple Phantom-Crossing Dark Energy Parametrization](/202606/17/2606.17951v1-data-driven-discovery-of-a-simple-phantom-crossing-dark-energy-parametrization)  
+1. [Trainable Photonic Measurement for Physics-Informed PDE Learning](/202606/18/2606.18713v1-trainable-photonic-measurement-for-physics-informed-pde-learning)  
    标签：评分：9.0/10、query:sr-piml
-   evidence：穷举符号回归用于暗能量参数化
-2. [How Sparse and How Noisy? Systematic Benchmarking of Inverse Physics-Informed Neural Networks for Manning Friction Estimation in Shallow Water Equations](/202606/17/2606.18149v1-how-sparse-and-how-noisy-systematic-benchmarking-of-inverse-physics-informed-neural-networks-for-manning-friction-estimation-in-shallow-water-equations)  
+   evidence：直接针对物理信息神经场求解偏微分方程，采用可训练光子测量方法
+2. [OrthoReg: Orthogonal Regularization for Hybrid Symbolic-Neural Dynamical Systems](/202606/18/2606.19145v1-orthoreg-orthogonal-regularization-for-hybrid-symbolic-neural-dynamical-systems)  
    标签：评分：9.0/10、query:sr-piml
-   evidence：系统评估逆PINN在浅水方程曼宁摩擦系数估计中的表现
-3. [A Convex Quasilinearization Method for Solving Nonlinear PDEs with Physics-Informed Neural Networks](/202606/17/2606.18175v1-a-convex-quasilinearization-method-for-solving-nonlinear-pdes-with-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:sr-piml
-   evidence：凸拟线性化方法结合物理信息神经网络求解非线性偏微分方程
-4. [INI-VPINN: A Variational Physics-Informed Neural Network with Implicit Neumann and Interface Handling for Multi-Material Domains with Geometric Singularities](/202606/17/2606.18032v1-ini-vpinn-a-variational-physics-informed-neural-network-with-implicit-neumann-and-interface-handling-for-multi-material-domains-with-geometric-singularities)  
+   evidence：混合符号-神经动力系统的正交正则化，防止冗余学习
+3. [Starter-Iterator Neural Operator: A Unified Architecture for High-Fidelity Forward and Inverse PDE Problems](/202606/18/2606.18305v1-starter-iterator-neural-operator-a-unified-architecture-for-high-fidelity-forward-and-inverse-pde-problems)  
    标签：评分：8.0/10、query:sr-piml
-   evidence：用于PDE的变分PINN，隐式处理Neumann和界面条件
+   evidence：用于PDE的神经算子，与物理信息机器学习相关
 
 ### 速读区论文标签
-1. [Generalization Guarantees for Multi-Input Neural Operator Learning in Sobolev Spaces](/202606/17/2606.17419v1-generalization-guarantees-for-multi-input-neural-operator-learning-in-sobolev-spaces)  
+1. [Large Language Model Based Agent for Automated Discovery in Computational Physics](/202606/18/2606.14266v1-large-language-model-based-agent-for-automated-discovery-in-computational-physics)  
    标签：评分：7.0/10、query:sr-piml
-   evidence：为神经算子提供泛化界，与用于PDE求解的物理信息神经网络相关
-2. [Geometry-Aware Post-Hoc Uncertainty Quantification in Operator Learning](/202606/17/2606.17513v1-geometry-aware-post-hoc-uncertainty-quantification-in-operator-learning)  
+   evidence：结合物理一致性的LLM智能体实现自动科学发现
+2. [Tight $L_\infty$ Sample Complexity for Low-Degree and Sparse Boolean Polynomials](/202606/18/2606.17319v1-tight-linfty-sample-complexity-for-low-degree-and-sparse-boolean-polynomials)  
    标签：评分：7.0/10、query:sr-piml
-   evidence：面向求解PDE的神经算子的几何感知不确定性量化
-3. [Learning turbulent transport via Mori--Zwanzig graph neural networks](/202606/17/2606.14918v1-learning-turbulent-transport-via-mori--zwanzig-graph-neural-networks)  
+   evidence：从数据学习符号多项式
+3. [Structure Over Nonlinearity: Explicit Interaction Architectures for Dynamical Learning](/202606/18/2606.19101v1-structure-over-nonlinearity-explicit-interaction-architectures-for-dynamical-learning)  
    标签：评分：6.0/10、query:sr-piml
-   evidence：莫里-兹万齐格图神经网络学习湍流输运，尊重物理对称性
-4. [Operator Boosting Produces Pareto-Efficient PDE Surrogates](/202606/17/2606.17460v1-operator-boosting-produces-pareto-efficient-pde-surrogates)  
-   标签：评分：6.0/10、query:sr-piml
-   evidence：构建紧凑的PDE神经代理模型
+   evidence：面向动力系统学习的结构化动力学架构
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,832 @@
+Title: Enhancing neural network extrapolation in thermo-fluid systems using steady-state solutions
+
+URL Source: https://arxiv.org/pdf/2606.18417v1
+
+Published Time: Thu, 18 Jun 2026 00:11:05 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# ENHANCING NEURAL NETWORK EXTRAPOLATION IN THERMO -FLUID SYSTEMS USING STEADY -STATE SOLUTIONS 
+
+Sanjeeb Poudel 
+
+Department of Scientific Computing Florida State University Tallahassee, FL 
+
+spoudel@fsu.edu 
+
+Teeratorn Kadeethum 
+
+AI Lab Siemens Energy Orlando, FL 
+
+meen.kadeethum@siemens-energy.com 
+
+Sanghyun Lee 
+
+Department of Mathematics Florida State University Tallahassee, FL 
+
+slee17@fsu.edu 
+
+# ABSTRACT 
+
+Time-dependent partial differential equations (PDEs) arise in many engineering systems, including thermo-fluid applications. Classical numerical simulations of such systems can become computation-ally expensive for long-time dynamics because they typically require sequential time integration with time steps constrained by stability, accuracy, or nonlinear solvers. Although scientific machine learn-ing provides an alternative for approximating PDE solutions, standard neural network approximations often degrade when extrapolated beyond the training time interval. In this work, we propose a steady-state-informed neural network representation for dissipative PDE systems whose solutions relax toward a stationary equilibrium. The proposed ansatz decomposes the solution into a steady-state component and a transient correction modulated by a time-dependent decay profile. When the decay profile vanishes at long time and the transient correction remains bounded, the representation embeds convergence to the prescribed steady state directly into the architecture, rather than enforcing it through an additional penalty term. This allows the network to learn the transient dynamics while preserving the correct asymptotic behavior. We implement the approach within a physics-informed neural network (PINN) framework and train the resulting model using the SOAP optimizer. The method is evaluated on a sequence of problems of increasing physical and geometric complexity, ranging from the one-dimensional heat equation to incompressible Navier–Stokes flow in a lid-driven cavity, natural convection in a square cavity, and a full three-dimensional conjugate heat transfer problem. The numerical results show that the steady-state-informed architecture substantially improves temporal extrapolation beyond the training interval compared with architectures that do not explicitly enforce the asymptotic condition. 
+
+Keywords Physics-informed neural network (PINN) · Scientific Machine Learning · Steady state · Extrapolation ·
+
+Navier-Stokes · Boussinesq · SOAP optimizer 
+
+# 1 Introduction 
+
+Differential equations are the primary mathematical language used to describe physical phenomena in engineering. While analytical solutions exist for a few canonical cases, the nonlinearity of most governing equations and the geometric complexity of real-world configurations necessitate numerical approximation. Finite difference [ 1], finite volume [ 2, 3], and finite element methods [ 4, 5 ] provide accurate and reliable solutions across a broad range of applications [ 6, 7 ], but time-dependent simulations based on these methods can become computationally expensive when long-time dynamics must be resolved. The cost arises from the sequential nature of time-stepping: each step advances the solution by a small increment dictated by stability or accuracy constraints, and when the system’s relaxation timescale greatly exceeds the allowable time step, the total number of steps becomes prohibitively large. Many engineering systems of practical interest are governed by time-dependent PDEs that ultimately converge to a stationary equilibrium. This class of problems is ubiquitous in thermal and fluid systems encountered in energy infrastructure. For instance, the thermal management of power transformers involves transient heat conduction and 
+
+> arXiv:2606.18417v1 [cs.CE] 16 Jun 2026
+
+convection processes that, following a load change or fault event, eventually settle into a steady-state temperature distribution determined by the balance between internal losses and external cooling [ 8 , 9, 10 , 11 ]. Similarly, the startup and load-transient behavior of gas-turbine cooling passages involves complex conjugate heat transfer that relaxes toward thermal equilibrium once operating conditions stabilize [ 12 , 13 ]. In fluid dynamics, internal cavity flows, such as those arising in sealed transformer tanks or enclosed cooling chambers, can exhibit transient vortex development that gradually relaxes to a steady recirculating pattern governed by the imposed boundary conditions and the Reynolds number [14, 15]. In these applications, the transient phase is the primary object of engineering interest, as it governs thermal stresses, peak temperatures, and flow-induced loads during operational transitions [ 12 , 16 ]. Yet it is precisely the long-time integration required to capture the full evolution from initial conditions to a steady state that makes simulations expensive. We often need a fine mesh to resolve boundary layers, which imposes restrictive time-step limits to maintain stability, accuracy, and nonlinear solver convergence. Therefore, the required computational step size is orders of magnitude smaller than the system’s actual relaxation timescale [ 13 , 11 ]. The computational burden is further compounded when repeated simulations are needed for design optimization or uncertainty quantification [17, 18]. These factors motivate the development of methods that can bypass the costly long-time integration while still capturing the essential transient dynamics. The heat equation and the incompressible Navier–Stokes equations—along with their coupling through buoyancy under the Boussinesq approximation—form the mathematical backbone of these energy-infrastructure problems, including transformer cooling, gas-turbine thermal management, and thermally driven cavity flows. A common structural feature of the dissipative regimes considered here is that their governing physics admits a steady-state equilibrium that encodes the system’s long-time behavior. This property is not merely a simplifying assumption but an exploitable piece of physical knowledge: if the asymptotic state is known or can be computed cheaply, it can serve as an anchor for predicting the transient evolution. The present work systematically develops this idea. In recent years, scientific machine learning has emerged as a compelling alternative for approximating solutions to differential equations and predicting dynamical systems [ 19 , 20 ]. Physics-informed Neural Networks (PINNs) [ 21 , 22 ]and their variants [ 23 , 24 , 25 ] integrate observational data with the governing equations directly in the loss function, enabling solutions to both forward and inverse problems with limited or no labeled simulation data. Concurrently, neural operators—such as the Deep Operator Network (DeepONet) [ 26 ], the Fourier Neural Operator (FNO) [ 27 ], and their variants [ 28 , 29 ]—have shifted the paradigm from learning pointwise function approximations to learning mappings between infinite-dimensional function spaces. Despite these advances, capturing accurate long-time dynamics remains a persistent challenge. PINN-based surrogates may achieve accurate approximations within the training domain, but often degrade rapidly during temporal extrapolation, as standard network architectures lack the inductive bias needed to represent asymptotic decay. Neural operators face a related but distinct difficulty: autoregressive rollout strategies can accumulate errors at each prediction step, while models trained on fixed-length trajectories may fail to generalize beyond the training-time horizon. In this work, we address the extrapolation limitation by exploiting a structural property shared by a large class of dissipative physical systems: their solutions ultimately converge to a stationary equilibrium. The steady-state solution encodes the asymptotic behavior of the system. In many cases, especially when the relaxation timescale is long, this steady state can be obtained at significantly lower cost than the full transient simulation. We propose a solution ansatz that decomposes the network prediction into a steady-state component and a transient correction modulated by a time-dependent decay function. The steady-state component can be supplied from any available source, including a classical numerical solver, experimental measurements, or a separately trained neural model. The decay function can be chosen as an exponential, algebraic, or damped oscillatory profile. As this decay function tends to zero, provided that the transient correction remains bounded, the network prediction converges to the prescribed steady state while retaining the flexibility to learn the transient dynamics within the training window. Because the ansatz imposes convergence at the architectural level rather than through the loss function, it is modular and can be integrated with different neural network frameworks. Thus, the main contribution is not an additional penalty term, but a steady-state-informed representation that embeds the correct long-time limit directly into the neural network architecture. We instantiate this approach within a PINN framework, embedding the governing differential equations directly into the training loss. Our longer-term objective is a parametric surrogate that maps system parameters to transient solutions; the present non-parametric experiments serve to establish the validity of the steady-state-informed ansatz before its extension to that parametric setting. Training PINNs remains challenging due to the ill-conditioned, multi-objective nature of the composite loss landscape [ 30 , 31 ], and several remedies have been proposed, including curriculum learning [ 31 ], sequence-to-sequence training [ 32 ], adaptive loss weighting [ 33 ], and residual-based adaptive sampling [ 34 ]. Complementary to these training strategies, we adopt the recently proposed SOAP optimizer [ 35 ], a Kronecker-factored 2preconditioned method that is designed to improve gradient conditioning and reduce directional conflicts within the multi-term loss landscapes characteristic of PINNs [36]. To validate the proposed method, we conduct a sequence of numerical experiments. We begin with the one-dimensional heat equation, followed by the two-dimensional incompressible Navier–Stokes equations in a lid-driven cavity. Next, we evaluate the method on natural convection in a square cavity in an advection-dominated regime. We conclude our evaluation with a three-dimensional conjugate heat transfer problem. 
+
+# 2 Background 
+
+This section provides a brief overview of neural networks and physics-informed neural networks [ 21 ]. We begin by introducing the fundamental architecture of feedforward neural networks, followed by a discussion of the PINN framework and its loss function. Finally, we discuss the SOAP optimizer [35] used throughout this work. 
+
+2.1 Neural Networks 
+
+A feedforward neural network (FNN), also known as a multilayer perceptron, is a parametric function that maps an input vector z ∈ Rdin to an output y ∈ Rdout through a composition of affine transformations and nonlinear activation functions [37]. For a network with L hidden layers, the computation proceeds as 
+
+h(0) = z, h(ℓ) = σ
+
+
+
+W (ℓ)h(ℓ−1) + b(ℓ)
+
+, ℓ = 1 , . . . , L, y = W (L+1) h(L) + b(L+1) , (1) where W (ℓ) ∈ Rnℓ×nℓ−1 and b(ℓ) ∈ Rnℓ are the trainable weight matrices and bias vectors, nℓ denotes the width of the ℓ-th layer, and σ(·) is a nonlinear activation function applied element-wise. Common choices for σ include the hyperbolic tangent ( tanh ), the rectified linear unit (ReLU), and the sigmoid linear unit (SiLU) [ 38 ]. The collection of all trainable parameters is denoted by θ = {W (ℓ), b(ℓ)}L+1  
+
+> ℓ=1
+
+.The universal approximation theorem guarantees that, under mild conditions on the activation function, a sufficiently wide single-hidden-layer network can approximate any continuous function on a compact domain to arbitrary accuracy [ 39 , 40 ]. In practice, deeper architectures with moderate width are often preferred, as they can represent complex functions more efficiently [ 41 ]. The parameters θ are determined by minimizing a loss function L(θ) via gradient-based optimization, where gradients are computed efficiently using automatic differentiation [42]. 
+
+2.2 Physics-Informed Neural Network (PINN) 
+
+Physics-informed neural networks (PINNs), introduced by Raissi et al. [ 21 ], embed the governing PDE directly into the training loss, enabling the network to approximate PDE solutions without requiring labeled simulation data. Let 
+
+Ω ⊂ Rd be a spatial domain in d dimensions and I := (0 , t f ] be a time interval with final time tf . Consider a general partial differential equation (PDE) of the form: 
+
+∂u ∂t + N [u; ξ] = γ(x, t ), (x, t ) ∈ Ω × I, (2) subject to the boundary condition B[u] = g on ∂Ω × I and the initial condition u(x, 0) = u0(x) for x ∈ Ω. Here, 
+
+N [·; ·] is a (possibly nonlinear) spatial differential operator with physical parameters ξ, and γ(·, ·) is the source term. In the PINN framework, the solution u(x, t ) is approximated by a neural network uθ (x, t ), and the required partial derivatives appearing in (2) are computed by automatic differentiation through the network’s computational graph [ 42 ]. The network parameters θ are obtained by minimizing a composite loss function of the form 
+
+L(θ) = λr Lr (θ) + λbLb(θ) + λ0L0(θ), (3) where Lr , Lb, and L0 denote the PDE residual, boundary, and initial condition losses, respectively, and λr , λb, λ0 > 0
+
+are weighting coefficients. These loss terms are evaluated at a set of collocation points sampled within the domain. Specifically, the PDE residual loss is given by 
+
+Lr (θ) = 1
+
+NrNrX
+
+> i=1
+
+∂u θ
+
+∂t (xri , t ri ) + N [uθ ; ξ]( xri , t ri ) − γ(xri , t ri )
+
+> 2
+
+, (4) where {(xri , t ri )}Nr 
+
+> i=1
+
+are collocation points in the interior of the space–time domain. The boundary and initial condition losses Lb and L0 are constructed analogously by penalizing deviations from the prescribed boundary data and initial state at their respective collocation points. 3A key advantage of PINNs is that they are mesh-free in the sense that they do not require a fixed computational mesh: the collocation points can be sampled randomly or quasi-randomly, and the method does not require an explicit discretization of the differential operators. This makes PINNs particularly attractive for problems in complex geometries and high-dimensional spaces [ 19 ]. The framework has been successfully applied to a broad range of forward and inverse problems, including nonlinear diffusivity and poromechanics governed by Biot’s equations [ 22 , 24 ]. However, training PINNs remains challenging, especially for stiff systems and problems requiring long-time integration. The multi-objective nature of the composite loss (3) introduces competing gradients, and the PDE residual loss landscape is often ill-conditioned [ 30 , 31 ]. Various strategies have been proposed to address these difficulties, including adaptive loss weighting [ 33 ], curriculum training [ 31 ], causal training [ 43 ], and sequence-to-sequence learning [ 32 ]. To optimize our PINN framework, we employ the recently developed SOAP algorithm [ 35 , 36 ], which is designed to improve gradient conditioning and reduce directional conflicts between loss terms. 
+
+2.3 Shampoo with Adam in the Preconditioner’s Eigenbasis (SOAP) 
+
+PINNs are typically trained with first-order methods. Adam [ 44 ] is the most common choice, sometimes combined with L-BFGS for fine-tuning [ 21 ]. Adam is efficient, but it uses only a diagonal approximation of the second-moment matrix. This approximation ignores parameter correlations. As a result, Adam can converge slowly on ill-conditioned loss landscapes. Shampoo [ 45 ] addresses this limitation through Kronecker-factored preconditioning. For a weight matrix Wk ∈ Rm×n
+
+at iteration k, it maintains two preconditioners, Lk ∈ Rm×m and Rk ∈ Rn×n. These are updated as 
+
+Lk ← Lk−1 + GkG⊤ 
+
+> k
+
+,
+
+Rk ← Rk−1 + G⊤ 
+
+> k
+
+Gk, (5) where Gk is the gradient. With learning rate η > 0, the preconditioned update is 
+
+Wk+1 ← Wk − η L−1/4 
+
+> k
+
+Gk R−1/4 
+
+> k
+
+. (6) To avoid a singular inverse at the first step, the preconditioners are regularized at initialization, e.g., L0 = R0 = ϵI
+
+with 0 < ϵ ≪ 1. This non-diagonal preconditioning captures inter-parameter correlations that Adam misses. Shampoo has been shown to improve over Adam on several optimization benchmarks [45]. Shampoo, however, incurs much higher overhead than Adam. The bottleneck is the repeated eigendecomposition of Lk and Rk during training. Computing these eigendecompositions less frequently reduces cost, but degrades performance [ 35 ]. SOAP [ 35 ] resolves this trade-off. It performs the eigendecomposition only periodically. Between eigendecomposition steps, it maintains Adam-type moment estimates in the current rotated coordinate system. In effect, SOAP runs Adam in a slowly varying eigenspace defined by Shampoo’s preconditioner. SOAP rests on a formal equivalence between a variant of Shampoo and Adafactor [ 46 ], a memory-efficient variant of Adam. The variant applies the preconditioner with power −1/2, i.e., L−1/2 
+
+> k
+
+GkR−1/2 
+
+> k
+
+, rather than the −1/4 form in (6) .The key insight is that this form of Shampoo is equivalent to an adaptive optimizer running in the eigenbasis of its own preconditioner. SOAP exploits this equivalence in three steps. First, it projects the gradient into the preconditioner’s eigenbasis. Second, it updates Adam-style first- and second-moment estimates in this rotated space. Third, it projects the update direction back to the original parameter space. The eigendecomposition is computed periodically rather than at every step. Between updates, the moment estimates continue to accumulate in the current rotated basis. The preconditioner matrices are updated using moving averages: 
+
+Lk ← β2Lk−1 + (1 − β2)GkG⊤ 
+
+> k
+
+,
+
+Rk ← β2Rk−1 + (1 − β2)G⊤ 
+
+> k
+
+Gk, (7) where β2 ∈ [0 , 1) controls the moving average. We initialize L0 = R0 = 0. The exponential moving average and subsequent bias correction, analogous to Adam’s moment estimates, remove the need for identity regularization. The matrices are then eigendecomposed as 
+
+Lk = QLΛLQ⊤ 
+
+> L
+
+,
+
+Rk = QRΛRQ⊤ 
+
+> R
+
+, (8) where ΛL and ΛR are diagonal matrices of eigenvalues. The gradient is then projected into the eigenspace: 
+
+eGk = Q⊤ 
+
+> L
+
+GkQR. (9) 4SOAP then applies an Adam-style update in the rotated space, with an asymmetric treatment of the two moments. The first moment Mk is accumulated from the original gradient Gk. It is then projected as fMk = Q⊤ 
+
+> L
+
+MkQR. The second moment Vk is accumulated directly from the projected gradient eGk. After bias correction, the normalized update direction cN in the rotated space is mapped back to the original parameter space: 
+
+Nk = QL cN Q ⊤ 
+
+> R
+
+, Wk+1 = Wk − η Nk. (10) SOAP introduces only one extra hyperparameter relative to Adam: the preconditioning frequency. Empirical results in [ 35 ] show that SOAP reduces both the iteration count and the wall-clock time compared to AdamW and Shampoo. We use SOAP as the primary optimizer in this work. Algorithm 1 summarizes the procedure. 
+
+Algorithm 1 Single step of SOAP for an m × n layer [35] For each layer, we have Lk ∈ Rm×m, Rk ∈ Rn×n, learning rate η ∈ R+, β1, β 2 ∈ [0 , 1) , 0 < ϵ ≪ 1, preconditioning frequency np ∈ Z+, and Vk, Mk ∈ Rm×n. We initialize L0 = R0 = 0, M0 = V0 = 0, and QL = QR =
+
+I. 
+
+> 1:
+
+Compute gradient Gk ∈ Rm×n 
+
+> 2:
+
+Lk ← β2Lk−1 + (1 − β2)GkG⊤ 
+
+> k
+> 3:
+
+Rk ← β2Rk−1 + (1 − β2)G⊤ 
+
+> k
+
+Gk 
+
+> 4:
+
+if k mod np = 0 then  
+
+> 5:
+
+Compute QL and QR such that 
+
+Lk = QLΛLQ⊤
+
+> L
+
+Rk = QRΛRQ⊤ 
+
+> R
+> 6:
+
+end if  
+
+> 7:
+
+eGk ← Q⊤ 
+
+> L
+
+GkQR 
+
+> 8:
+
+Mk ← β1Mk−1 + (1 − β1)Gk 
+
+> 9:
+
+fMk ← Q⊤ 
+
+> L
+
+MkQR 
+
+> 10:
+
+Vk ← β2Vk−1 + (1 − β2)( eGk ⊙ eGk) (element-wise)  
+
+> 11:
+
+cMk ← fMk/(1 − βk 
+
+> 1
+
+) 
+
+> 12:
+
+bVk ← Vk/(1 − βk 
+
+> 2
+
+) 
+
+> 13:
+
+cN ← cMk/(
+
+qbVk + ϵ) (element-wise)  
+
+> 14:
+
+N ← QL cN Q ⊤ 
+
+> R
+> 15:
+
+Wk+1 ← Wk − ηN
+
+Remark 1 SOAP’s preconditioners L ∈ Rm×m and R ∈ Rn×n exploit the two-axis structure of matrix-shaped parameters. This Kronecker factorization does not apply to one-dimensional parameters such as bias vectors b or normalization parameters. We therefore apply SOAP only to two-dimensional weight matrices W . All one-dimensional parameters are updated with standard Adam, following the convention of the reference SOAP implementation [35]. 
+
+# 3 Methodology 
+
+This section details our proposed methodology. We begin by representing the solution using a steady-state component and a transient term factored into a temporal profile and a space–time correction. We then describe the network architecture designed to integrate the steady-state solution into the training process, forming a unified framework for time-dependent prediction. Finally, we outline the optimization and training procedures for the neural networks. 
+
+3.1 Solution Ansatz 
+
+Consider a general form of PDE from (2) . Suppose the forcing term asymptotically approaches a time-independent function γs(x) = lim t→∞ γ(x, t ), and all boundary conditions on ∂Ω similarly converge to steady limits. Assuming the resulting steady state is asymptotically stable, the PDE’s solution settles into a steady-state limit, 
+
+lim  
+
+> t→∞
+
+u(x, t ) = us(x),
+
+where us(x) satisfies the steady-state equation 
+
+N [us(x); ξ] = γs(x), in Ω. (11) 5Motivated by this asymptotic structure, we approximate the solution using the ansatz 
+
+u(x, t ) = us(x) + f (t)g(x, t ), (12) where f (t) is a time-dependent function satisfying the asymptotic condition 
+
+lim  
+
+> t→∞
+
+f (t) = 0 ,
+
+and g(x, t ) is a function of both space and time. If g(x, t ) remains bounded as t → ∞ , then the ansatz implies that 
+
+u(x, t ) → us(x), so the approximation converges to the steady-state solution. 
+
+3.2 Choices of the temporal profile f (t)
+
+As a first step, the temporal profile f (t) in the ansatz (12) must be specified or learned. This choice is inherently problem-dependent and should be guided by the expected asymptotic behavior of the solution. For systems that relax toward a steady state, a natural strategy is to let f (t) capture the leading-order temporal decay, so that the function 
+
+g(x, t ) describes the remaining spatial and transient structure. An attractive feature of the proposed decomposition is that the parameters defining the temporal profile f (t) can be learned jointly with the neural network parameters. For example, when the underlying dynamics are expected to decay monotonically toward equilibrium, one may adopt the exponential form 
+
+f (t) = e−λt , (13) with decay rate λ > 0 treated as a trainable parameter. On the other hand, if the transient response exhibits oscillatory behavior before relaxing, one may instead use a damped oscillatory profile of the form 
+
+f (t) = e−λt cos( ωt ), (14) or, more generally, 
+
+f (t) = e−λt  a + cos( ωt ), (15) where λ, a, and ω are optimized together with the network weights. To evaluate the sensitivity of the proposed framework to the choice of temporal profile, we consider the following four representative cases: • Constant profile (baseline): 
+
+f (t) := 1 .
+
+This choice does not enforce decay toward the steady state and is therefore included only as a reference case. • Exponential decay: 
+
+f (t) := e−λt .
+
+• Algebraic decay: 
+
+f (t) := (1 + λt )−p.
+
+• Damped oscillatory decay: 
+
+f (t) := e−λt  a + cos( ωt ).
+
+Here, λ > 0 denotes the decay rate, p > 0 is the algebraic decay exponent, a is a shift parameter controlling the magnitude, and ω > 0 is the angular frequency. When a nonnegative oscillatory profile is desired, we enforce a ≥ 1,which guarantees a + cos( ωt ) ≥ 0 for all t. In our implementation, the positivity constraints on λ, p, and ω, as well as the lower bound on a, are enforced by post-update projection. With the exception of the constant baseline, all of these profiles satisfy the asymptotic condition 
+
+f (t) → 0 as t → ∞ ,
+
+and are therefore consistent with the steady-state ansatz. Collectively, they allow us to represent several qualitatively distinct transient behaviors, including no prescribed decay, monotone exponential relaxation, slower algebraic decay, and damped oscillatory convergence. In our implementation, all free parameters appearing in f (t) are treated as trainable variables and are optimized jointly with the neural network weights. A practical issue arises when the temporal profile f (t) decays rapidly. In that case, the network may compensate by producing increasingly large values of the correction term g(x, t ), especially at later times, which can adversely affect optimization and reduce training stability. To alleviate this difficulty, we constrain the output 6of the transient network by applying a bounded activation function at the final layer. In particular, when a hyperbolic tangent activation is used, the network output satisfies 
+
+gθ (x, t ) ∈ (−1, 1) .
+
+This boundedness also provides the condition needed for the ansatz to converge to the prescribed steady state as t → ∞ .At the same time, the bounded output limits the maximum representable transient amplitude. Therefore, the variables should be nondimensionalized or scaled appropriately; for problems with larger transient amplitudes, one may include an additional trainable amplitude factor or use a linear output layer with suitable regularization. In practice, this improves robustness and stabilizes training, particularly for profiles with strong decay. 
+
+3.3 Network Architecture 
+
+Based on the solution ansatz in (12) , we construct a neural network architecture to approximate the unknown space–time correction g(x, t ) while explicitly incorporating the steady-state component us(x) to predict the solution u(x, t ). The stationary part may be handled in different ways, depending on the available information. It can be precomputed via interpolation from classical numerical solvers or experimental measurements. Alternatively, the steady-state component may be learned with a neural network. In this work, we choose to parameterize us(x) directly using a dedicated neural network sub-architecture. To achieve this, we design a unified framework comprising four fully connected feedforward neural network blocks, denoted as FNN i for i ∈ { 1, 2, 3, 4}. This configuration is designed to output the steady-state baseline, the transient correction, and the final coupled spatio-temporal solution for any given set of coordinates. Figure 1 illustrates the proposed network architecture for approximating the PDE solution uh(x, t ). The model takes the spatial coordinates x
+
+and time t as inputs. First, x and t are passed through two parallel subnetworks, FNN 1 and FNN 2, which extract spatial and temporal feature embeddings, respectively. The spatial embedding is then passed to FNN 3 to approximate the steady-state field us,ϕ (x). The spatial and temporal embeddings are also combined and passed to FNN 4 to approximate the transient correction gθ (x, t ). Finally, the two outputs are coupled through the ansatz 
+
+uh(x, t ) = us,ϕ (x) + f (t) gθ (x, t ). (16) This formulation explicitly separates the stationary solution from the transient dynamics, enabling a targeted, two-phase optimization strategy. 
+
+> Phase 1: Steady-State Training
+> Phase 2: Transient Training
+
+# x
+
+# t
+
+FNN 1
+
+FNN 2
+
+FNN 3
+
+FNN 4
+
+us,ϕ (x)
+
+gθ (x, t )                                       
+
+> uh(x, t ) = us,ϕ (x) + f(t)gθ(x, t )
+> Loss:
+> 
+> Data: LM SE (ϕ) = 1ˆN
+> PˆNi=1 us,ϕ (ˆxi)−ˆu(ˆxi)2
+> PINN: Lrϕ (ϕ) = 1
+> Nrϕ
+> PNrϕ
+> i=1 N[us,ϕ ;ξ]( xrϕ i)−γs(xrϕ i)2
+> Loss: Lrθ (θ) = 1
+> Nrθ
+> PNrθ
+> i=1 ∂u h
+> ∂t (xrθ i, t rθ i) + N[uh;ξ]( xrθ i, t rθ i)−γ(xrθ i, t rθ i)2
+
+Figure 1: Proposed network architecture and multi-phase training strategy. Phase 1 (Steady-State): Fully connected blocks ( FNN 1, FNN 3) map spatial inputs x to a steady-state baseline us,ϕ (x), optimized via data or physics-informed residual loss. Phase 2 (Transient): Temporal inputs t and spatial features are merged to capture the space-time correction 
+
+gθ (x, t ). The combined spatio-temporal solution uh(x, t ) is then trained using a time-dependent physics-informed loss. Initial and boundary conditions are enforced as soft constraints (omitted from the diagram for brevity). 73.4 Training 
+
+The model is trained in two phases using the SOAP algorithm detailed in Section 2.3. Initially, the two fully connected layers, FNN 1 and FNN 3, are trained on the steady-state solution. These networks can be trained using either data or a physics-informed loss. When training with data, we use the mean-squared loss 
+
+LM SE (ϕ) = 1ˆN
+
+> ˆN
+
+X
+
+> i=1
+
+|us,ϕ (ˆxi) − ˆu(ˆxi)|2 , (17) where {(ˆxi, ˆu(ˆxi)) } ˆNi=1 are the total available training data. If we employ the PINN framework, the loss formulation is given by 
+
+Lrϕ (ϕ) = 1
+
+Nrϕ Nrϕ 
+
+X
+
+> i=1
+
+N [us,ϕ ; ξ]( xrϕ i ) − γs(xrϕ i ) 2
+
+, (18) where {xrϕ i } ∈ Ω represents a random collocation point in the domain, and Nrϕ denotes the total number of collocation points. Note that the boundary condition is implemented as a soft constraint. Once FNN 1 and FNN 3 are trained, their weights and biases are frozen. Subsequently, FNN 2 and FNN 4 are optimized based on the transient loss. The output gθ (x, t ) is used to derive the approximate transient solution uh(x, t ). Therefore, the physics-informed loss to train FNN 2 and FNN 4 is given by 
+
+Lrθ (θ) = 1
+
+Nrθ Nrθ X
+
+> i=1
+
+∂u h
+
+∂t (xrθ i , t rθ i ) + N [uh; ξ]( xrθ i , t rθ i ) − γ(xrθ i , t rθ i )
+
+> 2
+
+, (19) where { xrθ i , t rθ i
+
+} ∈ Ω × I represent a random spatio-temporal collocation point, and Nrθ denotes the total number of collocation points. 
+
+# 4 Numerical Experiments 
+
+In this section, we present a series of examples to study the method’s extrapolation capability for different choices of the temporal profile f (t) and to apply the method to several heat-transfer and fluid-dynamics problems. We begin with Example 4.1, a one-dimensional diffusion equation, and then extend the framework to the lid-driven cavity flow in Example 4.2 to study the performance of the proposed decomposition for the Navier–Stokes equations. Example 4.3 investigates the coupled fluid and heat dynamics in the classical natural convection benchmark problem in a square cavity. Finally, Example 4.4 applies the method to a three-dimensional conjugate heat transfer problem. All examples are implemented using SciPy [ 47 ], NumPy [ 48 ], Keras [ 49 ], and TensorFlow [ 50 ]. Matplotlib [ 51 ] is used to generate the figures. For all numerical experiments, the hyperparameters for the SOAP algorithm are fixed as follows: learning rate η = 10 −3, preconditioning frequency np = 10 , β1 = 0 .9, β2 = 0 .999 , and ϵ = 10 −8. Unless otherwise stated, we set the loss weights to λr = λb = λ0 = 1 . The reference solution for fluid and heat dynamics in two or three dimensions is computed using the enriched Galerkin finite element method developed in [ 52 ] using the deal.II library [53]. 
+
+4.1 Example 1: Heat Equation 
+
+In this example, we consider the one-dimensional diffusion equation with a time-independent forcing term. The solution approaches a stationary state, and the rate of convergence is determined by the diffusion constant and the eigenvalues of the Laplacian operator. For the domain Ω = (0 , 1) , the temperature distribution u : Ω × I → R satisfies 
+
+∂u ∂t − α ∂2u∂x 2 = γ(x), in Ω × I, (20) where α is the diffusion constant and γ(x) is a prescribed time-independent forcing term. For this example, we impose homogeneous Dirichlet boundary conditions, u(0 , t ) = u(1 , t ) = 0 for t ∈ I, and the initial condition 
+
+u(x, 0) = sin( πx ), x ∈ Ω. (21) The forcing term is chosen so that the stationary solution is 
+
+us(x) = x(1 − x) 3 + sin(3 πx ) + sin(2 πx ), (22) 8which satisfies the steady-state equation 
+
+−α ∂2us
+
+∂x 2 = γ(x). (23) First, we define the network architecture. The network architectures are defined below using the notation [Nin , N hidden ×
+
+D, N out ], where Nin and Nout are the input and output widths, Nhidden is the number of neurons per hidden layer, and D
+
+is the number of hidden layers. For this experiment, we use the following architectures: • FNN 1: [1 , 50 × 2, 25] 
+
+• FNN 2: [1 , 50 × 2, 25] 
+
+• FNN 3: [25 , 50 × 3, 5] 
+
+• FNN 4: [50 , 50 × 3, 5] .We employ a two-stage training strategy. Initially, we train FNN 1 and FNN 3 on 1,000 randomly sampled points to approximate the steady-state solution. Next, we train FNN 2 and FNN 4 to capture the transient behavior using 10,000 random collocation points distributed throughout the space-time domain. During this second phase, we enforce the initial and boundary conditions using an additional 1,000 random points for each constraint. To evaluate robustness and account for optimization stochasticity, we perform ten independent training runs with random initializations and compare their performance.      
+
+> (a) Relative L2error (b) f(t)
+
+Figure 2: One-dimensional heat equation: Extrapolation performance and temporal function f (t). (a) Relative L2
+
+error over time for the temperature field, evaluated across various temporal functions f (t). The network is trained on 
+
+t ∈ [0 , 0.5] and extrapolated to t = 5 . (b) Comparison of the learned temporal profiles f (t).We train the model over the interval t ∈ [0 , 0.5] . Figure 2 illustrates the predictive accuracy over time alongside the learned function f (t) and compares the performance against a standard PINN (ST-PINN) featuring 5 hidden layers and 50 neurons per hidden layer. In this figure, the curves represent the mean trajectory across all 10 realizations, while the shaded region indicates the variation across runs. Figure 2a shows the predictive accuracy over time, where the y-axis represents the relative L2 error between the exact solution u and the network prediction uh, defined as 
+
+E := ∥u − uh∥L2
+
+∥u∥L2
+
+. (24) As shown in Figure 2a, the choice of f (t) has a significant impact on extrapolation accuracy. The exponential decay function ( f (t) = e−λt ) outperforms all other profiles, consistent with the fact that the eigenmodes of the heat equation decay exponentially in time. The algebraic decay profile ( f (t) = (1+ λt )−p) also achieves low error, but its convergence to the steady state is notably slower. The damped oscillatory function ( f (t) = e−λt  a + cos( ωt )) exhibits higher error at intermediate times, but eventually converges as the exponential envelope drives f (t) → 0. Finally, the constant profile ( f (t) = 1 ) shows a monotonically increasing error, since the transient correction gθ (x, t ) is never suppressed and the network has no mechanism to enforce convergence to us. The ST-PINN also shows a similar trend: its error increases during extrapolation. This illustrates the well-known limitation of standard PINNs: while they perform well within the training domain, they lack the inductive bias needed for reliable temporal extrapolation. Notably, even in its worst case—the constant profile ( f (t) = 1 )—our method is no worse than the ST-PINN, while the decaying profiles improve substantially upon it. Figure 3 shows the spatial profiles of the solution at t = 1 and t = 2 for f (t) = e−λt . In both cases, the network prediction uh(x, t ) is plotted against the reference solution u(x, t ), with the initial condition u(x, 0) and the steady-state 9(a) t = 1 (b) t = 2 
+
+Figure 3: One-dimensional heat equation: Extrapolated solution versus the reference solution for f (t) = e−λt at (a) t = 1 and (b) t = 2 . The network is trained on t ∈ [0 , 0.5] . The initial condition u(x, 0) and the steady-state solution 
+
+us(x) are shown for reference. solution us(x) included to illustrate the dynamical evolution from one to the other. The network predictions are in close agreement with the reference, demonstrating robust extrapolation performance well beyond the training range. To understand these results, we examine the analytical structure of the transient dynamics. Writing the exact solution as 
+
+u(x, t ) = us(x) + v(x, t ), the transient component v satisfies the homogeneous diffusion equation 
+
+∂v ∂t − α ∂2v∂x 2 = 0 , v(x, 0) = u(x, 0) − us(x), (25) with homogeneous Dirichlet boundary conditions. By separation of variables, the solution admits the eigenmode expansion 
+
+v(x, t ) = 
+
+> ∞
+
+X
+
+> n=1
+
+cn sin( nπx ) e−αn 2π2t, (26) where the coefficients cn are determined by the initial data. The transient therefore decays as a superposition of exponentials, with the slowest mode corresponding to n = 1 and decay rate απ 2 ≈ 0.987 for α = 0 .1. Higher modes decay quadratically faster, so for moderate t the transient is well approximated by a single exponential. In the proposed ansatz, uh = us + f (t) gθ (x, t ), the product f (t) gθ must approximate the expansion (26). When f (t) = e−λt , the ansatz is structurally compatible with the dominant eigenmode: the network needs only to learn 
+
+gθ (x, t ) ≈ P 
+
+> n
+
+cn sin( nπx ) e−αn 2π2t+λt , a function whose time dependence reduces to decaying exponentials that the network can represent within the training window and that remains bounded during extrapolation. The learned value of 
+
+λ is expected to approximate απ 2, aligning the ansatz with the slowest-decaying eigenmode. This structural compatibility argument also explains the behavior of the remaining profiles. For algebraic decay, 
+
+f (t) = (1 + λt )−p decreases as O(t−p) for large t, which is asymptotically slower than the exponential decline of the eigenmodes in (26) . Within the training window, the network gθ can compensate by learning a correction that accelerates the effective decay of the product f (t) gθ . However, this compensation is a learned artifact of the training data, not a structural feature of the ansatz: outside the training domain, the network has no incentive to maintain it. The product f (t) gθ therefore converges to zero more slowly than the true transient, producing the gradual but eventual convergence observed in Figure 2a. For the damped oscillatory profile, f (t) = e−λt (a + cos( ωt )) , convergence to the steady state is guaranteed by the exponential envelope regardless of gθ . One might expect the cosine factor to introduce spurious oscillations that the network must cancel; however, the learned profile in Figure 2b reveals that the optimizer selects a small angular frequency ω, producing only weak oscillation. The elevated extrapolation error at intermediate times has a different origin: the additional free parameters ( a, ω) allow the optimizer to fit a composite decay shape that matches the training data but whose temporal structure departs from the pure exponential decay of the eigenmodes. In particular, f (0) = a + 1 , which generically differs from unity, and the product e−λt (a + cos( ωt )) cannot reduce to a single exponential for any parameter choice. The network gθ compensates for this shape mismatch within the training window, but because the compensation is learned rather than structurally imposed, it does not persist during extrapolation. The net result is a profile that converges to the steady state—as the exponential envelope guarantees—but less accurately than the pure exponential ansatz, whose functional form is directly aligned with the dominant eigenmode. 10 Figure 4: One-dimensional heat equation: Extrapolation error as a function of training duration. The vertical axis shows the relative L2 error E for the temperature field over time, where f (t) = e−λt with fixed λ = 0 .986 , which is learned from the previous case. Finally, for the constant profile f (t) = 1 , the ansatz reduces to uh = us + gθ (x, t ), placing full responsibility for reproducing the transient decay on the network. Feedforward networks behave as polynomial-like interpolants with no intrinsic decay structure, so gθ has no mechanism to enforce gθ → 0 as t → ∞ . Outside the training domain, the network simply extrapolates whatever function it has fit, which generically grows or oscillates, producing the monotonically increasing error in Figure 2a. This last case illustrates the well-known limitation of standard PINNs: accurate interpolation within the training domain does not imply reliable temporal extrapolation. Finally, Figure 4 illustrates the impact of training duration on extrapolation error. For this evaluation, we use the function f (t) = e−λt and set λ = 0 .986 , which is the value learned by the model and used in Figure 3. As expected, longer training periods have lower errors, with the interval t ∈ [0 , 0.5] achieving the minimum extrapolation error. This error increases as we decrease the training duration. However, due to the underlying exponential decay profile, all solutions ultimately converge to the steady state regardless of the training duration. In summary, the one-dimensional diffusion example shows that the proposed method captures temporal extrapolation effectively. From the numerical experiment, we observe that the exponential decay function outperforms other choices of function. 
+
+4.2 Example 2: Navier–Stokes equation (Lid-Driven Cavity Flow) 
+
+We now apply the proposed method to the incompressible Navier–Stokes equations for lid-driven cavity flow. We consider a square domain Ω = (0 , 1) 2 filled with a viscous fluid, and let I := (0 , t f ] denote the time interval of interest. The fluid motion is governed by 
+
+∂u
+
+∂t + ( u · ∇ )u − 2 Re −1∇ · ε(u) + ∇p = 0 , in Ω × I, (27a) 
+
+∇ · u = 0 , in Ω × I, (27b) where u = [ u1, u 2]⊤ : Ω × I → R2 is the fluid velocity, p : Ω × I → R is the pressure, ε(u) := 12 (∇u + ( ∇u)⊤)
+
+denotes the symmetric part of the velocity gradient, and Re is the Reynolds number. We set Re = 100 and impose the boundary conditions 
+
+u = 0, on ∂Ω \ { y = 1 }, (28a) 
+
+u =
+
+1 − (2 x − 1) 2
+
+0
+
+
+
+, on ∂Ω ∩ { y = 1 }. (28b) Thus, all walls are stationary except the top lid, which moves with a prescribed horizontal velocity and generates a recirculating flow inside the cavity. The parabolic lid profile drives the flow to the right and avoids the corner discontinuities associated with a uniform lid velocity. The initial condition is u(x, 0) = 0, x ∈ Ω. While the theoretical pressure field is mathematically unique only up to an arbitrary additive constant, minimizing the network’s loss function generally results in convergence toward one distinct realization of the pressure field. As in Example 4.1, we compare four temporal profiles for f (t): constant, exponential decay, algebraic decay, and damped oscillatory. Each solution component ( u1, u2, p) is assigned its own decay rate, amplitude, and angular frequency, all of which are learned during training. We report the L∞ error, defined as the maximum absolute pointwise error, rather than the relative L2 error used in Example 4.1, as the L∞ norm highlights worst-case deviations near boundaries and in regions of steep gradients where extrapolation errors are most likely to concentrate. As in the previous example, we use the following architectures: 11 • FNN 1: [2 , 50 × 2, 25] ,• FNN 2: [1 , 50 × 2, 25] ,• FNN 3: [25 , 50 × 3, 3] ,• FNN 4: [50 , 50 × 3, 3] .We train FNN 1 and FNN 3 using 10,000 random collocation points to obtain the steady-state solution us(x). Once these networks are trained, we freeze the weights of FNN 1 and FNN 3 and train FNN 2 and FNN 4 with 30,000 random collocation points. During each optimization step, we employ a mini-batch strategy by subsampling 3,000 collocation points and using 3,000 boundary points. For transient state training, we enforce the initial condition using 1,000 randomly sampled points.          
+
+> (a) ∥u1−uh
+> 1∥L∞(b) ∥u2−uh
+> 2∥L∞
+
+Figure 5: Lid-Driven Cavity Flow: L∞ error over time for the velocity components (a) u1 and (b) u2, evaluated across various temporal functions f (t), with the network trained on t ∈ [0 , 0.5] .
+
+4.2.1 Training on t ∈ [0 , 0.5] .
+
+Figure 5 compares the interpolation and extrapolation errors for different choices of f (t) when the model is trained up to t = 0 .5. For the horizontal velocity uh 
+
+> 1
+
+, the error is elevated near t = 0 and then decreases within the training window before rising again during extrapolation. The large initial error is attributable to the incompatibility between the zero initial condition and the non-zero lid velocity: at t = 0 the solution must develop a thin shear layer near the top boundary, which is difficult for the network to resolve. Within the training interval, the error decreases regardless of the choice of f (t), as expected. During extrapolation, however, the profiles diverge significantly. Exponential decay and damped oscillatory profiles achieve comparable mean errors. Algebraic decay converges more slowly, and the constant profile shows steadily growing error. The vertical velocity component uh 
+
+> 2
+
+exhibits lower error overall, including at early times. This is because u2 satisfies homogeneous Dirichlet conditions on all boundaries, so no initial–boundary incompatibility arises. The extrapolation trends mirror those of u1: exponential and damped oscillatory decay outperform algebraic decay, while the constant profile degrades monotonically. 
+
+4.2.2 Training on t ∈ [0 , 1] .
+
+Figure 6 shows the corresponding results when the training window is extended to t = 1 . Within the training interval, the interpolation error remains low for all choices of f (t). During extrapolation, the relative ranking of the decay profiles is preserved, with exponential decay and oscillatory decay achieving the lowest error. A comparison of Figures 5 and 6 confirms that extending the training horizon improves extrapolation accuracy for exponential decay profiles, as the network has more transient data from which to learn the dynamics before the asymptotic regime takes over. 
+
+4.2.3 Spatial error distribution. 
+
+Finally, Figure 7 shows the predicted velocity fields and their pointwise absolute errors at t = 1 .5, using f (t) = e−λt 
+
+with the model trained on t ∈ [0 , 0.5] . The predicted fields preserve the expected physical structure: a primary recirculating vortex driven by the lid, with the horizontal velocity concentrated near the top boundary and the vertical velocity marking the return flow along the side walls. The largest errors are concentrated near the top-left corner and along the boundary of the primary vortex, where the velocity gradients are steepest and where the shear layer interacts with the side wall. The absolute errors remain at O(10 −2) or below, which, given that the model is extrapolating three 12 (a) ∥u1 − uh      
+
+> 1∥L∞(b) ∥u2−uh
+> 2∥L∞
+
+Figure 6: Lid-Driven Cavity Flow: L∞ error over time for the velocity components (a) u1 and (b) u2, evaluated across various temporal functions f (t), with the network trained on t ∈ [0 , 1] .times the training horizon ( t = 1 .5 versus training up to t = 0 .5), demonstrates that the steady-state-informed ansatz provides meaningful predictive capability well outside the training domain.              
+
+> (a) uh
+> 1(b) |u1−uh
+> 1|(c) uh
+> 2(d) |u2−uh
+> 2|
+
+Figure 7: Lid-Driven Cavity Flow: Velocity predictions and pointwise absolute errors at t = 1 .5 for f (t) = e−λt , with the model trained on t ∈ [0 , 0.5] . (a) Horizontal velocity uh 
+
+> 1
+
+. (b) Absolute error |u1 − uh 
+
+> 1
+
+|. (c) Vertical velocity uh 
+
+> 2
+
+.(d) Absolute error |u2 − uh 
+
+> 2
+
+|.Figure 8 places the prediction errors in context by showing the absolute spatial differences in the velocity field between successive time snapshots. Panels (a) and (b) display |ui(·, t = 0 .5) − ui(·, t = 1 .5) |, which quantify the physical evolution of the flow between the end of the training window and the extrapolation point; these differences reach 
+
+O(0 .15 –0.19) . Comparing with the prediction errors in Figure 7, which are O(0 .05 –0.07) , the model’s extrapolation error is roughly three to four times smaller than the actual dynamic changes occurring over the same interval. Panels (c) and (d) show |ui(·, t = 1 .5) − ui(·, t = 9) |, confirming that the solution at t = 1 .5 remains in a genuine transient phase: substantial evolution toward the steady state still lies ahead. Taken together, these comparisons demonstrate that the network predicts an evolving solution that is distinct from both the training-interval data and the final steady-state condition, and does so with errors significantly smaller than the underlying physical dynamics. 
+
+4.3 Example 3: Coupled Navier-Stokes and Heat equations (Boussinesq approximation) 
+
+We now study the proposed model for the coupled Navier-Stokes and heat equations. This coupling relies on the Boussinesq approximation [ 54 ], a standard approach for simulating natural convection. Under this approximation, all fluid properties are assumed constant except for density variations, which are considered solely within the gravitational body force term of the momentum equation. Similar to the previous Example 4.2, we consider a square domain Ω = (0 , 1) 2 filled with viscous fluid. The fluid is initially stationary. Upon imposing a high-temperature boundary condition on the left and a lower-temperature boundary condition on the right, the fluid begins to circulate clockwise due to buoyancy. The thermal gradient causes the warmer 13 (a) |u1(·, t = 0 .5) − u1(·, t =1.5) |               
+
+> (b) |u2(·, t = 0 .5) −u2(·, t =1.5) |
+> (c) |u1(·, t = 1 .5) −u1(·, t =9) |
+> (d) |u2(·, t = 1 .5) −u2(·, t =9) |
+
+Figure 8: Lid-Driven Cavity Flow: Contour plots showing the absolute spatial differences in the velocity components 
+
+u1 and u2. Panels (a) and (b) show the evolution of velocity between t = 0 .5 and t = 1 .5, while panels (c) and (d) show the evolution of the velocity between t = 1 .5 and t = 9 .      
+
+> (a) ∥θ−θh∥L∞(b) f(t)
+
+Figure 9: Natural convection in a square cavity: (a) L∞ error over time for the temperature field, evaluated across various temporal functions f (t). The network is trained on t ∈ [0 , 10] and extrapolated to t = 100 . (b) The learned temporal functions for f (t)
+
+fluid to rise while the cooler fluid descends. The following coupled system governs the fluid motion: 
+
+∂u
+
+∂t + ( u · ∇ )u − 2Re −1∇ · ε(u) + ∇p = Ri θ ˆe, in Ω × I, (29a) 
+
+∇ · u = 0 , in Ω × I, (29b) 
+
+∂θ ∂t + u · ∇ θ − κ∆θ = 0 , in Ω × I, (29c) where u = [ u1, u 2]⊤ : Ω × I → R2 is the fluid velocity, p : Ω × I → R is the pressure, and θ : Ω × I → R is the temperature. Here, ε(u) := 12 (∇u + ( ∇u)⊤) denotes the symmetric part of the velocity gradient. The Reynolds number Re is the ratio of inertial to viscous forces, and the Richardson number Ri measures the ratio of buoyancy to shear in the flow. The unit vector e is opposite to the direction of the gravitational acceleration. The dimensionless thermal diffusivity is defined as κ := Re −1Pr −1. Pr denotes the Prandtl number, which represents the ratio of kinematic viscosity to thermal diffusivity. In this example, we set Re = 500 , Ri = 1 , and Pr = 0 .71 . We specify a homogeneous Dirichlet boundary condition for the velocity u on all boundaries ∂Ω. The thermal boundary conditions consist of high temperature on the left wall and a low temperature on the right wall, while the top and bottom boundaries are treated with homogeneous Neumann 14 conditions. These conditions are summarized as follows: 
+
+u = 0, on ∂Ω, (30a) 
+
+θ = 1 , on ∂Ω ∩ { x = 0 }, (30b) 
+
+θ = 0 , on ∂Ω ∩ { x = 1 }, (30c) 
+
+∂θ ∂n = 0 , on ∂Ω ∩ { y = 0 , 1}. (30d)                       
+
+> (a) t= 10 (b) t= 20 (c) t= 40 (d) t= 60
+> (e) t= 10 (f) t= 20 (g) t= 40 (h) t= 60
+
+Figure 10: Natural convection in a square cavity: Temporal evolution of temperature profiles (top row) and the corresponding point-wise absolute errors of the temperature predictions (bottom row) with f (t) = e−λt (a + cos( ωt )) .Furthermore, we increase the number of hidden layers for FNN 4. The hyperbolic tangent (tanh) activation function is applied universally across all layers, with the sole exception of the FNN 3 output layer, which has linear activation. The specific network architectures are detailed below: • FNN 1: [2 , 50 × 2, 25] ,• FNN 2: [1 , 50 × 2, 25] ,• FNN 3: [25 , 50 × 3, 4] ,• FNN 4: [50 , 50 × 5, 4] .An important distinction from the previous examples is that Re = 500 , which makes advection dominant in both the momentum and energy equations. The dominant advection causes the velocity components to fluctuate and peak before settling to the steady-state solution. Furthermore, the system takes a significant time to reach the steady state due to small diffusion. To capture the initial velocity fluctuations due to advection, we train the network for a longer time interval, i.e., t ∈ [0 , 10] . The model’s output is extrapolated beyond t = 10 .We train FNN 1 and FNN 3 using 10,000 random collocation points to obtain the steady-state solution for the velocity, pressure, and temperature. Once these networks are trained, we freeze the weights of FNN 1 and FNN 2 and train FNN 2
+
+and FNN 4 with 100,000 random collocation points. During each optimization step, we employ a mini-batch strategy by subsampling 3,000 collocation points and using 3,000 boundary points. We enforce the initial condition using 1,000 randomly sampled points. 15 Figure 9 presents the L∞ error of the temperature distribution for various choices of f (t), alongside the learned profiles. Comparatively larger errors are observed within the training interval, where the velocity rapidly increases and peaks, forcing the temperature equation to resolve strong advection. During extrapolation, the damped oscillatory profile generally exhibits the lowest error. The mechanism behind this advantage is visible in Figure 9b: the damped oscillatory profile starts at f (0) = a + 1 ≈ 2.0 and decays sharply, whereas the exponential profile is anchored at f (0) = 1 . The additional amplitude parameter a effectively decouples the initial magnitude of the transient correction from the decay rate, allowing the optimizer to learn a fast decay without prematurely suppressing the contribution of gθ (x, t ) during the training interval. In contrast, the purely exponential model f (t) = e−λt faces a trade-off: because f (0) = 1 is fixed, a sharper decay rate would reduce f (t) gθ too rapidly to match the peaking dynamics within t ∈ [0 , 10] . The optimizer is therefore forced to learn a slower decay rate, which improves the fit during training but results in a slower approach to the steady state during extrapolation. Consistent with the previous examples, the algebraic and constant profiles perform worse than both the damped oscillatory and exponential models. Figure 10 illustrates the system’s transient behavior and evaluates the model’s predictive accuracy from t = 10 to t = 60 .The top row (a–d) captures the temporal evolution of the temperature field, showing the thermal front progressively spreading from the left boundary into the interior domain and developing the characteristic S-shaped isotherms of the differentially heated cavity. This evolution is primarily driven by temperature advection from the clockwise-circulating fluid. The bottom row (e–h) presents the corresponding pointwise absolute errors for the temperature predictions. The errors decrease monotonically during extrapolation—from O(0 .05) at t = 10 to O(0 .02) at t = 60 —confirming that the temporal profile f (t) progressively suppresses the transient correction as intended. 
+
+4.4 Example 4: Three-Dimensional Conjugate Heat Transfer 
+
+This example presents a test case for conjugate heat transfer involving a solid domain intersected by a fluid channel. Geometrically, the system consists of a unit cube, Ω = (0 , 1) 3, containing a square fluid channel defined by Ωf =(0 .25 , 0.75) × (0 , 1) × (0 .25 , 0.75) , as shown in Figure 11. As the fluid flows through the channel, it convects heat away from the surrounding solid to the outlet. The governing equations for the fluid channel are given in (29) , while the standard heat equation is solved for the solid. The only difference is that this example is three-dimensional, whereas the governing equations in (29) are written in two-dimensional form. Let Γ = ∂Ωf \ { y = 0 , 1} denote the fluid-solid interface and θ denote the global continuous temperature field, defined as θs within the solid domain ( Ω \ Ωf ) and θf
+
+within the fluid domain ( Ωf ). For the fluid, the thermal diffusivity is κf := Re −1Pr −1, and for the solid, it is κs. We solve the system subject to the following boundary and initial conditions: 
+
+u =
+
+ 0(1 − 16( x − 0.5) 2)(1 − 16( z − 0.5) 2)0
+
+ , on ∂Ωf ∩ { y = 0 }, (31a) 
+
+θ = 1 , on ∂Ω ∩ { z = 0 , 1}, (31b) 
+
+θ = 0 , on ∂Ωf ∩ { y = 0 }, (31c) 
+
+(2 Re −1ε(u) − pI)n = 0, on ∂Ωf ∩ { y = 1 }, (31d) 
+
+∂θ ∂n = 0 , on ∂Ω \  (∂Ωf ∩ { y = 0 }) ∪ { z = 0 , 1},
+
+(31e) 
+
+u = 0, on Γ, (31f) 
+
+θs = θf , on Γ, (31g) 
+
+κs
+
+∂θ s
+
+∂n = κf
+
+∂θ f
+
+∂n , on Γ, (31h) 
+
+u(·, 0) = 
+
+ 0(1 − 16( x − 0.5) 2)(1 − 16( z − 0.5) 2)0
+
+ , in Ωf , (31i) 
+
+θ(·, 0) = 0 , in Ω (31j) where (31g) and (31h) impose temperature and flux continuity, respectively. For the parameter values, we fix Re = 100, Pr = 1, Ri = 5, κf = Re −1Pr −1 = 0 .01 , and κs = 0 .02 .This experimental setup comprises distinct solid and fluid domains separated by an interface with a discontinuous thermal diffusion coefficient. Therefore, we employ two separate sets of neural networks—FNN ri , where i = {1, 2, 3, 4}
+
+and r = {f, s } represents the fluid and solid domains, respectively. Both sets are trained simultaneously, with the 16 Cold fluid inlet  
+
+> High temperature
+> High temperature
+> Γ(Interface)
+
+x
+
+y
+
+z
+
+Figure 11: Three-dimensional domain for conjugate heat transfer fluid-solid interface boundary conditions from (31g) and (31h) imposed as soft constraints. To evaluate the performance of the proposed method under varying training conditions, we investigate two scenarios: (1) training all FNN ri networks with physics-informed losses; and (2) a hybrid approach training FNN r 
+
+> 1
+
+and FNN r 
+
+> 3
+
+using FEM solutions, while training FNN r 
+
+> 2
+
+and FNN r 
+
+> 4
+
+with physics-informed losses. For all scenarios, FNN r 
+
+> 2
+
+and FNN r 
+
+> 4
+
+are trained over the time interval 
+
+t ∈ [0 , 1.5] .The network architectures are defined below: • FNN r
+
+> 1
+
+: [3 , 50 × 2, 25] 
+
+• FNN r
+
+> 2
+
+: [1 , 50 × 2, 25] 
+
+• FNN r
+
+> 3
+
+: [25 , 50 × 3, 5] 
+
+• FNN f 
+
+> 4
+
+: [50 , 50 × 5, 5] , FNN s 
+
+> 4
+
+: [50 , 50 × 5, 1] 
+
+4.4.1 Training FNN ri using physics-informed losses 
+
+As in previous examples, all network blocks are trained using the physics-informed loss formulations. To train FNN r
+
+> 1
+
+and FNN r
+
+> 3
+
+, the dataset consists of 10,000 random points on each boundary face (including the exterior and fluid-solid interfaces) and 250,000 random collocation points within each fluid and solid domain. During training, we use mini-batches comprising 1,000 boundary points per face and 10,000 collocation points. For training FNN r 
+
+> 2
+
+and FNN r
+
+> 4
+
+, the dataset is expanded over the time interval t ∈ [0 , 1.5] and includes 50,000 boundary points per face, 50,000 random initial points, and 250,000 random collocation points per domain. The mini-batch sizes for this configuration are set to 1,000 boundary points per face, 1,000 initial points, and 10,000 collocation points. Figure 12 shows the error of the temperature for various choices of f (t) when the model is trained on t ∈ [0 , 1.5] . The y-axis in the figure shows the relative L2 error, which is computed as ∥θ − θh∥L2 /∥θ∥L2 . The damped oscillatory function exhibits superior long-term performance, overtaking the purely exponential decay after t = 4 . As illustrated in Figure 12b, although the actual oscillation of this function is negligible, the profile benefits significantly from its flexible amplitude control. This freedom enables the damped oscillatory model to learn a larger initial amplitude and subsequently achieve a steeper decay rate. Conversely, the purely exponential decay model ( f (t) = e−λt ) is strictly constrained to an initial amplitude of one. To adequately fit the training data under this constraint, the network is forced to learn a much slower decay rate, which inherently degrades its ability to extrapolate effectively beyond the training domain. Consistent with previous examples, the constant and algebraic temporal profiles perform substantially worse than both the exponential and damped oscillatory models. Finally, compared to earlier examples, we observe an increased error in the steady-state regime. This discrepancy arises from inaccuracies inherent in the steady-state condition learned via the physics-informed loss formulation. Because the ansatz inherits whatever accuracy the prescribed steady state provides, and here that state is itself learned imperfectly, the network ultimately converges to an erroneous steady-state solution rather than the true physical solution. We emphasize that this limitation reflects the quality of the supplied steady state rather than the ansatz itself, which is agnostic to the source of the steady-state component. 17 (a) ∥θ−θh∥L2  
+
+> ∥θ∥L2
+> (b) f(t)
+
+Figure 12: Conjugate heat transfer in three dimensions: (a) Relative L2 error over time for the temperature field, evaluated across various temporal functions f (t). The network is trained on t ∈ [0 , 1.5] and extrapolated to t = 10 . All the networks FNN ri , where i = {1, 2, 3, 4} and r = {f, s }, are trained with physics-informed losses. (b) The learned temporal functions f (t).   
+
+> (a) ∥θ−θh∥L2
+> ∥θ∥L2
+> (b) f(t)
+
+Figure 13: Conjugate heat transfer in three dimensions: (a) Relative L2 error over time for the temperature field, evaluated across various temporal functions f (t). The network is trained on t ∈ [0 , 1.5] and extrapolated to t = 10 .FNN r 
+
+> 1,3
+
+are trained with FEM solutions and FNN r 
+
+> 2,4
+
+are trained with physics-informed losses, where r = {f, s }. (b) The learned temporal functions f (t).
+
+4.4.2 Training FNN r 
+
+> 1,3
+
+using FEM solutions and FNN r 
+
+> 2,4
+
+with physics-informed losses 
+
+To train FNN r 
+
+> 1
+
+and FNN r
+
+> 3
+
+, we utilize training data generated from the enriched Galerkin FEM model [ 52 ]. For training FNN r 
+
+> 2
+
+and FNN r
+
+> 4
+
+, we use the physics-informed losses with the same number of random points as before: in the time interval t ∈ [0 , 1.5] , we use 50,000 boundary points per face, 50,000 random initial points, and 250,000 random collocation points per domain, with mini-batch sizes set to 1,000 boundary points per face, 1,000 initial points, and 10,000 collocation points. Figure 13 shows the error of the temperature for various choices of f (t) when the model is trained on t ∈ [0 , 1.5] . The damped oscillatory function exhibits significantly superior performance. Similar to the previous examples, the damped oscillatory model’s flexible amplitude allows it to learn a steeper decay rate, as shown in Figure 13b. In contrast, the purely exponential model ( f (t) = e−λt ) is fixed to an initial amplitude of one, forcing a slower decay rate that limits its extrapolation ability. In the previous setup (Figure 12), relying solely on physics-informed losses resulted in the model converging to an erroneous steady-state solution during extrapolation. However, in this hybrid approach, we observe a drastically reduced error in the extrapolation regime. By anchoring the training of specific network blocks (FNN r 
+
+> 1
+
+and FNN r
+
+> 3
+
+) with high-fidelity data generated from the enriched Galerkin FEM model, the overall architecture is no longer solely reliant on the imperfect steady-state conditions learned purely via physics-informed loss formulations. The inclusion of the FEM solution provides a robust ground truth that stabilizes the model, preventing the extrapolation errors and ensuring the network tracks much closer to the true physical solution over extended time. 18 (a) t = 1 .5 (b) t = 2 .5 (c) t = 5         
+
+> (d) t= 1 .5(e) t= 2 .5(f) t= 5
+
+Figure 14: Conjugate heat transfer in three dimensions: Temporal evolution of temperature profiles (top row) on a YZ plane at x = 0.5 and the corresponding point-wise absolute errors of the temperature predictions (bottom row) with 
+
+f (t) = e−λt (a + cos( ωt )) .Figure 14 illustrates the system’s transient behavior and evaluates the model’s predictive accuracy from t = 1 .5 to 
+
+t = 5 .0. The top row (a–c) shows the temperature evolution over time on a YZ plane at x = 0 .5. We observe that the temperature diffuses from the top and bottom boundaries (z = {0, 1}) and the cold fluid entering the left boundary 
+
+(y = 0) advects the hot fluid. As time progresses, the hot fluid experiences a buoyant force that drives it towards the z-direction. We observe that the temperature profile deviates upward near the outlet at t = 5 . This phenomenon becomes clearer when we visualize the temperature profile alongside the velocity field, as in Figure 15. As time progresses, the velocity vectors point towards the z-direction as the temperature diffuses through the fluid. Furthermore, both figures display the point-wise absolute error for extrapolation across different time instances. This error is predominantly concentrated near the fluid-solid interface and boundaries. The concentration of error near the interface is because of the the discontinuity in the thermal diffusion coefficient. This mathematical discontinuities present a significant predictive challenge for the network. The overall error magnitude remains remarkably stable and bounded within a similar range over time. Ultimately, this highlights the method’s robust predictive capabilities, proving it highly effective at accurately extrapolating the solution well beyond the training time. 
+
+# 5 Conclusion 
+
+In this work, we introduced a steady-state informed neural network representation for dissipative PDE systems. Standard neural networks often struggle with temporal extrapolation, but the proposed approach addresses the limitation by exploiting a structural property of such PDEs: they eventually converge to a stationary equilibrium. We decompose the solution into a stationary steady-state component and a transient correction modulated by a time-dependent decay profile, which embeds the asymptotic behavior directly into the architecture. Using a series of numerical experiments, we demonstrate the method’s performance across various PDEs, from the one-dimensional heat equation to a fully coupled three-dimensional fluid-and-heat system. Numerical experiments confirm that the proposed architecture enhances the extrapolation capability of neural networks well beyond the training horizon. The selection of the temporal profile f (t) is critical and problem-dependent. We observed that, in general, exponential 19 (a) t = 1 .5 (b) t = 2 .5 (c) t = 5         
+
+> (d) t= 1 .5(e) t= 2 .5(f) t= 5
+
+Figure 15: Conjugate heat transfer in three dimensions: The top row illustrates the temporal evolution of temperature profiles and the accompanying velocity field on the YZ-plane ( x = 0 .5) and XZ-plane ( y = 0 .5). The bottom row displays the corresponding point-wise absolute errors for the temperature predictions with f (t) = e−λt (a + cos( ωt )) .decay (either oscillatory or non-oscillatory) provides robust performance. Ultimately, this methodology offers an effective modeling strategy for predicting long-term thermo-fluid dynamics in practical engineering applications. 
+
+# Acknowledgments 
+
+Poudel and Lee were partially supported by the U.S. Department of Energy, Office of Science, Energy Earthshots Initiatives under Award Number DE-SC0024703 and by the U.S. National Science Foundation under Grant DMS-2208402. 
+
+# References 
+
+[1] Randall J LeVeque. Finite difference methods for ordinary and partial differential equations: steady-state and time-dependent problems . SIAM, 2007. [2] Randall J. LeVeque. Finite Volume Methods for Hyperbolic Problems . Cambridge University Press, 2002. [3] Henk Kaarle Versteeg and Weeratunge Malalasekera. An Introduction to Computational Fluid Dynamics: The Finite Volume Method . Pearson Education, 2nd edition, 2007. [4] Thomas J. R. Hughes. The Finite Element Method: Linear Static and Dynamic Finite Element Analysis . Dover Publications, 2012. Originally published by Prentice-Hall, 1987. 20 [5] Olek C. Zienkiewicz, Robert L. Taylor, and Jian Z. Zhu. The Finite Element Method: Its Basis and Fundamentals .Elsevier Butterworth-Heinemann, 6th edition, 2005. [6] Alfio Quarteroni, Riccardo Sacco, and Fausto Saleri. Numerical Mathematics . Springer, 2nd edition, 2009. [7] J. N. Reddy. Introduction to the Finite Element Method . McGraw-Hill Education, 4th edition, 2019. [8] Dejan Susa, Matti Lehtonen, and Hasse Nordman. Dynamic thermal modelling of power transformers. IEEE Transactions on Power Delivery , 20(1):197–204, 2005. [9] Mohamed S. Seddik, Jehan Shazly, and Magdy B. Eteiba. Thermal analysis of power transformer using 2D and 3D finite element method. Energies , 17(13):3203, 2024. [10] Xiang Zhang, Zhongdong Wang, and Qiang Liu. Numerical investigation of oil flow and temperature distributions for ON transformer windings. Applied Thermal Engineering , 130:1–9, 2018. [11] Jonathan J Dorella, Bruno A Storti, Gustavo A Ríos Rodriguez, and Mario A Storti. Enhancing heat transfer in power transformer radiators via thermo-fluid dynamic analysis with periodic thermal boundary conditions. 
+
+International Journal of Heat and Mass Transfer , 222:125142, 2024. [12] Liuxi Cai, Yanfang Hou, Fang Li, Yun Li, Shunsen Wang, and Jingru Mao. Impacts of startup, shutdown and load variation on transient temperature and thermal stress fields within blades of gas turbines. Journal of Thermal Science , 31(3):727–740, 2022. [13] W. Z. Tang, L. Yang, W. Zhu, et al. Numerical simulation of temperature distribution and thermal-stress field in a turbine blade with multilayer-structure TBCs by a fluid-solid coupling method. Journal of Materials Science & Technology , 32(5):452–458, 2016. [14] UKNG Ghia, Kirti N Ghia, and CT Shin. High-re solutions for incompressible flow using the navier-stokes equations and a multigrid method. Journal of computational physics , 48(3):387–411, 1982. [15] P. N. Shankar and M. D. Deshpande. Fluid mechanics in the driven cavity. Annual Review of Fluid Mechanics ,32(1):93–136, 2000. [16] Frank P Incropera, David P DeWitt, Theodore L Bergman, Adrienne S Lavine, et al. Fundamentals of heat and mass transfer , volume 6. Wiley New York, 1996. [17] Michael Eldred. Recent advances in non-intrusive polynomial chaos and stochastic collocation methods for uncertainty analysis and design. In 50th AIAA/ASME/ASCE/AHS/ASC Structures, Structural Dynamics, and Materials Conference 17th AIAA/ASME/AHS Adaptive Structures Conference 11th AIAA No , page 2274, 2009. [18] Dongbin Xiu. Numerical methods for stochastic computations: a spectral method approach . Princeton university press, 2010. [19] George Em Karniadakis, Ioannis G Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. [20] Steven L. Brunton and J. Nathan Kutz. Data-Driven Science and Engineering: Machine Learning, Dynamical Systems, and Control . Cambridge University Press, 2nd edition, 2022. [21] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. [22] Teeratorn Kadeethum, Thomas M. Jørgensen, and Hamidreza M. Nick. Physics-informed neural networks for solving nonlinear diffusivity and Biot’s equations. PloS one , 15(5):e0232683, 2020. [23] Ameya D. Jagtap, Ehsan Kharazmi, and George Em Karniadakis. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 365:113028, 2020. [24] Teeratorn Kadeethum, Thomas M. Jørgensen, and Hamidreza M. Nick. Physics-informed neural networks for solv-ing inverse problems of nonlinear Biot’s equations: batch training. In ARMA US Rock Mechanics/Geomechanics Symposium , pages ARMA–2020. ARMA, 2020. [25] Lu Lu, Xuhui Meng, Zhiping Mao, and George Em Karniadakis. DeepXDE: A deep learning library for solving differential equations. SIAM Review , 63(1):208–228, 2021. [26] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence ,3(3):218–229, 2021. 21 [27] Zongyi Li, Nikolas Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhatt, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations , 2021. [28] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40):eabi8605, 2021. [29] Nikolas Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhatt, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. [30] Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics , 449:110768, 2022. [31] Aditi Krishnapriyan, Amir Gholami, Shandian Zhe, Robert Kirby, and Michael W. Mahoney. Characterizing possible failure modes in physics-informed neural networks. 34:26548–26560, 2021. [32] Revanth Mattey and Susanta Ghosh. A novel sequential method to train physics informed neural networks for Allen–Cahn and Cahn–Hilliard equations. Computer Methods in Applied Mechanics and Engineering , 390:114474, 2022. [33] Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055–A3081, 2021. [34] Chenxi Wu, Min Zhu, Qinyang Tan, Yadhu Kartha, and Lu Lu. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 403:115671, 2023. [35] Nikhil Vyas, Depen Morwani, Rosie Zhao, Mujin Kwun, Itai Shapira, David Brandfonbrener, Lucas Janson, and Sham Kakade. Soap: Improving and stabilizing shampoo using adam. arXiv preprint arXiv:2409.11321 , 2024. [36] Sifan Wang, Ananyae Kumar Bhartari, Bowen Li, and Paris Perdikaris. Gradient alignment in physics-informed neural networks: A second-order optimization perspective. arXiv preprint arXiv:2502.00604 , 2025. [37] Ian Goodfellow, Yoshua Bengio, Aaron Courville, and Yoshua Bengio. Deep learning , volume 1. MIT press Cambridge, 2016. [38] Prajit Ramachandran, Barret Zoph, and Quoc V Le. Searching for activation functions. arXiv preprint arXiv:1710.05941 , 2017. [39] Kurt Hornik, Maxwell Stinchcombe, and Halbert White. Multilayer feedforward networks are universal approxi-mators. Neural Networks , 2(5):359–366, 1989. [40] George Cybenko. Approximation by superpositions of a sigmoidal function. Mathematics of Control, Signals and Systems , 2(4):303–314, 1989. [41] Zhou Lu, Hongming Pu, Feicheng Wang, Zhiqiang Hu, and Liwei Wang. The expressive power of neural networks: A view from the width. Advances in neural information processing systems , 30, 2017. [42] Atilim Gunes Baydin, Barak A. Pearlmutter, Alexey Andreyevich Radul, and Jeffrey Mark Siskind. Automatic differentiation in machine learning: a survey. Journal of Machine Learning Research , 18(153):1–43, 2018. [43] Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality for training physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 421:116813, 2024. [44] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 ,2014. [45] Vineet Gupta, Tomer Koren, and Yoram Singer. Shampoo: Preconditioned stochastic tensor optimization. In 
+
+International Conference on Machine Learning , pages 1842–1850. PMLR, 2018. [46] Noam Shazeer and Mitchell Stern. Adafactor: Adaptive learning rates with sublinear memory cost. In International conference on machine learning , pages 4596–4604. PMLR, 2018. [47] Pauli Virtanen, Ralf Gommers, Travis E. Oliphant, Matt Haberland, Tyler Reddy, David Cournapeau, Evgeni Burovski, Pearu Peterson, Warren Weckesser, Jonathan Bright, Stéfan J. van der Walt, Matthew Brett, Joshua Wilson, K. Jarrod Millman, Nikolay Mayorov, Andrew R. J. Nelson, Eric Jones, Robert Kern, Eric Larson, C J Carey, ˙ Ilhan Polat, Yu Feng, Eric W. Moore, Jake VanderPlas, Denis Laxalde, Josef Perktold, Robert Cimrman, Ian Henriksen, E. A. Quintero, Charles R. Harris, Anne M. Archibald, Antônio H. Ribeiro, Fabian Pedregosa, Paul van Mulbregt, and SciPy 1.0 Contributors. SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python. Nature Methods , 17:261–272, 2020. 22 [48] Charles R. Harris, K. Jarrod Millman, Stéfan J. van der Walt, Ralf Gommers, Pauli Virtanen, David Cournapeau, Eric Wieser, Julian Taylor, Sebastian Berg, Nathaniel J. Smith, Robert Kern, Matti Picus, Stephan Hoyer, Marten H. van Kerkwijk, Matthew Brett, Allan Haldane, Jaime Fernández del Río, Mark Wiebe, Pearu Peterson, Pierre Gérard-Marchant, Kevin Sheppard, Tyler Reddy, Warren Weckesser, Hameer Abbasi, Christoph Gohlke, and Travis E. Oliphant. Array programming with NumPy. Nature , 585(7825):357–362, September 2020. [49] François Chollet et al. Keras. https://keras.io , 2015. [50] Martín Abadi, Ashish Agarwal, Paul Barham, Eugene Brevdo, Zhifeng Chen, Craig Citro, Greg S. Corrado, Andy Davis, Jeffrey Dean, Matthieu Devin, Sanjay Ghemawat, Ian Goodfellow, Andrew Harp, Geoffrey Irving, Michael Isard, Yangqing Jia, Rafal Jozefowicz, Lukasz Kaiser, Manjunath Kudlur, Josh Levenberg, Dandelion Mané, Rajat Monga, Sherry Moore, Derek Murray, Chris Olah, Mike Schuster, Jonathon Shlens, Benoit Steiner, Ilya Sutskever, Kunal Talwar, Paul Tucker, Vincent Vanhoucke, Vijay Vasudevan, Fernanda Viégas, Oriol Vinyals, Pete Warden, Martin Wattenberg, Martin Wicke, Yuan Yu, and Xiaoqiang Zheng. TensorFlow: Large-scale machine learning on heterogeneous systems, 2015. Software available from tensorflow.org. [51] J. D. Hunter. Matplotlib: A 2d graphics environment. Computing in Science & Engineering , 9(3):90–95, 2007. [52] Sanjeeb Poudel, Sanghyun Lee, and Lin Mu. Pressure-robust enriched galerkin finite element methods for coupled navier-stokes and heat equations. arXiv preprint arXiv:2512.16716 , 2025. [53] Daniel Arndt, Wolfgang Bangerth, Maximilian Bergbauer, Marco Feder, Marc Fehling, Johannes Heinz, Timo Heister, Luca Heltai, Martin Kronbichler, Matthias Maier, et al. The deal. ii library, version 9.5. Journal of Numerical Mathematics , 31(3):231–246, 2023. [54] Joseph Boussinesq. Théorie de l’écoulement tourbillonnant et tumultueux des liquides dans les lits rectilignes à grande section... , volume 1. Gauthier-Villars, 1897. 23

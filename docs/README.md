@@ -6,35 +6,33 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-21
-- 运行时间：2026-06-21 21:24:19 UTC
+- 最新运行日期：2026-06-22
+- 运行时间：2026-06-22 22:23:40 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：2
-- 速读区：3
+- 本次总论文数：3
+- 精读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-今日聚焦机器学习破解流体力学难题：牛顿平面库埃特流动态壁面滑移求解（9.0分）与热流体系统外推增强（8.0分）是最大亮点。重点关注两项精读成果：用机器学习处理滑移边界条件，以及利用稳态解提升神经网络外推性能。建议下一步尝试将这些外推增强技巧应用到自己的热流体仿真任务中。
-- 详情：[/202606/21/README](/202606/21/README)
+今日精读1篇、速读2篇，重点关注广义物理信息神经网络的模块化冲突规避训练。
+
+最值得深入的是精读论文《Modularity-Free Conflict-Averse Training for Generalized PINNs》（9.0分），以及速读中7.0分的《Neural network surrogates with uncertainty quantification for inverse problems in partial differential equations》，分别涉及冲突规避训练和反问题的不确定性量化。
+
+建议优先阅读精读论文以提升PINNs泛化性，并尝试将不确定性量化方法结合到你的神经网络代理研究中。
+- 详情：[/202606/22/README](/202606/22/README)
 
 ### 精读区论文标签
-1. [Solution of the Newtonian plane Couette flow with dynamic wall slip using machine-learning methods](/202606/21/2606.18499v1-solution-of-the-newtonian-plane-couette-flow-with-dynamic-wall-slip-using-machine-learning-methods)  
+1. [Modularity-Free Conflict-Averse Training for Generalized PINNs](/202606/22/2606.20156v1-modularity-free-conflict-averse-training-for-generalized-pinns)  
    标签：评分：9.0/10、query:sr-piml
-   evidence：使用物理信息神经网络求解库埃特流动偏微分方程
-2. [Enhancing neural network extrapolation in thermo-fluid systems using steady-state solutions](/202606/21/2606.18417v1-enhancing-neural-network-extrapolation-in-thermo-fluid-systems-using-steady-state-solutions)  
-   标签：评分：8.0/10、query:sr-piml
-   evidence：利用稳态解增强神经网络在热流体PDE中的外推能力，属于PINN方法
+   evidence：用于PDE求解的PINN训练及冲突规避方法
 
 ### 速读区论文标签
-1. [Acceleration of an algebraic multigrid pressure solver using graph neural networks](/202606/21/2606.19251v1-acceleration-of-an-algebraic-multigrid-pressure-solver-using-graph-neural-networks)  
+1. [Neural network surrogates with uncertainty quantification for inverse problems in partial differential equations](/202606/22/2606.20417v1-neural-network-surrogates-with-uncertainty-quantification-for-inverse-problems-in-partial-differential-equations)  
    标签：评分：7.0/10、query:sr-piml
-   evidence：图神经网络加速压力-泊松方程求解器
-2. [Structure-Oriented Randomized Neural Networks for Poisson-Nernst-Planck and Poisson-Nernst-Planck-Navier-Stokes Systems](/202606/21/2606.19912v1-structure-oriented-randomized-neural-networks-for-poisson-nernst-planck-and-poisson-nernst-planck-navier-stokes-systems)  
-   标签：评分：7.0/10、query:sr-piml
-   evidence：面向结构的随机神经网络求解PNP-NS偏微分方程系统
-3. [Kolmogorov-Arnold Reservoir Computing](/202606/21/2606.19984v1-kolmogorov-arnold-reservoir-computing)  
+   evidence：提出DeepGaLA，一种带不确定性量化的微分方程求解器神经网络替代模型
+2. [Assessing Reliability of Symbol Detection in Concept Bottleneck Models](/202606/22/2606.16535v1-assessing-reliability-of-symbol-detection-in-concept-bottleneck-models)  
    标签：评分：6.0/10、query:sr-piml
-   evidence：KARC用于动力系统预测，直接支持PIML用于PDE/动力系统
+   evidence：概念瓶颈模型中符号检测的可靠性
 
 
 <div class="dpr-home-promo-card">

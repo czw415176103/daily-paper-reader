@@ -6,33 +6,55 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-22
-- 运行时间：2026-06-22 22:23:40 UTC
+- 最新运行日期：2026-06-23
+- 运行时间：2026-06-23 22:19:50 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：1
-- 速读区：2
+- 本次总论文数：11
+- 精读区：7
+- 速读区：4
 
 ### 今日简报（AI）
-今日精读1篇、速读2篇，重点关注广义物理信息神经网络的模块化冲突规避训练。
-
-最值得深入的是精读论文《Modularity-Free Conflict-Averse Training for Generalized PINNs》（9.0分），以及速读中7.0分的《Neural network surrogates with uncertainty quantification for inverse problems in partial differential equations》，分别涉及冲突规避训练和反问题的不确定性量化。
-
-建议优先阅读精读论文以提升PINNs泛化性，并尝试将不确定性量化方法结合到你的神经网络代理研究中。
-- 详情：[/202606/22/README](/202606/22/README)
+今日焦点：物理信息神经网络(PINNs)在耦合刚性输运系统及多物理设计中取得里程碑式突破，两篇9.0分精读论文揭示其正从数据驱动向物理驱动跃迁。  
+最值得深读：《Physics-Informed Neural Networks for coupled stiff transport systems》展示了处理复杂耦合系统的可行性，与《Beyond Data-Driven》一同构成理解PINNs底层逻辑的必读组合。  
+建议优先精读这两篇高分开山之作，若想拓展可辅以速读中《Orthogonal Discrepancy Kernels》等处理部分物理先验的新思路。
+- 详情：[/202606/23/README](/202606/23/README)
 
 ### 精读区论文标签
-1. [Modularity-Free Conflict-Averse Training for Generalized PINNs](/202606/22/2606.20156v1-modularity-free-conflict-averse-training-for-generalized-pinns)  
+1. [Physics-Informed Neural Networks for coupled stiff transport systems](/202606/23/2606.21236v1-physics-informed-neural-networks-for-coupled-stiff-transport-systems)  
    标签：评分：9.0/10、query:sr-piml
-   evidence：用于PDE求解的PINN训练及冲突规避方法
+   evidence：用于刚性输运方程的PINNs
+2. [Beyond Data-Driven: How Physics-Informed Neural Networks are Reshaping Multi-Physics Design and Discovery](/202606/23/2606.21945v1-beyond-data-driven-how-physics-informed-neural-networks-are-reshaping-multi-physics-design-and-discovery)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：物理信息神经网络用于多物理场设计与发现
+3. [PI-DOSnet: A Physics-Informed Deep Operator-Splitting Network for Evolution Partial Differential Equations](/202606/23/2606.22514v1-pi-dosnet-a-physics-informed-deep-operator-splitting-network-for-evolution-partial-differential-equations)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：面向演化PDE的物理信息算子学习
+4. [Adaptive Hard-Soft Physics-Informed Neural Networks for Robust Boundary-Constrained PDE Solving](/202606/23/2606.23359v1-adaptive-hard-soft-physics-informed-neural-networks-for-robust-boundary-constrained-pde-solving)  
+   标签：评分：9.0/10、query:sr-piml
+   evidence：物理信息神经网络求解偏微分方程
+5. [Quantum-classical physics-informed Kolmogorov-Arnold networks for PDEs](/202606/23/2606.20326v2-quantum-classical-physics-informed-kolmogorov-arnold-networks-for-pdes)  
+   标签：评分：8.0/10、query:sr-piml
+   evidence：物理信息KAN网络求解PDE
+6. [Neural network approximation in discrete dual norms with adaptive test spaces](/202606/23/2606.20972v1-neural-network-approximation-in-discrete-dual-norms-with-adaptive-test-spaces)  
+   标签：评分：8.0/10、query:sr-piml
+   evidence：带自适应测试空间的鲁棒变分物理信息神经网络用于PDE求解
+7. [TF-SNO: Time-Frequency Gated Spectral Neural Operators for Learning Non-Stationary Partial Differential Equations](/202606/23/2606.21189v1-tf-sno-time-frequency-gated-spectral-neural-operators-for-learning-non-stationary-partial-differential-equations)  
+   标签：评分：8.0/10、query:sr-piml
+   evidence：用于非平稳PDE的谱神经算子
 
 ### 速读区论文标签
-1. [Neural network surrogates with uncertainty quantification for inverse problems in partial differential equations](/202606/22/2606.20417v1-neural-network-surrogates-with-uncertainty-quantification-for-inverse-problems-in-partial-differential-equations)  
+1. [Orthogonal Discrepancy Kernels for Learning with Partial Physics](/202606/23/2606.21199v1-orthogonal-discrepancy-kernels-for-learning-with-partial-physics)  
+   标签：评分：8.0/10、query:sr-piml
+   evidence：结合部分物理的半参数系统辨识框架
+2. [Neural Operator Processes for Probabilistic Operator Learning under Partial Observations](/202606/23/2606.22946v1-neural-operator-processes-for-probabilistic-operator-learning-under-partial-observations)  
    标签：评分：7.0/10、query:sr-piml
-   evidence：提出DeepGaLA，一种带不确定性量化的微分方程求解器神经网络替代模型
-2. [Assessing Reliability of Symbol Detection in Concept Bottleneck Models](/202606/22/2606.16535v1-assessing-reliability-of-symbol-detection-in-concept-bottleneck-models)  
+   evidence：通过神经算子进行PDE代理的物理信息机器学习
+3. [Parameterized Representations via Implicit Stochastic Modulation for High-Dimensional and High-Order Neural PDE Solvers](/202606/23/2606.22150v1-parameterized-representations-via-implicit-stochastic-modulation-for-high-dimensional-and-high-order-neural-pde-solvers)  
    标签：评分：6.0/10、query:sr-piml
-   evidence：概念瓶颈模型中符号检测的可靠性
+   evidence：神经PDE求解器的参数化表示
+4. [Flow Annealing Posterior Sampling for Function-Space Regression and Inverse Problems](/202606/23/2606.22346v1-flow-annealing-posterior-sampling-for-function-space-regression-and-inverse-problems)  
+   标签：评分：6.0/10、query:sr-piml
+   evidence：用于PDE逆问题的函数空间后验采样
 
 
 <div class="dpr-home-promo-card">

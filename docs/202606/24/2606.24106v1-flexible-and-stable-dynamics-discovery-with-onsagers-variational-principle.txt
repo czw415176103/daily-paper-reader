@@ -1,0 +1,2387 @@
+Title: Flexible and Stable Dynamics Discovery with Onsager's Variational Principle
+
+URL Source: https://arxiv.org/pdf/2606.24106v1
+
+Published Time: Wed, 24 Jun 2026 00:30:05 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Flexible and Stable Dynamics Discovery with Onsager’s Variational Principle 
+
+## Anthony Gruber ∗† 1, Ritoban Roy-Chowdhury †1,2 , Irina Tezaur 3, and Nathan M. Urban 41Scientific Machine Learning, Center for Computing Research, Sandia National Laboratories 
+
+> 2
+
+Computer Science and Engineering, University of California at San Diego 
+
+> 3
+
+Quantitative Modeling and Software Engineering, Sandia National Laboratories 
+
+> 4
+
+Optimal Experimental Design & Uncertainty Quantification, Brookhaven National Laboratory 
+
+Abstract 
+
+Variational principles specify the dynamics of a physical system via the extremization of associated functional data. Onsager’s variational principle (OVP), which characterizes dissipation-dominated phe-nomena such as phase separation, admits an unconditionally energy-stable time discretization through the minimization of a Rayleighan functional combining free energy and dissipative effects. The present work considers the case where one or more parts of this functional are empirically approximated or oth-erwise uncertain. To address this, a novel variational discretization of OVP is introduced which recovers previous work as a special case, and a learning problem is formulated which identifies uncertain terms in the free energy and dissipation potential from observable data. It is shown that the resulting OVP-based models connect directly to previous work in terms of proximal methods, Sobolev and Wasserstein gradient flows, while remaining provably energy-stable under arbitrarily long rollouts. The approach is illustrated on examples including Allen-Cahn, Fokker-Planck, and Cahn-Hilliard system models, where the effects of bulk free-energy densities, nonlocal potentials, and nonstandard boundary conditions are effectively learned with model classes consisting of polynomials, shallow neural networks, and spectral convolution kernels. 
+
+Keywords : dissipative systems, dynamics discovery, gradient flow, variational integrators, structure preser-vation 
+
+# 1 Introduction 
+
+Dissipative dynamical systems model phenomena ranging from nanoscale phase separation of polymers in solution to continent-scale motion of glacial ice sheets. However, in many practical settings of interest, sufficient quantitative descriptions of these phenomena are only partially known. As a result, it has become increasingly common to integrate data-driven modeling approaches with traditional methods for direct nu-merical simulation. Replacing unknown components of the governing equations with learnable surrogates can help bridge the gap between idealized theory and complex real-world behavior. Such hybrid models are particularly appealing in dynamics discovery problems, where the goal is to reconstruct the evolution of a system from a set of observational data. On the other hand, physics is not arbitrary, and trajectories produced by a physical system are inherently constrained to configurations that obey its laws. Na¨ ıvely including data-driven closure terms in a hybrid model of governing equations is unlikely to produce dynamics which generalize appropriately in every case, and it is well known that inserting unconstrained neural networks or other maximally flexible function approximators into governing equations often destroys fundamental structural properties of the underlying dynamics [1, 2, 3, 4, 5]. In dissipative systems, the most important structural property is energy stability, which states that the free energy of the system decays monotonically in time. This is equivalent (via a Legendre transform) to the second law of thermodynamics: the total entropy of the system cannot decrease 
+
+> ∗Corresponding author. E-mail: adgrube@sandia.gov.
+> †These authors contributed equally to this work.
+
+1
+
+> arXiv:2606.24106v1 [math.DS] 23 Jun 2026
+
+Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban as time progresses. Violation of this basic principle leads to models that may overfit to training data but fail to exhibit physically reasonable behavior when queried out-of-distribution, rendering them useless in high-consequence scenarios. Moreover, un-physical behavior such as spurious energy growth or dynamical instability during model training may compromise the optimization process, leading to poorly discovered dynamics in the first place. Thankfully, this issue of poor adherence to physics can be substantially mitigated with the application of an appropriate variational principle. When the physical phenomenon under consideration admits a varia-tional representation in terms of the extremization of functional data, there is a well defined mapping from these functionals to the system’s dynamics which comes from direct application of the variational princi-ple. Since learning functionals, which map system states to ordinary real numbers, is typically easier than learning state-to-state mappings produced by governing equations, an attractive option is to infer unknown or uncertain parts of these functionals from observational measurements. Besides often yielding an easier learning problem, the variational approach has the advantage of automatic physical structure-preservation: given the trained functional data, the dynamics produced by the learned model are prescribed according to well-studied physical principles. A particularly advantageous tool, which applies to dissipation-dominated systems, is Onsager’s Varia-tional Principle (OVP). In particular, OVP formulates the dynamics of non-equilibrium systems as those producing the least dissipative path to a state of minimum free energy, which instantaneously balances the energetic driving forces and the dissipative drag effects at each step. There are numerous advantages to this perspective. First, it is inherently modular: system dynamics are specified through functional minimization, meaning that coupled physical mechanisms are naturally incorporated through additional terms in the free energy or dissipation potential. This is particularly useful for both phenomenological modeling as well as data-driven discovery, since unknown or uncertain effects can be incorporated parametrically through these functionals in a variationally consistent way. This flexibility has inspired numerous descriptions of complex physical phenomena with OVP, including soft matter processes [6, 7], bacterial suspensions [8], microstruc-tural evolution processes [9], systems with odd elasticity [10], viscoelastic filaments [11], and multiphase flows [12], to name just a few. On the computational side, OVP also provides a privileged starting point for the design of structure-preserving numerical schemes [13, 14, 15, 16, 17, 18]. When OVP is respected in the time-discrete setting, the resulting dynamics inherit unconditional, step-size-independent energy stability. This means that simulations which start stable remain stable for all future times, since the free energy forms a Lyapunov function for the system. Moreover, this holds regardless of the step-size employed as well as discrete free energy and dissipation potentials actually realized. In the setting of dynamics discovery, this ensures that updates to these potentials always produce well behaved and physically reasonable dynamical evolutions, stabilizing training and improving efficiency in data-limited scenarios. Conversely, discretizations of dissipation-dominated phenomena which do not respect OVP are prone to un-physical dynamical instability or excessive numerical smoothing [19, 20, 21]. Besides being an issue for direct numerical simulation, this can cause significant difficulties in the setting of inverse problems, since “outer loop” updates to the governing equations (or the potentials producing them) are not guaranteed to yield well behaved solutions. While dynamics learning problems certainly benefit from stable intermediates, it is even more critical that the trained model produces dynamics which generalize consistently out-of-distribution with guaranteed properties. In particular, physical systems which equilibrate should correspond to models which also equilibrate. As a step toward fully modular, structure-preserving surrogate modeling for dissipative systems, this work considers the time discretization of OVP and its use in data-driven dynamics identification. The main novelty lies in the following contributions. 
+
+• A geometry-first discussion of OVP and its relationship to gradient flows in general, and to Wasserstein and Sobolev gradient flows in particular. 
+
+• An unconditionally energy-stable time discretization of OVP that automatically includes process con-straints and recovers previous work as a special case. 
+
+• An algorithm for dynamics discovery using OVP that is modular with respect to physics and boundary conditions and guaranteed to dissipate free energy independently of data or training quality. 
+
+• Demonstration of the proposed OVP-based strategy on a variety of test cases related to phase-field 2Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban modeling and nonlinear reaction-diffusion equations. The remainder of the work is organized as follows. Section 2 discusses OVP in detail, drawing connections to force balance equations and the principle of maximum entropy, as well as presenting new results connecting OVP to various gradient flows. Based on this discussion, Section 3 presents a structure-preserving time discretization of OVP which is unconditionally energy-stable and recovers previous discretizations of OVP as a special case. With this, Section 4 formulates the key learning problem built on the proposed discrete OVP, which enables dissipative dynamics discovery in an optimization-based framework. After a discussion on spatial discretization in Section 5, examples of this approach are presented in Section 6, where it is shown that OVP-based dynamics discovery produces flexible and accurate surrogate models which generalize appropriately out-of-distribution. Finally, Section 7 draws conclusions and discusses avenues for future work. 
+
+# 2 Background and Perspectives 
+
+Onsager’s Variational Principle (OVP) [22, 23] is an extension of Rayleigh’s least-energy dissipation principle [24] to general irreversible systems which take place “near equilibrium”. Such systems are driven by a notion of free energy while being dissipation-dominated; they lack substantive inertial effects, and their resulting velocity is determined by the strength of this dissipative force. This provides flexibility sufficient for describing a myriad of interesting partial differential equations (PDEs), including phase field models like Allen-Cahn and Cahn-Hilliard, the Stokes’ equations for highly viscous fluids, and phenomena such as heat diffusion and Fokker-Planck which admit statistical interpretations. The following definition is adapted from [7]. 
+
+Definition 2.1. Let Q be a finite or infinite dimensional configuration manifold containing state variables 
+
+q ∈ Q, and let E → Q be a vector bundle of process variables w ∈ Eq 1 which specify dissipation. Suppose the following functional data are provided: 
+
+• A free energy functional F : Q → R that is differentiable 2 and minimized by the system. 
+
+• A dissipation potential D : E → R+ that is fiber-wise convex and satisfies the normalization condition 
+
+Dq (0) = 0. 
+
+• A process mapping P : E → T Q that is a surjective and fiber-wise linear bundle homomorphism. Denoting the fiber of E at the point q by Eq and the usual evaluation pairing on T Q by ⟨· | ·⟩ : T ∗Q×T Q → R,consider the Rayleighian R : E → R at w ∈ Eq :
+
+Rq (w) = ⟨dFq | P q w⟩ + Dq (w), (2.1) Observing that w 7 → R q (w) is a convex function 3, Onsager’s variational principle is the statement that a curve t 7 → q(t) ∈ Q in the configuration manifold satisfies the condition ˙q(t) = Pq(t)v, v = argmin 
+
+> w∈Eq(t)
+
+Rq(t)(w). (2.2) 
+
+Remark 2.1 . The Rayleighan R in (2.1) is occasionally modified to include a notion of external power, i.e., 
+
+Rq (w) = ⟨dFq | P q w⟩ + Dq (w) + ⟨Pq | w⟩ for some P : E → R which is linear on each fiber. Of course, minimizers of this Rayleighan do not generally lead to curves q ∈ Q which monotonically decrease the free energy F.Unlike more common variational principles, such as Hamilton’s least action principle in mechanics (see e.g. [25]), Definition 2.1 shows that OVP does not realize system dynamics as extreme or stationary points of a particular energy functional. Instead, the velocity ˙ q(t) in (2.2) is defined in terms of a minimal vector 
+
+v ∈ Eq(t) in the process space, which effectively selects an updated configuration q(t + δt ) not too far from the equilibrium state. This choice relies on the free energy F and dissipation potential D described in           
+
+> 1By Fqwe mean the bundle-valued object Frestricted to its fiber over q.
+> 2Note that differentiability is assumed for convenience and not required for OVP to hold.
+> 3To guarantee a unique minimum, we will assume the usual coercivity condition Rq(w)→ ∞ as |w| → ∞ .
+
+3Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+Figure 1: An illustration depicting Onsager’s Variational Principle Definition 2.1. Here, configurations q ∈ Q,representing scalar fields over a manifold M, are updated based on optimal elements w ∈ Eq in the fibers of a vector bundle E → Q, which are vector fields on M depending on the configuration q.Definition 2.1, as well as the process mapping P, which expresses the change in configuration ˙ q = Pq w as a linear combination of process variables w with nonlinear coefficients Pq . Intuitively, the process bundle E
+
+contains “microscopic” quantities like fluxes or process rates, which are converted to changes in “macroscopic” quantities like concentrations and temperature fields via the process mapping P.In many cases of interest, the process bundle E = T Q is simply the tangent bundle to the configuration manifold, and therefore the process function P = I is just the identity mapping. However, it is important to note that Onsager’s description of dissipation generally contains more information than necessary for specifying changes in configuration ˙q, in which case the mapping P is necessarily nontrivial [7, 26]. For example, the Cahn-Hilliard model (discussed in Section 2.2.2) satisfies a continuity equation relating a scalar concentration field c ∈ Q with a vector flux field cw ∈ Ec. Infinitesimal changes ˙ c ∈ TcQ to the concentration field then arise from an optimization over the larger space of fluxes via the process mapping Pc(w) = −∇· cw,which encodes the conservation of mass. More generally, dissipation in chemical kinetics may be described by a process bundle of reaction rate fields, while dissipation in viscous fluids may be described a bundle of strain-rate tensors. In any case, OVP Definition 2.1 provides a powerful algorithm for producing physically consistent models from relatively high-level descriptions of configuration and dissipation. In contrast to the corresponding definition (47)-(48) in [7], Definition 2.1 does not discuss the treatment of explicit constraints on the configuration or process variables. However, these restrictions are straightforward to incorporate into OVP and do not complicate its application. First, observe that nonlinear holonomic constraints N (q) = 0 on the state variables q ∈ Q can be linearized and expressed as constraints on the process variables, i.e., N ′(q)w = 0. Moreover, any linear function Cq : Eq → Gq mapping E to some bundle 
+
+G and defining linear constraints Cq w = 0 on the process variables w ∈ Eq , including those constraints seen above, are readily incorporated into Definition 2.1 via minimization on the sub-bundle ˜E → Q with fibers ˜Eq = {w ∈ Eq | Cq w = 0}. In practice, this often involves the use of Lagrange multipliers μ ∈ G∗
+
+> q
+
+on the dual fibers to the image space of C and a Lagrangian ˜R : E ⊕ G∗ → R defined on the Whitney (i.e., fiber-wise direct) sum of E and G∗,˜Rq (w, μ ) = Rq (w) − ⟨ μ | Cq w⟩. (2.3) 4Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban In this case, it is straightforward to show (formally) that the section of ˜E specified by OVP solves the saddle point problem 
+
+v = argmin  
+
+> w∈˜Eq
+
+Rq (w) = argmin 
+
+> w∈Eq
+
+max 
+
+> μ∈G∗
+> q
+
+˜Rq (w, μ ). (2.4) Given only functional data, OVP prescribes an appropriate path in Q, where the first term of the Rayleighan R becomes the rate-of-change in free energy: for v satisfying (2.2), 
+
+dFq(t) | P q(t)v = dFq(t) | ˙q(t) = ˙F(q(t)) .
+
+In fact, OVP guarantees more: the dynamics on Q move states in the direction of minimum free energy. 
+
+Theorem 2.1. The free energy F decreases monotonically along solutions to OVP (2.2) .Proof. We will assume differentiability in the dissipation potential D for convenience. Overloading the notation ⟨· | ·⟩ to describe the usual evaluation pairing on E × E∗, denote by ∂wA : E → E∗ the fiber derivative of the functional A : E → R, defined at the point q ∈ Q by ⟨∂wAq (w) | ˚w⟩ = dds Aq (w + s ˚w)|s=0 
+
+for any variation vector ˚ w ∈ Eq . It follows that the variation of the Rayleighan R can be computed as 
+
+⟨∂wRq (w) | ˚w⟩ = ⟨dFq | P q ˚w⟩ + ⟨∂wDq (w) | ˚w⟩ = P⊤ 
+
+> q
+
+dFq + ∂wDq (w) ˚w ,
+
+where P⊤ : T ∗Q → E∗ is the transpose of the homomorphism P. At the minimal vector v = argmin w R ∈ Eq
+
+in the fiber Eq , this implies that the equation 
+
+P⊤ 
+
+> q
+
+dFq = −∂wDq (v),
+
+is satisfied in the dual fiber E∗ 
+
+> q
+
+. Pairing this equation with v, the derivative of free energy satisfies ˙Fq (v) = ⟨dFq | P q v⟩ = −⟨ ∂wDq (v) | v⟩ ≤ −D q (v) ≤ 0,
+
+where the final inequality used that D is nonnegative while the first inequality follows by convexity and the fact that Dq vanishes at zero: 0 = Dq (0) ≥ D q (v) + ⟨∂wDq (v) | 0 − v⟩ =⇒ ⟨∂wDq (v) | v⟩ ≥ D q (v).
+
+This establishes that the rate-of-change ˙F ≤ 0 is non-positive, as desired. 
+
+Remark 2.2 . It is often the case that forming the transpose P⊤ of the process function requires an integration-by-parts on some Riemannian manifold M. Therefore, the definition of the process bundle E should include appropriate boundary conditions when necessary (c.f., Section 2.2.1). Theorem 2.1 guarantees that the trajectories produced by OVP are asymptotically stable, since the free energy F serves as a Lyapunov function for the dynamics. This reflects the fact that states equilibrate under OVP, albeit in the “least dissipative” fashion. This can be better understood through exploration of the optimality conditions seen in the above proof. To that end, the remainder of this section presents two related perspectives on OVP which connect it to metric gradient flows and motivate the discretization in Section 3. While aspects of this discussion are known to experts in this area, the exposition, presentation, and mathematical formulation detailed here is novel. 
+
+## 2.1 OVP as a Balance of Forces 
+
+As illustrated in the proof of Theorem 2.1, when R is differentiable, the optimality conditions for OVP (2.2) take place in the dual E∗ to the process bundle 4:
+
+P⊤
+
+> q(t)
+
+dFq(t) + ∂wDq(t)(v) = 0 . (2.5)            
+
+> 4Technically, they take place in the pullback bundle q∗(E∗)→R+over R+whose fiber at t∈R+is E∗
+> q(t).
+
+5Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban This can be interpreted as a balance law between the force associated to the free energy F and the corre-sponding dissipative force generated by D. For example, consider a mass connected to a spring, with state 
+
+x ∈ Q := R given by its position in 1-dimension and process variable w ∈ Ex := R. The spring force emerges from the potential energy F(x) = 12 kx 2, defined in terms of an elastic constant k > 0, while a dissipative force emerges from the potential Dx(w) = 12 w2 generating the viscous effects. Given a process function 
+
+P = I which identifies w ∈ Ex with the velocity ˙ x ∈ TxQ tangent to the configuration x, OVP Definition 2.1 yields the usual balance equation between the elastic and viscous forces, ˙x + kx = 0 .
+
+In this way, the potentials F, D used in OVP correspond directly to force-balanced dynamics on the state space Q. However, this correspondence is not necessarily one-to-one: for instance, it is easy to see that constant shifts in these potentials do not affect the optimality condition (2.5). A second, infinite dimensional example described in [7] is also helpful. Consider the Stokes’ equations for an incompressible Newtonian fluid in the low-Reynolds limit. For a fluid velocity field denoted by 
+
+w ∈ Γ( T M) where M is a fixed volume with boundary ∂M = Γ D ∪ ΓN decomposed into fixed Dirichlet and Neumann components, these equations are: 
+
+
+
+∇ · σ = 0 in M,
+
+∇ · w = 0 in M,
+
+w = wD on Γ D ,
+
+σ · n = t on Γ N .
+
+(2.6) Here, σ ∈ Γ( T M ⊗ sym T M) is the stress tensor of the fluid, n ∈ Γ( T M⊥) is the outward-directed unit normal to the boundary, and wD , t ∈ Γ( T ∂ M) are given Dirichlet and traction boundary conditions. As dissipation dominates over inertial effects, the system (2.6) should be describable by OVP. To that end, denote the fluid velocity field by w ∈ Γ( T M) where M is a fixed volume with boundary ∂M. Dissipation in this system is independent of the system state and generated by the potential 
+
+D(w) = η
+
+Z
+
+> M
+
+|sym( ∇w)|2 dV, 
+
+where η is the shear viscosity of the fluid and sym( ∇w) = (1 /2)  ∇w+( ∇w)⊤ is the strain rate tensor. While there is no energetic component to this system (hence, trivial configuration space Q = {0}), external power (c.f. Remark 2.1) is supplied through the traction boundary condition: ⟨P | w⟩ = − R 
+
+> ΓN
+
+t · w dS. It follows that the process mapping P = I is identity and the system Rayleighan is given by R(w) = D(w) + ⟨P | w⟩,where the (trivial) process bundle E ∼= Q × ¯E has fibers ¯E = {w ∈ Γ( T M) | ∇ · w = 0 in M, w = wD on Γ D }.
+
+Introducing the Lagrange multiplier p ∈ L2(M) and defining the constrained Rayleighan ˜R(w, p ) = R(w) −⟨p |∇ · w⟩, OVP (2.2) becomes the expected statement 
+
+v = argmin  
+
+> w∈¯E
+
+max 
+
+> p∈L2(M)
+
+˜R(w, p ).
+
+A routine calculation using the balance law (2.5) immediately recovers the Stokes equations (2.6) for σ =2η sym( ∇v) − pI.
+
+## 2.2 Maximum Entropy and Gradient Flow 
+
+Another powerful way to view OVP is as a non-equilibrium generalization of the principle of maximum entropy. In equilibrium thermodynamics, state variables are functions of a system’s internal energy U ,volume V , and number of molecules N , or their conjugate quantities. For example, the thermodynamic free 6Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban energy 
+
+F(T, V, N ) = inf  
+
+> U
+
+{U − T S (U, V, N )},
+
+is the Legendre transform (up to sign conventions) of the entropy S in the internal energy variable. The fundamental postulate governing equilibrium phenomena is that systems will settle in configurations that maximize entropy, or, equivalently, minimize the free energy [27, 28]. OVP represents a non-equilibrium generalization of this principle which is genuinely dynamical: following the flow on the configuration space 
+
+Q specified by Definition 2.1 prescribes the minimally dissipative path that a system state q should take to reach equilibrium in a stable and physically meaningful way [22, 23]. The idea of variationally prescribed dynamics inherent in OVP is intimately connected to gradient flow. Recall that the gradient flow of a functional F : Q → R represents steepest descent with respect to a given metric g ∈ Γ( T ∗Q ⊗sym T ∗Q), which is a symmetric section of the covariant 2-tensor bundle over Q. Writing 
+
+⟨dF | ˚q⟩ =: g grad g F, ˚q for any ˚ q ∈ Γ( T Q ), this flow can be expressed in terms of the Riesz representer grad g F ∈ Γ( T Q ) as ˙q(t) = −grad g Fq(t),
+
+from which is easy to see that the functional F decreases along solutions: ˙F(q) = ⟨dFq | ˙q⟩ = − grad g Fq 2 
+
+> g
+
+≤ 0,
+
+where |·| g = g(·, ·)1/2 is the norm induced by the metric g. When the dissipation potential D is quadratic and the process mapping P is surjective, it turns out that OVP is naturally posed as a gradient flow with metric h ∈ Γ( T ∗Q ⊗sym T ∗Q) inherited from the dissipative effects. 5
+
+To see this, observe that the derivative ∂wD : E → E∗ is fiber-wise linear and symmetric due to quadraticity of the potential, as well as positive definite by convexity. Therefore, ♭ := ∂wD is an isomorphism between the process bundle and its dual which induces a symmetric, fiber-wise inner product (i.e., metric) 
+
+g ∈ Γ( E∗ ⊗sym E∗): for w1, w2 ∈ Eq ,
+
+g(w1, w2) := ⟨♭w1 | w2⟩ = ⟨♭w2 | w1⟩.
+
+Denoting by ♯ : E → E∗ the corresponding inverse mapping ♯ = ♭−1, the optimality condition (2.5) can be stated (for each t) as v = −♯q P⊤ 
+
+> q
+
+dFq . It follows that (2.2) becomes a gradient flow in terms of the transpose of the process mapping P⊤ and the inverse metric g−1 ∈ Γ( E ⊗sym E) on E∗ satisfying g−1(♭w1, ♭ w2) = 
+
+g(w1, w2). More precisely, OVP becomes the statement ˙q(t) = −P ♯P⊤dF q(t). (2.7) Since P♯P⊤ : T ∗Q → T Q is symmetric, this is nearly a gradient flow of the free energy F for any process mapping P. It is certainly dissipative (as required by OVP), since ˙F(q) = ⟨dFq | ˙q⟩ = − dFq P♯P⊤dFq = − P⊤dFq ♯P⊤dFq = − P⊤dFq 2 
+
+> g−1
+
+≤ 0.
+
+On the other hand, there is no guarantee that the mapping P♯P⊤ is invertible, in which case the pullback (pseudo-)metric ˜h :=  P⊤∗g−1 on T ∗Q, defined by ˜h(ω1, ω 2) = g−1 P⊤ω1, P⊤ω2
+
+, is similarly non-invertible. This issue is circumvented when P is surjective on the bundle of state velocities T Q , since this implies that its transpose P⊤ is injective and therefore P♯P⊤ is a bundle isomorphism. In this case ˜h = h−1 is a genuine metric tensor on T ∗Q, and its inverse metric h yields OVP as the genuine gradient flow ˙ q = −P ♯P⊤dF| q = −grad hF| q . Diagrammatically, this is summarized by the sequence of mappings 
+
+T ∗ 
+
+> q
+
+Q P⊤
+
+> q
+
+−−−−→ E∗
+
+> q
+> ♯q
+
+−−−→ Eq
+
+> Pq
+
+−−−→ Tq Q, 
+
+that maps the free-energy covector d F| q ∈ T ∗ 
+
+> q
+
+Q to the process dual space by P⊤ 
+
+> q
+
+, converts it into a process variable using the inverse dissipation metric ♯q , and pushes the result forward to a state velocity by   
+
+> 5Even when Dis not quadratic, OVP can be interpreted as a type of generalized gradient flow [29].
+
+7Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+Pq to yield the effective mobility operator Pq ♯q P⊤ 
+
+> q
+
+: T ∗ 
+
+> q
+
+Q → Tq Q governing the gradient flow. 
+
+Remark 2.3 . When the dissipation potential Dq is quadratic, symmetry of the phenomenological kinetic coefficients P ♯ P⊤|q is equivalent to the celebrated “reciprocal relations” of Onsager [6, 23], sometimes phrased as Lij = Lji where ˙ qi = P 
+
+> j
+
+Lij ∂S ∂q j for entropy S.This discussion shows that systems satisfying OVP are gradient flows in many cases of interest. Con-versely, it is also true that any gradient flow on an inner product space or Riemannian manifold satisfies OVP. This can be seen by considering a generic metric h ∈ Γ( T ∗Q ⊗sym T ∗Q) and its associated musical 
+
+♭, ♯ isomorphisms, mapping between the bundles T Q ↔ T ∗Q and defined the same way as before. It follows from the definitions of sharp and gradient that 
+
+⟨dF | ˚q⟩ = h(grad hF, ˚q) = ⟨♭ grad hF | ˚q⟩ ∀ ˚q ∈ Γ( T Q ),
+
+establishing that the h-gradient has the alternative expression grad hF = ♯ dF. Therefore, the gradient flow equation ˙q = −grad hF| q = −♯ dF| q matches (2.7) when the process bundle E = T Q is the tangent bundle, the process mapping P = I is the identity, and the dissipation potential Dq (w) = 12 |w|2 
+
+> h
+
+is the squared h-norm. Collecting results, the discussion in this subsection has established the following formal correspondence. 
+
+Theorem 2.2. Suppose the dissipation potential D : E → R is quadratic and the process mapping P :
+
+E → T Q is surjective. Then, solutions to OVP are gradient flows (2.7) on the configuration manifold 
+
+Q. Conversely, any sufficiently regular gradient flow ˙q = −grad hF| q on Q defined in terms of a metric 
+
+h ∈ Γ( T ∗Q ⊗sym T ∗Q) satisfies OVP with the choices E = T Q , Dq (w) = 12 |w|2
+
+> h
+
+, and P = I.
+
+Theorem 2.2 shows that solutions to OVP are closely related to gradient flows on the configuration space Q. For example, given Q = {c ∈ C∞(M) : ∂nc = 0 }, it is well known that the diffusion equation ˙c = ∆ c is the L2-gradient flow of the Dirichlet energy F(c) = 12
+
+R 
+
+> M
+
+|∇ c|2 dV , and therefore satisfies OVP with the choices Dc(w) = 12
+
+R 
+
+> M
+
+|w|2 dV and P = I. On the other hand, even when OVP is equivalent to specifying a gradient flow, it offers a more granular view of the involved physics. Phenomenologically, this is often useful: the free energy F, dissipation potential D, and process mapping P can be designed based on physical principles or learned from data, and OVP can be applied to produce stable and meaningful dynamics. This degree of control over the constituent potentials can have benefit- even in the case that the resulting equations of motion are the same. In the case of the diffusion equation, it has been argued (see [26, 7]) that the Dirichlet energy is not the correct physical mechanism by which free energy is dissipated: the free energy density of a solute with concentration c should take the form c log c up to solubility constants. This leads naturally to the idea of Wasserstein gradient flows, which will now be discussed in the context of several examples. 
+
+2.2.1 Wasserstein Gradient Flows 
+
+A more enlightening formulation of certain systems satisfying OVP, including simple diffusion, can be derived by considering Wasserstein gradient flows (WGFs) [26]. To that end, consider Q = {c ∈ C∞ 
+
+> +
+
+(M) : R 
+
+> M
+
+c dV =1} the configuration space of smooth and non-negative concentration fields c ≥ 0 integrating to one on a manifold M with boundary ∂M, as well as the process bundle E with fibers Ec = {w ∈ Γ( T M) : w · n =0 on ∂M} consisting of (smooth) vector fields tangent to the boundary. These fields affect the concentration by the continuity equation, encoded as ˙ c = Pcw := −∇ · cw in terms of the process mapping P : E → T Q ,which describes the conservation of mass for a substance of concentration c. Observe that P is surjective since the tangent space to Q at c is TcQ = {˚c ∈ C∞(M) : R 
+
+> M
+
+˚c dV = 0 } (solve the Neumann problem 
+
+−∇ · c∇ϕ = ˚ c and set w = ∇ϕ). Given the dissipation potential Dc(w) = 12
+
+R 
+
+> M
+
+c|w|2 dV , the following result describes gradient flow generated by OVP. 
+
+Theorem 2.3. For any free energy F : Q → R, the choices of Q, E, D, P above yield a gradient flow via OVP in terms of the chemical potential μ(c) = grad L2 F| c:
+
+˙c = ∇ · c∇μ(c).
+
+8Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+Proof. The result is a direct calculation using the gradient flow equation (2.7) along with the usual Riesz isomorphisms on L2. For completeness, a proof which does not rely on this additional structure is included in Section A. The following observation will simplify things considerably. Since the fibers TcQ are Hilbert spaces under the L2(M) inner product, it is convenient to identify the dual fibers T ∗ 
+
+> c
+
+Q ∼= TcQ with spaces of scalar fields. Similarly, the dual fibers E∗ 
+
+> c
+
+∼= Ec may be identified with spaces of vector fields under the L2(M, T M) inner product. With this, the fiber derivative ∂wD : E → E∗ ∼= E of D can be computed at the point c ∈ Q by considering 
+
+⟨∂wDc(w), ˚w⟩ =
+
+Z
+
+> M
+
+cw · ˚w dV = ⟨cw, ˚w⟩,
+
+establishing that the fiber-wise flat operator ♭c = ∂wDc is just multiplication by c. Therefore, its inverse is given (at least formally) by ♯cw = c−1w, and it remains to calculate the transpose of the process mapping 
+
+P : E → T Q . To that end, observe that for any ˚ c ∈ TcQ,
+
+⟨˚c, Pcw⟩ = −
+
+Z
+
+> M
+
+˚c∇ · cw dV =
+
+Z
+
+> M
+
+c∇˚c · w dV, 
+
+since w · n = 0 on ∂M by construction. It follows that P⊤ 
+
+> c
+
+= c∇, and combining this with the identification of d F with its L2 Riesz representative μ = grad L2 F finally yields 
+
+P♯P⊤dF c = ∇ · cc −1c∇ grad L2 F(c) = ∇ · c∇μ(c),
+
+as claimed. 
+
+Remark 2.4 . Observe that points where c = 0 can be handled without recourse to the nonexistent sharp operator ♯ by observing that cv = −c∇μ(c) and directly applying ˙ c = −∇ · cv. More formally, Ec should be thought of as the space of “tangential fluxes” j ∈ Γ( T M) with j · n = 0 on ∂M. Then, Pcw = −∇ · j
+
+and the only division by c occurs in the dissipation Dc(j) = 12
+
+R 
+
+> M|j|2
+> c
+
+which can be defined in an extended sense. Interestingly, it can be shown that the term ∇ · c∇μ(c) on the right-hand side of the gradient flow in Theorem 2.3 is exactly the Wasserstein gradient grad W F of the free energy. This provides a link between WGFs and OVP which is formalized in the following corollary. 
+
+Corollary 2.1. Consider Q as the space of probability densities with the Wasserstein inner product W ∈
+
+Γ( T ∗Q ⊗sym T ∗Q) (see e.g. [30, Section 8.2]), defined for tangent vectors ˚c1,˚c2 ∈ TcQ as 
+
+W (˚ c1,˚c2) = 
+
+Z
+
+> M
+
+c∇C1 · ∇ C2 dV where − ∇ · c∇Ck = ˚ ck, ∂nCk = 0 , k = 1 , 2.
+
+For any free energy F : Q → R, OVP with E, D, P as in Theorem 2.3 recovers the corresponding Wasserstein gradient flow: 
+
+˙c = −grad W F c = ∇ · c∇ grad L2 F c.
+
+Proof. The fact that OVP recovers the stated gradient flow is the content of Theorem 2.3. It remains to show that the right-hand side is also the Wasserstein gradient, i.e, grad W F| c = −∇ · c∇ grad L2 F| c. To that end, denote ˚ a = grad W F| c with −∇ · c∇A = ˚ a and observe that for any ˚ c ∈ TcQ,
+
+⟨grad L2 F| c,˚c⟩ =
+
+Z
+
+> M
+
+c∇A · ∇ C dV = −
+
+Z
+
+> M
+
+A∇ · c∇C dV = ⟨A, ˚c⟩.
+
+Therefore, A = grad L2 F| c, so grad W F| c = ˚ a = −∇ · c∇ grad L2 F| c as desired. This result justifies the claim that solutions to OVP are WGFs for particular choices of functional data. Another immediate corollary of Theorem 2.3 gives the Fokker-Planck, diffusion, and porous medium equations as WGF solutions to OVP. 9Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+Corollary 2.2. Given a potential U : M → R, the free energy F(c) = R 
+
+> M
+
+c log c + cU dV along with the choices of Q, E, D, P in Theorem 2.3 yield the Fokker-Planck equation ˙c = ∆ c + ∇ · (c∇U ) through OVP, which reduces to the diffusion equation when U ≡ 0. Using the free energy F(c) = 1
+
+> m−1
+
+R 
+
+> M
+
+cm dV instead yields the porous medium equation ˙c = ∆ cm.
+
+It is worth noting that the tangentiality constraint w · n = 0 on ∂M inherent in the fibers Ec of the process bundle can be lifted when F has a well defined L2 gradient, at the expense of a different boundary condition imposed naturally. To see this, let Ec ⊂ Γ( T M) be an unconstrained space of vector fields and recall that 
+
+Pcw = −∇ · cw.
+
+Then, for any chemical potential μ = grad L2 F| c, it follows that 
+
+⟨dFc | P cw⟩ =
+
+Z
+
+> M
+
+μ (−∇ · cw) d V =
+
+Z
+
+> M
+
+c∇μ · w dV −
+
+Z
+
+> ∂M
+
+cμ w · n dS. 
+
+Accordingly, the first variation of the Rayleighian in the direction ˚ w is given by 
+
+⟨∂wRc(w) | ˚w⟩ =
+
+Z
+
+> M
+
+ c∇μ + ∂wDc(w)♯ · ˚w dV −
+
+Z
+
+> ∂M
+
+cμ ˚w · n dS, 
+
+where ∂wDc(w)♯ ∈ Ec denotes the L2-Riesz representative of the fiber derivative. Since ˚ w is now uncon-strained, this reduces to the force balance equation 
+
+c∇μ + ∂wDc(w)♯ = 0 , on M
+
+together with the natural boundary condition 
+
+cμ = 0 on ∂M.
+
+Thus, there are (at least) two choices of Q, E which lead to well posed formulations of OVP in this case: one where Q is unconstrained and the fibers of E are tangential to ∂M, and another where both spaces are essentially unconstrained and Q obtains a natural boundary condition. Moreover, if Ec is defined to be a space of “fluxes” j = cw and the process mapping is Pcj = −∇ · j, the second choice naturally enforces 
+
+μ = 0 on ∂M.An example of this flexibility is shown in Figure 2, where the free energy is given by F(c) = R 
+
+> M
+
+c(log c −
+
+1 + μ0) d V in terms of the standard chemical potential μ0 (c.f. [7]) and the process mapping is chosen as 
+
+Pcj = −∇ · j. It follows that μ = grad L2 F = log c + μ0, so that OVP implies the natural boundary condition 
+
+c = e−μ0 on ∂M when Q is as before and Ec is an unconstrained space of vector fields. While the dynamics discovery experiments in Section 6 will employ the tangentiality constraint on Ec instead, this alternative approach may be useful in the case that natural boundary conditions on Q are desired. 
+
+2.2.2 Sobolev Gradient Flows 
+
+Another class of equations with a nice connection to OVP are the Sobolev gradient flows (SGFs). Of particular interest for this work are phase-field models [31, 32], which model the concentration of a solute 
+
+c ∈ Q and capture phase separation behavior. For example, the Cahn-Hilliard equation is useful for modeling di-block copolymers [33, 34, 35] which are polymer chains of blocks from two distinct species. The two polymer species generally repel each other, causing the solution to separate into distinct phases, while bonding between the species limits the extent of this separation and causes interesting patterns to form. Several examples of such models will be considered in Section 6. To explore the connection between SGFs and OVP, recall the Ginzburg-Landau (GL) free energy: 
+
+F(c) = 
+
+Z
+
+> M
+
+α
+
+2 |∇ c|2 + F (c) d V (2.8) where F : Q → Q represents the bulk free energy density which is generally empirical. It is common 10 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 0.0        
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Neumann
+> t= 0.001 t= 0.010 t= 0.030 t= 0.200
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Dirichlet
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> concentration  c
+
+Figure 2: OVP-based diffusion with (top) and without (bottom) the essential condition w · n = 0 on ∂M,implying natural Neumann and absorbing Dirichlet BCs, respectively. Both plots use μ0 = 1, so that the Dirichlet BC is e−1.to approximate this density with a double well potential such as the so-called Flory-Huggins logarithmic potential [36, 37], 
+
+F (c) = θ
+
+2 [(1 − c) log(1 − c) + (1 + c) log(1 + c)] − θc
+
+2 c2, (2.9) where θ ∈ R+ is the absolute temperature of the system, and θc ∈ R+ is the critical temperature of phase separation. Importantly, the parameters θ, θ c are material-dependent and often uncertain, making their determination a good candidate for replacement with a data-driven learning procedure. A further approximation to F is sometimes called the “shallow quenching” limit [38], 
+
+F (c) ≈
+
+ θ
+
+2 − θc
+
+
+
+c2 + θ
+
+12 c4 ≈
+
+ 1 − c22
+
+4 .
+
+In either case, note that the bulk free energy density has an interval on which its second derivative F ′′ (c) ≤ 0 is nonpositive. This region is called the “spinodal regime” where concentrations tend towards phase separation. The developments in Section 4 will show how OVP can be used to determine F from data in a way which preserves unconditional energy stability of the resulting discretization. Assuming c ∈ L2(M) is square-integrable on a bounded domain M, the L2-gradient flow of the GL free energy yields the Allen-Cahn equation, 
+
+(
+
+˙c = α∆c − F ′(c) in M,∂nc = 0 on ∂M, (2.10) where ∆ c is understood in the usual weak sense and the boundary condition in (2.10) ensures that the 
+
+L2-gradient d F(c)♯ = −α∆c + F ′(c) is well defined. Allen-Cahn is an effective model for phase transition in multi-component systems but does not conserve the total species concentration R 
+
+> M
+
+c. In cases where this is 11 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban important, the Cahn-Hilliard model is more appropriate, 
+
+
+
+˙c = ∇ · M ∇μ(c) in M,μ = −α∆c + F ′(c) in M,∂nc = M ∇μ · n = 0 on ∂M.
+
+(2.11) Here, M : T ∗M → T M is an invertible linear mobility field mapping forces to velocities, and the boundary conditions are necessary to ensure well posedness. When M = I and so this object is trivial, it is well known that Cahn-Hilliard is the H−1-gradient flow of the same GL free energy F; A computation can be found in Theorem A.2 in the Appendix. As it turns out, these models are equally well expressed via OVP with certain choices of functional data. 
+
+Theorem 2.4. Let Q = C∞(M) and consider the Ginzburg-Landau free energy (2.8) . The Allen-Cahn model (2.10) follows from OVP with the choices E = T Q , P = I, and Dc( ˙ c) = 12
+
+R 
+
+> M
+
+˙c2 dV . Similarly, the Cahn-Hilliard model (2.11) follows from OVP with Ec = {w ∈ Γ( T M) : w · n = 0 on ∂M} , Pcw = −∇ · w,and Dc(w) = 12
+
+R
+
+> M
+
+|w|2  
+
+> M−1
+
+dV .Proof. Consider the variational derivative of F in the (unconstrained) direction ˚ c ∈ TcQ,
+
+⟨dFc |˚c⟩ =
+
+Z
+
+> M
+
+α∇c · ∇ ˚c + F ′(c)˚ c dV =
+
+Z
+
+> ∂M
+
+α˚c ∂ nc dS +
+
+Z
+
+> M
+
+(F ′(c) − α∆c)˚ c dV. 
+
+Applying OVP with P = I and Dc(w) = 12
+
+R 
+
+> M
+
+w2 dV then yields the system minimizing 
+
+⟨dFc + ∂wDc(w) | ˚w⟩ =
+
+Z
+
+> M
+
+ w − (α∆c − F ′(c)) ˚w dV +
+
+Z
+
+> ∂M
+
+α˚w ∂ nc dS = 0 ,
+
+among all variations ˚ w ∈ Ec. This is equivalent to the Allen-Cahn system (2.10) since w = ˙ c. To establish Cahn-Hilliard, consider the choices made in the statement and observe that the L2-transpose of the process mapping Pcw = −∇ · w (considered as a map P⊤ 
+
+> c
+
+: TcQ → Ec via the respective Riesz isomorphisms) requires that, for any ˚ c ∈ TcQ,
+
+⟨P cw,˚c⟩ =
+
+Z
+
+> M
+
+−(∇ · w)˚ c dV =
+
+Z
+
+> M
+
+w · ∇ ˚c dV −
+
+Z
+
+> ∂M
+
+˚c w · n dS = w, P⊤ 
+
+> c
+
+˚c .
+
+In particular, P⊤ 
+
+> c
+
+˚c = ∇˚c and w · n must be L2(∂M)-orthogonal to the tangent space TcQ at the boundary 
+
+∂M, which is guaranteed by the boundary condition w · n = 0 on ∂M inherent in the fibers Ec. Moreover, defining the chemical potential μ(c) = −α∆c + F ′(c) = d F♯c via the L2-gradient of F already implies the boundary condition ∂nc = 0. It follows that OVP implies the system ˙ c = Pcv where v ∈ Ec satisfies 
+
+P⊤ 
+
+> c
+
+dFc + ∂wDc(v) | ˚w =
+
+Z
+
+> M
+
+(∇μ(c) + M −1v) · ˚w dV = 0 ,
+
+for any admissible variation ˚ w. This directly implies that v = −M ∇μ(c) and therefore OVP is the statement ˙c = ∇ · M ∇μ(c). This is precisely the Cahn-Hilliard system (2.11), where the second boundary condition comes from v · n = 0 in the definition of Ec.
+
+Remark 2.5 . It is similarly straightforward to express Cahn-Hilliard in terms of the process mapping Pcw =
+
+−∇ · cw on the same fibers Ec (now thought of as velocities), with the usual caveats about division by c.The discretization in Section 5 will adopt this perspective. 
+
+# 3 Variational Time Discretization 
+
+OVP inherits nice behavior, such as energy-stability (c.f. Theorem 2.1), due to its interpretation as a minimization principle. With this in mind, it is now appropriate to discuss the discretization of OVP in a way which retains this character, hence provides a discrete analogue of the continuous variational structure. 12 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban For simplicity, discussion will be restricted to configuration spaces Q which are vector spaces, although an extension to general manifolds is likely possible with an appropriate discretization of the exponential map. Despite its significant impact on physical understanding, there have been relatively few variational discretizations of OVP previously proposed in the literature [13, 14, 15]. Given discrete time instances 
+
+t0 < t 1 < ... < t K , the goal is to construct approximations qk ≈ q(tk) ∈ Q of the time-continuous state 
+
+q ∈ C1([0 , T ], Q ) which satisfy an appropriate discrete analogue of Definition 2.1. In every case, this in-volves the design and subsequent minimization of a discrete Rayleighan Rd : E → R, although the choice of process bundle E and process mapping P may depend on the scheme employed. In all previous works, the configuration space Q ∼= Rn is identified with (perhaps some subset of) Euclidean space and the tangent bundle E = T Q ∼= Q × Q is chosen as the process space. Making first-order approximations to the time derivatives of the state and free energy, respectively, 
+
+D∆t
+
+ qk, q = q − qk
+
+∆t , D∆t F qk, q = F(q) − F  qk
+
+∆t ,
+
+then leads to the discrete Rayleighan, 
+
+Rd qk, q = D∆t F qk, q + D qk, D ∆t
+
+ qk, q , (3.1) which can be minimized directly for the time-updated state. In fact, OVP in this setting is the update rule 
+
+qk+1 = argmin q Rd qk, q.
+
+Remark 3.1 . The choice of a first-order derivative approximation D∆t is somewhat artificial and can likely be extended to higher-order approximation with standard techniques in variational integration [39]. However, this will necessarily increase the cost, as multiple minimizations will be required per time step. Despite its elegant formulation, the discrete OVP just discussed suffers a notable drawback: it cannot natively accommodate process bundles E which differ from the tangent bundle T Q . To handle systems with conservation constraints, such as the Wasserstein model discussed in section 2.2.1, one must resort to Lagrange multipliers in this framework, which increase the complexity of the optimization problem and bring the discrete interpretation further from the simple minimization in Definition 2.1. To remedy this, we propose the following alternative discretization which recovers previous work as a special case. 
+
+Definition 3.1. Given an Onsager system ( Q, E, F, D, P) as in Definition 2.1, for which Q is a vector space, consider the time-discrete Rayleighian Rd : E → R,
+
+Rd(q, w) = F(q + ∆ t P(q)w) + ∆ t D(q, w), (3.2) depending implicitly on the step-size ∆ t > 0. 6 The time-discrete trajectory q• : [ K] → Q, where [ K] = 
+
+{0, 1, ..., K } and qk ≈ q(t0 + k∆t), is a solution to the discrete OVP provided it satisfies the following update equation for all 0 ≤ k ≤ K − 1: 
+
+qk+1 = qk + ∆ t P qkv, v = argmin 
+
+> w∈Eqk
+
+Rd qk, w. (3.3) Note that the discrete OVP in Definition 3.1 is based on the same Taylor series expansion for the derivative of free energy used before, 
+
+F qk+1  − F  qk
+
+∆t = dF qk P qkv + O(∆ t).
+
+However, it now involves a minimization which takes place in the fibers Eqk of the process bundle, which are related to changes in configuration via the process mapping P : E → T Q . This exactly recovers previous work based on the minimization of (3.1) when the process mapping P = I is trivial, while retaining the interpretation of OVP as a minimization problem in the presence of nontrivial P, yielding additional flexibility in practical use. For example, the space E can be tailored to the problem at hand as in the continuous   
+
+> 6Observe that the dimensional character of Rdhere differs from the previous case by a factor of ∆ t, merely for convenience.
+
+13 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban formulation (see [7] for examples), and additional constraints can be incorporated into the fibers Eqk as discussed in Section 2. Most importantly, it is easy to show that the integrator produced by Definition 3.1 is unconditionally energy-stable. Cahn Hilliard          
+
+> t = 0.004 t = 0.1 t = 0.3 t = 1.0
+> 0.0 0.5 1.0
+> 2.4e-02
+> 6.6e-02
+> 1.1e-01
+> 1.5e-01
+> Free Energy
+> Allen Cahn
+> 0.0 0.5 1.0
+> 1.4e-01
+> 1.7e-01
+> 2.1e-01
+> 2.5e-01
+> Fokker Planck
+> 0.0 0.5 1.0
+> -1.1e+00
+> -1.1e+00
+> -1.0e+00
+> -9.6e-01
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+
+Figure 3: Snapshots of the Cahn-Hilliard (CH), Allen-Cahn (AC), and Fokker-Planck (FP) equations, com-puted using the OVP integrator Algorithm 3.1 with potential U (x, y ) = sin 3 x sin 3 y (for FP) and density 
+
+F (c) = (1 /4)(1 − c2)2 (for CH). The initial condition for all simulations is the same Gaussian noise pattern (mean-shifted by 0.5 for CH and 1.25 for FP) and ∆ t = 0 .002. Concentration fields are row-normalized for visualization. 
+
+Theorem 3.1. Solutions to the discrete OVP (3.3) dissipate the free energy F independent of the step-size 
+
+∆t > 0.Proof. Recall that the dissipation potential D is fiber-wise non-negative and satisfies D(·, 0) = 0. Since 
+
+v = argmin w Rd minimizes the discrete Rayleighan (3.2), the free energy satisfies 
+
+F qk+1  = F qk + ∆ t P qkv ≤ R d qk, v ≤ R d qk, 0 = F qk,
+
+for any time index 0 ≤ k ≤ K − 1. Pseudocode corresponding to the discrete OVP (3.3) is given in Algorithm 3.1, and example solutions to some relevant phase-field equations (Corollary 2.2) are displayed in Figure 3. The spatial discretization is based on a staggered grid finite volume scheme detailed in Section 5. The last column of Figure 3 also confirms that these solutions are energy stable, since the free energy decreases monotonically over time. 
+
+Remark 3.2 . Note that the discrete Rayleighan Rd is no longer guaranteed to be convex in w due to nonconvexity in the free energy F. On the other hand, its Hessian contains an O(∆ t) contribution from the Hessian of the convex dissipation potential D that dominates the O(∆ t2) contribution from the Hessian of 
+
+F when ∆ t is sufficiently small. Therefore, shrinking the step-size can always restore convexity for regular enough F.14 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+Algorithm 3.1 OVP Time Integration 
+
+Require: Discrete Onsager data ( Q, E, F, D, P) corresponding to Definition 2.1. Step-size ∆ t > 0. Initial state q0 ∈ Q.
+
+function Step (∆ t, F, D, P, q0)Set q ← q0.Form Rd(q, w) = F(q + ∆ t P(q)w) + ∆ t D(q, w) as in (3.2). Compute v = argmin w Rd(q, w). ▷ We use L-BFGS. 
+
+return q + ∆ t P(q)v.It is worth mentioning how the update equation (3.3) can expressed without the need for an explicit op-timization, at least for quadratic dissipation potentials D. Consider the derivative of the discrete Rayleighan 
+
+Rd from (3.3) in the direction ˚ w,
+
+∂wR qk, w ˚w = ∆ t dF qk + ∆ t P qkw P qk ˚w + ∆ t ∂wD qk, w ˚w .
+
+Setting this to zero yields an optimality condition for the minimization of Rd,
+
+P qk⊤dF qk+1  + ♭ qkv = P qk⊤dF qk + ∆ t P qkv + ∂v D qk, v = 0 ,
+
+where the OVP update equation qk+1 = qk + ∆ t P qkv was used along with the flat operator ∂v D = ♭
+
+associated to the quadratic dissipation potential. It follows that the minimizer is explicitly given by v =
+
+−♯ qkP qk⊤dF qk+1 , and therefore the OVP update equation can be alternatively expressed as 
+
+qk+1 = qk − ∆t P♯P⊤  qk dF qk+1 . (3.4) In particular, the metric term P♯P⊺ coming from the phenomenological kinetic coefficients is evaluated at the old state qk, while the derivative of the free energy is evaluated at the updated state qk+1 . This “IMEX” type method is distinctly different from a forward or backward Euler scheme, where both terms are evaluated at the same state. However, if the coefficients P♯P⊺ happen to be state-independent, this discussion has proved the following result relating the discrete OVP (3.3) to the backward Euler method. 
+
+Theorem 3.2. Suppose D is fiber-wise quadratic. The discrete OVP (3.3) recovers backward Euler time integration applied to the gradient flow (2.7) when P♯P⊤ is independent of the state q.
+
+## 3.1 Relationship to Other Integration Schemes 
+
+Before discussing how the discrete OVP Definition 3.1 presented here can be used inside a machine learning workflow to enable dynamics discovery and surrogate modeling, it is worth drawing explicit connections to some related methods in the literature. First, observe that invertibility of the process mapping P is sufficient for posing (3.3) as a minimization over the state q ∈ Q, as discussed before, since this is equivalent to the existence of a bundle isomorphism E ∼= T Q . This is particularly true when the process mapping P = I is trivial, in which case the discrete Rayleighan Rd : Q × Q → R reduces to the expression 
+
+Rd qk, q = F(q) + ∆ t D qk, D ∆t
+
+ qk, q .
+
+This recovers (3.1) after a constant shift and appropriate rescaling, and is precisely the object considered in [13] with associated discrete OVP qk+1 = argmin q∈Q Rd qk, q. Moreover, choosing the simplest quadratic dissipation potential D(q, w) = (1 /2) |w|2 
+
+> M
+
+for some norm |·| M yields Di Giorgi’s well known minimizing movement scheme [40, 41, 42, 43], 
+
+qk+1 = argmin 
+
+> q∈Q
+
+Rd qk, q, Rd qk, q = F(q) + 12∆ t q − qk 2 
+
+> M
+
+, (3.5) 15 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban a popular method for modeling evolutionary processes in low-regularity settings. Note that (3.5) is also known as the proximal point method when F is convex [44, 45, 46], in which case prox ∆t F
+
+ qk := argmin q Rd qk, q
+
+is called the proximal operator and OVP becomes the fixed point iteration qk+1 = prox ∆t F
+
+ qk.Another interesting similarity arises in the context of optimal transport, where Definition 3.1 also includes the venerable Jordan-Kinderlehrer-Otto (JKO) scheme [47] for simulating WGFs: considering a probability density c ∈ Q,
+
+ck+1 = argmin 
+
+> c∈Q
+
+Rd ck, c , Rd ck, c  = F(c) + 12∆ t W2
+
+ ck, c 2.
+
+This is not surprising given the connection to Di Giorgi, since JKO is a minimizing movement scheme with norm |·| M equal to the 2-Wasserstein distance [30], 
+
+W2(c0, c 1)2 = inf 
+
+Z 10
+
+∥w(t)∥2 
+
+> L2(c(t))
+
+dt : ˙ c + ∇ · cw = 0 
+
+
+
+.
+
+This so-called Benamou-Brenier formula interprets the 2-Wasserstein distance as an infimum over time-dependent vector fields w that transport the probability density c0 to c1 under the continuity equation. 
+
+# 4 Dynamics Discovery with OVP 
+
+A key advantage of OVP-based discretizations such as Definition 3.1 is their guarantee of energy-stable dynamics independent of the governing potentials F, D. In the context of dynamics discovery, this en-ables physics-constrained predictions through unconstrained inference. Remarkably, the difficult problem of learning structure-preserving dynamics consistent with a given set of data is lifted (through OVP) to the data-driven discovery of potentials whose dynamics agree with the collected observations. This allows for a powerful hybrid modeling approach: the free energy F and dissipation potential D can include a mix of fixed and learnable terms, which are automatically processed by Definition 3.1 into a structure-preserving dynamical evolution which couples the physical mechanisms encoded by these potentials. Additionally, the variational character of the system ensures that properties such as energy-stability hold independently of the data available or the quality of the training process. To describe the benefits of this perspective more precisely, recall that practical systems of interest often include unknown or uncertain terms in their free energy F representing constitutive relationships or empirical fits to experimental data. For example, the shallow and deep quenching limits in the Cahn-Hilliard equation [38] arise after simplification of the already approximate logarithmic potential (2.9), based on the qualitative behavior of phase separation. Even boundary conditions may be uncertain for some mixtures, making it especially difficult to come up with accurate models which reflect the underlying dissipative physics. The proposed discrete OVP Definition 3.1 offers a principled way to mitigate these issues: by including machine-learnable components in the free energy F, salient features of the data under consideration can be preserved in a way which is compatible with the underlying thermodynamic structure, leading to a surrogate model with rigorous guarantees on its predictive behavior. The strategy to accomplish this with the OVP Definition 3.1 is to design parametric model classes 
+
+CF = {F ν : Q → R | ν ∈ Θ} and CD = {D η : E → R | η ∈ Θ}, which include learnable parameters ( ν, η ) := 
+
+θ ∈ Θ×Θ lying in some convex set Θ ⊂ Rp and respect the structural constraints in Definition 2.1. Along with an appropriate process mapping P : E → T Q encoding problem structure, this defines a parametric family of discrete Rayleighans Rd 
+
+> θ
+
+: E → R as in (3.2), which can be trained implicitly from observable data and are guaranteed to produce discrete energy-stable trajectories q• : [ K] → Q satisfying Fθ (qk+1 ) ≤ F θ (qk) for all 
+
+k ∈ [K]. Importantly, there is no need to directly supervise the functionals Fν , Dη , or Rd 
+
+> θ
+
+during training, as parameter gradients will flow backward from quantity-of-interest-based output metrics through OVP to update Rθ in the desired way. For simplicity, the experiments in Section 6 consider the most straightforward case, where supervision is done using simulated trajectory data. However, the same procedure is applicable in much more generality, providing a rich avenue for future work. For example, realistic settings may target observable quantities (e.g., material properties or spectral content) derived from trajectory information. 
+
+Remark 4.1 . Note that the process mapping P could also be parameterized and included as part of the learning problem. On the other hand, P is not usually uncertain: for all experiments in this work, it is either 16 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban trivial or enforces the continuity equation. 
+
+## 4.1 Related Work 
+
+While the present work is the first discretely structure-preserving dynamics discovery method rooted in OVP, it is not the first OVP-based framework for dynamical inference. The OnsagerNet method [48] defines trainable neural networks based on a “generalized Onsager’s principle”, guaranteeing structure-preservation at the time-continuous (but not time-discrete) level. Variational Onsager neural networks (VONNs) [49] were introduced as another way to satisfy OVP at the continuous level with machine learnable potentials. After defining differentiable models for the free energy and dissipation potential, VONNs use collocation data to minimize the residual of the OVP optimality conditions (analogous to (2.5)) during training, so that finite difference time discretization can be applied to the learned network potentials at inference time to generate predictions. Another work which is perhaps the most similar to our approach is [43]. Here, the authors aim to learn dissipation potentials within di Giorgi’s minimizing movement scheme, so that unconditional energy stability is preserved. However, this continuous-time formulation is not capable of guaranteeing discrete energy stability, and does not consider the preservation of associated invariants such as mass. Alternative strategies include the deep Onsager-Matchlup method (DOMM) [50], which combines the deep Ritz method [51] for unsupervised training with an Onsager-Matchlup variational principle to produce a space-time solution network which is physics-informed. Further, unsupervised operator learning based on OVP was considered in [52], where direct minimization of a continuous Rayleighan was used to generate a flux operator whose associated conservation law was integrated with forward Euler to produce dynamics. Considering the approaches mentioned in Section 3.1 which are similar to OVP, the literature is even more numerous. A regularization technique for module-wise neural network training, based on minimizing movement approaches, was introduced in [53] and shown to improve the performance of greedy network train-ing procedures. A minimizing movement scheme for the Willmore flow of surfaces was introduced in [54], which uses a learnable notion of mean curvature to improve simulation speed. Several more works consider learnable variants of the JKO scheme for sampling: the concurrent efforts [55, 56, 57] apply input convex neural networks [58] to the learnable free energy in JKO to maintain structural rigidity for high-dimensional inference, [59] provides a simplified normalizing flow strategy based on following discrete Wasserstein gra-dient trajectories with comparable performance to standard normalizing flows [60], and [61] combines local Wasserstein gradient steps with nonlocal rejection-resampling to mitigate slow convergence for multimodal distributions. It is remarkable that OVP provides a unifying perspective of these methods which have quite different motivations and applications. 
+
+Algorithm 4.1 Dynamics Discovery with OVP 
+
+Require: Discrete Onsager data ( Q, E, Fθ , Dθ , P ) with trainable potentials Fθ and/or Dθ , integrator step-size ∆ t > 0, one-step training pairs {(qn, q+ 
+
+> n
+
+)}Nn=1 , observable O : Q → Rm, number of training epochs 
+
+Ne > 0, batch size B > 0, gradient descent step-size h > 0.  
+
+> 1:
+
+Form the Rayleighan Rd 
+
+> θ
+
+(q, w) = Fθ (q + ∆ t P(q)w) + ∆ t Dθ (q, w) as in (3.3).  
+
+> 2:
+
+for epoch e = 1 , . . . , N e do  
+
+> 3:
+
+Partition [ N ] uniformly into Nb = ⌊N/B ⌋ mini-batches B1, . . . , B Nb . 
+
+> 4:
+
+for batch b = 1 , . . . , N b do  
+
+> 5:
+
+Loss L ← 0.  
+
+> 6:
+
+for data index n ∈ Bb do  
+
+> 7:
+
+Compute evolved state yn = Step( Rd 
+
+> θ
+
+)( qn) with Algorithm 3.1.  
+
+> 8:
+
+Augment loss L += |O(yn) − O(q+ 
+
+> n
+
+)|2. 
+
+> 9:
+
+Normalize L ← L /|Bb| by batch size.  
+
+> 10:
+
+Compute the gradient ∇θ L with automatic differentiation and (4.2). ▷ Using the converged minimizer v. 
+
+> 11:
+
+Update parameters θ ← Adam( ∇θ L, h ). 
+
+Ensure: Trained potentials Fθ and Dθ .17 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+## 4.2 Training Procedure 
+
+To illustrate how Algorithm 3.1 is used inside a framework for dynamics discovery, consider a dataset 
+
+D = ∪Ii=1 {(qki , O (qki )) }Kk=0 consisting of I trajectories of length K along with an observable O : Q → Rm
+
+measured along them. 7 The goal is to learn a discrete Rayleighan functional Rd 
+
+> θ
+
+which generates dynamics compatible with the observations in D. To that end, we minimize an empirical approximation to the following loss function, 
+
+L(D, θ ) = Ei∼U ([ I]) Ek∼U ([ K−s]) Es∼U ([ S]) 
+
+> s
+
+X
+
+> t=0
+
+O qk+ti
+
+ − O ◦ Step( Rd 
+
+> θ
+
+)◦t qki
+
+ 2, (4.1) where U denotes the uniform distribution, S > 0 is an integer denoting the maximum consecutive integration steps, and Step( Rd 
+
+> θ
+
+)◦t denotes t successive applications of OVP Algorithm 3.1 with Rayleighan Rd 
+
+> θ
+
+. The resulting minimizer ( ν∗, η ∗) = θ∗ = argmin θ L(D, θ ) then parameterizes potential functions Fν∗ and Dη∗
+
+whose OVP dynamics accurately describe the training data and generalize out-of-distribution in a physically meaningful way. Algorithm 4.1 provides a description of the training process employed in this work, where 
+
+S = 1 and L is approximated by the mean squared error over a “flattened” dataset D = {(qn, q+ 
+
+> n
+
+)}Nn=1 of compatible pairs drawn from the set of all discrete trajectories. Here, qn = qki denotes a snapshot drawn from the ith trajectory at the kth time step (for some 1 ≤ i ≤ I and 1 ≤ k ≤ K − 1), while q+ 
+
+> n
+
+= qk+1 
+
+> i
+
+denotes the snapshot along the same trajectory at the next time step. For convenience, learnable functionals are denoted as functions of θ (i.e., by Fθ and Dθ ) in the remainder of the work. 
+
+Remark 4.2 . When the system state q is not directly observable, the dynamics discovery Algorithm 4.1 can be applied by incorporating arbitrary-length rollouts from a known (or otherwise fixed) initial condition q0
+
+instead of single-step rollouts from intermediate data. Observe that minimizing the objective L in (4.1) with a gradient-based optimization algorithm re-quires differentiating through the variational integrator step qk+1 = Step( Rd 
+
+> θ
+
+) qk computed with Algo-rithm 3.1. In particular, this involves propagating parameter gradients through the minimization v =argmin w∈Eq Rd 
+
+> θ
+
+(q, w) defining the update in the process bundle. While this can certainly be done by differ-entiating directly through each iteration of the nonlinear solver used to compute v, this option is expensive and prone to the accumulation of errors. Instead, we adopt an alternative and more efficient approach, outlined in [62], which applies implicit differentiation to the first-order optimality conditions of this mini-mization. To see how this works, recall that invertibility of the Hessian ∂2
+
+> w
+
+Rd 
+
+> θ
+
+(v) at the minimizer guarantees its implicit expression 
+
+∂wRd 
+
+> θ
+
+(q, v(θ)) = 0 ,
+
+after invoking the usual implicit function theorem. It follows that the parameter gradient ∂θ v can be computed by differentiating this expression in θ,
+
+∂θ v = − ∂2
+
+> w
+
+Rd
+
+> θ
+
+−1∂θ ∂wRd 
+
+> θ
+
+, (4.2) where the Hessian ∂2
+
+> w
+
+Rd 
+
+> θ
+
+can be inverted with a standard algorithm such as the conjugate gradient method. The experiments in Section 6 utilize the implementation of (4.2) from the TorchOpt Python package [63] with an additional Tikhonov regularization of O(10 −8), and gradient descent with an Adam update rule is used for the nonconvex “outer” optimization over parameters. 
+
+# 5 Spatial Discretization 
+
+To showcase the results of the proposed OVP-based Algorithm 4.1 for learning dissipative dynamics, consider 2-D finite differences on a regular marker-and-cell (MAC) grid [64] (also called an Arakawa C-grid [65]) of 
+
+nx × ny cells. 8    
+
+> 7We consider here only the case where Ois measured instantaneously. The case where Omeasures across larger numbers of time steps is feasible but left for future work.
+> 8We emphasize that this choice is for example purposes only. The OVP-based technology developed here is compatible with any desired spatial discretization.
+
+18 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban As depicted in Figure 4, the scalar field c ∈ Q is stored as an array of values at cell centers C ∈ Rnx×ny ,while the vector field w ∈ Ec is stored as a tuple of arrays W = ( W x, W y ) with W x ∈ R(nx+1) ×ny and 
+
+W y ∈ Rnx×(ny +1) . Once these choices are made, only discretizations of the functional data F, D and P
+
+need be provided in order to simulate PDEs governed by OVP (c.f. Algorithm 3.1), since all other discrete differential operators will emerge automatically through the minimization process. This is a key advantage of the OVP-based machinery presented here, which simplifies the problem of forward simulation provided the resulting optimization problem can be efficiently solved. 
+
+Figure 4: One cell of the MAC grid used for spatial discretiza-tion. The PDEs implemented for illustration follow the Wasserstein and Sobolev gradient flow examples in Corollary 2.2 and Theorem 2.4. Two discrete process mappings will be considered: the identity mapping 
+
+PI (C)W = W in the case of Allen-Cahn (where W ∈ Rnx×ny is cell-centered), and the discrete divergence [P(C)W ]i,j = − Jxi+1 ,j − Jxi,j 
+
+∆x + Jyi,j +1 − Jyi,j 
+
+∆y
+
+!
+
+,
+
+representing the continuous mapping Pcw = −∇ · cw in terms of the “discrete fluxes” at interior edges, 
+
+Jxi+1 ,j = 12 (Ci,j + Ci+1 ,j )W xi+1 ,j , 1 ≤ i ≤ nx − 1,Jyi,j +1 = 12 (Ci,j + Ci,j +1 )W yi,j +1 , 1 ≤ j ≤ ny − 1.
+
+Boundary values for Jx, J y are then assigned based on the desired OVP boundary conditions. Typically, the no-flux condition w · n = 0 on ∂M
+
+is enforced via the assignment Jx 
+
+> 1,j
+
+= Jxnx+1 ,j = Jyi, 1 = Jyi,n y +1 = 0. The central-difference gradient of a grid function, stored at interior edges, is denoted by ∇C = ( ∂xC, ∂ y C) ∈
+
+R(nx−1) ×ny × Rnx×(ny −1) with components (∂xCi+1 ,j , ∂ y Ci,j +1 ) = 
+
+ Ci+1 ,j − Ci,j 
+
+∆x , Ci,j +1 − Ci,j 
+
+∆y
+
+
+
+.
+
+This is used to define the Dirichlet energy 
+
+ED (C) = 12
+
+
+
+> nx−1
+
+X
+
+> i=1
+> ny
+
+X
+
+> j=1
+
+(∂xCi+1 ,j )2 +
+
+> nx
+
+X 
+
+> i=1
+> ny−1
+
+X
+
+> j=1
+
+(∂y Ci,j +1 )2
+
+∆x∆y. 
+
+To compute dissipation measures, it is convenient to have an averaged representation of the vector field W
+
+(and also ∇C) at cell centers. To that end, consider the quantities 
+
+Wi,j = W xi,j + W xi+1 ,j 
+
+2 , W yi,j + W yi,j +1 
+
+2
+
+!
+
+, |Wi,j |2 
+
+> M
+
+= Wi,j , Mi,j Wi,j ,
+
+where M ∈ Rnx×ny ×2×2 is a discrete mobility field stored at cell centers 9. These choices allow definition of  
+
+> 9The experiments in Section 6 use
+
+Mi,j = I, but the discretization holds more generally 
+
+19 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban the discrete free energies under consideration, 
+
+Fh, FP (C) = X
+
+> i,j
+
+(Ci,j log Ci,j + Ci,j Ui,j )∆ x∆y, 
+
+Fh, GL (C) = ED (C) + X
+
+> i,j
+
+F (Ci,j )∆ x∆y, 
+
+Fh, PM (C) = X
+
+> i,j
+
+Cmi,j ∆x∆y, 
+
+(5.1) along with discrete dissipation potentials corresponding to these free energies, 
+
+Dh, FP (C, W ) = 12
+
+X
+
+> i,j
+
+Ci,j Wi,j  
+
+> 2
+
+∆x∆y, 
+
+Dh, AC (C, W ) = 12
+
+X
+
+> i,j
+
+Wi,j  
+
+> 2
+
+∆x∆y, 
+
+Dh, CH (C, W ) = 12
+
+X
+
+> i,j
+
+C2 
+
+> i,j
+
+Wi,j   
+
+> 2
+> M−1
+
+∆x∆y. 
+
+(5.2) Importantly, observe that the choices of discrete gradient ∇C and process mapping P(C)W are discrete adjoints. To see this, let A ∈ Rnx×ny be a grid function and consider the summation-by-parts relationships 
+
+−
+
+> nx
+
+X
+
+> i=1
+
+Aij (Jxi+1 ,j − Jxi,j ) = A1,j Jx 
+
+> 1,j
+
+− Anx,j Jxnx+1 ,j +
+
+> nx
+
+X
+
+> i=2
+
+(Ai,j − Ai−1,j )Jxi,j =
+
+> nx
+
+X
+
+> i=2
+
+∂xAi,j Jxi,j ∆x, 
+
+−
+
+> ny
+
+X
+
+> j=1
+
+Aij (Jyi,j +1 − Jyi,j ) = Ai, 1Jyi, 1 − Ai,n y Jyi,n y +1 +
+
+> ny
+
+X
+
+> i=2
+
+(Ai,j − Ai,j −1)Jyi,j =
+
+> ny
+
+X
+
+> i=2
+
+∂y Ai,j Jyi,j ∆y, 
+
+where the isolated boundary terms vanish due to the no-flux conditions J1,j = Jnx+1 ,j = 0 and Ji, 1 =
+
+Ji,n y +1 = 0. It follows that 
+
+⟨P (C)W , A ⟩ = −
+
+> nx
+
+X
+
+> i=1
+> ny
+
+X
+
+> j=1
+
+Jxi+1 ,j − Jxi,j 
+
+∆x + Jyi,j +1 − Jyi,j 
+
+∆y
+
+!
+
+Ai,j ∆x∆y
+
+=
+
+
+
+> nx
+
+X
+
+> i=2
+> ny
+
+X
+
+> j=1
+
+Ai,j − Ai−1,j 
+
+∆x Jxi,j +
+
+> nx
+
+X
+
+> i=1
+> ny
+
+X
+
+> j=2
+
+Ai,j − Ai,j −1
+
+∆y Jyi,j 
+
+∆x∆y
+
+=
+
+> nx
+
+X
+
+> i=2
+> ny
+
+X
+
+> j=1
+
+∂xAi,j Jxi,j ∆x∆y +
+
+> nx
+
+X
+
+> i=1
+> ny
+
+X
+
+> j=2
+
+∂y Ai,j Jyi,j ∆x∆y = ⟨J, ∇A⟩,
+
+in terms of the flux J = ( Jx, J y ) defined previously. All together, this framework provides a second-order and adjoint-consistent spatial discretization for the Allen-Cahn, Cahn-Hilliard, and Fokker-Planck models considered in the next section. 
+
+# 6 Numerical Results 
+
+Using the spatial discretization just described, the OVP-based dynamics discovery Algorithm 4.1 is now illustrated on several proof-of-concept examples of interest. Emphasis is placed on demonstration of the core functionality, with more sophisticated applications reserved for future work. 20 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+## 6.1 Recovery of Unknown Free Energy Density 
+
+As a first demonstration, consider the problem of recovering an unknown free energy density from trajectory data for a system of Cahn-Hilliard type (2.11). Recall the discrete Ginzburg-Landau free energy Fh, GL 
+
+from (5.1), which includes a bulk free energy density F (C) discretizing the continuous F (c). The goal is to recover the discrete function F given snapshots of a corresponding Cahn-Hilliard model with constant mobility M = I. To this end, three different bulk free energy densities are considered: 1. The quartic function F (c) = 14 (1 − c2)2 representing the “shallow quenching” limit potential. 2. The Flory-Huggins logarithmic potential F (c) = θ
+
+2 [(1 − c) log(1 − c) + (1 + c) log(1 + c)] − θc
+
+2 c2 with 
+
+θ = 2 and θc = 2 .7, capturing competition between mixing entropy and molecular interactions. 3. An asymmetric potential F (c) = 14 c4 − 12 c2 + 13 c3 that mimics the case where mixture components have different molecular volumes (see [66]). 1.0 0.5 0.0 0.5 1.0                                    
+
+> c
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> f(c)
+> Shallow Quench t = 0.001 t = 0.005 t = 0.050 t = 0.250
+> 0.00 0.05 0.10 0.15 0.20 0.25
+> Time
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Free Energy
+> 1e 1Energy Decay
+> 1.0 0.5 0.0 0.5 1.0
+> c
+> 0.125
+> 0.150
+> 0.175
+> 0.200
+> 0.225
+> 0.250
+> 0.275
+> f(c)
+> Flory-Huggins
+> 0.00 0.05 0.10 0.15 0.20 0.25
+> Time
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 2.2
+> 2.4
+> 2.6
+> Free Energy
+> 1e 1
+> 1.0 0.5 0.0 0.5 1.0
+> c
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> f(c)
+> Asymmetric
+> 0.00 0.05 0.10 0.15 0.20 0.25
+> Time
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> Free Energy
+> 1e 1
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> Mass
+> 1e 9
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 4
+> 2
+> 0
+> 2
+> 4
+> Mass
+> 1e 9
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> Mass
+> 1e 9
+> c(concentration)
+> Cahn Hilliard Equation: Comparison of Three Bulk Potentials
+
+Figure 5: Three representative Cahn-Hilliard evolutions, differing in their bulk free energy density f (c). Note the monotonic free energy decay and conservation of mass up to the single precision used in these calculations. Representative evolutions for each of these models, simulated using Algorithm 3.1, are displayed in Figure 5, which are referred to as “Quartic”, “Flory-Huggins”, and “Asymmetric”, respectively. The param-eterizations of the learnable density Fθ considered for dynamics discovery include (1) a generic degree-six polynomial Fθ (C) = a0 + a1C + ... + a6C6 in the cell centers (7 parameters θ = {a0, ..., a 6}, mildly over-parameterized), along with (2) a shallow component-wise neural network Fθ (Ci,j ) = w⊤
+
+2 σ(w1Ci,j + b1)with w1, w 2, b 1 ∈ R32 and σ = tanh activation function (96 parameters θ = {w1, w 2, b 1}, highly over-parameterized). Note that the absolute scale of the learnable free energy density Fθ does not affect the downstream dynamics, since the minimizer depends on the functional derivative F ′
+
+θ and its spatial deriva-tives ∆ F ′
+
+θ and ∇nF ′
+
+θ . To reduce indeterminacy, we apply a simple gauge fix: the value Fθ (0) and the average slope (1 /2)( Fθ (1) − Fθ (−1)) of the learnable surrogate are subtracted at each evaluation. 10 This has the net effect of enforcing Fθ (0) = 0 and (by the mean value theorem) F ′
+
+θ (ζ) = 0 for some ζ ∈ [−1, 1]. The free energies are trained according to Algorithm 4.1 with a mean squared error loss function between the exact data C and the reconstruction ˜C.
+
+> 10
+
+In practice, we encountered relatively smooth training both with and without gauge fixing. 
+
+21 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban To generate the requisite training data, the OVP integrator Algorithm 3.1 is simulated from the data 
+
+Fh, GL and Dh, CH (5.2) with process mapping P on a regular 100 2 grid. For each bulk free energy density, data is collected from simulations involving 50 different initial concentration fields generated via Gaussian blurrings of a single random field, each integrated 20 steps in time with α = 1 and a step-size of ∆ t = 10 −4. Since this is not enough time for the system to equilibrate, these short integration periods create a heterogeneous dataset with relatively good coverage of the level sets F −1(c). Accordingly, reasonable recovery of the bulk free energy density is expected, along with reasonable trajectory-wise performance on a hold-out set of validation data. 0 20 40 60 80 100          
+
+> Epoch
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> MSE Loss
+> Training Loss
+> 020 40 60 80 100
+> Epoch
+> MSE Loss
+> Validation Loss
+> Quartic + Poly deg-6 (lr=0.05)
+> Quartic + Shallow NN (lr=0.1)
+> Double-well (Flory-Huggins) + Poly deg-6 (lr=0.05)
+> Double-well (Flory-Huggins) + Shallow NN (lr=0.1)
+> Asymmetric + Poly deg-6 (lr=0.05)
+> Asymmetric + Shallow NN (lr=0.1)
+
+Figure 6: Training and validation loss (mean squared error) curves illustrating the training process in the case of the bulk free energy density recovery experiment. Figures 6 and 7 show the loss curves obtained during training, along with the epoch-wise change in the corresponding learned free energy densities. Observe that the curves quickly converge to meaningful representations of these densities with extrema in the expected places. This indicates that the learning process has effectively captured the macroscopic physical behavior reflected in the equilibrium states of the system, despite the fact that the training data does not contain equilibrated solutions. On the other hand, all models struggle to learn the tails of the free energy densities, and this is most pronounced in the Flory-Huggins case. Here, both the neural network and polynomial models do not recover the full magnitude of the singularities at c = ±1, with the neural model exhibiting the greatest deviation. This is likely due to the relative sparsity of near-singular concentrations in the training data: the large energy cost of these concentrations immediately drives them closer to equilibrium under Cahn-Hilliard evolution. Regardless, it is clear that Algorithm 4.1 is able to recover meaningful bulk free energy densities from these concentration data. A more quantitative view of this experiment is provided by Table 1, where the learned models are evaluated on the validation data. Besides the training and validation losses, the time- and parameter-averaged relative L2 errors in trajectory prediction along with the bulk free energy density relative L2 errors are measured, 
+
+RL 2(q, ˜q) = 1
+
+IK 
+
+> I
+
+X
+
+> i=1
+> K
+
+X
+
+> k=1
+
+|qki − ˜qki |L2
+
+|qki |L2
+
+, Rℓ 2(F, F θ ) = |F − Fθ |L2
+
+|F |L2
+
+,
+
+where |F |L2 = p∆s P |F (si)|2 for uniformly spaced points si ∈ [−1, 1]. Evidently, both the polynomial and neural network models are able to reasonably predict the dynamics in every case, with relative L2 errors 22 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 1.0 0.5 0.0 0.5 1.0 
+
+> Concentration
+> 0.2
+> 0.1
+> 0.0
+> Poly deg-6 (lr=0.05)
+> Free Energy Density
+
+Quartic     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Concentration
+
+Double-well (Flory-Huggins)     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Concentration
+
+Asymmetric     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Concentration
+> 0.2
+> 0.1
+> 0.0
+> Shallow NN (lr=0.1)
+> Free Energy Density
+
+Quartic     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Concentration
+
+Double-well (Flory-Huggins)     
+
+> 1.0 0.5 0.0 0.5 1.0
+> Concentration
+
+Asymmetric 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> Epoch
+> 0
+> 20
+> 40
+> 60
+> 80
+> Epoch
+> 0
+> 20
+> 40
+> 60
+> 80
+> Epoch
+> 0
+> 20
+> 40
+> 60
+> 80
+> Epoch
+> 0
+> 20
+> 40
+> 60
+> 80
+> Epoch
+> 0
+> 20
+> 40
+> 60
+> 80
+> Epoch
+
+Free-Energy Evolution during training 
+
+Figure 7: Evolution of the learned free energies Fθ over the duration of training, for the polynomial (red) and neural network (blue) parameterizations. The passage of training epochs is illustrated with a gradient, with later epochs corresponding to darker curves. The ground truth is overlaid with a dashed line in each case. Table 1: Loss and error information corresponding to the bulk free energy density recovery experiment. Density Type Model Class Training Loss Validation Loss Relative L2 error ( C) Relative L2 error ( Fθ )Flory Huggins Polynomial 1.68 × 10 −4 1.77 × 10 −4 4.66 × 10 −2 2.07 × 10 −1
+
+Neural Network 1.67 × 10 −4 1.71 × 10 −4 4.56 × 10 −2 2.38 × 10 −1
+
+Quartic Polynomial 2.16 × 10 −4 2.26 × 10 −4 5.34 × 10 −2 1.41 × 10 −2
+
+Neural Network 2.11 × 10 −4 2.14 × 10 −4 5.89 × 10 −2 2.43 × 10 −2
+
+Asymmetric Polynomial 2.31 × 10 −4 2.47 × 10 −4 5.57 × 10 −2 1.45 × 10 −2
+
+Neural Network 2.31 × 10 −4 2.21 × 10 −4 8.42 × 10 −2 7.68 × 10 −2
+
+23 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban ranging from 4-9% in trajectory prediction. Recovery of the bulk free energy density is similarly good in the quartic and asymmetric cases, with errors of 1-7%. The case of Flory-Huggins is more interesting: recovery is quite good away from the tails where it is somewhat poor, leading to errors of roughly 20%. Since the OVP dynamics will aggressively drive concentrations toward the wells, this is likely due to a heavy bias away from these regions in the training dataset. Additional information is provided by Table 2, which records the weights (coefficients) of the polynomial free energies. Observe that the largest coefficients are reasonably well captured in all cases except for Asymmetric, but all polynomial degrees contribute meaningfully to the learned surrogates. If desired, this could likely be controlled through the use of a sparsity-promoting regularizer during training. In any case, it is remarkable that the use of OVP guarantees stability and mass conservation under arbitrarily long rollouts in all cases considered, so that essential physics are preserved independently of the learning process. Table 2: Coefficients of the learned polynomial free energies Fθ (C) = a0 + a1C + ... + a6C6.Density Type Model a0 a1 a2 a3 a4 a5 a6
+
+Flory Huggins Learned 0 −8.28 × 10 −4 −0.370 1.23 × 10 −3 0.236 -3 .97 × 10 −4 7.42 × 10 −2
+
+Truth N/A N/A N/A N/A N/A N/A N/A Quartic Learned 0 1.93 × 10 −4 −0.515 2.89 × 10 −5 0.284 −2.22 × 10 −4 −1.28 × 10 −2
+
+Truth 0 0 −0.5 0 0.25 0 0Asymmetric Learned 0 8.68 × 10 −2 −0.516 8.84 × 10 −2 0.283 −1.65 × 10 −3 −1.07 × 10 −2
+
+Truth 0 0 −0.5 0.333 0.25 0 0Ground truth    
+
+> t=0.000 t=0.007 t=0.013 t=0.020
+> Polynomial Neural network  1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> Phase field
+
+Figure 8: Evolution of the learned Cahn-Hilliard system in the asymmetric case, starting from an initial condition in the validation set. Pictured is the ground truth evolution (top) along with the evolution of the learned polynomial (middle) and neural network (bottom) surrogates. Figure 8 displays a representative evolution of the learned models in the asymmetric case, using an initial condition from the validation set and rolled out for ten times the length of the training window. Observe that 24 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban almost all the error in the polynomial and neural network surrogates is concentrated away from the phase field interface. This indicates that the learned free energies in Figure 7 are capable of producing plausible evolutions that closely match the topology of the corresponding Cahn-Hilliard solutions. 
+
+## 6.2 Recovery of Unknown Boundary Contributions 
+
+It is frequently the case that field data are presented without explicit knowledge of the underlying boundary conditions that generated them. Even trajectories which are computed with fixed BCs may present with dynamically varying ones if snapshots of the entire domain are not provided. Moreover, realistic phase field models often include boundary terms in their free energy that describe coupling of the bulk concentration to a substrate or another material [38]. The next test of Algorithm 4.1 considers the recovery of a boundary potential enforcing its own BCs. First, recall the example from Section 2.2.2 that showed how the configuration and process spaces Q, E 
+
+determine the domains of the process mapping P and its transpose P⊤ along with the BCs enforced by OVP. When the process mapping Pcw = −∇ · cw and the training data varies nontrivially at the boundary, it is convenient to consider the “default” process bundle with fibers Ec = {w | w · n = 0 on ∂M }, so that the configuration space Q can remain essentially unconstrained. Additional natural conditions exhibited by the data can then be enforced implicitly via OVP, perhaps via additional terms in F, D.The present experiment involves a free energy F that includes a surface term. For example, consider the Ginzburg-Landau free energy with surface potential, ˜FGL (c) = FGL (c) + 
+
+Z
+
+> ∂M
+
+G(c) d S, (6.1) where G : Q → Q is a surface free energy density [67, 68]. This leads to a Rayleighan of the form 
+
+R(c, w) = ⟨dFGL (c) | P (c)w⟩ + ⟨G′(c) | P (c)w⟩∂M + D(c, w)= ⟨F ′(c) − α∆c, P(c)w⟩ + ⟨α∂ nc + G′(c), P(c)w⟩∂M,
+
+where ⟨· | ·⟩ ∂M (resp. ⟨· , ·⟩ ∂M) denotes the relevant duality pairing (resp. inner product) at the boundary, and the process mapping P(c) at the boundary is understood in the restricted sense. It can be shown (see Section A) that when Pcw = −∇ · cw is the process mapping enforcing the continuity equation and the process variables w ∈ Ec are tangentially constrained, this restriction (or trace) has the formal expression (Pcw)|∂M = −∇ ∂ · cw + ∇nn · cw,
+
+where ∇∂ denotes the connection along the boundary ∂M induced by the connection ∇ on the interior of 
+
+M. Accordingly, the minimization of R inherent in OVP yields the same Cahn-Hilliard equations (2.11) in the interior and the same boundary condition M ∇μ · n = 0 on ∂M inherited from fiber-wise tangentiality, but also the more complex boundary condition 
+
+c∇nn + c∇∂ (α∇nc + G′(c)) = 0 on ∂M.
+
+This describes how the curvature of the boundary interacts with the derivative of the surface density, pro-viding an additional natural condition which can be calibrated to data via G.For simplicity, the present experiment considers the case when the process mapping P = I is trivial, yielding the Allen-Cahn equation (2.10) with dynamic boundary condition 
+
+α∂ nc + G′(c) = 0 on ∂ M.
+
+The goal is to investigate the performance of the dynamics discovery Algorithm 4.1 in recovering an asym-metric polynomial profile G(c) = c2 − 4c3 + 3 c4. This induces regions of the boundary with contact angles substantially different than 90 ◦, reflecting the wetting affinity of the substrate. To accomplish this, training data are prepared on a 100 2 grid as before and the OVP integrator Algorithm 3.1 is simulated using the 25 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban dissipation potential Dh, AC along with the free energy 
+
+Fh(C) = Fh, GL (C) + 
+
+> ny
+
+X
+
+> j=1
+
+ G(C1,j ) + G(Cnx,j )∆y +
+
+> nx−1
+
+X
+
+> i=2
+
+ G(Ci, 1) + G(Ci,n y )∆x, (6.2) where the bulk free energy density F (c) = (1 /4)(1 − c2)2 in Fh, GL is fixed at the quartic potential. Again, data are collected from simulations involving 50 different initial concentration fields generated via Gaussian blurrings of a single random field, each integrated 20 steps in time with α = 1 and a step-size of ∆ t =10 −3. Since this is not enough time for the system to equilibrate, training data are relatively balanced and reasonable recovery of the surface potential G is expected. 0 10 20 30 40 50                     
+
+> Epoch
+> 10 3
+> 10 2
+> RMS Loss
+> Polynomial train
+> Polynomial validation
+> Neural network train
+> Neural network validation 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> Boundary concentration c
+> 0
+> 2
+> 4
+> 6
+> 8
+> Boundary free-energy density  g (c )
+> Polynomial model
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> Boundary concentration c
+> Neural network model
+> Ground truth
+> 0
+> 10
+> 20
+> 30
+> 40
+> Epoch
+> 0
+> 10
+> 20
+> 30
+> 40
+> Epoch
+
+Figure 9: Boundary potential recovery results. Left: training and validation loss curves as a function of training epochs. Right: free energy density evolving over training for both the polynomial (red) and neural network (blue) models. As before, later epochs correspond to darker curves, with ground truth overlaid as a dashed line in each case. Figure 9 displays the results of inferring G = Gθ in (6.2) using the polynomial and shallow neural network parameterizations from the previous experiment with a gauge fix for the constant term. Notice that both are quite accurate in the [ −0.5, 1] regime, where deviations in the value of the potential are relatively mild. Conversely, the neural network model has a much more difficult time capturing the left tail near c = −1, likely because it is highly overparameterized and this regime is less present in the training data. Both learned boundary profiles are reasonably different from the ground truth: 16 .4% for the polynomial model and 30 .9% for the neural network model. Despite this, both models train reasonably well, with the neural network model producing solutions that are more accurate trajectory-wise but less accurate in recovering the surface free energy density. Additional understanding is provided by Figure 10, which shows the trajectory-wise error incurred in a representative evolution from the validation set when rolled out for ten times the training window. Notice that the phase-field interface no longer intersects the boundary at right angles, illustrating the influence of the potential Gθ on the boundary condition. Observe also that both learned models incur the majority of their error at interfaces, and the character of this error is substantially different between the models. For example, the neural model tends to over-predict the concentration almost uniformly, while the polynomial model can over- or under-predict depending on the region. Remarkably, trajectory-wise errors are small without the extrapolatory rollout: 1 .66% for the polynomial case and 0 .7% for the neural network case. However, this increases substantially during extrapolation, where trajectory-wise errors reach 23 .1% using the polynomial surrogate and 17 .7% using the neural network one. Regardless, the learned boundary potentials have the correct extrema and the monotonic free energy decay guaranteed by OVP is observed in all surrogate models, demonstrating that Algorithm 4.1 is reasonably effective at dynamics discovery in this setting as well. 26 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban Ground truth    
+
+> t=0.000 t=0.660 t=1.330 t=2.000
+> Polynomial error Neural network error
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> Phase field
+> 0.100
+> 0.075
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> Error vs. ground truth
+
+Figure 10: Evolution of the Allen-Cahn system with boundary potential starting from an initial condition in the validation set. Pictured is the ground truth evolution (top) along with the evolution of the signed errors in the case of the learned polynomial (middle) and neural network (bottom) surrogates. 
+
+## 6.3 Recovery of Nonlocal Potentials 
+
+A popular variant of Cahn-Hilliard used to model di-block copolymer physics is given by the Ohta-Kawasaki free energy [69, 70], 
+
+FOK (c) = 
+
+Z
+
+> M
+
+
+
+F (c) + α
+
+2 |∇ c|2 + σ
+
+2 (c − ¯c)( −∆) −1(c − ¯c)
+
+
+
+dV
+
+= FGL (c) + σ
+
+2 |c − ¯c|2
+
+> H−1(M)
+
+,
+
+where ¯ c = 1vol M
+
+R 
+
+> M
+
+c dV denotes the average value of c. The inverse operator ( −∆) −1 is interpreted as the inverse of the (positive definite) Laplacian with homogeneous Neumann boundary conditions that defines the usual H−1-norm | · | H−1(M) on the domain. A similar calculation to that of Theorem 2.4 (assuming trivial mobility M = I) shows that the free energy FOK along with the dissipation D and process mapping 
+
+P from the statement induce (via OVP) the PDE system 
+
+
+
+˙c = ∆ μ(c) − σ(c − ¯c) in M,μ = −α∆c + F ′(c) in M,∂nc = ∇μ · n = 0 on ∂M.
+
+(6.3) This coincides with the usual Cahn-Hilliard model up to the affine shift σ(c − ¯c) in the interior equation. Importantly, notice that the equations (6.3) are local but arise from a free energy FOK that is highly nonlocal, requiring concentration information from across the entire domain. The system (6.3) presents interesting challenge for the dynamics discovery Algorithm 4.1: is it possible to learn the inverse Neumann Laplacian ( −∆) −1 from concentration data? To investigate this, it is useful to recall that ( −∆) −1 is diagonalized in Fourier space. Therefore, it is reasonable to pose the learning problem in terms of an appropriate spectral filter. Considering the process space E as before with fibers Ec consisting of vector fields satisfying the tangentiality constraint w · n = 0 at the boundary ∂M and discretized as in 27 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban Section 5, the relevant discrete Fourier transform is given by the well studied discrete cosine transform (DCT-II) [71]. Given index ranges 0 ≤ i, k ≤ nx − 1, 0 ≤ j, ℓ ≤ ny − 1, consider the bases 
+
+ϕk(i) = αk cos 
+
+h πnx
+
+(i + 12 )k
+
+i
+
+, ψℓ(j) = βℓ cos 
+
+h πny
+
+(j + 12 )ℓ
+
+i
+
+,
+
+where the normalization constants 
+
+α0 =
+
+r 1
+
+nx
+
+, αk =
+
+r 2
+
+nx
+
+, k ≥ 1,β0 =
+
+s
+
+1
+
+ny
+
+, βℓ =
+
+s
+
+2
+
+ny
+
+, ℓ ≥ 1,
+
+are chosen to guarantee discrete orthonormality. Letting Φ k,ℓ (i, j ) = ϕk(i)ψℓ(j) denote the tensor product basis, the DCT-II of a grid function C ∈ Rnx×ny is defined for frequencies k, ℓ as ˆCk,ℓ =
+
+> nx−1
+
+X 
+
+> i=0
+> ny−1
+
+X
+
+> j=0
+
+Ci+1 ,j +1 Φk,ℓ (i, j ).
+
+In this basis, the inverse Neumann Laplacian ( −∆) −1 is a diagonal linear operator of size nxny × nxny with nonzero entries 
+
+ak,ℓ = 1
+
+λk + λℓ
+
+, λk = 2∆x2
+
+
+
+1 − cos 
+
+ kπ nx
+
+
+
+, λℓ = 2∆y2
+
+
+
+1 − cos 
+
+ ℓπ ny
+
+
+
+.
+
+It is straightforward to check that {λk} (resp. {λℓ}) are the eigenvalues of the three-point discrete Laplacian in the 1D basis of cosines along x (resp. along y). However, observe that ( −∆) −1 is not itself a tensor product of 1D operators: its entries depend on a mixture of information from both spatial dimensions. This spectral discretization of the inverse discrete Neumann Laplacian yields an efficient computation of the H−1 norm appearing in the Ohta-Kawasaki free energy FOK . Since the average value ¯C is proportional to the (0 , 0)-component of the Fourier representation ˆC via ˆC0,0 = √nxny ¯C, it follows that 
+
+C − ¯C 2 
+
+> H−1(M)
+
+= X
+
+> (k,ℓ )̸=(0 ,0)
+
+ˆC2
+
+> k,ℓ
+
+λk + λℓ
+
+∆x∆y, 
+
+meaning that the nonlocal part of the free energy FOK can be expressed as a quadratic form in frequency space. Therefore, it is reasonable to pose the problem of learning ( −∆) −1 in terms of learning a constant matrix operator (i.e., a convolution kernel) acting on the Fourier coefficients ˆC, possibly with some band-limit on the allowed frequencies. This is analogous to the main idea behind Fourier Neural Operators (FNOs) [72], which propagate information using learnable neural networks in Fourier space. In the present case, this means learning an approximation to the discrete Ohta-Kawasaki potential, 
+
+Fh, OK (C) = Fh, GL (C) + σ
+
+2 C − ¯C 2
+
+> H−1(M)
+
+,
+
+where the H−1 norm is replaced with vec( ˆC)⊺B vec( ˆC) for a learnable matrix B. Two experiments will be considered: one which explicitly uses the diagonal structure of the Neumann Laplacian operator, and one which does not. For consistency, both will use the potential strength σ = 250. 28 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban 
+
+6.3.1 Experiment 1: Using Diagonality 
+
+The first experiment carried out in this setting attempts to learn a frequency-space matrix A ∈ Rnx×ny of positive diagonal entries, so that the learnable free energy takes the form 
+
+Fh,θ (C) = Fh, GL (C) + σ
+
+2
+
+X
+
+> (k,ℓ )̸=(0 ,0)
+
+ˆC2
+
+> k,ℓ
+
+[A]kℓ 
+
+.
+
+Instead of letting all entries of A be learnable scalars with positivity constraints, it is assumed that nx = ny
+
+and these entries take the form [ A]kℓ = [softplus a]k + [softplus a]ℓ in terms of an unconstrained learnable vector a ∈ Rnx and the element-wise activation function softplus( x) = ln (1 + ex). 0 20 40 60 80 100        
+
+> k
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> multiplier
+> 1D slice (j=0)
+> Learned _k
+> Ground Truth _k
+
+Figure 11: Eigenvalues of the Ohta-Kawasaki potential compared to the learned surrogate in Experiment 1. Ground Truth    
+
+> t=0 t=0.0066 t=0.0133 t=0.02
+> Learned Model
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+
+Figure 12: Evolution of the learned Ohta-Kawasaki system in Experiment 1, starting from an initial condition in the validation set and rolled out for 10 × the training window. Pictured is the ground truth evolution (top) along with the evolution of the learned surrogate (bottom). 29 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban As in previous examples, the dataset consists of 50 initial conditions comprised of random normal concen-tration fields blurred by (random uniform) Gaussian filters and simulated for 20 steps each with a step-size of ∆ t = 10 −4. The data are split 90/10 for training/validation, and the initial learning rate for the Adam optimizer is 0.1. The results of this experiment are displayed in Figure 11, where it is remarkable that the first 20 eigenvalues (minus the first) are learned reasonably well while the remaining are not. This has a consequence on the rollouts depicted in Figure 12, where differences in the ground truth and learned solu-tions become visibly apparent around 3 × the training window. On the other hand, the large-scale behavior of the system, including striping and overall topology, is reasonably well captured even at 10 × the training window. 
+
+6.3.2 Experiment 2: Using Low-Frequency Information 
+
+The next experiment involving learning the influence of the Ohta-Kawasaki potential reduces the amount of assumptions put on the learnable model form. Rather than assuming the desired operator is diagonal in frequency space, the learnable approximation will rely on only the first r ≪ nx largest frequencies. In particular, the learnable free energy will take the form 
+
+Fh,θ (C) = Fh, GL (C) + σ
+
+2
+
+X
+
+> (k,ℓ )≤(r,r )
+
+X
+
+> (m,n )≤(r,r )
+
+ˆCk,ℓ [K]kℓ,mn ˆCm,n ,
+
+for a matricized operator K ∈ Rr2×r2
+
+acting on the first r2 Fourier coefficients. This is a common strategy employed in FNO-like settings (e.g., [72]) that reduces the complexity of the learning problem while also increasing its robustness to high-frequency noise. Note that an explicit symmetrization K = softplus( M +
+
+M ⊺) for learnable M ∈ Rr2×r2
+
+is included to reduce indeterminacy: the entries of K should be positive, and only the symmetric part of K contributes to the frequency-space norm. The experimental task is to learn a low-frequency operator K = softplus( M + M ⊺) from solutions to OVP with free energy Fh, OK and dissipation potential Dh, CH . Given the previous experiment where eigenvalues of the Laplacian were targeted, r = 20 ≪ 100 = nx is chosen as the band limit. Therefore, it is expected that the spectrum of K will not necessarily approximate the first r2 eigenvalues of ( −∆) −1,since the entries of K have to compensate for the high-frequency information that is left out. The same training and validation data are used in this case, with the same learning rate of 0.1. Figure 13 compares the spectra of the (inverse) learned operator with the first 20 2 (smallest) eigenvalues of the Laplacian that have the largest effect on the H−1 norm. Notice that the spectrum of K is substantially different; it exhibits a similar general trend in magnitude with larger frequencies corresponding to larger values, but it is less smooth and there are large values around the diagonal that do not appear in the ground truth case. These differences propagate into the rollouts depicted in Figure 14, where deviations between the learned model and the ground truth are even more pronounced than in the previous experiment. Conversely, the use of OVP in the surrogate ensures that all trajectories still remain stable, mass-conserving, and monotonically energy decreasing according to the governing physics. It is expected that trajectory-wise accuracy could be substantially improved with a more sophisticated model class and learning strategy. 0 5 10 15       
+
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Ground Truth Laplacian Eigenvalues
+> 0510 15
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Learned Operator Eigenvalues
+> 0510 15
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> Relative Difference
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+Figure 13: Spectrum of the Ohta-Kawasaki potential compared to that of the learned surrogate in Experiment 2. 30 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban Ground Truth    
+
+> t=0 t=0.0066 t=0.0133 t=0.02
+> Learned Model
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+Figure 14: Evolution of the learned Ohta-Kawasaki system in Experiment 2, starting from an initial condition in the validation set and rolled out for 10 × the training window. Pictured is the ground truth evolution (top) along with the evolution of the learned surrogate (bottom). 
+
+# 7 Conclusion and Future Work 
+
+Onsager’s Variational Principle (OVP) has been discussed for the purposes of variational integration and dynamics discovery. Through an appropriate discrete formulation, it has been shown that OVP-based timestepping preserves key invariants and exhibits unconditional energy stability at the fully discrete level, guaranteeing structural properties similar to the continuous variational setting. This led to an algorithm for dynamics discovery based on learned corrections to functional-level information. Using observational or simulated data to calibrate the free energy functional in an OVP-based integrator yields surrogate solutions that are stable and appropriately conservative under arbitrarily long rollouts, regardless of what is learned during training. Examples from phase-field modeling have demonstrated that this procedure is effective in recovering the effects of unknown bulk free energy densities, boundary potentials, and nonlocal integral kernels from simulated data. Future efforts will focus on multiphysics coupling and the incorporation of more sophisticated learning strategies. In addition to the bulk-boundary interactions considered here, OVP can also be used to encode more complicated physical mechanisms, such as fluid-structure interactions and material contact, through additional terms in the governing potentials. It is interesting to consider the design of surrogate models for such phenomena via the proposed strategy of OVP integration with learnable functionals, potentially using model classes like Gaussian processes that include a notion of uncertainty. Additionally, it remains to be seen how well this OVP-based approach is able to learn from “real-world” observational data that contains noise and other defects. Since the variational integrator presented here is guaranteed to generalize appropriately (though perhaps not accurately) out of distribution, we expect that this strategy may help separate useful signal from sparse and noisy data in resource-limited settings. 
+
+# Acknowledgments 
+
+The authors thank Oliver Gross for significant help in the design and creation of Figure 1, leading to greatly improved clarity and visual appeal. Support for this work was received through the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research, Mathematical Multifaceted In-tegrated Capability Centers (MMICCS) program, under Field Work Proposal 22025291 and the Multifaceted 31 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban Mathematics for Predictive Digital Twins (M2dt) project. Sandia National Laboratories is a multimission laboratory managed and operated by National Technology & Engineering Solutions of Sandia, LLC, a wholly owned subsidiary of Honeywell International Inc., for the U.S. Department of Energy’s National Nuclear Se-curity Administration under contract DE-NA0003525. This paper describes objective technical results and analysis. Any subjective views or opinions that might be expressed in the paper do not necessarily represent the views of the U.S. Department of Energy or the United States Government. 
+
+# Appendix A Omitted computations 
+
+Here we record the computations proving some results used in the body. 
+
+Alternative proof of Theorem 2.3. First, observe that the dual fibers E∗ 
+
+> c
+
+= {α ∈ Ωn(M) ⊗ Ω1(M)} contain 
+
+n-form valued differential 1-forms on the n-manifold M. It is convenient to write α = w♭ ⊗ dV in terms of the flat operator 11 with respect to the (potentially non-Euclidean) dot product · and the volume form d V
+
+on M, so that the evaluation pairing on E∗ 
+
+> c
+
+⊗ Ec is given by 
+
+⟨α | ˚w⟩ =
+
+Z
+
+> M
+
+w♭( ˚ w) d V =
+
+Z
+
+> M
+
+w · ˚w dV
+
+for α ∈ E∗ 
+
+> c
+
+and ˚ w ∈ Ec. With this, the fiber derivative ∂wD of D can be computed at the point c ∈ Q by considering 
+
+⟨∂wDc(w) | ˚w⟩ =
+
+Z
+
+> M
+
+cw · ˚w dV =
+
+D
+
+cw♭ ⊗ dV | ˚w
+
+E
+
+,
+
+establishing that the fiber-wise flat operator ♭c = ∂wDc : Ec → E∗ 
+
+> c
+
+is given by w 7 → cw♭ ⊗ dV . Therefore, its inverse ♯c : E∗ 
+
+> c
+
+→ Ec is w♭ ⊗ dV = α 7 → c−1w. It remains to calculate the transpose P⊤ : T ∗Q → E∗.For any density β = f dV ∈= T ∗ 
+
+> c
+
+Q, it follows that 
+
+⟨β | P c ˚w⟩ = −
+
+Z
+
+> M
+
+f ∇ · c ˚w dV =
+
+Z
+
+> M
+
+c∇f · ˚w dV = ⟨c df ⊗ dV | ˚w⟩ = P⊤ 
+
+> c
+
+β | ˚w ,
+
+since d f = ( ∇f )♭ ∈ Ω1(M) and ˚ w · n = 0 on ∂M . This demonstrates that P⊤ is the mapping (suppressing tensor products) f dV 7 → c df dV . Finally, it follows that P♯P⊺|c maps f (c) d V 7 → −∇ · c∇f (c). The conclusion follows upon observation that P is surjective and d F = grad L2 F ⊗ dV .
+
+Theorem A.1. Suppose (M n, ∇) ⊂ (N m, ¯∇) is an inclusion of Riemannian manifolds with Levi-Civita connections ∇ and ¯∇. Denoting both the metric on N and its pullback on M by ⟨· , ·⟩ , it follows that the divergence of a vector field w on N decomposes as 
+
+¯∇ · w = ∇ · w∥ − ⟨ H, w⊥⟩ + P ⊥  ¯∇· w,
+
+in terms of the orthogonal projections w∥, w⊥ of this field on the tangent resp. normal bundles to M in N , the mean curvature vector field H = tr II which is the trace of the second fundamental form, and the orthogonal projection of the divergence P ⊥  ¯∇· v onto the normal bundle (T M )⊥. Here, II : T M × T M → T M ⊥ is defined as II (v, w) =   ¯∇v w⊥ and P ⊥  ¯∇· v is the trace of the quadratic form ·, ¯∇(·)v : T M ⊥×T M ⊥ → R.Proof. Recall the Gauss-Codazzi equations for the decomposition of the connection ¯∇ relative to M in N ,which state that, for vector fields v, w∥ ∈ Γ( T M ) in the tangent bundle to M , the ambient connection decomposes as ¯∇v w∥ =   ¯∇v w∥
+
+⊤ +   ¯∇v w∥
+
+⊥ = ∇v w∥ + II  v, w∥
+
+,
+
+where ⊤ and ⊥ denote orthogonal projections to T M and T M ⊥, relative to T N . Observe that, for w⊥ ∈
+
+Γ T M ⊥, there is a complementary splitting in terms of the induced connection ∇⊥ in T M ⊥,¯∇v w⊥ =   ¯∇v w⊥
+
+⊤ +   ¯∇v w⊥
+
+⊥ =   ¯∇v w⊥
+
+⊤ + ∇⊥ 
+
+> v
+
+w⊥,      
+
+> 11 Note that this is distinct from the flat operator ♭:E→E∗used in OVP.
+
+32 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban which is related to the second fundamental form via the Weingarten equation: for any u ∈ Γ( T M ), 
+
+¯∇v w⊥, u = −⟨ II (v, u), w⊥⟩.
+
+With this, consider a local orthonormal basis {eI }mI=1 = {ei}mi=1 ∪ { ea}m−na=1 for T N and its decomposition into local orthonormal bases for T M resp. (T M )⊥. It follows that the ambient divergence of a vector 
+
+w = w∥ + w⊥ decomposes as (Einstein summation assumed) ¯∇ · w = ei, ¯∇ei w + ea, ¯∇ea w = ei, ¯∇ei w∥ + ei, ¯∇ei w⊥ + P ⊥  ¯∇· w
+
+= ∇ · w∥ − ⟨ II (ei, ei), w⊥⟩ + P ⊥  ¯∇· w = ∇ · w∥ − ⟨ H, w⊥⟩ + P ⊥  ¯∇· w,
+
+as claimed. 
+
+Corollary A.1. Let w ∈ Γ( T M) be a vector field on the manifold M with boundary ∂M and affine connection ∇. Writing w = w∥ + w⊥n in terms of the outward-pointing normal n to ∂M , the divergence 
+
+∇ · w on (M, ∇) restricts to (∂M, ∇∂ ) in the following way: 
+
+(∇ · w)|∂M = ∇∂ · w∥ − ∇nn, w∥ + ( ∂n − ⟨ H, n⟩)w⊥.
+
+Proof. Observe that 
+
+P ⊥(∇· )w = ⟨n, ∇nw⟩ = n, ∇nw∥ + ⟨n, ∇n(w⊥n)⟩ = − ∇nn, w∥ + ∂nw⊥,
+
+since ⟨n, n⟩ = 1 and therefore ⟨∇ nn, n⟩ = 0. The result now follows from Theorem A.1. 
+
+Theorem A.2. Let L2(M, T M) denote the space of square-integrable vector fields on a manifold M, let 
+
+˚H1(M) = {u ∈ H1(M) : R 
+
+> M
+
+u dV = 0 } denote the Sobolev space of H1(M) functions with zero mean, and let 
+
+H−1 = ( ˚H1)∗ denote its dual space of formal divergences. Then, the free energy functionals F : ˚H1(M) → R
+
+and G : H−1(M) → R have the Sobolev gradients 
+
+grad ˚H1 F = ( −∆) −1dF, grad H−1 G = ( −∆) d G,
+
+in terms of the Neumann Laplacian −∆ : ˚H1(M) → H−1(M), its inverse (−∆) −1, and the functional derivatives dF ∈ H−1(M), dG ∈ ˚H1(M).Proof. Since functions in ˚H1(M) have zero mean, the Poincar´ e inequality implies that 
+
+⟨u, v ⟩˚H1 := 
+
+Z
+
+> M
+
+∇u · ∇ v dV = ⟨(−∆) u | v⟩,
+
+defines an inner product on ˚H1(M) in terms of the Neumann Laplacian −∆ : ˚H1(M) → H−1(M) and the duality pairing ⟨· | ·⟩ : H−1 × ˚H1 → R. By Riesz representation, this identifies −∆ with the flat map 
+
+♭ : ˚H1(M) → H−1(M), u 7 → u♭ = ( −∆) u, 
+
+whose inverse is given by ♯ = ( −∆) −1 : H−1(M) → ˚H1(M).
+
+Now, let F : ˚H1(M) → R. For every variation ˚ u ∈ ˚H1(M), it follows that 
+
+⟨dF(u) | ˚u⟩ = grad ˚H1 F(u), ˚u ˚H1 = (−∆) grad ˚H1 F(u) | ˚u .
+
+Since this holds for all ˚ u, we conclude (−∆) grad ˚H1 F(u) = d F(u) =⇒ grad ˚H1 F(u) = ( −∆) −1dF(u).
+
+Similarly, for G : H−1(M) → R, define the dual inner product in the usual way: 
+
+⟨f, g ⟩H−1 := f ♯, g ♯ ˚H1 ∀f, g ∈ H−1(M).
+
+33 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban Then, for any variation ˚f ∈ H−1(M), 
+
+D˚f | dG(f )
+
+E
+
+=
+
+D˚f , grad H−1 G(f )
+
+E 
+
+> H−1
+
+=
+
+D˚f ♯, (grad H−1 G(f )) ♯E 
+
+> ˚H1
+
+=
+
+D˚f | (grad H−1 G(f )) ♯E
+
+.
+
+Since this holds for all ˚f ,dG(f ) = (grad H−1 G(f )) ♯ = ( −∆) −1grad H−1 G(f ) =⇒ grad H−1 G(f ) = ( −∆) d G(f ),
+
+establishing the claim. 
+
+# References 
+
+[1] Anthony Gruber, Kookjin Lee, Haksoo Lim, Noseong Park, and Nathaniel Trask. Efficiently pa-rameterized neural metriplectic systems. In The Thirteenth International Conference on Learning Representations, 2025. [2] Elena Celledoni, Matthias J Ehrhardt, Christian Etmann, Robert I McLachlan, Brynjulf Owren, C-B Schonlieb, and Ferdia Sherry. Structure-preserving deep learning. European journal of applied mathematics, 32(5):888–936, 2021. [3] Allen Alvarez Loya, Daniel A Serino, JW Burby, and Qi Tang. Structure-preserving neural ordinary differential equations for stiff systems. arXiv preprint arXiv:2503.01775, 2025. [4] Samuel Greydanus, Misko Dzamba, and Jason Yosinski. Hamiltonian neural networks. Advances in neural information processing systems, 32, 2019. [5] Ziqing Hu, Chun Liu, Yiwei Wang, and Zhiliang Xu. Energetic variational neural network discretizations of gradient flows. SIAM Journal on Scientific Computing, 46(4):A2528–A2556, 2024. [6] Masao Doi. Onsager’s variational principle in soft matter. Journal of Physics: Condensed Matter, 23(28):284118, jun 2011. [7] Marino Arroyo, Nikhil Walani, Alejandro Torres-S´ anchez, and Dimitri Kaurin. Onsager’s variational principle in soft matter: introduction and application to the dynamics of adsorption of proteins onto fluid membranes. In The role of mechanics in the study of lipid bilayers, pages 287–332. Springer, 2017. [8] Haiqin Wang, Tiezheng Qian, and Xinpeng Xu. Onsager’s variational principle in active soft matter. Soft Matter, 17(13):3634–3653, 2021. [9] Qiang Du. Thermodynamic variational principle, its connections to the phenomenological laws and its applications to the derivation of microstructural models. Materials Genome Engineering Advances, 2(2):e51, 2024. [10] Li-Shing Lin, Kento Yasuda, Kenta Ishimoto, Yuto Hosaka, and Shigeyuki Komura. Onsager’s varia-tional principle for nonreciprocal systems with odd elasticity. Journal of the Physical Society of Japan, 92(3):033001, 2023. [11] Jiajia Zhou and Masao Doi. Dynamics of viscoelastic filaments based on Onsager principle. Physical Review Fluids, 3(8):084004, 2018. [12] Xinpeng Xu and Tiezheng Qian. Hydrodynamic boundary conditions derived from Onsager’s variational principle. Procedia IUTAM, 20:144–151, 2017. [13] Huangxin Chen, Hailiang Liu, and Xianmin Xu. The Onsager principle and structure preserving nu-merical schemes. Journal of Computational Physics, 523:113679, 2025. [14] Cuncheng Zhu, David Saintillan, and Albert Chern. Stokes flow of an evolving fluid film with arbitrary shape and topology. Journal of Fluid Mechanics, 1003:R1, 2025. 34 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban [15] Yihe Liu and Xianmin Xu. A variational discretization method for mean curvature flows by the Onsager principle. arXiv preprint arXiv:2404.11935, 2024. [16] Jisheng Kou, Xiuhua Wang, Meilan Zeng, and Jianchao Cai. Energy stable and mass conservative numerical method for a generalized hydrodynamic phase-field model with different densities. Physics of Fluids, 32(11), 2020. [17] Si Xiao and Xianmin Xu. A moving mesh method for porous medium equation by the Onsager variational principle. Journal of Computational Physics, 536:114061, 2025. [18] Fang Xiong, Lei Wang, Jiangxu Huang, and Kang Luo. A thermodynamically consistent phase-field lattice Boltzmann method for two-phase electrohydrodynamic flows. Journal of Scientific Computing, 103(1):1–32, 2025. [19] Andrew Stuart. Nonlinear instability in dissipative finite difference schemes. SIAM review, 31(2):191– 220, 1989. [20] Daisuke Furihata. A stable and conservative finite difference scheme for the Cahn-Hilliard equation. Numerische Mathematik, 87(4):675–699, 2001. [21] Tao Tang, Haijun Yu, and Tao Zhou. On energy dissipation theory and numerical stability for time-fractional phase-field equations. SIAM Journal on Scientific Computing, 41(6):A3757–A3778, 2019. [22] Lars Onsager. Reciprocal relations in irreversible processes. i. Physical review, 37(4):405, 1931. [23] Lars Onsager. Reciprocal relations in irreversible processes. ii. Physical review, 38(12):2265, 1931. [24] J. W. Strutt. Some general theorems relating to vibrations. Proceedings of the London Mathematical Society, s1-4(1):357–368, 1871. [25] Jerrold E Marsden and Thomas JR Hughes. Mathematical foundations of elasticity. Courier Corpora-tion, 1994. [26] Felix Otto. The geometry of dissipative evolution equations: the porous medium equation. 2001. [27] Sacha Friedli and Yvan Velenik. Statistical mechanics of lattice systems: a concrete mathematical introduction. Cambridge University Press, 2018. [28] Herbert B Callen and HL Scott. Thermodynamics and an introduction to thermostatistics, 1998. [29] Alexander Mielke, Dora R. ˜M. Renger, and Mark A. Peletier. A generalization of Onsager’s reciprocity relations to gradient flows with nonlinear mobility. Journal of Non-Equilibrium Thermodynamics, 41(2):141–149, 2016. [30] C´ edric Villani. Topics in optimal transportation, volume 58. American Mathematical Soc., 2021. [31] Long-Qing Chen. Phase-field models for microstructure evolution. Annual review of materials research, 32(1):113–140, 2002. [32] Jian-Ying Wu, Vinh Phu Nguyen, Chi Thanh Nguyen, Danas Sutula, Sina Sinaie, and St´ ephane PA Bordas. Phase-field modeling of fracture. Advances in applied mechanics, 53:1–183, 2020. [33] Dingcheng Luo, Lianghao Cao, Peng Chen, Omar Ghattas, and J Tinsley Oden. Optimal design of chemoepitaxial guideposts for the directed self-assembly of block copolymer systems using an inexact Newton algorithm. Journal of Computational Physics, 485:112101, 2023. [34] An-Chang Shi and Baohui Li. Self-assembly of diblock copolymers under confinement. Soft Matter, 9(5):1398–1413, 2013. [35] Allen Noshay and James E McGrath. Block copolymers: overview and critical survey. 2013. 35 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban [36] Andrea Giorgini and Roger Temam. Weak and strong solutions to the nonhomogeneous incompressible Navier-Stokes-Cahn-Hilliard system. Journal de Math´ ematiques Pures et Appliqu´ ees, 144:194–249, 2020. [37] Nadia Bihari Padhan and Rahul Pandit. The Cahn–Hilliard–Navier–Stokes framework for multiphase fluid flows: laminar, turbulent and active. Journal of Fluid Mechanics, 1010:P1, 2025. [38] Hao Wu. A review on the Cahn-Hilliard equation: classical results and recent advances in dynamic boundary conditions. arXiv preprint arXiv:2112.13812, 2021. [39] Jerrold E Marsden and Matthew West. Discrete mechanics and variational integrators. Acta numerica, 10:357–514, 2001. [40] E. D. Giorgi. Movimenti minimizzanti. In Proceedings of the Conference on Aspetti e problemi della Matematica oggi, Lecce, Italy, 1992. [41] Ennio De Giorgi. New problems on minimizing movements. Ennio de Giorgi: selected papers, pages 699–713, 1993. [42] Tim Laux and Felix Otto. The thresholding scheme for mean curvature flow and de giorgi’s ideas for minimizing movements. The role of metrics in the theory of partial differential equations, 85:63–94, 2020. [43] Yubin Lu, Xiaofan Li, Chun Liu, Qi Tang, and Yiwei Wang. Structure-aware variational learning of a class of generalized diffusions, 2026. [44] R Tyrrell Rockafellar. Monotone operators and the proximal point algorithm. SIAM journal on control and optimization, 14(5):877–898, 1976. [45] Xing-Ju Cai, Ke Guo, Fan Jiang, Kai Wang, Zhong-Ming Wu, and De-Ren Han. The developments of proximal point algorithms. Journal of the Operations Research Society of China, 10(2):197–239, 2022. [46] Brian K. Tran, Ben S. Southworth, David B. Cavender, Sam Olivier, Syed A. Shah, and Tommaso Buvoli. Nonlinear splitting for gradient-based unconstrained and adjoint optimization, 2025. [47] Richard Jordan, David Kinderlehrer, and Felix Otto. The variational formulation of the Fokker–Planck equation. SIAM journal on mathematical analysis, 29(1):1–17, 1998. [48] Haijun Yu, Xinyuan Tian, Weinan E, and Qianxiao Li. OnsagerNet: Learning stable and interpretable dynamics using a generalized Onsager principle. Phys. Rev. Fluids, 6:114402, Nov 2021. [49] Shenglin Huang, Zequn He, and Celia Reina. Variational Onsager neural networks (VONNs): Athermodynamics-based variational learning strategy for non-equilibrium pdes. Journal of the Mechanics and Physics of Solids, 163:104856, 2022. [50] Zhihao Li, Boyi Zou, Haiqin Wang, Jian Su, Dong Wang, and Xinpeng Xu. Deep learning-based computational method for soft matter dynamics: Deep onsager-machlup method. arXiv preprint arXiv:2308.14513, 2023. [51] Weinan E and Bing Yu. The deep Ritz method: A deep learning-based numerical algorithm for solving variational problems. Communications in Mathematics and Statistics, 6(1):1–12, 2018. [52] Zhipeng Chang, Zhenye Wen, and Xiaofei Zhao. Unsupervised operator learning approach for dissipative equations via Onsager principle, 2025. [53] Skander Karkar, Ibrahim Ayed, Emmanuel de B´ ezenac, and Patrick Gallinari. Module-wise training of neural networks via the minimizing movement scheme. Advances in Neural Information Processing Systems, 36:53126–53145, 2023. [54] Martin Rumpf, Josua Sassen, and Christoph Smoch. A hybrid minimizing movement and neural network approach to Willmore flow. arXiv preprint arXiv:2502.14656, 2025. 36 Dynamics Discovery with OVP Gruber, Roy-Chowdhury, Tezaur, and Urban [55] Petr Mokrov, Alexander Korotin, Lingxiao Li, Aude Genevay, Justin M Solomon, and Evgeny Burnaev. Large-scale Wasserstein gradient flows. Advances in Neural Information Processing Systems, 34:15243– 15256, 2021. [56] David Alvarez-Melis, Yair Schiff, and Youssef Mroueh. Optimizing functionals on the space of proba-bilities with input convex neural networks. arXiv preprint arXiv:2106.00774, 2021. [57] Charlotte Bunne, Laetitia Papaxanthos, Andreas Krause, and Marco Cuturi. Proximal optimal trans-port modeling of population dynamics. In International Conference on Artificial Intelligence and Statistics, pages 6511–6528. PMLR, 2022. [58] Brandon Amos, Lei Xu, and J Zico Kolter. Input convex neural networks. In International conference on machine learning, pages 146–155. PMLR, 2017. [59] Chen Xu, Xiuyuan Cheng, and Yao Xie. Normalizing flow neural networks by JKO scheme. Advances in Neural Information Processing Systems, 36:47379–47405, 2023. [60] Danilo Rezende and Shakir Mohamed. Variational inference with normalizing flows. In International conference on machine learning, pages 1530–1538. PMLR, 2015. [61] Johannes Hertrich and Robert Gruhlke. Importance corrected neural JKO sampling. arXiv preprint arXiv:2407.20444, 2024. [62] Mathieu Blondel, Quentin Berthet, Marco Cuturi, Roy Frostig, Stephan Hoyer, Felipe Llinares-L´ opez, Fabian Pedregosa, and Jean-Philippe Vert. Efficient and modular implicit differentiation. Advances in neural information processing systems, 35:5230–5242, 2022. [63] Jie Ren, Xidong Feng, Bo Liu, Xuehai Pan, Yao Fu, Luo Mai, and Yaodong Yang. Torchopt: An efficient library for differentiable optimization. Journal of Machine Learning Research, 24(367):1–14, 2023. [64] Francis H Harlow, J Eddie Welch, et al. Numerical calculation of time-dependent viscous incompressible flow of fluid with free surface. Physics of fluids, 8(12):2182, 1965. [65] Akio Arakawa and Vivian R Lamb. Computational design of the basic dynamical processes of the UCLA general circulation model. 1977. [66] Christoph A Weber, David Zwicker, Frank J¨ ulicher, and Chiu Fan Lee. Physics of active emulsions. Reports on Progress in Physics, 82(6):064601, apr 2019. [67] Y. Tsori and D. Andelman. Diblock copolymer ordering induced by patterned surfaces. Europhysics Letters, 53(6):722, mar 2001. [68] Xiang-Fa Wu and Yuris A. Dzenis. Guided self-assembly of diblock copolymer thin films on chemically patterned substrates. The Journal of Chemical Physics, 125(17):174707, 11 2006. [69] Takao Ohta and Kyozi Kawasaki. Equilibrium morphology of block copolymer melts. Macromolecules, 19(10):2621–2632, 1986. [70] Lianghao Cao, Omar Ghattas, and J Tinsley Oden. A globally convergent modified Newton method for the direct minimization of the Ohta–Kawasaki energy with application to the directed self-assembly of diblock copolymers. SIAM Journal on Scientific Computing, 44(1):B51–B79, 2022. [71] Gilbert Strang. The discrete cosine transform. SIAM Review, 41(1):135–147, 1999. [72] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895, 2020. 37

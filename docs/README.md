@@ -6,29 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-26
-- 运行时间：2026-06-26 21:37:20 UTC
+- 最新运行日期：2026-06-27
+- 运行时间：2026-06-27 21:30:27 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：1
+- 本次总论文数：2
+- 精读区：0
 - 速读区：2
 
 ### 今日简报（AI）
-今日精读9.0分论文《Recovering Governing Equations from Solution Data》，探讨线性与非线性ODE的可辨识性边界；速读两篇分别聚焦无注意力Transformer的Koopman算子学习与Kolmogorov-Arnold储层计算。最值得关注的是精读论文给出的ODE辨识理论界限，以及速读中Koopman算子学习的新架构。建议优先精读高分论文，把握可辨识性核心结论，再速读Koopman方向拓展动力学建模思路。
-- 详情：[/202606/26/README](/202606/26/README)
+1) 今日速读两篇6分论文，涵盖数据驱动多尺度建模与高维物理系统自主发现。  
+2) 值得关注方向：随机非均质多孔介质的非线性流动算子学习，以及利用苏格拉底式智能体实现高维物理系统的科学发现。  
+3) 建议：优先探索数据驱动多尺度方法在复杂流动中的应用，同时关注AI自主推理在物理规律发现中的潜力。
+- 详情：[/202606/27/README](/202606/27/README)
 
 ### 精读区论文标签
-1. [Recovering Governing Equations from Solution Data: Identifiability Bounds for Linear and Nonlinear ODEs](/202606/26/2606.27285v1-recovering-governing-equations-from-solution-data-identifiability-bounds-for-linear-and-nonlinear-odes)  
-   标签：评分：9.0/10、query:sr-piml
-   evidence：从解数据中恢复控制ODE；方程发现
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Learning the Koopman Operator using Attention Free Transformers](/202606/26/2606.23957v1-learning-the-koopman-operator-using-attention-free-transformers)  
-   标签：评分：7.0/10、query:sr-piml
-   evidence：Koopman算子学习用于动力系统发现
-2. [Kolmogorov-Arnold Reservoir Computing](/202606/26/2606.19984v2-kolmogorov-arnold-reservoir-computing)  
+1. [Operator Learning on the Data-Driven Multiscale Space for Nonlinear Flow in Random Heterogeneous Porous Media](/202606/27/2606.25820v1-operator-learning-on-the-data-driven-multiscale-space-for-nonlinear-flow-in-random-heterogeneous-porous-media)  
    标签：评分：6.0/10、query:sr-piml
-   evidence：基于Kolmogorov-Arnold表示定理的显式基函数展开水库计算用于动力系统预测
+   evidence：使用数据驱动多尺度空间的算子学习框架用于多孔介质中的非线性流动PDE，实现高效PDE代理建模。
+2. [Socratic agents for autonomous scientific discovery in high-dimensional physical systems](/202606/27/2606.26722v1-socratic-agents-for-autonomous-scientific-discovery-in-high-dimensional-physical-systems)  
+   标签：评分：6.0/10、query:sr-piml
+   evidence：用于自主物理发现的多代理AI科学家，含物理批评者
 
 
 <div class="dpr-home-promo-card">

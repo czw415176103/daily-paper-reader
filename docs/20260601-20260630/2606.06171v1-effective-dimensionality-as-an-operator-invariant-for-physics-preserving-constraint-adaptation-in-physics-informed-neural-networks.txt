@@ -1,0 +1,1564 @@
+Title: Effective Dimensionality as an Operator Invariant for Physics-Preserving Constraint Adaptation in Physics-Informed Neural Networks
+
+URL Source: https://arxiv.org/pdf/2606.06171v1
+
+Published Time: Fri, 05 Jun 2026 01:12:40 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Effective Dimensionality as an Operator Invariant for Physics-Preserving Constraint Adaptation in Physics-Informed Neural Networks 
+
+Cornelius Otchere a, Michael Shields a, ∗
+
+> aDepartment of Civil and Systems Engineering, Johns Hopkins University, Baltimore, Maryland, USA
+
+Abstract 
+
+Physics-Informed Neural Networks inherently suffer from task interference because they rely on a shared parameter space to satisfy both governing differential equations and boundary conditions. We analyze this structural conflict using the Fisher Information Matrix to quantify the effective degrees of freedom ( deff ) in a physics-constrained model. Unlike the classical deff which measures how many parameter directions are informed by data against a statistical prior, our deff measures the dimension of the parameter directions unconstrained by the differential operator. For operators with finite-dimensional kernel, we show that deff 
+
+converges to the kernel dimension exactly, independent of network width, depth, or activation function, recasting it from a fit diagnostic into a structural invariant of the underlying continuous operator. For operators with infinite-dimensional kernel, deff instead measures the network’s finite-dimensional represen-tational bandwidth for that kernel rather than recovering an integer invariant. Importantly, deff also serves as an a priori structural diagnostic. Driving deff of a well-posed problem to zero certifies that the physics and boundary constraints have absorbed the network’s free directions. Building on this characterization, we introduce subspace projection strategies for boundary adaptation. Rather than retraining from scratch, we project parameter updates into the null space of the pre-trained physics operator so that, in exact arith-metic, new boundary conditions are satisfied without disturbing the learned physics; finite-precision drift is controlled via a predictor-corrector retraction. Gradient-based fine-tuning can reach equivalent or better boundary accuracy at full convergence, but requires significantly more wall-clock time to reach comparable boundary accuracy, together with per-problem loss weighting and optimizer scheduling. Subspace projec-tion delivers near-equivalent quality in seconds to minutes with minimal tuning overhead. We validate the method on linear and nonlinear operators, demonstrating accurate adaptation to initial and boundary shifts and previously unencountered constraint types. 
+
+Keywords: Physics-Informed Learning, Effective Degrees of Freedom, Subspace Projection 
+
+1. Introduction 
+
+Embedding governing equations into the loss function in neural network training has had a significant impact on forward modeling [1, 2]. Enforcing both the ordinary differential equation (ODE) or partial differential equation (PDE) and boundary conditions (BCs) simultaneously has however been documented to be computationally fragile. During training, competing objectives impose conflicting demands on the shared parameter space. Wang, Teng and Perdikaris [3] showed how this competition leads to gradient flow pathologies. Wang, Yu and Perdikaris [4] explained this phenomenon through the Neural Tangent kernel (NTK) [5] perspective and proposed strategies to mitigate them. Krishnapriyan et al. [6] also showed that the competing objectives force the model to arrive at a less optimal solution. More recently, Rathore et al. [7] analyzed the PINN loss landscape and identified ill-conditioning of the loss Hessian as a fundamental source of training difficulty. Self-adaptive methods [3, 8] address this imbalance by learning task-specific loss weights during training, while gradient-surgery approaches [9, 10] project conflicting gradients onto non-opposing directions during joint optimization. These methods reduce online interference but do not structurally decouple the competing objectives.    
+
+> ∗Corresponding author. E-mail address: michael.shields@jhu.edu (Michael Shields)
+> arXiv:2606.06171v1 [stat.ML] 4 Jun 2026
+
+If a boundary condition changes, the model might have to be retrained from scratch, presenting a major bottleneck for real-world applications where boundary conditions can change frequently or be uncertain. A common solution to avoid retraining includes using hard-constraint ansatz methods. Techniques like the Theory of Functional Connections or Approximate Distance Functions eliminate BCs by composing [11] or multiplying [12, 13] the network output with a function that automatically satisfies the BCs. These methods can, however, become difficult for complex boundaries and under mixed BCs. To avoid retraining, researchers have also applied transfer learning. Desai et al. [14] made boundary and initial condition adaptations on only the last layer of the network. Related transfer learning approaches adopt the same layer-partitioning heuristic [15, 16] or warm-start from pre-trained models for new BCs and parameters [17]. These strategies risk degrading the physics representation, as gradient updates that satisfy new boundary conditions can temporarily shift parameters away from physics-resolving configurations even when the PDE loss is retained. Operator learning [18, 19, 20] bypasses retraining entirely by directly approximating the solution map, but requires large offline datasets spanning the space of BCs and ICs and cannot leverage a pre-trained PINN’s physical representation. The machine learning community handles the risk of catastrophic forgetting with continual learning. Algorithms with Elastic Weight Consolidation anchor parameters based on historical importance [21]. Or-thogonal Weight Modification projects new updates into the null space of previous tasks to prevent cross interference [22, 23]. The scientific machine learning community has recently started to adopt these con-cepts. Constraint enforcement methods in Extreme Learning Machines (ELMs) achieve exact satisfaction of boundary conditions by restricting the physics solution to the admissible affine subspace [24, 25], which is equivalent to projecting onto the null space of the boundary operator. Because ELMs perform projections on a static random feature space, the question of how to identify and project onto an analogous null space in a trained deep network with learned features remains open. In addition, when solving differential equations, the general solution with free parameters are found first, then the BCs are used to fit the free parameters. In practice, the physical laws governing a system are fixed while boundary conditions vary across operat-ing scenarios, geometries, or design iterations. This motivates the need for a framework that can identify and preserve the parameter-space directions encoding the physics and adapt to new BCs without risking a catastrophic forgetting of the learned physics. To analyze the geometry of physics-informed optimization, we leverage the spectral properties of the Fisher Information Matrix (FIM), which acts as a Riemannian metric on the parameter space [26, 27]. Ansuini et al. [28] showed that purely data-driven models compress feature representation into manifolds of varying dimensions at deeper layers. Physics constraints reshape the parameter space differently as the network’s total surviving capacity is governed by the operator, though its distribution across layers depends on architectural choices. This raises a fundamental question. How should we characterize the directions in parameter space that physics constraints leave unconstrained, and how do those directions relate to classical measures of effective degrees of freedom? Theoretical analyses of PINN convergence [29, 30, 31, 32] have characterized how trained networks ap-proximate true solutions. Our work is complementary, using the FIM spectrum to diagnose whether the network has structurally resolved the operator. Our analysis uses the FIM to define a measure of effective degrees of freedom deff , building on classical results in statistical learning theory [33, 34]. These classical formulations define deff as the dimension of parameter space that observational data identifies against a soft statistical prior. The resulting quantity captures a property of the data–prior interaction, with no canonical reference value. The physics-informed setting inverts this construction. The constraint is not a statisti-cal belief about parameters but a differential operator with an analytical kernel of known dimension. The corresponding deff measures what the operator leaves unconstrained, and its predicted value is the kernel dimension of the operator itself. The trace formula is structurally analogous, but the object being measured is dual. This duality reframes deff from a fit diagnostic into a structural invariant. When computed on a trained neural network, it recovers a classical property of the underlying continuous operator that we exploit to identify the directions available for boundary adaptation. This paper makes four contributions. First, we derive an FIM-based measure of deff for physics-constrained networks and show empirically that it converges to the analytical kernel dimension of the differential operator (exactly, for finite-kernel operators), independent of network width, depth, or activation function. Second, we leverage this quantity as a structural diagnostic that detects when collocation density is insufficient to resolve the operator, exposing under-constrained training that low residual loss cannot detect. Third, build-2ing on this characterization, we develop a subspace projection method for initial and boundary adaptation that updates network parameters strictly within the operator’s null space, preserving the learned physics by construction. Fourth, we introduce geometric retraction and regime anchoring techniques to control the residual drift that finite-precision arithmetic induces on the curved parameter manifold. The rest of the paper unfolds as follows. Section 2 constructs the theoretical scaffolding for deff . Section 3 validates deff as a physical invariant rather than a structural artifact, demonstrating its resilience against architectural variation and spectral aliasing. Section 4 introduces the subspace projection machinery and tests it on a 1D boundary value problem. Section 5 proposes predictor-corrector retractions and regime anchoring to control residual drift on the curved parameter manifold. Section 6 scales to a 2D Poisson equation, contrasts subspace projection against gradient-based fine-tuning, and extends to the nonlinear Burgers equation to test adaptation under shock dynamics. Section 7 provides concluding remarks. 
+
+2. Mathematical Formulation of Effective Dimensionality 
+
+We derive deff in a statistical learning setting with observational noise. The deterministic, physics-informed regime then arises as a special case in the noiseless limit, and the statistical scaffolding clarifies the capacity interpretation of the metric. 
+
+2.1. Asymptotic Analysis of Model Quality 2.1.1. Purely Data-Driven Model 
+
+Consider a generating model y(x) = g(x, θ ) + e, where g(x, θ ) is a neural network and the noise term e
+
+is independent and identically distributed (i.i.d.) with E[e] = 0 and E[e2] = κ0. The empirical risk function over a dataset D = {xi, y i}Ni=1 is defined as: 
+
+LN (θ) = 12N
+
+> N
+
+X
+
+> i=1
+
+(yi − g(xi, θ )) 2 (1) The neural network is trained by empirical risk minimization as 
+
+ˆθN = arg min  
+
+> θ
+
+LN (θ) (2) Following the assumptions in Sjöberg [34], this formulation constitutes a maximum likelihood estimation. We assume the estimator ˆθN converges to a "true" parameter value θ0 as N → ∞ , where θ0 represents a local minimum of the expected criterion function. To find the optimal parameters ˆθN , the derivative of the empirical risk is set to zero and a Taylor expansion is applied around θ0:
+
+0 = ∇LN (ˆθN ) ≈ ∇ LN (θ0) + ∇2LN (θ0)( ˆθN − θ0)ˆθN − θ0 ≈ −∇ 2LN (θ0)+∇LN (θ0) (3) where A+ = ( ATA)−1AT (full column rank) or A+ = AT(AA T)−1 (full row rank) denotes the Moore-Penrose pseudoinverse. Let Ψ( x) = − ∂∂θ g(x, θ ) θ=θ0 and Q = Ex[Ψ( x)Ψ T(x)] . Here, Q is the FIM of the model with respect to its parameters. As N → ∞ , the Hessian ∇2LN (θ0) can be approximated as Q. This approximation stems from the expansion of the second derivative: 
+
+∇2LN (θ0) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ ∇g(xi, θ 0)∇g(xi, θ 0)T − ei∇2g(xi, θ 0) ≈ Q (4) As N → ∞ , the second term inside the summation vanishes in expectation with respect to the noise. Consequently, the variance of the gradient over the dataset realizations is: 
+
+ED [∇LN (θ0)∇LN T(θ0)] = κ0
+
+N Q (5) The parameter error covariance matrix P is derived as 3P = ED [( ˆθN − θ0)( ˆθN − θ0)T]= Q+ED [∇LN (θ0)∇LN T(θ0)] Q+
+
+= Q+  κ0
+
+N Q
+
+
+
+Q+
+
+= κ0
+
+N Q+
+
+(6) The model quality is evaluated through the expected variance of predictions 
+
+LN = ED [L(ˆθN )] 
+
+L(ˆθN ) = Ex,e [( y − g(x, ˆθN )) 2] (7) Taking the Taylor expansion about θ0 yields 
+
+LN ≈ ED
+
+
+
+L(θ0) + ( ˆθN − θ0)T∇L(θ0) + 12 (ˆθN − θ0)T∇2L(θ0)( ˆθN − θ0)
+
+
+
+= κ0 + 12 tr  ED [∇2L(θ0)] P 
+
+= κ0 + 12 tr 
+
+
+
+2Q · κ0
+
+N Q+
+
+= κ0
+
+
+
+1 + tr (QQ +)
+
+N
+
+
+
+= κ0
+
+
+
+1 + rank (Q)
+
+N
+
+
+
+= κ0
+
+
+
+1 + rN
+
+
+
+(8) where r = rank (Q) ≤ d and d represents the total number of parameters in the model. This result aligns with the established theory [35]. For a fixed N , the model’s variance scales with r as the model dimensionality increases. Classically, r measures how many parameter directions the data identifies (the directions con-sumed by noise in the unregularized setting). We reframe r as the number of directions available to absorb any constraint. When a structured constraint such as a differential operator is introduced, it occupies a specific subset of these directions, and the remaining capacity defines deff . The next subsection makes this construction precise. 
+
+2.1.2. Physics-Informed Model 
+
+We now introduce a physics-informed loss function that enforces both a governing operator equation constraint Lg(x, θ ) = f (x) on the domain and a BC Bg(x, θ ) = ub(x) on the boundary. The total loss function for the physics-informed model is defined as: 
+
+WN (θ) = LN (θ) + λpRp(θ) + λbRb(θ) (9) where Rp(θ) = 12Np
+
+PNp
+
+> i=1
+
+(f (xpi ) − L g(xpi , θ )) 2 is the PDE residual over Np collocation points, Rb(θ) = 
+
+> 12Nb
+
+PNb
+
+> j=1
+
+(ub(xbj ) − B g(xbj , θ )) 2 is the boundary residual over Nb boundary points, and λp, λ b are their re-spective penalty weights. The optimal parameter for this loss is found as ˜θN = arg min θ WN (θ).To analyze the asymptotic behavior of the new physics-informed estimator, we assume that the true parameter θ0 exactly satisfies the governing physical laws such that Lg(x, θ 0) = f (x) for all x ∈ Ω and 
+
+Bg(x, θ 0) = ub(x) for all x ∈ ∂Ω. Consequently, the empirical residuals of both the PDE and the BCs vanish at the true parameter. This assumption is an asymptotic idealization. For finite-size networks approximating non-trivial PDE solutions, θ0 should be understood as the limit of a sequence of approximating parameters as the network capacity grows. The bias-variance analysis in Section 2.2 addresses the finite-capacity case where this assumption is relaxed. Taking the first derivative of the total loss WN (θ) evaluated at θ0 gives: 
+
+∇WN (θ0) = ∇LN (θ0) + λp∇Rp(θ0) + λb∇Rb(θ0) (10) 4Since the physical constraints are perfectly satisfied at θ0, we have ∇Rp(θ0) = 0 and ∇Rb(θ0) = 0 . Therefore, the stochasticity in ∇WN (θ0) is entirely driven by the N observational data points: 
+
+∇WN (θ0) = ∇LN (θ0) (11) Next, we evaluate the Hessian of WN (θ) at θ0. Let Φp(x) = − ∂∂θ Lg(x, θ ) θ=θ0
+
+and Φb(x) = − ∂∂θ Bg(x, θ ) θ=θ0
+
+.As Np, N b → ∞ , we can approximate the Hessians of the penalty terms as ∇2Rp(θ0) ≈ Hp and ∇2Rb(θ0) ≈
+
+Hb, where the expected FIMs are defined over their respective domain measures: 
+
+Hp = Ex∼Ω[Φ p(x)Φ T 
+
+> p
+
+(x)] , Hb = Ex∼∂Ω[Φ b(x)Φ T 
+
+> b
+
+(x)] (12) It is critical to note that Hb is inherently rank-deficient. Because the boundary measure is supported strictly on a lower-dimensional manifold (reducing to a sum of Dirac measures for 1D boundary value problems), the expectation Hb integrates over a severely restricted subspace. For example, in a 1D problem with two boundary points, rank (Hb) ≤ 2 regardless of the parameter dimension d. The expected Hessian of the combined loss is therefore: 
+
+∇2WN (θ0) ≈ Q + λpHp + λbHb = M (13) Applying the same Taylor expansion and sandwich estimator logic used for the purely data-driven model, the parameter error covariance ˜P for the physics-informed model becomes: 
+
+˜P = ED [( ˜θN − θ0)( ˜θN − θ0)T]= M +ED [∇WN (θ0)∇W T 
+
+> N
+
+(θ0)] M +
+
+= M +  κ0
+
+N Q
+
+
+
+M +
+
+= κ0
+
+N M +QM +
+
+(14) Finally, we evaluate the expected variance of predictions, LN = ED [L(˜θN )] , for the new estimator. Substituting ˜P into our expansion of the prediction error yields: 
+
+LN ≈ κ0 + 12 tr 
+
+
+
+ED [∇2L(θ0)] ˜P
+
+
+
+= κ0 + 12 tr 
+
+
+
+2Q · κ0
+
+N M +QM +
+
+= κ0
+
+
+
+1 + tr (QM +QM +)
+
+N
+
+
+
+= κ0
+
+
+
+1 + deff (λp, λ b)
+
+N
+
+
+
+(15) The effective degrees of freedom of the physics-constrained model is defined as: 
+
+deff (λp, λ b) = tr  QM +QM + , M = Q + λpHp + λbHb (16) Since Q, Hp, and Hb are positive semi-definite, M ⪰ Q ⪰ 0 for any λp, λ b > 0. This ordering guarantees 
+
+deff ≤ r ≤ d. To see this, let B = Q1/2M +Q1/2. By trace cycling, deff = tr (B2). M ⪰ Q ⪰ 0 implies that 
+
+M + ⪯ Q+, and sandwiching by Q1/2 gives: 
+
+B ⪯ Q1/2Q+Q1/2 = PQ ⪯ I (17) where PQ is the orthogonal projector onto the range of Q. Since B is symmetric positive semi-definite and bounded above by a projector, all its eigenvalues lie in [0 , 1] . Therefore: 
+
+deff = tr (B2) = X
+
+> i
+
+σi(B)2 ≤ X
+
+> i
+
+σi(B) = tr (B) ≤ tr (PQ) = r (18) 5Eq. (15) shows that the physics constraints act as an implicit regularizer. By reducing deff relative to the unregularized capacity r, they lower the prediction variance without requiring additional observational data. While the regularization effect of physics constraints has been widely recognized, this derivation provides an explicitly analytical pathway linking the spectral structure of Hp and Hb to a quantifiable reduction in model variance. The trace formula in Eq. (16) is structurally analogous to the effective number of parameters introduced by MacKay [33] and Sjöberg [34]. In those formulations, the constraint matrix encodes a statistical prior (a Gaussian regularizer with covariance αI ), and the resulting deff measures the dimension of parameter direc-tions in which the observational likelihood dominates the prior — that is, the directions the data identifies. The value of deff in that setting has no canonical reference. It depends jointly on data informativeness and prior strength, and is interpreted as a fit diagnostic. Our formulation inverts this construction. The constraint matrix Hp encodes a differential operator with an analytically defined kernel — a geometric object existing independently of any data or network. The trace then measures the directions the operator leaves free, and its predicted value is set a priori by the kernel dimension of the operator. Two consequences follow. First, dpde eff , which is the effective degrees of freedom evaluated with respect to the operator equation, becomes a property of the operator rather than of the fit — a fact we verify empirically in Section 3, where the quantity converges to the kernel dimension independent of network width, depth, or activation function. Second, deviations between the empirical dpde eff 
+
+and the analytical kernel dimension expose structural failures: either the network is under-resolving the operator because the collocation grid is too sparse, or the problem is ill-posed in a way that the classical statistical setting cannot detect. The classical and physics-informed deff are therefore dual quantities measured by structurally identical formulas. The duality is not cosmetic: it shifts the role of the metric from statistical diagnostic to operator invariant. While the present section provides the analytical scaffolding, Section 3 establishes this empirically. 
+
+2.2. Bias-Variance Tradeoff under Misspecified Physics/Model 
+
+The bias-variance decomposition developed in this section sits within the classical statistical interpretation of deff . When the model is misspecified and observational noise is present, the data-vs-prior framing of MacKay and Sjöberg remains the natural lens: the variance term tracks how observational noise propagates through the operator-constrained Hessian, and the bias term tracks the irreducible projection error from misspecification. The dual interpretation of deff as an operator invariant, which we further develop in Section 2.3 and validate in Section 3, applies in the deterministic forward-problem regime where observational noise vanishes and the operator itself becomes the primary object of study. Within this classical regime, we now relax the perfect physics assumption made in Section 2.1.2 where the physics model is either misspecified or the network is not sufficiently expressive. First, we consider the case where the true process is governed by an unknown operator, leaving a systematic residual at the optimal parameters θ0. We combine the boundary and PDE constraints into a single physics operator 
+
+Pg(x, θ ) = h(x), where P applies the appropriate PDE or BC based on the spatial location of x, and h(x) is the corresponding forcing term. To unify the physical constraints, we further define a concatenated physics Hessian as λH phys = λpHp + λbHb. If the physics model is misspecified, then at the optimal parameters θ0,the residual of the physics constraint does not vanish. 
+
+r(x) = h(x) − P g(x, θ 0)̸ = 0 (19) Since the residual no longer vanishes, the gradient of the physics penalty ∇R(θ0) is non-zero. The expected gradient of the physics loss converges to: 
+
+lim   
+
+> N→∞
+
+∇R(θ0) = Ex[r(x)Φ( x)] ≡ b (20) where b represents the structural bias vector introduced by projecting the misspecified PDE onto the pa-rameter sensitivities Φ( x). The gradient of the total empirical risk evaluated at θ0 is therefore: 
+
+∇WN (θ0) ≈ ∇ LN (θ0) + λb (21) Applying the Taylor series expansion around θ0 and solving for the parameter error yields: 6˜θN − θ0 ≈ − [Q + λH phys ]+ (∇LN (θ0) + λb ) (22) We compute the expected parameter error (bias) by taking the expectation over the dataset realizations. Since the measurement noise is zero-mean ( ED [∇LN (θ0)] = 0 ), the expected parameter bias β is deterministic and entirely driven by the physics misspecification: 
+
+β = ED [˜θN − θ0] = −λ(Q + λH phys )+b (23) The total parameter error covariance matrix ˆP now decomposes into a variance component and a squared bias component: 
+
+ˆP = ED [( ˜θN − θ0)( ˜θN − θ0)T]= κ0
+
+N (Q + λH phys )+Q(Q + λH phys )+
+
+| {z }  
+
+> Variance ( ˜P)
+
++ ββ T
+
+|{z} 
+
+> Bias 2
+
+(24) Substituting this augmented covariance matrix back into the prediction error LN yields the fundamental bias-variance decomposition for the physics-informed model. 
+
+LN ≈ κ0 + 12 tr 
+
+
+
+2Q ˆP
+
+
+
+= κ0 + tr (Q ˜P ) + tr (Qββ T)= κ0
+
+
+
+1 + deff (λ)
+
+N
+
+
+
++ βTQβ 
+
+= κ0
+
+
+
+1 + deff (λ)
+
+N
+
+
+
++ λ2bT(Q + λH phys )+Q(Q + λH phys )+b
+
+(25) Eq. (25) explicitly quantifies the bias-variance tradeoff in physics-informed machine learning. In the case where the model lacks sufficient expressivity to satisfy the physics constraint, the bias term b can be interpreted as the projection of the model’s representational error. In this scenario, θ0 exists in a higher dimensional space and the model is effectively trying to fit a best approximation of the true physics within its limited capacity. The bias quantifies how far this approximation is from optimal. The bias-variance tradeoff must be carefully managed through the choice of λ. Increasing the penalty weight λ monotonically decreases the prediction variance by reducing deff (λ). The bias term, however, exhibits two regimes in λ. For small λ, (Q + λH phys )+ ≈ Q+, and the bias grows quadratically as λ2bTQ+b =
+
+O(λ2). For large λ, (Q + λH phys )+ ≈ 1 
+
+> λ
+
+H+
+
+> phys
+
+, and the λ2 prefactor cancels against the 1/λ 2 from the inverses. The bias saturates to the finite value bTH+
+
+> phys
+
+QH +
+
+> phys
+
+b, representing the irreducible projection of the misspecification. Optimal model performance is therefore achieved by selecting a λ∗ that balances the variance reduction of this implicit regularization against this structural bias: 
+
+λ∗ = arg min 
+
+> λ
+
+
+
+κ0
+
+
+
+1 + deff (λ)
+
+N
+
+
+
++ λ2bT(Q + λH phys )+Q(Q + λH phys )+b
+
+
+
+(26) The location of λ∗ depends on the relative scales of the noise floor κ0/N and the saturated bias bTH+
+
+> phys
+
+QH +
+
+> phys
+
+b.When the noise dominates and the saturated bias is small, λ∗ → ∞ is optimal and strict physics enforce-ment is justified. When noise is small and the saturated bias is significant, λ∗ lies at finite λ within the quadratic regime, where the marginal variance reduction balances the marginal bias growth. In practice, b
+
+is often unknown and cannot be directly computed. The bias-variance decomposition is therefore primarily a theoretical tool that characterizes when physics constraints are asymptotically optimal rather than a prac-tical recipe for selecting λ. When held-out observational data is available, cross validation can identify λ∗
+
+empirically. 72.3. Information-Geometric Interpretation of deff in the Purely Forward Problem Limit 
+
+In the preceding sections, our analysis relied on a statistical framework where the expected prediction error is driven by measurement noise. PINNs are frequently deployed outside this framework, in a deterministic forward-problem regime where observational data is absent (or perfectly noise-free) and physical constraints are enforced strongly. In this setting, κ0 → 0 and λ → ∞ , taking the analysis outside the classical statistical regime in which the bias-variance decomposition was developed. In this limit, the statistical interpretation of Eq. (15) becomes uninformative. The prediction variance 
+
+LN → 0 as κ0 → 0, leaving no statistical quantity to characterize. The trace formula defining deff , however, remains well-defined algebraically and continues to measure a structural property of the network. To interpret this property, we pivot from a frequentist statistical perspective to an information-geometric one. Under this lens, deff measures the dimension of the parameter space left unconstrained by the operator — a quantity which, in the asymptotic limit, corresponds to the kernel dimension of the operator on function space. The network parameterization θ 7 → g(·, θ ) associates each parameter vector with a function on Ω. Even in the absence of labeled data y, the FIM Q can be evaluated using the network’s output sensitivity across the continuous spatial domain and serves as a Riemannian metric on the parameter space [26, 27]. Geometrically, 
+
+Q captures the local curvature and representational capacity of the unconstrained network. When physics constraints are introduced through Hphys , the geometry is restricted. In the large-λ limit, the pseudo-inverse (Q + λH phys )+ vanishes on range (Hphys ) and is therefore confined to null (Hphys ), the parameter directions the physics leaves free. For example, when L = d2/dx 2 is the differential operator without boundary conditions, the 2D null space is spanned by {1, x }, and dpde eff evaluated on a trained network recovers this analytical kernel dimension ( dpde eff → 2), independent of how the network parameterizes the solution. Section 3 verifies this convergence across architectures. When the empirical dpde eff matches the analytical kernel dimension of L, the dimension of the FIM’s effective null space matches the dimension of the operator’s kernel. Whether the network’s specific functional representation captures the correct solutions in that kernel is a separate question, addressed by classical PINN convergence theory. 
+
+2.4. Dual Space Formulation of deff 
+
+As formulated in Eq. (16) above, the computation of deff scales as O(d3) in the parameter space, making it infeasible for modern neural network architectures. Recall that Ψ( x) = − ∂∂θ g(x, θ )|θ=θ0 represents the gradient of the network output. Let Ψ ∈ Rd×N be the horizontally stacked Ψ over N spatial points. Under this notation, the unconstrained empirical FIM is Q = 1 
+
+> N
+
+ΨΨ T. Also, let Φ ∈ Rd×M be the stacked Jacobian matrix of physics residuals evaluated over their respective domain points where M = Np +Nb. The penalized physics Hessian is thus given by λH phys = λM ΦΦ T . Substituting the definitions for the empirical FIM Q
+
+and the penalized physics Hessian λH phys into Eq. (16) yields: 
+
+deff = tr 
+
+ 1
+
+N ΨΨ T
+
+  1
+
+N ΨΨ T + λM ΦΦ T
+
++  1
+
+N ΨΨ T
+
+  1
+
+N ΨΨ T + λM ΦΦ T
+
++!
+
+= tr 
+
+ 1
+
+√N ΨT
+
+ 1
+
+N ΨΨ T + λM ΦΦ T
+
++ 1
+
+√N Ψ
+
+!2
+
+(27) To evaluate the inner matrix term cleanly, we consolidate the parameter space by horizontally concatenating the scaled spatial and physics Jacobians into a single joint matrix K ∈ Rd×(N +M ):
+
+K =
+
+h 1√N Ψ
+
+q λM Φ
+
+i
+
+(28) This allows the penalized parameter-space Hessian to be cleanly factored as KK T = 1 
+
+> N
+
+ΨΨ T + λM ΦΦ T .Substituting this factorization into our target inner term yields: 
+
+Pcore = 1
+
+√N ΨT(KK T)+ 1
+
+√N Ψ (29) 8We can reveal the global geometric structure of Pcore by embedding it into a larger block-matrix operator. If we pre-multiply (KK T)+ by KT and post-multiply by K, we obtain: 
+
+KT(KK T)+K =
+
+" 1√N ΨT
+
+q λM ΦT
+
+#
+
+(KK T)+ h 1√N Ψ
+
+q λM Φ
+
+i
+
+=
+
+ 1 
+
+> N
+
+ΨT(KK T)+Ψ ∗∗ ∗
+
+
+
+(30) where * denotes entries that are not of interest. This expansion identifies Pcore as the top-left N × N block of the global operator KT(KK T)+K. This operator represents the unique orthogonal projection onto the range space of KT.We can now cleanly transition to the dual function space. A fundamental identity of the Moore-Penrose pseudo-inverse states that the projection onto the range space of KT can be equivalently computed using its Gram matrix: 
+
+KT(KK T)+K = ( KTK)( KTK)+ (31) This identity bridges the parameter space and the function space. Rather than computing the projection onto the range space of KT via (KK T)+ in the d-dimensional parameter space, we compute it using the dual Gram matrix KTK, which is the physics-augmented empirical NTK, G ∈ R(N +M )×(N +M ):
+
+G = KTK =
+
+" 1√N ΨT
+
+q λM ΦT
+
+# h 1√N Ψ
+
+q λM Φ
+
+i
+
+=
+
+" 1 
+
+> N
+
+ΨTΨ √λ√N M ΨTΦ 
+
+> √λ√N M
+
+ΦTΨ λM ΦTΦ
+
+#
+
+(32) Because of the projection identity, the global orthogonal projection matrix is identically given by the dual projector ΠG = GG +. Since our target term Pcore was established as the top-left block of KT(KK T)+K, it must identically be the top-left N × N block of GG +. Let us denote this dual block as P11 . The effective dimension is therefore deff = tr (P 211 ) computed entirely in the (N+M)-dimensional function space. This strategy reduces the computational complexity of evaluating deff from O(d3) to O(( N + M )3), which is tractable for modern neural networks where (N + M ) ≪ d.
+
+3. Invariance and Resolution of deff 
+
+All experiments in this paper were performed on a single NVIDIA A100 GPU. 
+
+3.1. Invariance for Linear Operators 
+
+A fundamental criticism of dimensionality metrics in deep learning is their sensitivity to architectural bloat [28]. If a capacity metric merely tracks parameter counts, it cannot reliably diagnose the physical well-posedness of a continuous boundary value problem. Let dpde eff represent the dimensionality of the subspace that is unconstrained by the operator equation. We hypothesize that if dpde eff accurately measures the surviving degrees of freedom of a physics operator, it must converge to the dimension of analytical kernel of the differential equation, entirely independent of the underlying neural architecture. We test this by conducting a parametric sweep across three governing equations: a 1st-order, 2nd-order, and 3rd-order ordinary differential equation (ODE). The specific operators used for this sweep are: 1st-order: du dx = 2 π cos(2 πx ) x ∈ [−1, 1] (33) 2nd-order: d2udx 2 = −4π2 sin(2 πx ) x ∈ [−1, 1] (34) 3rd-order: d3udx 3 = −8π3 cos(2 πx ) x ∈ [−1, 1] (35) Analytically, integrating an n-th order ODE yields exactly n free constants, so the solution manifold should be n-dimensional. We therefore expect dpde eff → n for each operator. For 1D experiments, all pseudoinverse computations use rcond = 10 −10 , where singular values smaller than rcond × largest singular value are treated as zero. While the invariance results hold up to an rcond 9Table 1: Conservation of capacity ( dpde eff ) across architectures. Feedforward = standard MLP and Skip Connections = residual architecture with skip connections injected into hidden layers.                                                                                                                                                                                                                                  
+
+> dpde eff
+> Architecture Order Activation Hidden Layers Width All Layers Layer 0 Layer 1 Layer 2 Layer 3
+> Feedforward 1SiLU 150 1.098 1.098 1.097 --Feedforward 1Tanh 150 1.098 1.098 1.098 --Feedforward 1SiLU 3100 1.098 1.098 1.098 1.098 1.098 Feedforward 1Tanh 3100 1.098 1.098 1.098 1.098 1.098 Feedforward 2SiLU 150 2.001 2.001 2.001 --Feedforward 2Tanh 150 2.001 2.001 2.001 --Feedforward 2SiLU 3100 2.001 2.001 2.001 2.001 2.001 Feedforward 2Tanh 3100 2.001 2.001 2.001 2.001 2.001 Feedforward 3SiLU 150 3.000 3.000 3.000 --Feedforward 3Tanh 150 3.000 3.000 3.000 --Feedforward 3SiLU 3100 3.000 3.000 3.000 3.000 3.000 Feedforward 3Tanh 3100 3.000 2.757 2.999 2.999 3.000 Skip Connections 1SiLU 150 1.098 1.098 1.097 --Skip Connections 1Tanh 150 1.098 1.098 1.098 --Skip Connections 1SiLU 3100 1.098 1.098 1.098 1.098 1.098 Skip Connections 1Tanh 3100 1.098 1.098 1.098 1.098 1.098 Skip Connections 2SiLU 150 2.001 2.001 2.001 --Skip Connections 2Tanh 150 2.001 2.001 2.001 --Skip Connections 2SiLU 3100 2.001 2.001 2.001 2.001 2.001 Skip Connections 2Tanh 3100 2.001 2.001 2.001 2.001 2.001 Skip Connections 3SiLU 150 3.000 3.000 3.000 --Skip Connections 3Tanh 150 3.000 3.000 3.000 --Skip Connections 3SiLU 3100 3.000 3.000 3.000 3.000 3.000 Skip Connections 3Tanh 3100 3.000 3.000 3.000 3.000 3.000
+
+of 10 −15 , we chose 10 −10 to avoid retaining numerically negligible singular values that carry no physical significance during the adaptation introduced in Section 4. The results in Table 1 demonstrate the inde-pendence of the metric from the architecture. For the 2nd-order ODE, despite parameter counts ranging from 150 to over 30,000, the effective dimension rigidly flatlines at deff ≈ 2.00 . The metric successfully identifies the geometric space not dictated by the physics while ignoring thousands of redundant parame-ters. The 1st-order system exhibits similar architecture-invariance pattern, locking onto dpde eff ≈ 1.098 . The offset above the analytical value 1 is small and stable. It decreases marginally with collocation density (1.0975 at N = 100 , 1.0949 at N = 1000 , 1.0947 at N = 10000 ). The sweep also exposes a critical distinction between local and global tangent spaces. In the deeper 3rd-order feedforward networks, individual layer capacities can bottleneck. The input layer of the 3-layer Tanh feedforward network drops to dlocal eff ≈ 2.757 , below the analytical value of 3. Yet Layers 1, 2, and 3 each recover to ≈ 2.999 , and evaluating the entire parameter space simultaneously yields a global capacity of exactly dglobal eff = 3 .000 . The global Jacobian is the horizontal concatenation of the local Jacobians. The global capacity is preserved because layers compensate for each other. When one layer’s local null space cannot fully span the operator kernel, subsequent layers absorb the unmet constraint. The PDE operator requires only the union of layer-wise tangent spaces to construct the full solution manifold. The per-layer picture exposes a structural risk: a layer whose local deff falls below the operator’s kernel dimension lacks sufficient capacity to independently resolve all null-space directions. The skip connection rows in Table 1 confirm the global deff = N invariant while showing that skip connections [36] can eliminate the early-layer bottleneck. In the 3-layer Tanh skip connection network, dlocal eff at Layer 0 recovers from 
+
+≈ 2.757 to exactly 3.000 . Skip connections allow gradient paths to bypass constrained neurons, preventing any single layer from being disproportionately consumed by the PDE constraint. This distributes capacity evenly across depth and preserves Layer 0 as a viable BC injection site. A natural reading is that dpde eff simply reports the order of the differential operator. The 2D Poisson operator separates the two interpretations and is taken up in Section 6.1. We note here only that a second-order operator with an infinite-dimensional kernel does not return a small finite integer, which an order-10 counting metric would require. The null spaces of the ODEs in Eqs.(33)–(35) are spanned by elementary functions. A sharper test is an operator where the null space is no longer elementary. The order-zero Bessel equation, 
+
+x2 d2udx 2 + x du dx + x2u = 0 , x ∈ [1 , 8] , (36) has a two-dimensional kernel spanned by the Bessel functions J0(x) and Y0(x). Again, we hypothesize that 
+
+dpde eff converges to 2 regardless of architecture. Because the equation is homogeneous, training without bound-ary conditions can admit the trivial solution u ≡ 0, which yields a degenerate Jacobian and a meaningless 
+
+deff . We therefore anchor each network to the non-trivial solution J0(x) by imposing two Dirichlet conditions, 
+
+u(1) = J0(1) ≈ 0.7652 , and u(8) = J0(8) ≈ 0.1717 .  
+
+> Table 2: Conservation of dpde eff for the Bessel operator (36).
+
+dpde eff 
+
+Model Activation Hidden Layers Width All Layers Layer 0 Layer 1 Layer 2 Layer 3 
+
+MLP SiLU 1 50 1.998 2.000 1.942 - -Tanh 1 50 1.999 1.998 1.831 - -SiLU 3 100 2.001 2.001 2.001 2.001 2.001 Tanh 3 100 2.000 2.000 2.000 1.997 1.982 ResNet SiLU 1 50 1.985 1.984 1.764 - -Tanh 1 50 1.998 1.998 1.742 - -SiLU 3 100 2.000 1.998 2.000 2.000 1.989 Tanh 3 100 2.000 2.000 1.997 1.993 1.982 
+
+Table 2 confirms the invariant. Across all eight architecture/activation combinations, the global dpde eff 
+
+converges to ≈ 2, matching the analytical kernel dimension of (36). The global-vs-local breakdown reveals minimal deviations from the expected value. 
+
+3.2. Invariance for Nonlinear Operators 
+
+The experiments so far have used linear differential operators. In this section, we extend the experiments to nonlinear operators. Nonlinear operators do not have a kernel in the same sense as linear operators but a local solution manifold of admissible perturbations. To test whether dpde eff is invariant in the nonlinear setting, we evaluate two second-order nonlinear operators, both admitting the same exact solution u∗ = sin( πx ) on 
+
+[−1, 1] with Dirichlet conditions u(−1) = u(1) = 0 :
+
+d2udx 2 + u du dx = −π2 sin( πx ) + π
+
+2 sin(2 πx ) (37) 
+
+d2udx 2 + u2 = −π2 sin( πx ) + sin 2(πx ) (38) Table 3 shows that dpde eff ≈ 2.00 across all sixteen configurations for both equations. The small residual offsets are consistent with the finite-grid discretization artifact observed for the linear operators in Section 3. 
+
+3.3. The Spatial Sieve and the Illusion of Interpolation 
+
+In classical supervised learning, model validity is established via empirical test error. Physics-informed neural networks aim to establish model validity without relying on solutions we do not possess. Validity must therefore be established structurally without ground truth. Relying on isolated training points can be deceptive because a network can fit the residual to machine precision at the collocation points while producing either wild oscillations or flat regions between them. We require a structural diagnostic that detects under-resolution without appealing to ground truth. Continuous PDE residual evaluation on a dense grid remains a valuable tool, but it does not provide any structural information. deff exposes how many unconstrained directions remain and, when computed layerwise, where in the network they reside. 11 Table 3: dpde eff for two second-order nonlinear operators (Eqs. (37) and (38)). 
+
+dpde eff 
+
+Equation Architecture Activation Hidden Layers Width All Layers Layer 0 Layer 1 Layer 2 Layer 3 
+
+(37) Feedforward SiLU 1 50 2.001 2.001 2.001 - -Feedforward Tanh 1 50 2.001 2.001 2.001 - -Feedforward SiLU 3 100 2.001 2.001 2.001 2.001 2.001 Feedforward Tanh 3 100 2.001 2.001 2.001 2.001 2.001 Skip Connections SiLU 1 50 2.001 2.001 2.001 - -Skip Connections Tanh 1 50 2.001 2.001 2.001 - -Skip Connections SiLU 3 100 2.001 2.001 2.001 2.001 2.001 Skip Connections Tanh 3 100 2.001 2.001 2.001 2.001 2.001 (38) Feedforward SiLU 1 50 2.002 2.002 2.002 - -Feedforward Tanh 1 50 2.001 2.001 2.001 - -Feedforward SiLU 3 100 2.001 2.001 2.001 2.001 2.001 Feedforward Tanh 3 100 2.001 2.001 2.001 2.001 2.001 Skip Connections SiLU 1 50 2.002 2.002 2.002 - -Skip Connections Tanh 1 50 2.001 2.001 2.001 - -Skip Connections SiLU 3 100 2.002 2.002 2.002 2.002 2.002 Skip Connections Tanh 3 100 2.001 2.001 2.001 2.001 2.001 
+
+We isolate this phenomenon using the 1D 2nd-order ODE in Eq. (34) subject to strict Dirichlet boundaries (u(−1) = u(1) = 1 ). This BVP has a unique analytical solution. A fully resolved system should consume the network’s representation capacity, leaving zero unconstrained degrees of freedom. We train an expressive network (4 hidden layers, 100 neurons per layer, SiLU activation) against progressively denser spatial grids and track dtotal eff before and after optimization as well as dpde eff . The total effective dimension is computed from the stacked Jacobian [Jpde 
+
+√α Jbc ], where α = σmax (Jpde )2/σ max (Jbc )2 spectrally balances the two blocks so that neither the PDE nor the BC constraints dominate the combined pseudoinverse. 1.0 0.5 0.0 0.5 1.0                                 
+
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x)
+> (a) Np= 6
+> Exact solution
+> PINN
+> Collocation pts
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x)
+> (b) Np= 10
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x)
+> (c) Np= 14
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x)
+> (d) Np= 18
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x)
+> (e) Np= 22
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x)
+> (f) Np= 26
+
+Figure 1: Spatial sieve experiment with the feedforward architecture. Each panel shows the exact solution (black) and the PINN prediction (red dashed) with shaded error. Blue tick marks at the bottom of each panel indicate the collocation points. As the grid density increases from left to right and top to bottom, the continuous solution converges toward the exact answer. 
+
+Table 4 reveals the transition between under-resolved and resolved regimes. Before optimization, dtotal eff ≈
+
+1.94 for the feedforward network and ≈ 0.71 for the skip-connection network, highlighting the architectural 12 Table 4: The Spatial Sieve across architectures.                                                                                                                                                    
+
+> Architecture Grid Points Pre-Train
+> dtotal eff
+> Post-Train
+> dtotal eff
+> Post-Train
+> dpde eff
+> Discrete PDE Residual Continuous PDE Residual Continuous RMSE
+> Feedforward 61.950 4.000 6.000 1.69 ×10 −29 5.28 ×10 21.05 ×10 0
+> 10 1.940 8.010 10.000 1.11 ×10 −28 1.10 ×10 14.49 ×10 −2
+> 14 1.940 10.000 12.000 1.05 ×10 −28 9.16 ×10 −11.32 ×10 −2
+> 18 1.940 3.000 6.000 2.12 ×10 −17 1.96 ×10 −11.20 ×10 −3
+> 22 1.930 0.107 2.000 9.67 ×10 −18 3.77 ×10 −23.60 ×10 −4
+> 26 1.930 0.103 2.000 3.63 ×10 −71.11 ×10 −37.36 ×10 −5
+> Skip Connection 60.765 4.000 6.000 1.05 ×10 −29 1.80 ×10 23.58 ×10 −1
+> 10 0.724 8.000 10.000 1.40 ×10 −29 1.13 ×10 12.11 ×10 −2
+> 14 0.708 7.000 9.000 4.42 ×10 −24 6.80 ×10 −14.04 ×10 −3
+> 18 0.699 3.000 4.000 4.75 ×10 −17 2.06 ×10 −11.60 ×10 −3
+> 22 0.694 0.047 2.000 1.34 ×10 −16 2.74 ×10 −24.00 ×10 −4
+> 26 0.690 0.046 2.000 6.13 ×10 −71.68 ×10 −39.41 ×10 −5
+
+difference. While the pre-training capacity is architecture-determined, both architectures exhibit similar spatial sieve behavior post-training. At 6 grid points, the optimizer drives the discrete PDE and BC residuals to machine precision. Relying on training loss alone would falsely indicate convergence. The post-training metric exposes the illusion: with only 6 collocation points, the physics Jacobian has rank at most 6, so 
+
+dpde eff ≤ 6 regardless of the operator. The observed value dpde eff = 6 .00 saturates this ceiling, indicating that none of the available constraint capacity has been redirected by the operator structure. The remaining gap of two between dpde eff and dtotal eff ≈ 4.00 reflects the two boundary conditions adding additional constraints. This structural under-resolution is verified directly by the continuous PDE residual ( 5.28 × 10 2) and continuous RMSE ( 1.05 ), both of which would be small if the network had actually solved the operator problem. Figure 1(a) visually confirms the under-resolution, showing that the network has not learned the correct solution despite zero training loss. At 10 points, both architectures remain structurally unresolved: dpde eff =10 .00 saturates the rank ceiling of 10 for both, with dtotal eff ≈ 8.00 reflecting the two-BC gap. As the spatial sieve tightens further, dpde eff begins to fall below the rank ceiling. At 14 points, the feedforward network reads dpde eff ≈ 12 .00 (near the ceiling of 14), still largely saturated, while the skip-connection network drops to ≈ 9.00 , indicating an earlier onset of operator constraint. At 18 points the feedforward reads dpde eff ≈ 6.00 
+
+and the skip connection ≈ 4.00 . By 22 points, both architectures fully resolve the operator: dpde eff ≈ 2.00 
+
+matches the analytical kernel dimension and dtotal eff ≈ 0.1 confirms the BCs have absorbed the remaining capacity. Driving dtotal eff → 0 is a necessary, but not sufficient, condition for physical accuracy. A collapsed capacity certifies that no unconstrained directions remain at the converged parameters. When combined with the well-posedness of the underlying PDE/BC system and convergence to the correct attractor basin, this implies local uniqueness of the network’s solution. The network itself may still possess parameter-space gauge freedoms (directions that leave the function output unchanged), but these are invisible to dtotal eff and irrelevant to physical correctness. The diagnostic does not, however, certify that the optimizer has found the correct attractor. If the boundary conditions are misspecified, or if the optimizer becomes trapped in a pathological local minimum, the manifold can structurally lock into an incorrect geometric state with dtotal eff → 0 still satisfied. 
+
+4. Boundary Adaptation via Subspace Projection 
+
+Section 3 established that dpde eff identifies the dimension of the parameter space left unconstrained by the operator equation. We exploit this null space to adapt boundary conditions without disturbing the learned physics. 
+
+4.1. Projection Strategies 4.1.1. Parameter Space Projection 
+
+We define the PDE Hessian Hp evaluated at the optimized base parameters ˆθB . This matrix identifies the directions consumed by the PDE constraint. We then construct the orthogonal projection matrix onto 13 the null space of the PDE: 
+
+Πp = I − HpH+ 
+
+> p
+
+(39) The operator Πp removes any component of a parameter update that would alter the PDE residual. To ensure the boundary task cannot interfere with the learned physics, we project the boundary residual Jacobian onto the physics null space: 
+
+VFIM = Π pΦb (40) 
+
+VFIM captures the sensitivity of the boundary residuals to parameter changes that lie strictly within the PDE null space. By projecting Φb onto this null space, we isolate the degrees of freedom that can be used to adapt the BCs without affecting the PDE residual. This is crucial for maintaining the integrity of the learned physics while allowing for flexible adaptation to changing BCs. Drawing from orthogonal gradient descent for continual learning [23], the method treats PDE learning and BC satisfaction as discrete sequential objectives, mirroring the sequential approach taken in classical differential equation solving. The PDE is first learned, then the BCs are adapted. We use a second order Taylor expansion to approximate the model’s response to parameter shifts along this basis, allowing us to solve for the optimal coefficients that minimize the boundary residual while respecting the PDE constraints. The Taylor expansion of the model around ˆθB at boundary points is given by: 
+
+g(xb, ˆθB + ∆ θ) ≈ g(xb, ˆθB ) + ∇g(xb, ˆθB )T∆θ + 12 ∆θT∇2g(xb, ˆθB )∆ θ (41) where ∇g and ∇2g are the full-parameter gradient and Hessian of the model output at a boundary point. Since we are updating the parameters within the PDE null space, ∆θ is constrained to lie within the subspace spanned by the columns of VFIM (∆θ = Pkj=1 cj VFIM ,j = VFIM c). We define gV and HV as the local gradient and hessian of the model output, mathematically projected onto our retained basis VFIM ∈ R|θ|× Nb :
+
+gV = V T
+
+> FIM
+
+∇g(xb, ˆθB )
+
+HV = V T
+
+> FIM
+
+∇2g(xb, ˆθB )VFIM 
+
+(42) Substituting these projections into a Taylor expansion yields a refined model gR evaluated at the boundary location xb:
+
+gR(xb, ˆθB + ∆ θ) ≈ g(xb, ˆθB ) + gT 
+
+> V
+
+c + 12 cTHV c (43) The vector c = [ c1, . . . , c k]T contains the shift coefficients. Adapting to the new BCs involves solving for these coefficients by minimizing the squared residual between this quadratic approximation and the target boundary value ub. Here, any optimizer can be employed, but we use a Gauss-Newton approach for simplicity. Instead of computing the second-order terms directly, we take multiple smaller first-order steps, re-evaluating the network, its local Jacobian Ξ( xb) = ∇θ g(xb, θcurrent )TV and the null space geometry at each iteration: 
+
+min  
+
+> ∆c
+
+∥g(xb, θcurrent ) + Ξ( xb)∆ c − ub∥2 =⇒ ∆c = Ξ +(ub − g(xb, θcurrent )) (44) This iterative re-linearization effectively captures the curvature without ever explicitly forming the Hes-sian matrix. This formulation decouples the task of PDE manifold learning from boundary constraint satisfaction, enabling rapid boundary adaptation. Once the optimal c is found, the final parameter update 
+
+∆θ yields the refined state θR = ˆθB + ∆ θ. In exact arithmetic, ∆θ lives entirely within the null space of the Hp and should leave the PDE residual unchanged. In practice, finite precision arithmetic and iterative re-linearization introduce small drifts which we monitor by evaluating the full non-linear PDE loss at θR.Section 5 addresses this drift via predictor-corrector retraction. Up to this point, we have outlined a theoretically sound strategy for subspace projection and boundary adaptation in PINNs. However, there are practical challenges that must be addressed to make this approach scalable. In particular, we must address the computational bottlenecks associated with large neural networks and high-dimensional parameter spaces. The explicit projection method requires computing the pseudo-inverse of Hp which is O(d3). We switch to a dual formulation that leverages the empirical NTK to improve efficiency. 14 4.1.2. Function Space Projection 
+
+The empirical physics Hessian Hp = 1 
+
+> Np
+
+ΦpΦTp shares its null space of the Jacobian ΦT 
+
+> p
+
+. Because or-thogonal projectors are scale-invariant, the global 1/N p multiplier cancels out during the pseudo-inverse operation, leaving HpH+ 
+
+> p
+
+= ΦpΦ+ 
+
+> p
+
+. Assuming the interior collocation evaluations yield linearly indepen-dent gradients, Φp possesses full column rank. This allows us to explicitly unpack the pseudo-inverse as 
+
+ΦpΦ+ 
+
+> p
+
+= Φp(ΦTp Φp)−1ΦTp . We define the scaled empirical NTK evaluated across the Np interior points as 
+
+KNTK = 1 
+
+> Np
+
+ΦTp Φp. Substituting this into Eq. (39) transforms the projector: 
+
+Πp = I − 1
+
+Np
+
+ΦpK−1
+
+> NTK
+
+ΦTp (45) Substituting Eq. (45) into Eq. (40) gives the boundary sensitivity matrix in dual form: 
+
+VNTK =
+
+
+
+I − 1
+
+Np
+
+ΦpK−1
+
+> NTK
+
+ΦTp
+
+
+
+Φb
+
+= Φb − 1
+
+Np
+
+ΦpK−1
+
+> NTK
+
+(ΦTp Φb)
+
+(46) The final parameter update ∆θ = VNTK (V T
+
+> NTK
+
+VNTK )−1(ub − g(xb, θcurrent )) functions exactly as it did in the parameter-space formulation. The difference is purely computational. We bypass computing the intractable 
+
+d × d pseudo-inverse required for Πp and invert the Np × Np NTK matrix instead. In the overparameterized regime ( Np ≪ d), this dual formulation drops the bottleneck to a fraction of its original cost. The formulation scales to networks with d ≫ Np parameters, provided Np remains small enough to invert KNTK efficiently. 
+
+4.2. 1D Boundary Adaptation (Steady State Heat Equation) 
+
+We evaluate the proposed framework on a 1D steady-state heat equation (34), using the null space identified in Section 3 to adapt boundary conditions. The initial training phase focuses exclusively on the PDE constraint. The architecture is a fully-connected feedforward neural network utilizing a single hidden layer of 100 neurons paired with hyperbolic tangent activation functions. We use 100 collocation points, distributed with equal spacing across the domain, alongside two boundary points at x = −1 and x = 1 .Optimization follows a two-stage process. We begin with full-batch training for 10,000 epochs via the Adam optimizer (learning rate of 1 × 10 −3 and exponential decay with γ = 0 .9998 ) and conclude with up to 37,500 epochs using L-BFGS. As Figure 2(a) illustrates, the resulting solution is sensitive to initialization. Different initialization weights yield distinct functions that all satisfy the governing PDE. To adapt the BCs, we perform the subspace projection within the null space of the PDE constraint. Our first adaptation approach utilized the full network’s physics null space to adapt to the BCs. We tested three specific scenarios: a symmetric shift ( u(−1) = 0 , u (1) = 0 ), an asymmetric shift ( u(−1) = 10 , u (1) = 2 ), and a mixed BC case ( u(−1) = 
+
+−5, u ′(1) = 8 ). Performance metrics reveal a trade-off, with the mixed BC case proving more challenging than the symmetric and asymmetric Dirichlet cases (Table 5 and Figure 2(b)). As shown in Table 5, the PDE residual climbed from the base value of 2.16 × 10 −6, a drift that is a logical consequence of the iterative Gauss-Newton method and the rcond threshold. The neural network manifold is inherently curved. We navigate this surface by taking small steps along the tangent plane, so error inevitably accumulates. For these specific adaptations, we moved from the base PDE solution to the final BC state in 100 steps. While increasing the step count would likely sharpen the adaptation and reduce residual growth, it would do so at the expense of computational speed. In addition, due to finite precision computation, the 10 −10 rcond threshold might mistakenly push some physics directions into the null space. Lowering rcond can mitigate this issue at the risk of pushing actual null space directions into the physics space. Even with these difficulties, the BC adaptation remains effective, shifting the boundary values with controlled error. We now examine layer-wise behavior to identify which layers anchor the boundary conditions. We begin by calculating deff for each individual layer. For this single hidden layer architecture, the effective dimension of the physics constraint is not localized. It is distributed uniformly across the entire architecture. With dpde eff 
+
+holding at 2.00 for every layer and the network as a whole, it is clear that each layer maintains unconstrained 15 1.0 0.5 0.0 0.5 1.0              
+
+> x
+> 40
+> 30
+> 20
+> 10
+> 0
+> 10
+> 20
+> 30
+> 40
+> u(x)
+> (a)
+> Other initializations
+> Adaptation base
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> u(x)
+> (b)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> u(x)
+> (c)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> u(x)
+> (d)
+> u(−1) = 0 , u (1) = 0
+> u(−1) = 10 , u (1) = 2
+> u(−1) = −5, u ′(1) = 8
+> Exact solution
+> Dirichlet target
+
+Figure 2: Boundary adaptation in 1D. (a) Multiple PINNs trained exclusively on the PDE residual with different random seeds, each converging to a distinct member of the physics-satisfying solution manifold. The red curve is the adaptation base used in (b)–(d). (b) Full-network subspace projection without a predictor-corrector step. (c) Last-layer subspace projection. (d) Full-network subspace projection with the predictor-corrector step. Colored solid curves are adapted PINN solutions 
+
+directions that permit boundary adaptation. In contrast, the BCs exhibit a layer preference. We found that 
+
+dbc eff was lower in the last layer (12.00) and higher in the first layer (16.00). Since layers differ in parameter count and therefore baseline capacity, the meaningful comparison is the ratio dbc eff /d pde eff , which normalizes BC consumption against the layer’s PDE-surviving capacity. By this metric the last layer has the lowest ratio, indicating that the network primarily anchors the BCs within its final layer. This insight allows us to move beyond full-network updates toward layer-wise projection. By keeping other layers fixed and adapting only the final layer, we can exploit the fact that this layer is linear with respect to its parameters, reducing the adaptation to a single projected least-squares solve. This targeted approach yielded superior results across all three scenarios (Table 5 and Figure 2(c)), improving both RMSE and PDE residuals over the full projection method. These findings show that for this problem final-layer adaptation offers a more precise fit for new BCs while preserving the integrity of the learned physics. Furthermore, optimizing fewer parameters reduces computational overhead. Existing transfer learning methods leveraged this layer-wise behavior empirically [14, 16]. deff provides a geometric explanation for why it works. For this 1D problem, 
+
+deff identifies the final layer as the most BC-consumed. We investigate whether this layer-wise heuristic generalizes to higher dimensions in Section 6. 16 Table 5: Summary of 1D boundary adaptation performance across methods and BC scenarios. 
+
+Method BC Case RMSE PDE Residual 
+
+Last-layer Symmetric 4.79 × 10 −6 4.10 × 10 −6
+
+Asymmetric 4.30 × 10 −6 3.93 × 10 −6
+
+Mixed 7.80 × 10 −5 4.17 × 10 −6
+
+Full proj. (predictor-only) Symmetric 3.38 × 10 −2 9.81 × 10 −2
+
+Asymmetric 3.21 × 10 −2 7.06 × 10 −2
+
+Mixed 2.19 × 10 −1 1.13 × 10 −1
+
+Full proj. (pred.-corrector) Symmetric 2.69 × 10 −4 4.52 × 10 −6
+
+Asymmetric 1.80 × 10 −4 4.47 × 10 −6
+
+Mixed 4.00 × 10 −4 6.35 × 10 −6
+
+Last-layer (regime anchoring) Symmetric 2.12 × 10 −6 2.51 × 10 −6
+
+Asymmetric 2.12 × 10 −6 2.50 × 10 −6
+
+Mixed 5.38 × 10 −5 2.52 × 10 −6
+
+Full proj. (regime anch., pred.-only) Symmetric 6.25 × 10 −6 2.52 × 10 −6
+
+Asymmetric 1.45 × 10 −3 4.07 × 10 −5
+
+Mixed 3.44 × 10 −4 5.89 × 10 −6
+
+Full proj. (regime anch., pred.-corr.) Symmetric 8.90 × 10 −8 1.06 × 10 −8
+
+Asymmetric 8.60 × 10 −6 5.69 × 10 −9
+
+Mixed 6.85 × 10 −6 1.48 × 10 −8
+
+5. Refinements for Residual Fidelity 
+
+5.1. Predictor-Corrector Riemannian Retraction 
+
+PDE residual drift during boundary adaptation is problematic because derived quantities such as heat flux inherit the residual error. A few-order-of-magnitude jump in the residual translates to comparable error in any quantities extracted from the network’s derivatives. We have already pointed to the partial mitigation strategy of increasing the number of steps to navigate the subspace more tightly and the more informed strategy of finding where the BCs are primarily anchored. In this section, we propose a predictor-corrector Riemannian retraction [37] to handle the case where the BCs are not primarily anchored in the last layer. The predictor step executes the null space boundary adaptation. The corrector step performs a strictly orthogonal adaptation in the range space of the physics operator. The total parameter update decomposes into two orthogonal components: 
+
+∆θ = ∆ θbc + ∆ θpde 
+
+∆θbc = VFIM ∆cbc 
+
+∆θpde = Φ+ 
+
+> p
+
+R(xp, θcurrent )
+
+(47) where ∆θbc represents the predictor step, which slides the network along the PDE null space to satisfy the new BCs. ∆θpde is the corrector step, which drives any accumulated PDE residual back down to zero by moving orthogonally to the PDE null space. R = f (xp) − L g(xp, θcurrent ) at all collocation points. The predictor step is identical to our original subspace projection method. With the predictor-corrector retraction, the PDE residual stays at the same order of magnitude as the base model after adaptation (Table 5), while the RMSE on the new BCs matches or improves on the predictor-only result (Figure 2(d)). The predictor-corrector retraction extends the applicability of subspace projection to BCs that are far from the base model training conditions, where predictor steps accumulate substantial drift. For the last layer adaptation, the corrector is not needed because the space is already flat. The corrector is only needed if we are interested in adapting deep layers. The corrector step introduces negligible additional 17 computational overhead: Φ+ 
+
+> p
+
+R requires only a matrix-vector product against Φ+ 
+
+> p
+
+, which is already cached from the predictor step. Predictor-only and predictor-corrector adaptation both take approximately 1.5–2.0 seconds while the last-layer adaptation takes under 0.02 seconds. The corrector adds no measurable overhead, confirming the cache-reuse argument. While we use ordinary least squares for the corrector solve, practitioners with alternative preferences can substitute any linear solver without affecting the geometric structure. 
+
+5.2. Regime Anchoring for Adaptation 1.0 0.5 0.0 0.5 1.0 
+
+x    
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00
+> u(x)
+> (a)
+> Base model
+> 1.0 0.5 0.0 0.5 1.0
+
+x       
+
+> 5
+> 0
+> 5
+> 10
+> u(x)
+> (b)
+> Null-space samples
+> Base model
+> Figure 3: Regime anchoring and last-layer null-space variability. (a) Base PINN trained with a small BC loss ( λb= 10 −3,
+> λp= 1 ) anchoring the solution near u= 1 at both boundaries. (b) Random directions drawn from the last-layer physics null space. The family of curves spans a wide range of boundary values with preserved physics residual.
+
+When the approximate range of expected boundary conditions is known a priori, the base training can be biased toward this regime. We refer to this as regime anchoring: the base model satisfies the PDE strictly and approximately satisfies a representative set of boundary values, so that subspace projection later refines the BCs from a nearby starting point rather than from an arbitrary member of the physics-satisfying manifold. Any standard PINN weighting scheme can provide this bias — NTK-based [4], self-adaptive [8], or manually tuned weights. Regime anchoring is especially important for homogeneous problems where the trivial solution u ≡ 0 is a strong attractor. Pre-training on PDE alone risks collapse to the trivial solution, and the BC anchor steers the optimizer toward physically relevant solutions. As shown in Figure 2(a), the base PINN without anchoring converges far from the target BCs, which causes PDE residual drift during adaptation in the absence of a corrector step. Introducing a small BC loss during pre-training ( λb = 10 −3, λp = 1 ) draws the base solution toward the anticipated BC range, shortening the null-space path to the target. We tested this with anticipated BCs near u = 1 at both boundaries (Figure 3(a)). Across both last-layer and full projection methods, regime anchoring produced the lowest RMSE and PDE residual (Table 5), because the null-space path from the anchored base to the target BC is shorter than from an arbitrary kernel member. Regime anchoring’s adaptation takes approximately 1.6 seconds, slightly faster than the unanchored full-projection methods due to the shorter null-space path. 
+
+5.3. Sample Generation in the Physics Null Space 
+
+Beyond boundary adaptation, the null-space projector enables a distinct application: sampling param-eter configurations that share the base model’s PDE residual but produce varying boundary values. The orthogonal projector Πp (39) annihilates every component of a parameter perturbation that would alter the PDE residual. Drawing z ∼ N (0, I) and forming θs = ˆθB + Π pz yields a parameter configuration whose 18 PDE residual is identical to the base model while the boundary values shift freely. Figure 3(b) visualizes a family of such samples. The 1D experiments establish that subspace projection can adapt boundary conditions post-hoc using either the full network or the final layer alone, with the final layer preferred when computationally feasible. Whether this final-layer anchoring extends to higher dimensions is the subject of Section 6. 
+
+6. Multi-Dimensional Scaling and Extent of Layer-Wise Capacity 
+
+The 1D experiments showed that subspace projection adapts boundary conditions effectively, and that the final layer is the most BC-consumed for shallow tanh networks. This section tests whether these findings extend to multi-dimensional problems with richer architectures. We use 2D Poisson as a representative elliptic operator and a 3-hidden-layer residual network as a representative deeper architecture. Here, we employ rcond of 10 −8. We then study the 1D Burgers’ equation as a representative non-linear evolution operator. 
+
+6.1. 2D Poisson equation 
+
+The governing equation is defined as: 
+
+∆u = −2π2 sin( πx ) sin( πy ), (x, y ) ∈ [−1, 1] × [−1, 1] (48) We use a residual network architecture comprising 3 hidden layers with 100 neurons each. To evaluate the impact of nonlinearity, we train a tanh network using hyperbolic tangent activations and a SiLU network using SiLU (Swish) activations. We use a 15 × 15 uniform grid of collocation points (225 total) with no boundary conditions applied during base training. After training, we apply subspace projection with predictor-corrector to adapt the model to the BCs of the problem: u(−1, y ) = u(1 , y ) = u(x, −1) = 0 and 
+
+u(x, 1) = sin( πx ). The exact solution is u∗(x, y ) = sin( πx ) sin( πy ).1.0 0.5 0.0 0.5 1.0                         
+
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (a)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (b)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (c)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (d)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (e)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (f)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (g)
+> 1.500
+> 1.194
+> 0.888
+> 0.582
+> 0.276
+> 0.031
+> 0.337
+> 0.643
+> 0.949
+> 1.255
+> u(x, y )
+> 0.0000
+> 0.1040
+> 0.2081
+> 0.3121
+> 0.4161
+> 0.5201
+> 0.6242
+> 0.7282
+> 0.8322
+> 0.9362
+> |upred  − uexact |
+
+Figure 4: Tanh network. (a) Baseline PINN trained exclusively on the PDE residual. (b) Boundary adaptation restricted to Layer 3 (output), resulting in the significant structured error observed in (e). (c) Adaptation using only Layer 2 (penultimate), with the corresponding error map in (f). (d) Successful adaptation achieved by expanding the projection to Layers 3 and 2.The pooling of surviving parameter directions restores the solution to near-ground truth, as evidenced by the negligible residual error in (g). 
+
+Figures 4 and 5 show the results for the tanh and SiLU networks and Table 6 presents the associated errors after BC adaptation. The base training phases yield visibly distinct solutions (Figures 4(a) and 5(a)). Single-layer adaptation on the final layer fails to satisfy the BCs for both architectures (Figures 4(b,e), 5(b,e)). The tanh network’s terminal layer yields RMSE 3.16 × 10 −1, a clear failure. The SiLU terminal 19 1.0 0.5 0.0 0.5 1.0                         
+
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (a)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (b)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (c)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (d)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (e)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (f)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> y
+> (g)
+> 1.500
+> 1.194
+> 0.888
+> 0.582
+> 0.276
+> 0.031
+> 0.337
+> 0.643
+> 0.949
+> 1.255
+> u(x, y )
+> 0.00000
+> 0.00267
+> 0.00534
+> 0.00801
+> 0.01068
+> 0.01335
+> 0.01603
+> 0.01870
+> 0.02137
+> 0.02404
+> |upred  − uexact |
+
+Figure 5: SiLU network. (a) Baseline PINN trained on PDE residuals. (b) Solution adapted using only Layer 3 (output), with corresponding error in (e). (c) Solution adapted using only Layer 2 (penultimate), with corresponding error in (f). (d) Solution adapted using Layers 3 and 2, with corresponding error in (g). 
+
+layer achieves lower RMSE ( 4.36 × 10 −3) but at the cost of severe PDE degradation ( 3.95 × 10 −3, four orders of magnitude above the base). The last-layer null space lacks sufficient capacity to enforce the new BCs without corrupting the learned physics. The qualitative finding is that adapting only the final layer does not extend to 2D Poisson. Even when RMSE improves (SiLU terminal), the single-layer null space cannot simultaneously enforce the new BCs and preserve the learned physics. Expanding the adaptation to the final two layers restores accurate adaptation for both architectures (Figures 4(d,g), 5(d,g), Table 6). This indicates that the adaptation scope must scale with problem dimensionality. 
+
+Table 6: 2D Poisson boundary adaptation performance by architecture and adaptation scope. Base PDE residual is O(10 −7)
+
+for both architectures. 
+
+Layers Adapted Architecture RMSE PDE Residual 
+
+Last-layer Tanh 3.16 × 10 −1 8.08 × 10 −8
+
+SiLU 4.36 × 10 −3 3.95 × 10 −3
+
+Penultimate-layer Tanh 3.21 × 10 −3 3.61 × 10 −7
+
+SiLU 3.12 × 10 −4 7.57 × 10 −7
+
+Two-layer Tanh 1.25 × 10 −3 1.45 × 10 −8
+
+SiLU 9.76 × 10 −5 1.54 × 10 −6
+
+The 2D Poisson operator fixes what dpde eff measures. Poisson is second order, so any metric that merely counted derivative order would return a small finite integer, exactly as the second-order ODE did in Section 3. Instead dpde eff does not saturate to an integer. It increases with network width and depth (Table 7). This is the expected behavior if the metric tracks the dimension of the operator’s kernel rather than its order: the Laplacian’s kernel is the infinite-dimensional space of harmonic functions, and a finite network can represent only a capacity-limited slice of it. The low-order ODEs and the Poisson operator therefore make different predictions under the two readings, and the measured behavior falls on the kernel-dimension side. For the ODEs, kernel dimension and operator order coincide, but Poisson is the case that separates them. The values in Table 7 should accordingly be read as the network’s finite-dimensional representational bandwidth for the harmonic kernel, not as a recovered analytical invariant. The same fact shapes how the metric is used for layer selection. In the 1D setting, dpde eff saturates to 20 the kernel dimension independent of architecture, so layer-to-layer variation in the ratio dbc eff /d pde eff is driven entirely by dbc eff , which is a clean capacity signal. In the 2D Poisson setting, dpde eff varies across layers because each layer represents a different finite-dimensional approximation of the harmonic kernel. A layer with a larger dpde eff may simply have higher raw capacity rather than being structurally less constrained, so the ratio can conflate BC consumption with baseline layer capacity. Whether this conflation matters in practice is problem-dependent, and the results below show that the ratio provides a useful but approximate guide whose signal strength varies with the activation function.   
+
+> Table 7: Predicting the optimal single-layer adaptation target using the dbc eff /d pde eff ratio heuristic for Tanh and SiLU networks.
+
+Architecture Candidate Layer dpde eff dbc eff Ratio RMSE PDE Residual 
+
+Tanh Layer 3 (output) 4.239 49.848 11.761 3.16 × 10 −1 8.08 × 10 −8
+
+Layer 2 (penultimate) 25.000 105.348 4.214 3.21 × 10 −3 3.61 × 10 −7
+
+Layer 1 18.740 86.708 4.627 1.88 × 10 −3 7.54 × 10 −5
+
+Layer 0 (input) 12.173 65.813 5.406 2.01 × 10 0 8.49 × 10 1
+
+SiLU Layer 3 (output) 10.930 25.298 2.315 4.36 × 10 −3 3.95 × 10 −3
+
+Layer 2 (penultimate) 19.532 47.516 2.433 3.12 × 10 −4 7.57 × 10 −7
+
+Layer 1 16.809 41.495 2.469 9.46 × 10 −4 1.37 × 10 −6
+
+Layer 0 (input) 13.532 33.900 2.505 6.67 × 10 −2 1.12 × 10 0
+
+Table 7 shows per-layer adaptation performance for both architectures. For the Tanh network, the ratio heuristic identifies Layer 2 as the primary target (lowest ratio 4.214 , RMSE 3.21 × 10 −3), which is near-optimal. Layer 1 achieves a slightly lower RMSE ( 1.88 × 10 −3) at a higher ratio ( 4.627 ). For the SiLU network, the heuristic nominally identifies Layer 3 (lowest ratio 2.315 ), but Layer 2 yields a substantially lower RMSE ( 3.12 × 10 −4 versus 4.36 × 10 −3). In the SiLU case the ratios are tightly clustered ( 2.315 –2.505 ), so the heuristic provides a weaker signal than in the Tanh case, where the lowest ratio ( 4.214 ) is more clearly separated from the remaining layers. The ratio therefore serves as a useful but approximate guide for layer selection. 
+
+6.2. Subspace Projection vs. Gradient-Based Adaptation 
+
+We compare three adaptation strategies applied to the same physics-trained SiLU ResNet from Sec-tion 6.1. All three methods start from an identical base model (PDE MSE = 3 .35 × 10 −7, BC MSE = 6 .67 ). Subspace projection is implemented with 100 incremental steps and the predictor-corrector retraction, com-pleting in tsub = 6 .0 s. Both full fine-tuning and last-layer fine-tuning run for 10,000 Adam steps followed by 30,000 L-BFGS steps. Loss weights for both the PDE and BC objectives are balanced using the adaptive scheme of [3] and the L-BFGS phase inherits the final weights from Adam.    
+
+> Table 8: Comparison of boundary adaptation strategies on the 2D Poisson problem. BC MSE is evaluated against the target boundary values. Fine-tuning results are reported both at tsub = 6 .0s (equal-time) and at training end.
+
+Method Time (s) PDE MSE BC MSE RMSE 
+
+Base model — 3.35 × 10 −7 6.67 × 10 0 —Subspace projection 6.0 3.13 × 10 −5 2.16 × 10 −8 3.78 × 10 −4
+
+Full fine-tuning (at tsub ) 6.0 1.92 × 10 −4 2.79 × 10 0 5.31 × 10 −1
+
+Full fine-tuning (at end) 940 .9 4.45 × 10 −7 2.64 × 10 −9 3.63 × 10 −5
+
+Last-layer fine-tuning (at tsub ) 6.0 1.02 × 10 −5 5.51 × 10 0 1.55 × 10 0
+
+Last-layer fine-tuning (at end) 969 .5 2.09 × 10 −3 2.59 × 10 −5 2.07 × 10 −3
+
+The results are summarized in Table 8 and Figure 6. Subspace projection completes in tsub = 6 .0 s, enforcing the new boundary values to a BC MSE of 2.16 × 10 −8 and achieving RMSE 3.78 × 10 −4. Despite 21 0 10 20 30 40 50                          
+
+> Wall-clock time (s)
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> PDE residual (MSE)
+> (a)
+> 010 20 30 40 50
+> Wall-clock time (s)
+> 10 9
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> BC residual (MSE)
+> (b)
+> Base model (PDE only)
+> Subspace projection
+> Subspace target level
+> Full fine-tuning
+> Last-layer fine-tuning Figure 6: (a) Trajectory of PDE MSE and (b) BC MSE over wall-clock time for three adaptation strategies. The subspace projection result is shown as a single dot at tsub = 6 .0s since intermediate BC residuals measure against the full target throughout the incremental process and are not directly comparable to the fine-tuning trajectories. All methods start from the same base model (dashed line).
+
+operating in the physics null space, a transient PDE MSE spike is observed during adaptation — a finite-precision artifact discussed in Section 3 — and the predictor-corrector retraction brings it back to 3.13 ×10 −5.Within the same 6.0 s budget, gradient fine-tuning has not yet converged: full fine-tuning yields RMSE 
+
+5.31 × 10 −1 with PDE MSE degraded to 1.92 × 10 −4, while last-layer fine-tuning preserves the PDE MSE (1.02 × 10 −5) but fails to move the BC MSE ( 5.51 , near the base value of 6.67 ), yielding RMSE 1.55 .In this problem, gradient-based fine-tuning does not suffer a solution-quality failure at convergence: at 
+
+940 .9 s, full fine-tuning achieves RMSE 3.63 × 10 −5 and BC MSE 2.64 × 10 −9, substantially better than subspace projection on both metrics. The honest characterization of this result is that subspace projection delivers near-equivalent practical utility in 6.0 s — 157 × less wall-clock time — with minimal tuning overhead, while full fine-tuning eventually wins on final accuracy. Full fine-tuning reaches the subspace BC target (2.16 × 10 −8) at t = 205 .5 s, which is 34 .2 × tsub . At that crossing the PDE MSE is 2.85 × 10 −6, two orders of magnitude above the subspace projection value, before eventually recovering. Last-layer fine-tuning never reaches the target BC accuracy; its best BC MSE is 2.50 × 10 −5 at t = 243 .6 s, and the method converges to RMSE 2.07 × 10 −3 with a degraded PDE MSE of 2.09 × 10 −3. This can be observed in Figure 6 where the PDE MSE rises while the BC MSE falls in the longer run. 
+
+6.3. Nonlinear Operator: 1D Burgers’ Equation 
+
+The preceding subsections applied subspace projection to a linear elliptic operator. To test the framework under genuinely nonlinear dynamics, we apply it to the viscous Burgers’ equation: 
+
+∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 , (x, t ) ∈ [−1, 1] × [0 , 1] (49) with viscosity ν = 0 .01 /π . At this viscosity, the nonlinear convective term uu x drives the formation of a steep shock front near x = 0 . The shock location, width, and strength depend sensitively on the initial and boundary data, making this a demanding test for any adaptation strategy. The base model is trained on the initial condition u(x, 0) = − sin( πx ) with homogeneous Dirichlet boundaries u(±1, t ) = 0 , following the regime-anchoring strategy of Section 5 with manually specified weights (λp = λb = 1 ). The architecture is a 4-hidden-layer MLP with 120 neurons per layer and tanh activations. Training uses Adam optimizer followed by an L-BFGS polish, with the PDE discretized on a 200 × 160 = 32 ,000 -point collocation grid. The trained base model reaches a PDE MSE of 1.18 × 10 −6. Adaptations compare against a finite-difference reference computed via upwind differencing with BDF time integration. Two adaptation experiments are performed from this single base model, each using the predictor-corrector strategy with 100 increments across all layers and a reduced 40 × 40 = 1 ,600 -point collocation grid to bound 22 computation. Two fine-tuning baselines are included: (i) full-grid fine-tuning on all 32 ,000 points and (ii) 
+
+sparse-grid (adapt-grid) fine-tuning on the same 1,600 points used by the projection. Both baselines use adaptive-weight-balanced Adam [3] followed by L-BFGS, and are run both at the equal wall-clock budget 
+
+tsub and to full convergence. 
+
+6.3.1. Initial Condition Adaptation 
+
+The first experiment doubles the IC amplitude to u(x, 0) = −2 sin( πx ), retaining the original homoge-neous boundaries. The doubled amplitude strengthens the nonlinear convection, steepens the shock, and shifts the shock location. These are fundamentally nonlinear effects that the incremental predictor-corrector strategy captures through continuation rather than a single tangent-space step. 1.0 0.5 0.0 0.5 1.0         
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> (a)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> (b)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> (c)
+> 2.000
+> 1.593
+> 1.186
+> 0.780
+> 0.373
+> 0.034
+> 0.441
+> 0.847
+> 1.254
+> 1.661
+> u(x, t )
+
+Figure 7: Spatio-temporal contours for the IC adaptation ( u(x, 0) = −2 sin( πx )). (a) Reference finite-difference solution. (b) Full-grid fine-tuning: despite achieving very low PDE residual, the solution fails to recover the correct amplitude. (c) Subspace projection: accurate reconstruction of the steepened shock front and doubled amplitude. 1.0 0.5 0.0 0.5 1.0            
+
+> x
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> u(x, t )
+> (a)
+> t= 0 .25
+> Reference (FD)
+> Fine-tuned (NTK)
+> Subspace proj.
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> (b)
+> t= 0 .50
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> (c)
+> t= 0 .75
+
+Figure 8: Cross-sectional snapshots of the IC-adapted solutions at t = 0 .25 , 0.50 , and 0.75 . Subspace projection (blue) closely tracks the reference shock location and amplitude; full-grid fine-tuning (red) significantly underestimates the solution magnitude. 
+
+Figures 7, 8 and Table 9 compare the adapted solutions against the reference. The IC adaptation is the strongest case for subspace projection: it wins outright on solution quality, not merely on speed. Subspace projection completes in tsub = 71 .43 s , achieving RMSE 3.91 × 10 −2 and enforcing the new IC to a BC MSE of 2.38 × 10 −6. Full-grid fine-tuning runs for 1391 s — nearly 20 × tsub — reaches a full-grid PDE MSE of 
+
+1.53 × 10 −5 (indistinguishable from the base-model level), yet converges to RMSE 1.02 × 10 −1, worse than subspace projection. The network achieves low physics residual but fails to recover the doubled amplitude, as visible in Figure 7(b) and the cross-sectional snapshots of Figure 8. Whether this reflects a shallow local minimum, slow convergence that would eventually improve, or a structural difficulty in separating amplitude from residual under gradient-based optimization, the practical conclusion is the same: subspace projection delivers better solution quality at a fraction of the training cost. 23 On the 40 × 40 adaptation grid, subspace projection maintains a PDE MSE of 1.54 × 10 −5, but 2.29 × 10 1
+
+on the full grid. This is expected: the projection respects the physics only on the sparse grid, so the empirically observed null space is larger than the true operator null space, and the PDE residual degrades between the sparse collocation locations. At the equal budget, full-grid fine-tuning has not yet converged (BC MSE 3.64 × 10 −3, RMSE 3.58 × 10 −1). It reaches the subspace BC target ( 2.38 × 10 −6) at t = 175 .0 s 
+
+(2.4 × tsub ) but, as noted, converges to an inferior RMSE. Sparse-grid fine-tuning reaches the same BC target at t = 118 .8 s (1.7 × tsub ) with a full-grid PDE MSE of 1.02 × 10 1, confirming that the PDE is not enforced between the sparse points, and converges to RMSE 1.59 × 10 −1.
+
+6.3.2. Boundary Condition Adaptation 
+
+The second experiment retains the original IC but imposes time-dependent Dirichlet boundaries u(−1, t ) = 0.5t and u(1 , t ) = −0.5t. The antisymmetric ramp gradually breaks the spatial symmetry of the base solution, introducing a net positive bias at the left boundary and a growing negative bias at the right. 1.0 0.5 0.0 0.5 1.0         
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> (a)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> (b)
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> t
+> (c)
+> 1.000
+> 0.797
+> 0.593
+> 0.390
+> 0.186
+> 0.017
+> 0.220
+> 0.424
+> 0.627
+> 0.831
+> u(x, t )
+
+Figure 9: Spatio-temporal contours for the BC adaptation ( u(−1, t ) = 0 .5t, u(1 , t ) = −0.5t). (a) Reference FD solution with broken spatial symmetry. (b) Full-grid fine-tuning: fails to propagate the new boundary values into the interior within the allotted time. (c) Subspace projection: accurate capture of the asymmetric shock dynamics. 1.0 0.5 0.0 0.5 1.0            
+
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> u(x, t )
+> (a)
+> t= 0 .25
+> Reference (FD)
+> Fine-tuned (NTK)
+> Subspace proj.
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> (b)
+> t= 0 .50
+> 1.0 0.5 0.0 0.5 1.0
+> x
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> (c)
+> t= 0 .75
+
+Figure 10: Cross-sectional snapshots of the BC-adapted solutions at t = 0 .25 , 0.50 , and 0.75 . Subspace projection (blue) correctly enforces the time-dependent boundary values and resolves the resulting interior asymmetry; fine-tuning (red) fails to match either the boundary values or the interior structure. 
+
+Figures 9 and 10 show the results. Subspace projection completes in tsub = 72 .30 s , achieving RMSE 
+
+4.42 × 10 −2 and enforcing the new BCs to a BC MSE of 3.00 × 10 −7, while maintaining an adaptation-grid PDE MSE of 5.10 × 10 −5 (7.43 × 10 −1 on the full grid). At the equal budget, full-grid fine-tuning has BC MSE 1.19 × 10 −3 and RMSE 3.29 × 10 −1; sparse-grid fine-tuning fares worse, with BC MSE 3.76 × 10 −2
+
+and RMSE 3.78 × 10 −1. Full-grid fine-tuning reaches the subspace BC target ( 3.00 × 10 −7) at t = 224 .3 s 
+
+(3.1 × tsub ), with a full-grid PDE MSE of 2.58 × 10 −3 at the crossing, and converges to RMSE 1.46 × 10 −2.24 Sparse-grid fine-tuning also eventually reaches the BC target at t = 308 .8 s (4.3 × tsub ), but with a full-grid PDE MSE of 8.25 ×10 −1, and its final RMSE of 2.51 ×10 −1 reflects the cost of enforcing BCs on a sparse grid. Across both scenarios, subspace projection achieves competitive or superior RMSE at a fraction of the time required for fine-tuning to reach comparable BC accuracy, while preserving the physics on the adaptation grid.                
+
+> Table 9: Burgers equation adaptation results. The base model PDE MSE is 1.18 ×10 −6. Adapt-grid PDE MSE is evaluated on the 40 ×40 adaptation grid (subspace projection only); full-grid PDE MSE on the 200 ×160 grid; RMSE against the finite-difference reference on a 200 ×200 grid. Fine-tuning results are reported at equal budget ( tsub ) and at training end.
+
+Scenario Method Time (s) Adapt PDE MSE Full PDE MSE BC MSE RMSE 
+
+IC adapt Subspace proj. 71 .43 1.54 × 10 −5 2.29 × 10 1 2.38 × 10 −6 3.91 × 10 −2
+
+Full FT (at tsub ) 71 .43 — 2.21 × 10 −2 3.64 × 10 −3 3.58 × 10 −1
+
+Full FT (at end) 1391 .44 — 1.53 × 10 −5 2.37 × 10 −10 1.02 × 10 −1
+
+FT adapt (at tsub ) 71 .43 — 1.74 × 10 1 3.94 × 10 −5 2.13 × 10 −1
+
+FT adapt (at end) 1057 .52 — 1.99 × 10 1 1.39 × 10 −9 1.59 × 10 −1
+
+BC adapt Subspace proj. 72 .30 5.10 × 10 −5 7.43 × 10 −1 3.00 × 10 −7 4.42 × 10 −2
+
+Full FT (at tsub ) 72 .30 — 7.15 × 10 −2 1.19 × 10 −3 3.29 × 10 −1
+
+Full FT (at end) 1439 .48 — 6.42 × 10 −6 6.57 × 10 −9 1.46 × 10 −2
+
+FT adapt (at tsub ) 72 .30 — 1.84 × 10 −2 3.76 × 10 −2 3.78 × 10 −1
+
+FT adapt (at end) 1008 .18 — 8.32 × 10 −1 1.65 × 10 −7 2.51 × 10 −1
+
+7. Conclusion 
+
+This work develops a framework for analyzing and adapting physics-informed neural networks via the Fisher Information Matrix. We introduced an effective-dimension metric deff that quantifies the parameter directions left unconstrained by the governing PDE, used it as a structural diagnostic to detect under-resolution that training loss can hide, and exploited the null space it identifies to adapt boundary conditions without disturbing the learned physics in exact arithmetic, with finite-precision drift controlled by a predictor-corrector retraction. The empirical findings of this work are threefold. First, for finite-kernel operators, dpde eff converges to the analytical kernel dimension of the differential operator, independent of network width, depth, or activation, across linear ODEs of order 1–3, the Bessel operator, and nonlinear second-order operators; for the 2D Poisson operator, whose kernel is infinite-dimensional, deff measures representational bandwidth rather than recovering an integer invariant (Section 3). Second, in the under-resolved regime the metric saturates the collocation-point rank ceiling, providing a structural diagnostic for whether the network has absorbed the operator’s geometric content (Section 3). Third, the null space identified by the metric enables boundary adaptation with minimal tuning overhead: subspace projection reaches near-equivalent boundary accuracy 3–34 × faster than gradient-based fine-tuning reaches comparable BC accuracy, requiring no per-problem loss weighting or optimizer scheduling (Sections 4–6). Gradient-based fine-tuning can achieve comparable or better final accuracy at full convergence; the advantage of subspace projection is the elimination of that convergence wait. Subspace projection removes the physics-boundary loss tradeoff during adaptation by confining parameter updates to the physics null space; gradient-based fine-tuning resolves the same tradeoff through optimization, which can match or exceed final solution quality at the cost of additional convergence time and per-problem tuning. Finite-precision arithmetic and the curvature of the parameter-to-output map introduce small but unavoidable residual drift into the projection. We control this drift via a predictor-corrector retraction that projects accumulated errors back to the physics null space at each step. The remaining limitations are the quality of the local linearization used in each Gauss-Newton step and the computational budget allocated to adaptation. The function-space reformulation (Section 4) addresses the dominant O(d3) parameter-space cost, bring-ing computation into the O(( Np + Nb)3) regime. For very large numbers of collocation or boundary points, further reduction may be possible via low-rank truncation of V V T: retaining only the top-k eigenvectors 25 reduces the cost to O(kd 2). We do not pursue this optimization in the present work but note it as a natural direction for scaling to industrial-scale problems. The framework supports a workflow well-suited to scientific computing: pre-train a base model entirely on the PDE residuals to capture the physical manifold across the domain, then post-hoc anchor any subsequently observed boundary conditions or sparse data points via subspace projection. The base model represents the physics; the projections enforce the constraints. This is complementary to operator learning approaches [18, 19, 20], which solve a related but distinct problem (in-distribution boundary adaptation given an offline training distribution). Our method handles adaptation including boundary conditions outside any pre-specified distribution, making the two approaches natural choices for different regimes. Future work includes an extension to neural architecture search, removing all parameters that lie in the null space of the combined PDE and BCs and extension of the low-rank truncation strategy for industrial-scale problems. Beyond boundary adaptation, the null-space structure also opens a path to physics-constrained uncertainty quantification from a single trained model. 
+
+CRediT Authorship Contribution Statement Cornelius Otchere: Conceptualization, Methodology, Software, Formal analysis, Investigation, Writing (original draft). Michael Shields: Conceptualization, Supervision, Funding acquisition, Writing (review & editing). 
+
+Acknowledgments 
+
+Cornelius Otchere thanks Professor James C. Spall, whose reading assignment in System Identification and Likelihood Methods inspired this paper. 
+
+Data Availability 
+
+The code used to generate the results in this paper will be made publicly available upon acceptance. 
+
+Declaration of Competing Interests 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Declaration of Generative AI and AI-Assisted Technologies in the Writing Process 
+
+During the preparation of this work the authors used Claude for editing and formatting assistance. After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article. 
+
+References 
+
+[1] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning frame-work for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational physics 378 (2019) 686–707. [2] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, L. Yang, Physics-informed machine learning, Nature Reviews Physics 3 (6) (2021) 422–440. [3] S. Wang, Y. Teng, P. Perdikaris, Understanding and mitigating gradient flow pathologies in physics-informed neural networks, SIAM Journal on Scientific Computing 43 (5) (2021) A3055–A3081. [4] S. Wang, X. Yu, P. Perdikaris, When and why pinns fail to train: A neural tangent kernel perspective, Journal of Computational Physics 449 (2022) 110768. 26 [5] A. Jacot, F. Gabriel, C. Hongler, Neural tangent kernel: Convergence and generalization in neural networks, Advances in neural information processing systems 31 (2018). [6] A. Krishnapriyan, A. Gholami, S. Zhe, R. Kirby, M. W. Mahoney, Characterizing possible failure modes in physics-informed neural networks, Advances in neural information processing systems 34 (2021) 26548–26560. [7] P. Rathore, W. Lei, Z. Frangella, L. Lu, M. Udell, Challenges in training pinns: A loss landscape perspective, arXiv preprint arXiv:2402.01868 (2024). [8] L. D. McClenny, U. M. Braga-Neto, Self-adaptive physics-informed neural networks, Journal of Com-putational Physics 474 (2023) 111722. [9] T. Yu, S. Kumar, A. Gupta, S. Levine, K. Hausman, C. Finn, Gradient surgery for multi-task learning, Advances in neural information processing systems 33 (2020) 5824–5836. [10] Q. Liu, M. Chu, N. Thuerey, Config: Towards conflict-free training of physics informed neural networks, in: International Conference on Learning Representations, Vol. 2025, 2025, pp. 59531–59566. [11] C. Leake, D. Mortari, Deep theory of functional connections: A new method for estimating the solutions of partial differential equations, Machine learning and knowledge extraction 2 (1) (2020) 37–55. [12] I. E. Lagaris, A. Likas, D. I. Fotiadis, Artificial neural networks for solving ordinary and partial differ-ential equations, IEEE transactions on neural networks 9 (5) (1998) 987–1000. [13] N. Sukumar, A. Srivastava, Exact imposition of boundary conditions with distance functions in physics-informed deep neural networks, Computer Methods in Applied Mechanics and Engineering 389 (2022) 114333. [14] S. Desai, M. Freeman, Z. Wang, S. Somnath, One-shot transfer learning of physics-informed neural networks, Machine Learning: Science and Technology 3 (2) (2022) 025010. [15] C. Xu, B. T. Cao, Y. Yuan, G. Meschke, Transfer learning based physics-informed neural networks for solving inverse problems in engineering structures under different loading scenarios, Computer Methods in Applied Mechanics and Engineering 405 (2023) 115852. [16] S. Goswami, C. Anitescu, S. Chakraborty, T. Rabczuk, Transfer learning enhanced physics informed neural network for phase-field modeling of fracture, Theoretical and Applied Fracture Mechanics 106 (2020) 102447. [17] Y. Wang, J. Bai, M. S. Eshaghi, C. Anitescu, X. Zhuang, T. Rabczuk, Y. Liu, Transfer learning in physics-informed neural networks: Full fine-tuning, lightweight fine-tuning, and low-rank adaptation, arXiv preprint arXiv:2502.00782 (2025). [18] L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, Learning nonlinear operators via deeponet based on the universal approximation theorem of operators, Nature machine intelligence 3 (3) (2021) 218–229. [19] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, A. Anandkumar, Fourier neural operator for parametric partial differential equations, arXiv preprint arXiv:2010.08895 (2020). [20] S. Wang, H. Wang, P. Perdikaris, Learning the solution operator of parametric partial differential equations with physics-informed deeponets, Science advances 7 (40) (2021) eabi8605. [21] J. Kirkpatrick, R. Pascanu, N. Rabinowitz, J. Veness, G. Desjardins, A. A. Rusu, K. Milan, J. Quan, T. Ramalho, A. Grabska-Barwinska, et al., Overcoming catastrophic forgetting in neural networks, Proceedings of the national academy of sciences 114 (13) (2017) 3521–3526. [22] G. Zeng, Y. Chen, B. Cui, S. Yu, Continual learning of context-dependent processing in neural networks, Nature Machine Intelligence 1 (8) (2019) 364–372. 27 [23] M. Farajtabar, N. Azizan, A. Mott, A. Li, Orthogonal gradient descent for continual learning, in: International conference on artificial intelligence and statistics, PMLR, 2020, pp. 3762–3773. [24] E. Schiassi, C. Leake, M. De Florio, H. Johnston, R. Furfaro, D. Mortari, Extreme theory of functional connections: A physics-informed neural network method for solving parametric differential equations, arXiv preprint arXiv:2005.10632 (2020). [25] D. E. De Falco, E. Schiassi, F. Calabrò, Least squares with equality constraints extreme learning ma-chines for the resolution of pdes, Journal of Computational Physics (2025) 114553. [26] S.-I. Amari, Natural gradient works efficiently in learning, Neural computation 10 (2) (1998) 251–276. [27] R. Karakida, S. Akaho, S.-i. Amari, Pathological spectra of the fisher information metric and its variants in deep neural networks, arXiv preprint arXiv:1910.05992 (2019). [28] A. Ansuini, A. Laio, J. H. Macke, D. Zoccolan, Intrinsic dimension of data representations in deep neural networks, Advances in Neural Information Processing Systems 32 (2019). [29] Y. Shin, J. Darbon, G. E. Karniadakis, On the convergence of physics informed neural networks for linear second-order elliptic and parabolic type pdes, arXiv preprint arXiv:2004.01806 (2020). [30] S. Mishra, R. Molinaro, Estimates on the generalization error of physics-informed neural networks for approximating a class of inverse problems for pdes, IMA Journal of Numerical Analysis 42 (2) (2022) 981–1022. [31] T. De Ryck, S. Mishra, Generic bounds on the approximation error for physics-informed (and) operator learning, Advances in Neural Information Processing Systems 35 (2022) 10945–10958. [32] N. Doumèche, G. Biau, C. Boyer, On the convergence of pinns, Bernoulli 31 (3) (2025) 2127–2151. [33] D. J. MacKay, A practical bayesian framework for backpropagation networks, Neural computation 4 (3) (1992) 448–472. [34] J. Sjöberg, L. Ljung, Overtraining, regularization and searching for a minimum, with application to neural networks, International Journal of Control 62 (6) (1995) 1391–1407. [35] L. Ljung, et al., Theory for the user, System identification (1987). [36] K. He, X. Zhang, S. Ren, J. Sun, Deep residual learning for image recognition, in: Proceedings of the IEEE conference on computer vision and pattern recognition, 2016, pp. 770–778. [37] P.-A. Absil, R. Mahony, R. Sepulchre, Optimization algorithms on matrix manifolds, Princeton Univer-sity Press, 2008. 28

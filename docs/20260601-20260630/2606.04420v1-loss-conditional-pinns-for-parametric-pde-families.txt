@@ -1,0 +1,884 @@
+Title: Loss-Conditional PINNs for Parametric PDE Families
+
+URL Source: https://arxiv.org/pdf/2606.04420v1
+
+Published Time: Thu, 04 Jun 2026 00:31:39 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# LOSS -C ONDITIONAL PINN S FOR PARAMETRIC PDE F AMILIES 
+
+A P REPRINT 
+
+Anna Lazareva 
+
+Faculty of Computer Science HSE University, Moscow, Russia 
+
+annelzrv@gmail.com 
+
+Alexander Tarakanov 
+
+VK and HSE University Moscow, Russia 
+
+atarakanov@hse.ru 
+
+June 4, 2026 
+
+# ABSTRACT 
+
+Physics-informed neural networks (PINNs) approximate solutions of ODEs and PDEs by minimising a weighted combination of residual, boundary, initial, and data losses. Their performance, however, is often dominated by the choice of loss weights: a poor weighting may lead training to a degenerate solution in which one physical constraint is satisfied while another is ignored. Existing methods therefore seek to select or adapt a single good set of weights. We take a different view: instead of tuning one weight vector, we explore the entire weight space during training. We introduce LC-PINN, which adapts the loss-conditional training of Dosovitskiy and Djolonga [1] to the PDE-residual setting: the conditioning vector—either the loss weights or a scalar physical coefficient—is treated as a network input and sampled from a simple prior at every optimisation step. This turns PINN training into learning a continuous family of solutions indexed by that vector, while requiring no solver-generated paired data. In this sense, LC-PINN lies between classical PINNs and operator-learning methods: it remains fully physics-informed, but amortises training over a parametric family. Our contribution is not the loss-conditional construction itself, but its extension to PINNs, the unification of the loss-weight and parametric-coefficient regimes under one architecture (concatenation for loss weights, FiLM for coefficients), and a fixed-quadrature L-BFGS finishing protocol that makes the parametric-coefficient regime trainable. We give a λ-invariance result characterising the conditional optimum and study LC-PINN empirically on parametric Helmholtz, Schr ¨odinger, viscous Burgers, and Buckley–Leverett equations. Across these problems a single LC-PINN matches or improves retrained per-weight PINN baselines while parameterising the full family in one model, at a total training cost that amortises favourably against per-instance retraining. 
+
+# 1 Introduction 
+
+Physics-Informed Neural Networks [PINNs; 2 ] approximate solutions of differential equations by minimizing a weighted combination of PDE residual, boundary, initial, and (optional) data losses. Although highly flexible, PINNs are often extremely sensitive to the choice of loss weights and physical parameters. Poorly balanced objectives may lead optimization toward solutions that satisfy one physical constraint while largely ignoring others. As a result, practical PINN workflows frequently rely on careful hyperparameter tuning, adaptive weighting schedules, or even retraining for every parameter configuration of interest. This paper addresses this limitation through a different perspective. Instead of searching for a single optimal weighting configuration, we train a single conditional PINN across an entire family of loss weights or PDE parameters. The key idea is to treat the conditioning variable λ as part of the network input, transforming PINN training into learning a continuous family of solutions indexed by λ.The resulting model, which we call LC-PINN, occupies an intermediate position between classical PINNs and operator-learning methods. Like neural operators, LC-PINN amortizes computation across a family of PDE instances. Unlike 
+
+> arXiv:2606.04420v1 [cs.LG] 3 Jun 2026
+
+Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+operator-learning approaches such as FNO [ 3] or DeepONet [ 4], however, LC-PINN remains fully residual-based and does not require solver-generated paired datasets. Conceptually, the proposed framework rethinks loss balancing in PINNs. Conventional adaptive-weight methods attempt to identify a single good scalarization of the multi-objective training loss. LC-PINN instead explores the geometry of the entire loss-weight space during training. In this sense, loss weighting becomes not merely a hyperparameter-tuning problem, but a parametric learning problem. 
+
+Contributions. The loss-conditional construction is due to Dosovitskiy and Djolonga [1] ; conditioning a PINN on a physical parameter has also been done before [ 5 ]. Our contribution is to bring these ideas together for PINNs and to study the result carefully: • We adapt loss-conditional training to the PDE-residual setting and unify two regimes—loss-weight con-ditioning (concatenation) and parametric-coefficient conditioning (FiLM)—under one architecture, with a fixed-quadrature L-BFGS finishing protocol that makes the parametric-coefficient regime trainable. • We give a λ-invariance result showing that global minimizers of the conditional objective recover residual minimizers across the parameter family, and reconcile it with the K-shot averaging used at inference via a per-sample variance analysis (Section 3.2). • We give a local optimization result showing that, in a quadratic model, conditioning supplies additional descent directions. We are explicit that this is an instantaneous, local statement—a consistency check, not an explanation of the order-of-magnitude empirical gains, which arise from cumulative smooth-in-λ parameter sharing. • We evaluate LC-PINN on parametric Helmholtz, Schr ¨odinger, Burgers, and Buckley–Leverett equations against strong adaptive baselines (SA-PINN, ReLoBRaLo, Causal-PINN, PI-DeepONet), reporting failure cases honestly and quantifying the amortisation crossover per family. 
+
+# 2 Related work 
+
+Adaptive loss weighting in PINNs. The fragility of the composite-loss objective in the original PINN formulation [ 2] has motivated a line of methods that adapt the residual / boundary / data weights during training. Self-adaptive PINN (SA-PINN) of McClenny and Braga-Neto [6] attaches a trainable per-collocation-point weight that is updated by ascent on the residual, yielding an effective focusing of the network on hard-to-fit regions; their “points-with-weights” formulation is essentially a soft hard-example-mining for the residual. ReLoBRaLo [7] re-balances loss-term weights from running ratios of the absolute loss values, smoothed by an exponential moving average. Causal-PINN [ 8] weights the residual by a time-causal mask so the network does not collapse onto late-time dynamics before fitting the initial-time region. These all produce one solution for one (adaptively-found) weighting and would need to be retrained at every new weighting the practitioner wishes to inspect. 
+
+Operator learning. A parallel line of work has built neural operators that map a function-valued input (boundary condition, forcing term, initial condition) to a function-valued solution. The Fourier Neural Operator (FNO) [ 3]parameterises the operator in spectral space: linear layers on the lowest Fourier modes, plus a residual 1×1 convolution. DeepONet [ 4] factorises the operator into a branch network (encoding the input function at sensor points) and a trunk network (encoding the spatial coordinate), recombined by an inner product. Both methods amortise across a family of problems but require a precomputed dataset of (input, solution) pairs from a classical solver—they are supervised learners in function space. The PINN residual itself plays no role in their training. PI-DeepONet [9] re-introduces the residual but stays inside the operator-learning framing, treating the input function as the parameter rather than a scalar coefficient. Our LC-PINN sits between these two camps: it amortises like operator learning but uses the residual loss like a PINN. 
+
+Loss-conditional networks. Dosovitskiy and Djolonga [1] introduced the loss-conditional networks idea in image generation: a single generator, conditioned on the loss weights of a multi-objective composite reconstruction loss, produces images that interpolate the tradeoff surface (sharpness vs. perceptual fidelity vs. adversarial realism). The network is trained by sampling the weight vector from a fixed prior at every step and applying the freshly-sampled weights to the per-instance reconstruction loss. LC-PINN takes the same conditional-on-weights idea and applies it to the PDE-residual setting; the formal λ-invariance result (Section 3.3) is, to our knowledge, the first analysis of the optimum-set structure of this construction in the residual-loss case. 
+
+Hypernetworks and meta-learning for PINNs. A separate amortisation strategy uses hypernetworks [ 10 ] or MAML-style meta-learning [ 11 ] to produce per-instance PINN weights. PI-MAML [ 12 ] demonstrates the meta-learning angle 2Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+on parametric PDEs. These methods amortise at the level of network weights rather than a network input. They typically require a training distribution of full PDE tasks and a per-task inner-loop adaptation step at test time; LC-PINN trains a single network with no inner loop and produces predictions for every λ in one forward pass. 
+
+Conditioning PINNs on physical parameters. Conditioning a PINN directly on a physical parameter is not itself new. Most directly, Arthurs and King [5] train a PINN to aggregate and interpolate parametric solutions of the Navier–Stokes equations, sampling the physical parameter (domain shape, boundary conditions) during training via an active-learning loop so that a single network covers a region of parameter space. Our parametric-coefficient mode is closest to this line of work; we differ in (i) conditioning on a low-dimensional scalar coefficient through FiLM hidden-layer modulation rather than the network input, (ii) the fixed-quadrature L-BFGS finishing protocol of Section 3, and (iii) presenting the parametric-coefficient mode within the same architecture and analysis as the loss-weight mode. We do not claim novelty for parameter-conditioned PINNs per se; the contribution is the unified treatment and the training protocol. 
+
+Extrapolation in λ vs. in physical parameters. In the loss-weight mode the network’s role is closest to Dosovitskiy and Djolonga [1] ; in the parametric-coefficient mode it is closest to Arthurs and King [5] and to FNO / DeepONet, but parameterised over a low-dimensional scalar input rather than a function-valued one. The two modes share an architecture; the choice of λ is task-driven. 
+
+# 3 Method 
+
+3.1 Loss-conditional formulation 
+
+A standard PINN [ 2] approximates the solution of a single PDE F u = 0 with auxiliary boundary, initial, and (optionally) data constraints {Bu = gB , Iu = gI , Du = gD } by minimizing the weighted composite loss 
+
+LPINN (θ; w) = wF ∥F u θ ∥2 
+
+> L2
+
++ wB ∥Bu θ − gB ∥2
+
+> L2
+
++ wI ∥Iu θ − gI ∥2 
+
+> L2
+
++ wD ∥Du θ − gD ∥2 
+
+> L2
+
+, (1) with respect to the network parameters θ. The weight vector w = ( wF , w B , w I , w D ) determines the tradeoff between satisfying the PDE residual and enforcing the auxiliary constraints. In practice, these weights are typically selected by grid search or adaptive reweighting strategies such as SA-PINN [6], ReLoBRaLo [7], or Causal-PINN [8]. LC-PINN replaces this fixed-weight optimization problem with a continuous family of problems indexed by a condi-tioning variable λ ∈ Λ, where Λ ⊆ Rdλ denotes either (i) the space of admissible loss weights themselves ( λ = w,
+
+dλ = 4 for Burgers and Buckley–Leverett), or (ii) a physical PDE parameter such as a wavenumber or mobility ratio (λ = k, dλ = 1 for Helmholtz). The resulting loss-conditional PINN (LC-PINN) is a single network 
+
+uθ : Ω × Λ → R, (x, λ ) 7 → uθ (x, λ ), (2) trained to minimize the expected loss over the parameter family: 
+
+J(θ) = Eλ∼pλ
+
+L λ; uθ (·, λ ) , (3) where pλ is a fixed sampling distribution over Λ (uniform unless stated otherwise). Architecturally, the modification is minimal: the network receives an additional input of dimension dλ. Computationally, each optimization step requires only a standard forward/backward pass at a freshly sampled λ. Conceptually, however, the formulation changes the role of loss balancing in PINNs. Instead of identifying a single optimal weighting configuration, the network is trained across the entire loss-weight space, learning a continuous family of solutions indexed by λ. This extends the loss-conditional networks of Dosovitskiy and Djolonga [1] from generative loss-mixture modeling to the residual-loss setting of physics-informed learning. 
+
+3.2 Inference: K-shot averaging across λ
+
+At evaluation time we report a single rel-L2 error per task. In the loss-weight regime there is no canonical “true” choice of λ, so following Dosovitskiy and Djolonga [1] we average predictions over K independent samples drawn from pλ:
+
+ˆu(x) = 1
+
+K
+
+> K
+
+X
+
+> i=1
+
+uθ (x, λ (i)), λ(i) i.i.d. 
+
+∼ pλ. (4) This K-shot averaging exposes the variability of LC-PINN across the loss-weight family and highlights the amortization advantage of the approach. A conventional PINN must be retrained K times to generate predictions for K different weight configurations, whereas LC-PINN produces all K predictions from a single training run. 3Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Reconciling K-shot averaging with λ-invariance. At first sight Theorem 3.1 below—which states that the LC optimum is λ-invariant—seems to make K-shot averaging either redundant or contradictory: if every λ-slice is the same solution, why average over λ? The resolution is that invariance is an asymptotic, almost-everywhere statement about the exact optimum, which a finite-capacity trained network realises only approximately. We measure the residual variability directly. Drawing K = 200 weightings λ(i) ∼ U (0 , 1) 4 and evaluating uθ (x, λ (i)) on the Burgers grid, the per-point standard deviation across i is 1.4 × 10 −3—about 0.19% of the mean solution magnitude. The network is therefore neither collapsed to a single effective λ (the spread is nonzero) nor traversing a genuine trade-off (the spread is two-to-three orders of magnitude below the signal). This is the key distinction from the generative setting of Dosovitskiy and Djolonga [1] , where the loss terms genuinely conflict and conditioning traverses a Pareto surface: the PINN residual, boundary, initial, and data losses share a common zero, so the conditional family is nearly degenerate. 
+
+K-shot averaging is thus a mild variance-reduction step over an almost-invariant family rather than a selection among competing solutions, which is exactly why the reported rel-L2 is flat in K (the K-shot mean reaches its K → ∞ limit by K ≈ 25 ). 
+
+3.3 λ-invariance at the LC optimum 
+
+The central hypothesis behind LC-PINN is that a single conditional network uθ (x, λ ), trained with λ ∼ pλ, can simultaneously parameterize an entire family of PDE solutions {Fλu = 0 }λ∈Λ. The following proposition formalizes this statement at a global optimum of the LC-PINN objective. 
+
+Setup. Let Λ ⊆ Rdλ denote the parameter space, pλ a probability measure on Λ with full support, and Ω ⊆ Rdx the spatial–temporal domain equipped with sampling measure pΩ. Each λ ∈ Λ defines a residual operator Fλ together with associated boundary, initial, and optional data-fit operators {Bλ, I λ, D λ}. For a candidate field v : Ω → R, define the corresponding per-parameter loss functional 
+
+L(λ; v) = wF ∥Fλv∥2 
+
+> L2(Ω ,p Ω)
+
++ wB ∥Bλv∥2
+
+> L2(∂Ω)
+
++ wI ∥Iλv∥2 
+
+> L2(t=0)
+
++ wD ∥Dλv∥2 
+
+> L2
+
+,
+
+where (wF , w B , w I , w D ) are strictly positive coefficients. The LC-PINN objective is the expected loss over the parameter family: 
+
+J(θ) = 
+
+Z
+
+> Λ
+
+L λ; uθ (·, λ ) dp λ(λ).
+
+We make the following assumptions: (A1) For every λ ∈ Λ, the network class contains a residual minimizer u⋆λ ∈ arg min v L(λ; v) such that L(λ; u⋆λ) = 0.(A2) The map λ 7 → L (λ; uθ (·, λ )) is dp λ-integrable for every θ.(A3) The network uθ (x, λ ) is jointly continuous in (x, λ ).
+
+Proposition 3.1 (Residual minimizers at the LC optimum) . Let θ⋆ ∈ arg min θ J(θ). Under assumptions (A1)–(A3) ,the section uθ⋆ (·, λ ) is a residual minimizer for pλ-almost every λ ∈ Λ:
+
+L λ; uθ⋆ (·, λ ) = 0 , pλ-a.e. λ ∈ Λ.
+
+In particular, on supp( pλ) the LC-PINN satisfies the PDE residual Fλuθ⋆ (·, λ ) = 0 in L2(Ω , p Ω) together with the associated auxiliary constraints. 
+
+Sketch proof. For every θ and λ, the quantity L(λ; uθ (·, λ )) is nonnegative since each term is a squared L2 norm. By assumption (A1), the minimum per-parameter loss equals zero, implying that inf θ J(θ) ≥ 0 and that this lower bound is attainable whenever the network class can jointly represent the family {u⋆λ}λ∈Λ.Under assumption (A3), the universal approximation theorem for tanh networks [ 13 , 14 ] guarantees that, on the compact domain Ω × Λ, there exists θ⋆ ∈ Θ such that 
+
+sup 
+
+> (x,λ )∈Ω×Λ
+
+|uθ⋆ (x, λ ) − u⋆λ(x)|
+
+is arbitrarily small, and therefore J(θ⋆) can be made arbitrarily close to zero. Consequently, 
+
+0 = J(θ⋆) = 
+
+Z
+
+> Λ
+
+L λ; uθ⋆ (·, λ ) dp λ(λ).
+
+4Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Since the integrand is nonnegative, the standard vanishing-integral argument implies 
+
+L λ; uθ⋆ (·, λ ) = 0 
+
+for pλ-almost every λ ∈ Λ. □
+
+Remark 1 (role of the support). The proposition is a pλ-almost-everywhere statement. Consequently, LC-PINN may behave arbitrarily on pλ-null sets, including boundary regions of Λ that receive no probability mass. In our experiments 
+
+pλ = Uniform(Λ) has full support, so the pλ-a.e. statement coincides with Lebesgue-a.e. on Λ.
+
+Remark 2 (sampling-law invariance). If two probability measures pλ and ˜pλ share the same support Λ0 ⊆ Λ, then their sets of a.e.-residual minimizers on Λ0 coincide. Thus, the asymptotic optimum set of the LC objective depends only on the support of the sampling distribution, not on its precise density. At finite training budget, however, the choice of pλ affects how gradient signal is distributed across parameter space, which we observe empirically in Section 5.7. 
+
+Remark 3 (Monte Carlo estimation). In practice, each optimization step estimates ∇θ J(θ) using nλ i.i.d. samples drawn from pλ. The resulting Monte Carlo estimator is unbiased and has variance O(1 /n λ). Empirically, nλ = 4 
+
+provides a good tradeoff between gradient variance (small nλ) and optimization progress per unit compute (large nλ), see Section 5.7. 
+
+3.4 Network and training details 
+
+All experiments use fully-connected tanh networks with hidden widths [64 , 64 , 64 , 64] , Xavier initialization, and a single real-valued output head. The conditioning mechanism depends on the problem regime. In the loss-weight regime (Burgers and Buckley–Leverett), the conditioning variable λ is concatenated directly to the spatial–temporal coordinates at the input layer, following the loss-conditional formulation of Dosovitskiy and Djolonga [1] . In the parametric-coefficient regime (1D/2D/3D Helmholtz and Schr ¨odinger equations), λ is instead mapped to FiLM [ 15 ] scale-and-shift parameters that modulate each hidden layer. Training is then followed by an L-BFGS refinement phase equipped with a revert-on-worse safeguard. This regime-dependent choice is itself one of our main empirical findings, and it is not obvious a priori. FiLM helps when 
+
+λ changes the PDE operator but hurts when λ only re-weights existing losses. Concretely, in the parametric-coefficient regime the FiLM+L-BFGS combination reduces rel-L2 by approximately an order of magnitude over simple input concatenation, whereas in the loss-weight regime the opposite holds and plain concatenation is more stable (full ablation in Section D). This is precisely why we present the two regimes together rather than as separate methods: they share one architecture and one analysis, and the controlled concat-vs-FiLM ablation is what distinguishes them. The practical rule of thumb—multiplicative (FiLM) conditioning for operator-changing parameters, additive (concat) conditioning for loss-reweighting parameters—transfers directly to other conditional-PINN settings. Optimization uses Adam with learning rate η = 10 −3, cosine learning-rate annealing, and gradient-norm clipping at 1.0.At each optimization step, parameters λ ∼ pλ are sampled independently and the corresponding per-instance residual loss is evaluated on the current batch of collocation points. Before entering the network, λ is normalized to the interval 
+
+[−1, 1] .All experiments are implemented in PyTorch 2.9 and executed on an Apple M4 Max GPU through the MPS backend. Full hyperparameter settings and collocation budgets for each PDE family are reported in Section B. 
+
+# 4 Local effect of loss-conditioning on PINN optimization 
+
+PINNs are typically trained by minimizing a weighted combination of multiple nonnegative objectives, including PDE residual, boundary, initial-condition, and data losses: 
+
+Lλ(θ) = 
+
+> m
+
+X
+
+> i=1
+
+λiLi(θ), λi ≥ 0.
+
+In the ideal well-specified setting, these objectives are compatible: there exists a parameter vector θ⋆ such that 
+
+L1(θ⋆) = · · · = Lm(θ⋆) = 0 .
+
+Consequently, loss weighting does not change the target solution itself, but rather modifies the local optimization geometry around the shared optimum. 5Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+To analyze this effect, we consider a local quadratic approximation in a neighbourhood of θ⋆. Assume that each loss component admits the second-order expansion 
+
+Li(θ) = 12 (θ − θ⋆)⊤Hi(θ − θ⋆), Hi ⪰ 0, i = 1 , . . . , m. 
+
+For a fixed loss-weight vector λ, the resulting weighted PINN objective becomes 
+
+Lλ(θ) = 12 (θ − θ⋆)⊤Hλ(θ − θ⋆),
+
+where 
+
+Hλ =
+
+> m
+
+X
+
+> i=1
+
+λiHi.
+
+The matrix Hλ determines the local conditioning of the optimization problem. In particular, small eigenvalues of Hλ
+
+correspond to weakly controlled directions in parameter space and may substantially slow gradient-based optimization. We now compare this classical parameterization with the loss-conditional one. Let θ denote the original PINN parameters and let η denote the additional trainable parameters introduced by conditioning the network on the loss-weight vector λ.For fixed λ, the conditional network can be viewed locally as a standard PINN with effective parameters 
+
+θeff (λ; θ, η ) = θ + B(λ, η ),
+
+where B is bilinear in λ and η. Equivalently, there exist matrices M1, . . . , M m such that 
+
+B(λ, η ) = 
+
+> m
+
+X
+
+> j=1
+
+λj Mj η. 
+
+The following theorem shows that, at the same effective parameter vector, the loss-conditional parameterization possesses an instantaneous loss-decay rate at least as large as that of the standard PINN. 
+
+Theorem 4.1 (Local loss-decay advantage of loss-conditioning) . Fix λ and consider the local quadratic objective 
+
+Lλ(ϑ) = 12 (ϑ − θ⋆)⊤Hλ(ϑ − θ⋆), Hλ ⪰ 0.
+
+Consider two parameterizations of the same effective parameter vector ϑ:
+
+ϑ = θreg 
+
+for the standard PINN, and 
+
+ϑ = θeff (λ; θ, η ) = θ + B(λ, η )
+
+for the loss-conditional PINN. Suppose that, at some time instant, both parameterizations represent the same effective point: 
+
+θreg = θeff (λ; θ, η ) = ϑ. 
+
+Then, under continuous-time gradient descent, the instantaneous decay rate of the loss in the loss-conditional parame-terization satisfies 
+
+− ddt Lλ
+
+ θeff (λ; θ, η ) = − ddt Lλ(θreg )+ Dη B(λ, η )⊤∇ϑLλ(ϑ) 2 .
+
+In particular, 
+
+− ddt Lλ
+
+ θeff (λ; θ, η ) ≥ − ddt Lλ(θreg ).
+
+If 
+
+B(λ, η ) = 
+
+> m
+
+X
+
+> j=1
+
+λj Mj η, 
+
+6Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Table 1: 1D Helmholtz, rel-L2 averaged across k ∈ { 1.00 , 3.25 , 5.50 , 7.75 , 10 .00 }. LC-PINN is one trained network evaluated at each k; baselines are five separate retrainings, one per k.                                     
+
+> Method rel-L2(mean ±std) wall time LC-PINN (FiLM+L-BFGS, one network) 9.39 ×10 −4±1.18 ×10 −465.9 min/seed PI-DeepONet (one network) 2.21 ×10 −2±3.18 ×10 −261.8 min/seed SA-PINN (per-k, 5 retrainings) 3.23 ×10 −3±2.90 ×10 −311.4 min/ k
+> ReLoBRaLo (per-k, 5 retrainings) 3.87 ×10 −3±2.82 ×10 −37.9 min/ k
+
+then 
+
+Dη B(λ, η ) = 
+
+> m
+
+X
+
+> j=1
+
+λj Mj ,
+
+and the additional decay term becomes 
+
+
+
+> m
+
+X
+
+> j=1
+
+λj Mj
+
+
+
+> ⊤
+
+Hλ(ϑ − θ⋆)
+
+> 2
+
+.
+
+The theorem provides a local explanation for the empirical robustness of LC-PINN. Loss-conditioning does not alter the common optimum θ⋆; instead, it enriches the parameterization through additional conditional directions in parameter space. Whenever the regular and conditional models represent the same effective PINN, the conditional model retains the original descent directions while also acquiring additional optimization directions through the conditioning parameters. Consequently, in the local quadratic regime, the instantaneous loss decrease of the conditional model exceeds that of the standard PINN by a nonnegative squared-gradient term. Intuitively, this improvement arises because the optimization is performed in a higher-dimensional parameter space with additional degrees of freedom, allowing the model to identify more effective descent directions during training. 
+
+Scope of this result. We state plainly what Theorem 4.1 does and does not establish. The extra descent term is a generic consequence of optimising in an enlarged parameter space and is not specific to loss-conditioning: any added, non-degenerate parameterisation would yield an analogous instantaneous advantage. The result is local (a quadratic model) and instantaneous (one gradient step), so it is best read as a consistency check—loss-conditioning does not harm 
+
+the local decay rate—rather than as an explanation of the order-of-magnitude accuracy gains we observe empirically. Those gains are cumulative and stem from the smooth-in-λ parameter sharing that the conditional family induces over the whole trajectory, a mechanism this local analysis does not capture and which we do not claim to prove here. 
+
+# 5 Results 
+
+We evaluate LC-PINN in two amortisation regimes. The first is the parametric-coefficient regime, where λ is a physical PDE parameter and the comparison with operator-learning methods is most direct. The second is the loss-weight regime, where λ is a loss-weight vector and LC-PINN is compared with adaptive PINN balancers. For the parametric-coefficient experiments, we report rel-L2 error averaged over a fixed parameter grid. For the loss-weight experiments, we report 
+
+K-shot averaged rel-L2 error. Unless stated otherwise, all results are mean ± standard deviation over four random seeds; per-parameter baselines use two seeds when their retraining cost is substantially higher. Figure 1 summarizes the main wall-time/accuracy tradeoff. 
+
+5.1 1D Helmholtz: parametric-coefficient regime 
+
+Table 1 reports rel-L2 error averaged over the five-point grid k ∈ { 1.00 , 3.25 , 5.50 , 7.75 , 10 .00 }. LC-PINN receives the wavenumber k as a normalized input, whereas the baselines are retrained separately for each value of k.With FiLM conditioning on k and an L-BFGS refinement phase, a single LC-PINN covers the full interval k ∈ [1 , 10] 
+
+with average rel-L2 ≈ 9 × 10 −4. This improves over SA-PINN by approximately 3.4× and over ReLoBRaLo by approximately 4.1×, while requiring less total wall time than running all five per-k retrainings. 7Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 10 1 10 2 10 3    
+
+> wall time to produce Kpredictions (min, log)
+> 10 2
+> 10 1
+> rel-L2 (log)
+> K
+
+Burgers (loss-weight family, d = 4)       
+
+> LC-PINN (one network)
+> Causal-PINN (per-w)
+> SA-PINN (per-w)
+> ReLoBRaLo (per-w)
+> 10 110 210 3
+> wall time to produce Kpredictions (min, log)
+> 10 3
+> 10 2
+
+Helmholtz (parametric-coefficient k [1, 10]) 
+
+> LC-PINN (one network)
+> SA-PINN (per-k)
+> ReLoBRaLo (per-k)
+
+Figure 1: Wall-time/accuracy frontier as the number K of evaluated λ values increases. LC-PINN trains once and produces predictions for any K, while per-λ baselines move rightward by a factor of K. On Helmholtz, LC-PINN Pareto-dominates from K = 1 . On Burgers, Causal-PINN is more accurate for a single configuration, but becomes more expensive than LC-PINN once K ≳ 4.Table 2: Per-k rel-L2 on 1D parametric Helmholtz (mean ± std over four seeds). Bold indicates the best method per row. LC-PINN is one trained network evaluated at each k; baselines are retrained separately for each k.
+
+k SA-PINN (per-k) ReLoBRaLo (per-k) LC-PINN (one net) 
+
+1.00 (1 .23 ±0.61) ×10 −4 (5.75 ±1.73 )×10 −6 (1 .25 ±0.37) ×10 −3
+
+3.25 (1 .29 ±1.23) ×10 −2 (7.04 ±2.31 )×10 −5 (1 .27 ±0.67) ×10 −3
+
+5.50 (4 .83 ±4.75) ×10 −4 (1.29 ±0.30 )×10 −4 (7 .97 ±8.53) ×10 −4
+
+7.75 (1 .14 ±1.16) ×10 −3 (3 .42 ±1.04) ×10 −3 (2.64 ±0.82 )×10 −4
+
+10 .00 (1 .50 ±1.68) ×10 −3 (1 .57 ±1.13) ×10 −2 (1.11 ±0.86 )×10 −3
+
+grid mean 3.23 ×10 −3 3.87 ×10 −3 9.39 ×10 −4
+
+Per-parameter breakdown. The grid average hides an important difference between the methods. Table 2 reports rel-L2 error at each value of k. Retrained baselines can be extremely accurate at easy parameter values: for example, ReLoBRaLo reaches 5.75 × 10 −6 at k = 1 . However, their performance varies sharply across the family. At k = 10 ,ReLoBRaLo deteriorates to 1.57 × 10 −2, three orders of magnitude worse than its own k = 1 result. SA-PINN exhibits similar instability, with its worst result occurring at k = 3 .25 .By contrast, LC-PINN remains within one order of magnitude of its best performance across the entire grid. This highlights the main empirical tradeoff: amortisation may sacrifice peak accuracy at the easiest single parameter values, but it provides substantially greater coherence across the full parameter family. LC-PINN is therefore aimed at parametric settings where solutions are needed for many values of k, rather than at single-parameter optimization. Overall, the Helmholtz experiment shows that LC-PINN improves the metric that matters in the parametric setting: grid-averaged and worst-case accuracy across the family. 
+
+5.2 1D Schr¨ odinger: parametric-coefficient regime 
+
+We next test whether the improvement in Section 5.1 is specific to the Helmholtz operator. We consider a 1D stationary Schr¨ odinger problem with parametric harmonic potential, 
+
+−u′′ + α2(x − 12 )2u = f (x; α), x ∈ (0 , 1) ,
+
+with homogeneous Dirichlet boundary conditions and α ∈ [0 .5, 10] . Compared with Helmholtz, the parameter 
+
+α multiplies a spatially varying potential rather than a constant zeroth-order term. The manufactured solution is 
+
+sin( πx ) exp( −α(x − 12 )2/2) ; details of the forcing are given in Section B. LC-PINN improves over the per-α SA-PINN baseline by roughly 20 × on the grid mean. The per-α breakdown (Table 10) again shows that retrained baselines may perform well at individual parameter values but can be unstable 8Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 1 3.25 5.5 7.75 10      
+
+> wavenumber k
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> rel-L2 (log)
+> LC-PINN (one network)
+> SA-PINN (per-k)
+> ReLoBRaLo (per-k)
+
+Figure 2: Per-k rel-L2 on 1D parametric Helmholtz. Error bars show ± standard deviation over four seeds. Retrained baselines vary strongly across the parameter grid, whereas LC-PINN remains comparatively stable. Table 3: 1D Schr ¨odinger equation with parametric harmonic well, rel-L2 averaged across α ∈ { 0.5, 5.0, 10 .0}. LC-PINN is one trained network evaluated at each α; SA-PINN is retrained separately for each α.
+
+Method rel-L2 (mean ± std) wall time LC-PINN (FiLM+L-BFGS, one network) 1.99 × 10 −4 ± 1.02 × 10 −4 46.6 min/seed PI-DeepONet (one network) 1.79 × 10 −4 ± 3.70 × 10 −5 40.3 min/seed SA-PINN (per-α, 3 retrainings) 3.89 × 10 −3 ± 3.70 × 10 −3 0.8 min/ α
+
+Table 4: 2D Helmholtz on the unit square, rel-L2 averaged across k ∈ { 1.00 , 5.50 , 10 .00 }. LC-PINN is one trained network evaluated at each k; baselines are retrained separately for each k.
+
+Method rel-L2 (mean ± std) wall time LC-PINN (FiLM+L-BFGS, one network) 2.36 × 10 −2 ± 2.56 × 10 −2 85.9 min/seed SA-PINN (per-k, 3 retrainings) 7.83 × 10 −2 ± 2.76 × 10 −2 3.0 min/ k
+
+ReLoBRaLo (per-k, 3 retrainings) 1.13 × 10 −1 ± 1.72 × 10 −2 5.6 min/ k
+
+across the family: at α = 5 .0, the two SA-PINN seeds differ by two orders of magnitude. LC-PINN maintains seed-to-seed standard deviation below 3.2 × 10 −4 throughout α ∈ [0 .5, 10] .PI-DeepONet matches LC-PINN on this smoother parametric potential, whereas LC-PINN substantially outperforms PI-DeepONet on Helmholtz. This suggests that amortisation is robust across architectures for smooth potentials, while high-frequency wave operators particularly benefit from FiLM-based conditioning. 
+
+5.3 2D Helmholtz: parametric-coefficient regime 
+
+We extend the Helmholtz experiment to the unit square: 
+
+∆u + k2u = f (x, y ; k), (x, y ) ∈ [0 , 1] 2,
+
+with homogeneous Dirichlet boundary conditions and manufactured solution 
+
+u(x, y ; k) = sin( πx ) sin( πy ) cos( kx ) cos( ky ).
+
+The same LC-PINN architecture conditions on the normalized wavenumber k, while the baselines are retrained separately for each training value of k.The 2D problem has a richer solution structure, with boundary nodal lines and tensor-product oscillations in both spatial directions. Nevertheless, the same LC-PINN construction transfers without modification. It reaches average rel-L2 ≈ 2.4 × 10 −2, outperforming SA-PINN by approximately 3.3× and ReLoBRaLo by approximately 4.8×.
+
+5.4 3D Helmholtz: parametric-coefficient regime 
+
+Finally, we consider 3D Helmholtz on the unit cube, 
+
+∆u + k2u = f (x, y, z ; k), (x, y, z ) ∈ [0 , 1] 3,
+
+9Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Table 5: 3D Helmholtz on the unit cube, rel-L2 averaged across k ∈ { 1, 3, 5}. LC-PINN is one trained network evaluated at each k; baselines are retrained separately for each k.                             
+
+> Method rel-L2(mean ±std) wall time LC-PINN (FiLM+L-BFGS, one network) 1.67 ×10 −2±1.97 ×10 −3228.9 min/seed SA-PINN (per-k, 3 retrainings) 6.97 ×10 −2±2.47 ×10 −35.7 min/ k
+> ReLoBRaLo (per-k, 3 retrainings) 1.03 ×10 −1±7.82 ×10 −311.9 min/ k
+
+Table 6: Burgers, rel-L2 at the test initial condition − sin( πx ). LC-PINN reports K = 100 -shot averaging across loss weights; baselines are single-shot at their learned or self-adapted weighting.                                               
+
+> Method rel-L2(mean ±std) wall time / seed LC-PINN ( K= 100 )3.47 ×10 −3±2.73 ×10 −324.8 min Causal-PINN 2.21 ×10 −3±6.72 ×10 −47.1 min SA-PINN 1.68 ×10 −1±3.87 ×10 −24.6 min ReLoBRaLo 1.82 ×10 −1±1.71 ×10 −25.4 min FNO (operator) 5.37 ×10 −1±1.89 ×10 −18.0 min
+
+with homogeneous Dirichlet boundary conditions and tensor-product manufactured solution 
+
+u(x, y, z ; k) = Y
+
+> q∈{ x,y,z }
+
+sin( πq ) cos( kq ).
+
+The evaluation grid is k ∈ { 1, 3, 5}; the high-k regime becomes substantially harder in 3D because oscillatory complexity increases in all spatial directions. LC-PINN again remains the strongest method on the grid mean, improving over SA-PINN by approximately 4.2× and over ReLoBRaLo by approximately 6.2×. This confirms that the parametric conditioning approach extends from 1D to 2D and 3D without changing the core method. 
+
+5.5 Loss-weight regime: Burgers and Buckley–Leverett 
+
+We now turn to loss-weight conditioning, where λ ∈ ∆3 parameterizes the relative weights of the PINN loss components. In this regime, FiLM modulation and L-BFGS refinement do not improve stability; we therefore use the simpler concat+Adam configuration following Dosovitskiy and Djolonga [1] . Table 6 reports rel-L2 error on viscous Burgers with ν = 0 .01 /π , initial condition u(0 , x ) = − sin( πx ), and final time t = 1 .LC-PINN matches the strongest single-shot baseline, Causal-PINN, within a factor of two and outperforms SA-PINN and ReLoBRaLo by more than an order of magnitude. Its main advantage is amortisation: once trained, the same network produces predictions for arbitrary loss weights. The amortisation factor A(K) = K T base /T LC breaks even at 
+
+K⋆ ≈ 3.5–5.4 and reaches roughly 19 –29 × at K = 100 .On viscous Buckley–Leverett with ε = 10 −2 (Table 7), ReLoBRaLo is approximately 2× more accurate than LC-PINN at a single weighting, while SA-PINN fails to converge below rel-L2 ≈ 0.5. In the zero-viscosity formulation, all PINN-family methods saturate near this error level. We state this plainly: on the smooth, viscous regime where surrogate methods actually work, LC-PINN is competitive (within a factor of two) but not the best single-shot method, and the strongest per-instance method—ReLoBRaLo here, Causal-PINN on Burgers—remains a different one. We include Buckley–Leverett not to claim a porous-media state of the art but as evidence that the loss-conditional construction extends to that application regime in principle; the contribution is amortisation across the weight family, not per-weighting accuracy. 
+
+5.6 Amortisation crossover across families 
+
+The value of LC-PINN is amortisation, so we make the trade-off quantitative for every family using the per-method wall times already reported above (no new experiments). Let TLC be the cost of the single LC-PINN training and Tbase 
+
+the cost of retraining the strongest per-instance baseline once. LC-PINN’s one network is cheaper than a sweep as soon as the number of instances exceeds the break-even count K⋆ = TLC /T base (Table 8). The picture is deliberately not uniformly favourable: where a single retraining is cheap (Schr ¨odinger, 0.8 min) the break-even is high and LC-PINN only repays its cost for large sweeps, whereas in the regimes where per-instance PINN 10 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Table 7: Viscous-regularized Buckley–Leverett ( ε = 10 −2), rel-L2 at the test snapshots. The reference is produced by an in-house finite-volume solver and used only for evaluation. LC-PINN reports K = 25 -shot averaging over loss weights; baselines are single-shot.                           
+
+> Method rel-L2(mean ±std) LC-PINN ( K= 25 )1.03 ×10 −2±1.30 ×10 −3
+> SA-PINN 4.60 ×10 −1±6.74 ×10 −2
+> ReLoBRaLo 5.09 ×10 −3±7.79 ×10 −4
+
+Table 8: Amortisation break-even K⋆: the number of parameter instances at which one LC-PINN training equals the cumulative cost of retraining the strongest per-instance baseline. LC-PINN is favourable above K⋆. It pays off quickly when per-instance retraining is expensive (high-dimensional Helmholtz) and only for large sweeps when it is cheap (Schr¨ odinger).                        
+
+> Family TLC strongest baseline K⋆
+> Burgers (loss-weight) 24.8 min Causal-PINN 7.1 min ≈3.5
+> Helmholtz 1D 65.9 min ReLoBRaLo 7.9 min/ k≈8.3
+> Helmholtz 2D 85.9 min ReLoBRaLo 5.6 min/ k≈15
+> Helmholtz 3D 228.9 min ReLoBRaLo 11.9 min/ k≈19
+> Schr¨ odinger 46.6 min SA-PINN 0.8 min/ α≈58
+
+training is genuinely expensive—the loss-weight sweep and the higher-dimensional Helmholtz families—the crossover is reached at a handful to a few tens of instances, well within a typical parameter study. 
+
+5.7 Ablations 
+
+We perform three ablations on Burgers; full results are reported in Section C. First, increasing the number of evaluation samples K has little effect: K-shot averaging remains stable across K ∈ { 25 , . . . , 400 } at approximately 3.5 × 10 −3.Second, the number of parameter samples per optimization step is non-monotone, with the best performance at nλ = 4 .Third, replacing uniform sampling of λ with a log-uniform distribution degrades performance by approximately 14 ×,highlighting the importance of finite-budget coverage of the loss-weight space. 
+
+# 6 Discussion 
+
+We introduced LC-PINN, a loss-conditional physics-informed neural network that treats loss weights and PDE parameters as conditioning variables rather than fixed hyperparameters. Instead of searching for a single optimal weighting configuration, LC-PINN learns a continuous family of solutions indexed by λ. This rethinks loss balancing in PINNs: rather than tuning one scalarization of a multi-objective objective, the network is trained across the entire loss-weight space. Empirically, LC-PINN produces more coherent behaviour across parameter families than conventional per-configuration retraining. In the parametric-coefficient regime, FiLM-conditioned LC-PINNs achieve stable accuracy across Helmholtz and Schr ¨odinger families while avoiding the strong variability observed in per-k retrained baselines. In the loss-weight regime, a single LC-PINN approaches the performance of adaptive-weight PINNs while amortizing training across the full family of loss weights. The local analysis in Section 4 suggests that conditioning improves optimization geometry by introducing additional descent directions in parameter space. Conceptually, LC-PINN occupies an intermediate position between classical PINNs and operator-learning methods. Like neural operators, it amortizes computation across PDE families, but unlike operator-learning approaches it remains fully residual-based and does not require solver-generated paired datasets. The current formulation nevertheless becomes more difficult in regimes with shocks, bifurcations, or highly oscillatory solutions, where jointly approximating the full parameter family is challenging. Future work includes adaptive sampling strategies and extensions to inverse and multi-physics problems. Overall, the results suggest that conditioning on loss geometry and PDE parameters can transform PINNs from single-instance solvers into amortized parametric surrogate models. 11 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+# References 
+
+[1] A. Dosovitskiy and J. Djolonga. You only train once: loss-conditional training of deep networks. In International Conference on Learning Representations (ICLR) , 2020. [2] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. [3] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. [4] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3):218–229, 2021. [5] Christopher J. Arthurs and Andrew P. King. Active training of physics-informed neural networks to aggregate and interpolate parametric solutions to the Navier–Stokes equations. Journal of Computational Physics , 438:110364, 2021. [6] L. McClenny and U. Braga-Neto. Self-adaptive physics-informed neural networks using a soft attention mechanism. 
+
+arXiv preprint arXiv:2009.04544 , 2020. [7] R. Bischof and M. A. Kraus. Multi-objective loss balancing for physics-informed deep learning. arXiv preprint arXiv:2110.09813 , 2021. [8] S. Wang, S. Sankaran, and P. Perdikaris. Respecting causality for training physics-informed neural networks. 
+
+Computer Methods in Applied Mechanics and Engineering , 421:116813, 2024. [9] S. Wang, H. Wang, and P. Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed deeponets. Science Advances , 7(40):eabi8605, 2021. [10] D. Ha, A. Dai, and Q. V. Le. Hypernetworks. In International Conference on Learning Representations (ICLR) ,2017. [11] C. Finn, P. Abbeel, and S. Levine. Model-agnostic meta-learning for fast adaptation of deep networks. In 
+
+International Conference on Machine Learning (ICML) , 2017. [12] X. Liu, X. Zhang, W. Peng, W. Zhou, and W. Yao. A novel meta-learning initialization method for physics-informed neural networks. Neural Computing and Applications , 34:14511–14534, 2022. [13] K. Hornik. Approximation capabilities of multilayer feedforward networks. Neural Networks , 4(2):251–257, 1991. [14] A. Pinkus. Approximation theory of the MLP model in neural networks. Acta Numerica , 8:143–195, 1999. [15] E. Perez, F. Strub, H. de Vries, V. Dumoulin, and A. Courville. FiLM: Visual reasoning with a general conditioning layer. In AAAI Conference on Artificial Intelligence (AAAI) , 2018. 12 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+# A Derivation of the local loss-decay result 
+
+This appendix provides the details behind Theorem 4.1. The goal is not to give a global optimization guarantee, but to formalize a local mechanism by which loss-conditioning can improve the instantaneous decay of a weighted PINN loss near a common optimum. 
+
+A.1 Local quadratic model for multi-objective PINN losses 
+
+A PINN objective is typically a weighted combination of several nonnegative loss components: 
+
+Lλ(θ) = 
+
+> m
+
+X
+
+> i=1
+
+λiLi(θ), λi ≥ 0.
+
+The components may correspond to the PDE residual, boundary conditions, initial conditions, and data mismatch. In the well-specified case, there exists a common solution θ⋆ such that 
+
+Li(θ⋆) = 0 , i = 1 , . . . , m. 
+
+Therefore, all positive scalarizations share the same global zero-loss solution. Near θ⋆, we approximate each component by its second-order Taylor expansion. Since θ⋆ is a local minimizer of each nonnegative loss component, the first-order term vanishes. Thus, locally, 
+
+Li(θ) = 12 (θ − θ⋆)⊤Hi(θ − θ⋆), Hi ⪰ 0.
+
+The weighted loss is then 
+
+Lλ(θ) = 
+
+> m
+
+X
+
+> i=1
+
+λiLi(θ) = 12 (θ − θ⋆)⊤Hλ(θ − θ⋆),
+
+where 
+
+Hλ =
+
+> m
+
+X
+
+> i=1
+
+λiHi.
+
+Thus, choosing the loss weights is equivalent, locally, to choosing the effective Hessian Hλ seen by the optimizer. For the regular PINN parameterization, the gradient flow is 
+
+˙θ(t) = −∇ θ Lλ(θ(t)) = −Hλ(θ(t) − θ⋆).
+
+If Hλ ≻ 0, then 
+
+Lλ(θ(t)) ≤ e−2λmin (Hλ)tLλ(θ(0)) .
+
+Hence, the local convergence rate is controlled by the smallest eigenvalue of Hλ. If Hλ is nearly singular, convergence can be slow in weakly controlled directions. 
+
+A.2 Effective parameters induced by loss-conditioning 
+
+We now describe the local parameterization induced by conditioning the network on the loss-weight vector λ.Let θ ∈ Rp denote the parameters of the original PINN, and let η ∈ Rq denote the additional trainable parameters introduced by the conditional architecture. For example, if the first layer of a standard PINN is 
+
+z1 = Wxx + b, 
+
+then concatenating λ to the input gives 
+
+z1 = Wxx + Wλλ + b. 
+
+For fixed λ, the term Wλλ acts as a λ-dependent shift of the first-layer bias: 
+
+beff (λ) = b + Wλλ. 
+
+Thus, after freezing λ, the conditional network can be viewed locally as an ordinary PINN with λ-dependent effective parameters. More generally, we model this effect by 
+
+θeff (λ; θ, η ) = θ + B(λ, η ),
+
+13 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+where B is bilinear in the conditioning variable λ and in the additional trainable parameters η. Equivalently, there exist matrices 
+
+M1, . . . , M m ∈ Rp×q
+
+such that 
+
+B(λ, η ) = 
+
+> m
+
+X
+
+> j=1
+
+λj Mj η. 
+
+The dependence on λ is linear because the conditioning variables enter the network input linearly, while the dependence on η is linear because η represents the trainable weights connecting the conditioning variables to the network. Under this local model, the loss-conditional objective for fixed λ becomes 
+
+Lλ
+
+ θeff (λ; θ, η ) = 12
+
+ θ + B(λ, η ) − θ⋆⊤Hλ
+
+ θ + B(λ, η ) − θ⋆.
+
+If the training samples λ from a distribution p(λ), the corresponding expected local objective is 
+
+J (θ, η ) = Eλ∼p
+
+ 12
+
+ θ + B(λ, η ) − θ⋆⊤Hλ
+
+ θ + B(λ, η ) − θ⋆
+
+.
+
+The theorem in the main text studies the instantaneous loss decay for a fixed value of λ.
+
+A.3 Proof of Theorem 4.1 
+
+Fix λ and define the effective parameter 
+
+ϑ = θeff (λ; θ, η ) = θ + B(λ, η ).
+
+The local quadratic loss is 
+
+Lλ(ϑ) = 12 (ϑ − θ⋆)⊤Hλ(ϑ − θ⋆).
+
+Let 
+
+g = ∇ϑLλ(ϑ).
+
+Since the loss is quadratic, 
+
+g = Hλ(ϑ − θ⋆).
+
+Regular PINN. For the regular PINN, the effective parameter is simply 
+
+ϑ = θreg .
+
+The gradient-flow dynamics is ˙θreg = −g. 
+
+Therefore, ddt Lλ(θreg ) = g⊤ ˙θreg = −∥ g∥2.
+
+Hence, 
+
+− ddt Lλ(θreg ) = ∥g∥2.
+
+Loss-conditional PINN. For the loss-conditional PINN, 
+
+ϑ = θ + B(λ, η ).
+
+For fixed λ, the gradients with respect to the trainable variables θ and η are obtained by the chain rule: 
+
+∇θ Lλ = g, 
+
+because ∂ϑ/∂θ is the identity, and 
+
+∇η Lλ = Dη B(λ, η )⊤g. 
+
+The gradient-flow dynamics in the extended parameter space is therefore 
+
+˙θ = −g, ˙η = −Dη B(λ, η )⊤g. 
+
+14 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+The loss decay along this flow is 
+
+ddt Lλ
+
+ θ + B(λ, η ) = − ∥∇ θ Lλ∥2 − ∥∇ η Lλ∥2 .
+
+Substituting the expressions for the gradients gives 
+
+ddt Lλ
+
+ θ + B(λ, η ) = −∥ g∥2 − Dη B(λ, η )⊤g 2 .
+
+Therefore, 
+
+− ddt Lλ
+
+ θ + B(λ, η ) = ∥g∥2 + Dη B(λ, η )⊤g 2 .
+
+Since 
+
+− ddt Lλ(θreg ) = ∥g∥2,
+
+we obtain 
+
+− ddt Lλ
+
+ θ + B(λ, η ) = − ddt Lλ(θreg ) + Dη B(λ, η )⊤g 2 .
+
+This proves the claimed identity. Finally, since 
+
+g = Hλ(ϑ − θ⋆),
+
+we have 
+
+Dη B(λ, η )⊤g 2 = Dη B(λ, η )⊤Hλ(ϑ − θ⋆) 2 .
+
+If 
+
+B(λ, η ) = 
+
+> m
+
+X
+
+> j=1
+
+λj Mj η, 
+
+then 
+
+Dη B(λ, η ) = 
+
+> m
+
+X
+
+> j=1
+
+λj Mj .
+
+Hence the additional decay term becomes 
+
+
+
+> m
+
+X
+
+> j=1
+
+λj Mj
+
+
+
+> ⊤
+
+Hλ(ϑ − θ⋆)
+
+> 2
+
+.
+
+This completes the proof. 
+
+A.4 Interpretation 
+
+The result shows that, in the local quadratic regime, the conditional architecture has a larger instantaneous descent capacity than the regular PINN at the same effective parameter vector. The regular PINN can move only through the original parameter direction θ, whereas the loss-conditional PINN can additionally move through the conditional parameters η. These extra directions contribute the nonnegative term 
+
+Dη B(λ, η )⊤∇ϑLλ(ϑ) 2
+
+to the instantaneous loss-decay rate. This term vanishes only when the loss gradient is orthogonal to the subspace generated by the conditional parameters. Otherwise, the loss-conditional model decreases the same local quadratic loss strictly faster at the same effective point. The statement should be interpreted locally. It does not imply that loss-conditioning changes the global optimum: in the well-specified case, the common target remains θ⋆. Rather, the theorem shows that conditioning enriches the parameterization through which the optimizer approaches this optimum. This provides a possible explanation for the empirical observation that LC-PINN is less sensitive to a single poor loss-weight choice and can explore a family of loss-weight geometries during training. 15 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Table 9: LC-PINN collocation counts and step budgets per PDE family. PDE interior boundary initial Adam / L-BFGS Burgers 1024 200 200 50 k / 0
+
+BL (viscous) 1024 200 200 50 k / 0
+
+Helmholtz (1D) 1024 100 — 50 k / 1.5kHelmholtz (2D) 4096 400 — 25 k / 1.5kHelmholtz (3D) 8192 600 — 25 k / 1.5kSchr¨ odinger (1D) 1024 64 — 50 k / 1.5k
+
+A.5 Remark on discrete gradient descent 
+
+The theorem is stated for continuous-time gradient descent. For discrete gradient descent with step size α, the same comparison holds to first order in α. Indeed, for a smooth loss F , one step of gradient descent gives 
+
+F (z − α∇F (z)) = F (z) − α∥∇ F (z)∥2 + O(α2).
+
+Applying this expansion to the regular and loss-conditional parameterizations yields the same leading-order difference: 
+
+α Dη B(λ, η )⊤∇ϑLλ(ϑ) 2 + O(α2).
+
+Thus, for sufficiently small step sizes, the loss-conditional parameterization has a larger one-step decrease whenever the additional gradient component is nonzero. 
+
+# B Hyperparameters and training details 
+
+This appendix collects the hyperparameters used for every method in Section 5. All numbers are the configuration that generated the headline tables in Section 5. 
+
+Shared LC-PINN configuration. Network: 4-layer MLP, hidden widths [64 , 64 , 64 , 64] , tanh activations, Xavier initialisation. Conditioning route is mode-dependent: concat at the input layer for the loss-weight mode (Burgers, BL); FiLM [ 15 ] on every hidden layer followed by an L-BFGS finishing pass with a revert-on-worse safety check for the parametric-coefficient mode (Helmholtz, Schr ¨odinger). Optimiser: Adam, η = 10 −3, cosine-annealed to 10 −5 over the full budget, gradient clip 1.0. Mini-batch composition: nλ = 4 parameter samples per step, each with the per-equation collocation counts below. Backend: PyTorch 2.9 with the MPS device on a single Apple M4 Max. 
+
+Per-equation collocation and budgets. Table 9 lists the LC-PINN collocation counts and step budgets per PDE family. 
+
+Baseline configurations. All single-λ baselines share the LC-PINN backbone (same widths, activation, initialisation, and Adam schedule) so that the amortisation comparison is on equal architectural footing. • SA-PINN [ 6]: per-collocation-point trainable weight ascended on the residual; Adam phase 10 k iterations, then weights frozen and L-BFGS phase 5k iterations on the unweighted loss. • ReLoBRaLo [ 7 ]: 3-term loss-weight balancer (residual / boundary / initial) with softmax over log-loss-ratios, smoothed by EMA. Hyperparameters α = 0 .999 , τ = 0 .1, ρmean = 0 .999 .• Causal-PINN [8] : time-causal residual mask w(t) = exp( −ε R (< t )) with ε = 100 . Burgers and BL only. • PI-DeepONet [ 9]: branch–trunk architecture; branch encodes the wavenumber k via a 4-layer MLP (hidden width 128 ); trunk encodes the spatial coordinate x via a 4-layer MLP (hidden width 128 ). Final solution is the inner product of branch and trunk outputs. Loss is the Helmholtz residual on the same collocation grid as the per-k LC-PINN, summed over an nk-grid of branch inputs ( nk = 20 ). Adam phase 50 k iterations followed by L-BFGS phase 1.5k iterations with a revert-on-worse safety check; on 1D Helmholtz one seed (seed 1) diverged in L-BFGS and was reverted to the Adam-phase weights, reported as such in the 5-seed mean of Table 1. • FNO [ 3]: width 64 , 64 Fourier modes, 4 SpectralConv1d + Conv1d -shortcut blocks ( ∼ 1.07 M parameters). Optimiser: Adam, η = 10 −3, weight decay 10 −4, StepLR with step = epochs /5 and γ = 0 .5. Loss: per-sample rel-L2. Training set: 512 random Fourier initial conditions (truncated 6-mode spectrum, decaying amplitude) solved by the same Radau scheme used for the reference; 2000 epochs. 16 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Reference solutions. Burgers reference: Fourier-spectral spatial discretisation with a Radau IIA implicit time integrator, integrated to relative residual < 10 −6 on a 512 × 1001 space–time grid. Buckley–Leverett reference: explicit Lax–Friedrichs flux on nx = 1000 with centred-difference viscous regularisation, CFL-limited time stepping. Helmholtz 1D reference: closed-form manufactured solution u(x; k) = sin( πx ) cos( kx ) with the forcing f chosen to match. Helmholtz 2D reference: closed-form manufactured solution u(x, y ; k) = sin( πx ) sin( πy ) cos( kx ) cos( ky ).Letting a(x; k) = sin( πx ) cos( kx ) and b(y; k) = sin( πy ) cos( ky ), so u = a(x; k) b(y; k), the forcing 
+
+f (x, y ; k) = ∆ u+k2u = − 2π2+k2 u − 2πk cos( πx ) sin( kx ) sin( πy ) cos( ky )+sin( πx ) cos( kx ) cos( πy ) sin( ky )
+
+agrees with a centred-difference numerical Laplacian on the manufactured solution to absolute er-ror < 4 × 10 −6. Helmholtz 3D reference: closed-form manufactured solution u(x, y, z ; k) =sin( πx ) sin( πy ) sin( πz ) cos( kx ) cos( ky ) cos( kz ) on the unit cube, with the matching forcing f = ∆ u + k2u de-rived analytically; agreement to a centred-difference numerical Laplacian is < 10 −5 across k ∈ { 1, 3, 5}. Schr ¨odinger reference: with u(x; α) = sin( πx ) g(x; α), g(x; α) = e−α(x−1/2) 2/2, the forcing is 
+
+f (x; α) = −u′′ + V (x; α) u = ( π2 + α) u + 2 πα (x − 12 ) cos( πx ) g(x; α),
+
+which agrees with a centred-difference numerical residual to < 5×10 −6 across α ∈ { 0.5, 2, 5, 10 }.
+
+Evaluation grids. Burgers / BL test errors are computed on a 256 ×101 space–time grid; Helmholtz on a 1024 -point spatial grid. The K-shot averaged LC-PINN prediction is the mean of K forward passes at independent λ samples from 
+
+pλ; we use K = 100 for Burgers and K = 25 for BL in the headline tables. 
+
+Compute. Each run uses a single Apple M4 Max with the PyTorch MPS backend. Reported wall times are end-to-end per seed (model construction, training, and evaluation), measured with time.perf counter .
+
+Reproducibility. Random seeds: {0, 1, 2, 3} for the four headline replicates; {0, 1} for the 2-seed ablation budgets. Each seed controls the PyTorch global RNG and the NumPy RNG used to draw collocation points and λ-samples. The full training script, equation modules, and reference solvers are released with the camera-ready version. 
+
+# C Ablations: full protocol and numbers 
+
+K-shot averaging. Sweeping K ∈ { 25 , 50 , 100 , 200 , 400 } on the trained LC-PINN gives essentially constant rel-L2
+
+(3.51 ×10 −3 at K = 25 , 3.49 ×10 −3 at K = 100 , 3.49 ×10 −3 at K = 400 ; spread ±2.7×10 −3 stays roughly constant). At the optimum each λ-slice is already a residual minimiser (Proposition 1), so increasing K adds samples but no new information. 
+
+nλ per training step. At a matched 25k-epoch budget on Burgers (2 seeds), sweeping nλ ∈ { 1, 4, 16 } per step gives non-monotone behaviour: nλ = 1 → 1.69 ×10 −2, nλ = 4 → 1.22 ×10 −2, nλ = 16 → 1.50 ×10 −1. Too few λ per step makes the gradient estimate of the pλ-expectation noisy (Remark 3 / Hoeffding); too many concentrates compute into fewer optimisation steps and the network does not converge in the fixed budget. At the headline 50k-epoch budget we use nλ = 4 .
+
+Sampling distribution pλ. At matched 25k-epoch / nλ = 4 / 2-seed budget on Burgers, swapping pλ from uniform on the simplex to log-uniform gives rel-L2 of 1.22 ×10 −2 ± 5.14 ×10 −3 (uniform) versus 1.74 ×10 −1 ± 9.26 ×10 −3
+
+(log-uniform), a ∼ 14 × degradation. We read this not as a contradiction with Remark 2 (an asymptotic-optimum statement) but as a finite-budget effect: log-uniform places dominant mass on small loss weights, weakening the gradient signal at large λ values where the residual contributes most to the test-relevant slices. 
+
+# D FiLM does not help in loss-weight mode 
+
+In the parametric-coefficient mode (Helmholtz, Schr ¨odinger) FiLM modulation lifts the LC-PINN by an order of magnitude: on 1D Helmholtz, plain concat reaches rel-L2 ∼ 9 × 10 −3 on the same k-grid ( lc pinn helmholtz 
+
+runs), whereas FiLM +L-BFGS reaches 9.4×10 −4 (Table 1, ∼ 10 × tighter). In the loss-weight mode (Burgers) it regresses: a four-seed re-run of Burgers with FiLM +L-BFGS gave 5.7×10 −2 ± 5.5×10 −2, with two seeds at the concat baseline ( ∼ 3×10 −3) and two trapped near 10 −1. We read this as evidence that FiLM’s value lies in disentangling 
+
+operator -changing inputs from spatial coordinates; loss-weight inputs do not change the operator, so FiLM gates over a degree of freedom that does not exist. The headline Burgers and BL rows in Section 5.5 therefore use the simpler concat +Adam configuration of Dosovitskiy and Djolonga [1]. 17 Loss-Conditional PINNs for Parametric PDE Families A P REPRINT 
+
+Table 10: Per-α rel-L2 on 1D parametric Schr ¨odinger (mean ± std over 4 LC seeds and 2 SA seeds per α). Bold: best per row. 
+
+α SA-PINN (per-α) LC-PINN (one net) 
+
+0.5 (5.89 ±1.26 )×10 −5 (3 .69 ±3.23) ×10 −4
+
+5.0 (1 .07 ±1.05) ×10 −2 (7.50 ±4.25 )×10 −5
+
+10 .0 (9 .29 ±6.67) ×10 −4 (1.54 ±0.72 )×10 −4
+
+grid mean 3.89 ×10 −3 1.99 ×10 −4
+
+# E Per-parameter breakdowns 
+
+The per-α breakdown for 1D Schr ¨odinger (Section 5.2) is given in Table 10 and visualised in Figure 3. The two amortised methods (LC and DON) hold a flat ∼ 10 −4 curve across the entire α ∈ [0 .5, 10] range; the per-α SA-PINN baseline matches at α = 0 .5 and α = 10 but collapses by two orders of magnitude at the intermediate α = 5 .0 training point — the same incoherence pattern documented for Helmholtz in Section 5.1. 2 4 6 8 10 
+
+trap stiffness 
+
+10 6
+
+10 5
+
+10 4
+
+10 3
+
+10 2
+
+10 1 
+
+> rel-L2 (log)
+> LC-PINN (one network, 20-pt grid)
+> PI-DeepONet (one network)
+> SA-PINN (per-, 3 retrainings)
+
+Figure 3: Per-α rel-L2 on 1D parametric Schr ¨odinger. LC-PINN (blue, 4 seeds) and PI-DeepONet (purple, 4 seeds) cover the 20-point grid from one trained network each; SA-PINN (orange, 2 seeds) is three separate retrainings at 
+
+α ∈ { 0.5, 5.0, 10 .0}. Error bars are ±std on a log axis. 18

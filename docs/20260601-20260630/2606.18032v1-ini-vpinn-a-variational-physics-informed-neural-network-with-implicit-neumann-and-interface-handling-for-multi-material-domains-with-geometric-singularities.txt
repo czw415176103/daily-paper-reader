@@ -1,0 +1,902 @@
+Title: INI-VPINN: A Variational Physics-Informed Neural Network with Implicit Neumann and Interface Handling for Multi-Material Domains with Geometric Singularities
+
+URL Source: https://arxiv.org/pdf/2606.18032v1
+
+Published Time: Wed, 17 Jun 2026 01:25:10 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# INI-VPINN: A V ARIATIONAL PHYSICS -I NFORMED NEURAL 
+
+# NETWORK WITH IMPLICIT NEUMANN AND INTERFACE 
+
+# HANDLING FOR MULTI -M ATERIAL DOMAINS WITH GEOMETRIC 
+
+# SINGULARITIES 
+
+A P REPRINT 
+
+Shayan Dodge ∗
+
+DESTeC University of Pisa Pisa, Italy 
+
+shayan.dodge@ing.unipi.it 
+
+Alessandro Formisano 
+
+Department of Engineering University of Campania “Luigi Vanvitelli” Aversa, Italy 
+
+Alessandro.formisano@unicampania.it 
+
+Sami Barmada 
+
+DESTeC University of Pisa Pisa, Italy 
+
+sami.barmada@unipi.it 
+
+June 17, 2026 
+
+## ABSTRACT 
+
+We propose a new weak-form Physics-Informed Neural Network approach (named INI-VPINN). INI-VPINN naturally incorporates Neumann boundary and interface conditions into the variational formulation. It removes the need for additional loss terms or multiple subdomain networks. This framework employs compact support weighting functions and integration by parts to implicitly impose flux and continuity constraints. In this way, it implicitly ensures physical consistency across material boundaries. The proposed method is tested on Poisson and Laplace problems with sharp interfaces and complex geometries. Results show that, compared with several other Physics Informed Neural Networks-based formulations, the INI-VPINN consistently achieves higher accuracy, smoother and faster convergence. The proposed framework provides a general approach for solving multimaterial problems with complex geometries and mixed Neumann–Dirichlet boundary conditions using neural networks. The implementation is publicly available in a GitHub repository (version v0.1.0). 2
+
+Keywords Physics-Informed Neural Networks (PINNs) · Variational PINN (VPINN) · Petrov–Galerkin method ·
+
+Weak-form learning · Neumann and interface conditions · Multi-material domains · Geometric singularities 
+
+## 1 Introduction 
+
+Earlier developments in physics-guided neural network approaches for solving partial differential equations include the Deep Galerkin Method (DGM) Sirignano and Spiliopoulos [2018], which laid important groundwork for subsequent methods. Building on these ideas, Physics-Informed Neural Networks (PINNs) were proposed for the resolution of Partial Differential Equations (PDEs) by Raissi et al. Raissi et al. [2020]. PINNs are a class of machine learning models that embed governing equations directly into the training process instead of relying purely on data. Equations are usually considered in the form of an additional loss function component at the output layer. Thanks to several appealing features of this framework, it gained significant attention across a wide range of scientific and engineering fields, including: fluid mechanics and Navier–Stokes flows Raissi et al. [2020], heat transfer and thermal engineering Zhang et al. [2024], solid mechanics and inverse elastography Chen and Gu [2023], geophysics and seismology Bandai and Ghezzehei [2022], electromagnetics Barmada et al. [2025], Dodge et al. [2025], Barmada 
+
+> ∗
+
+Personal webpage: https://shayandodge.github.io/ . Correspondence: shayan.dodge@ing.unipi.it .
+
+> 2
+
+https://github.com/ShayanDodge/INI-VPINN 
+
+> arXiv:2606.18032v1 [math.NA] 16 Jun 2026
+
+INI-VPINN DODGE ET AL .
+
+et al. [2024] and photonics Chen and Dal Negro [2022], cardiac electrophysiology and biomedicine Zhao et al. [2025], and even finance for option pricing problems Dhiman and Hu [2023]. The key properties that contribute to the growing popularity of PINNs are: their mesh-free formulation , which makes them well-suited for irregular domains Raissi et al. [2019]; physics-guided learning that reduces, or completely removes, data requirements and improves extrapolation while maintaining physical consistency Karniadakis et al. [2021]; the lack of special discretization schemes , because it integrates boundary and initial conditions into the loss function Lu et al. [2021]; their potential for high-dimensional problems , mitigating the curse of dimensionality compared to classical solvers Sirignano and Spiliopoulos [2018], Yang et al. [2022]. Although PINNs have several notable strengths, they still face significant challenges, detailed as follows: • Interface handling: In multi-material problems with sharp interfaces, standard PINNs struggle to satisfy the interface conditions. Many variants of the PINNs are introduced to mitigate interface issues like extended PINN (XPINN) Jagtap and Karniadakis [2020] with domain decomposition, interface PINNs (I-PINNs) Sarma et al. [2024] that combine domain decomposition with subdomain-specific activation functions, and conservative PINNs (cPINNs) Jagtap et al. [2020]. cPINNs still have limitations: they need one network per subdomain (thus increasing number of parameters and computational cost) and interface conditions are enforced via additional loss terms (making training sensitive to sampling density in the interface and to the associated loss weights). • Balancing multiple loss terms: In most of the problems in which PINNs are used, the need to enforce simultaneously PDE residuals, boundary (BC), initial (IC), and interface conditions arises. The multi-part loss often includes several terms with widely varying magnitudes, so that dominant ones frequently drown out the effect of smaller components in the total loss during the training Wang et al. [2022]. To mitigate this imbalance in convergence of different loss terms many solutions have been introduced, e.g. a new gradient descent algorithm using the eigenvalues of the Neural Tangent Kernel (NTK) to rescale and balance the convergence rates of different loss components Wang et al. [2022] or a Self-adaptive point-wise weighting 
+
+learing a nonnegative weight per training point (IC/BC/residual) to balance the role of other terms in loss function McClenny and Braga-Neto [2023]. Although these strategies reduce sensitivity to hand-tuned loss weights, they often introduce more complexity and significant computational overhead. As a matter of fact, NTK-based methods require costly eigenvalue computations while self-adaptive schemes require learning many additional parameters. In addition, the risk of instability or bias is high since they do not guarantee global balance throughout training and dominant terms may still re-emerge as the solution evolves, leading to instabilities or slow convergence. Finally, such methods are often characterized by the correct training dynamics, but they do not fundamentally enhance the capacity of the neural network to resolve discontinuities or heterogeneous material discontinuities. • Complex geometries: Despite being mesh-free, PINNs still face challenges in irregular or multiscale domains, particularly those with sharp corners (singularities), where point sampling and BCs enforcement are non-trivial tasks. The most powerful approach to handle singularities is Variational PINNs with domain decomposition (hp-VPINN) Kharazmi et al. [2021]. To address the above mentioned limitations of PINNs, several studies have proposed alternative approaches that impose the PDE in a weak form rather than a strong form. The Deep Energy Method (DEM) Samaniego et al. [2020] introduced the idea of directly minimising the total energy function, thereby reducing numerical instabilities by avoiding high-order derivatives. Building on this perspective, Kharazmi et al. Kharazmi et al. [2019] proposed Variational Physics-Informed Neural Networks (VPINNs) as a Petrov-Galerkin extension of PINNs. VPINNs, unlike strong-form PINNs, enforce the weak formulation by projecting the residual onto global test functions and integrating over the entire domain. In parallel, Khodayi-Mehr et al. Khodayi-Mehr and Zavlanos [2020] extended the idea in VarNet by employing locally supported, FE-like test functions for improved adaptivity; however, its accuracy depends on the chosen support size, and it lacks systematic refinement strategies. Other researchers have further generalized the weak enforcement principle; for instance, Weak Adversarial Networks (WANs) Zang et al. [2020] cast the problem as a min–max game between a solution network and an adversarial test network. In this framework, the solution network attempts to minimize the weak form error by predicting a more precise solution. In contrast, the adversarial test network aims to maximize it by changing the test function. Finally, the Weak Form Theory-Guided Neural Network (TgNN-wf) Xu et al. [2021] combined weak forms with theory-guided test functions and adaptive weight balancing. Later developments focused on enhancing efficiency and flexibility. The hp-Variational Physics-Informed Neural Network (hp-VPINN) Kharazmi et al. [2021] builds on the VPINN framework by combining variational loss enforcement with domain decomposition and bringing in the classical hp-refinement strategy from finite element methods to handle 2INI-VPINN DODGE ET AL .
+
+Table 1: Comparison of variational PINN frameworks.                  
+
+> Method Main Idea Limitation DEM Samaniego et al. [2020] Minimizes total energy functional. Only applicable when energy form ex-ists.
+> VPINN Kharazmi et al. [2019] Weak (Petrov–Galerkin) form with global weighting functions. Global basis limits adaptivity in com-plex domains.
+> VarNet Khodayi-Mehr and Zavlanos [2020] Compact FE-like test functions. Accuracy depends on patch size; no refinement rule.
+> WAN Zang et al. [2020] Min–max weak form with adversarial test network. Costly optimization.
+> hp-VPINN Kharazmi et al. [2021] Domain decomposition with hp -refinement for singularities. Unable to implicitly handle Neumann and interface conditions.
+> cv-PINN Liu and Wu [2023] Converts variational residuals to convolu-tions for GPU parallelism. Less flexible for irregular geometries.
+> RVPINN Rojas et al. [2024] Uses minimum-residual principle to find most efficient weighting function. More expensive functional evaluation.
+> INI-VPINN (ours) Implicit Neumann and interface enforce-ment via local integration; accurate for multi-material domains. Slightly higher implementation com-plexity.
+
+singularities and discontinuities. Convolutional Variational PINN (cv-PINNs) Liu and Wu [2023] accelerated this process by embedding variational operations into convolutional filters. Additional variants targeted specific challenges, such as: imposing Dirichlet boundary conditions using Approximate Distance Function (ADF) strategies and a weak imposition via Nitsche’s method Berrone et al. [2023]; efficient handling of complex geometries in the Meshfree VPINN (MF-VPINN) Berrone and Pintore [2024] which employed locally supported patch-based test functions that avoided the need for a global mesh. More recently the Robust VPINNs (RVPINNs) Rojas et al. [2024] reformulated the loss function using the minimum-residual principle, making the method less sensitive to the choice of test functions. Overall, these advances demonstrate a clear evolution in PINN, with a significant focus on variational approaches that offer improved convergence behaviour, flexibility, and robustness. Despite the substantial progress made by weak-form extensions of PINNs that alleviate many limitations of strong–form PINNs, they still leave two key issues largely unresolved: (i) the efficient enforcement of Neumann boundary conditions within the weak formulation, and (ii) the intrinsic enforcement of interface conditions in heterogeneous media. These open issues motivated us to develop the Implicit Neumann and Interface VPINN (INI-VPINN), a framework that extends weak-form PINNs by naturally embedding Neumann boundary conditions and interface conditions into the variational residual. In this way, our approach avoids the need for ad-hoc penalty terms or separate subdomain networks. To ease reading, Table 1 reports a brief comparison of the different methods discussed here. The main aim of this paper is then to demonstrate the ability of INI-VPINN in handling mixed boundary conditions — particularly Neumann ones — and non-homogeneous cases. Section II introduces the INI-VPINN formulation and shows how Neumann and interface conditions are embedded in the variational residual. Section III describes the numerical implementation: compact-support test families, element-wise assembly. Section IV describes the neural network architecture and the training loss functions. Section V reports results on benchmarks (L- and T-shaped domains) and multi-material tests (nested square and circular inclusions), as well as a Poisson case with a compact source, with comparisons to vanilla PINN, VPINN with explicit Neumann enforcement, and cPINN. The paper concludes with a discussion of strengths, limitations, and future directions. 
+
+## 2 Formulation of the INI-VPINN 
+
+Let us consider an elliptic boundary-value problem described by the Poisson equation with spatially varying material properties on a domain Ω ⊂ R2, with the boundary ∂Ω decomposed into Dirichlet and Neumann parts, ∂Ω = Γ D ∪ ΓN :3INI-VPINN DODGE ET AL .
+
+
+
+− ∇ ·  κ(x)∇u(x) = f (x), ∀x ∈ Ω,u = gD , on ΓD ,∂nu = gN , on ΓN .
+
+(1) Here, u(x) is an unknown potential function, f (x) is the source term function, κ(x) > 0 describes the space dependency of the material property, and gD and gN specify the Dirichlet and Neumann boundary conditions, respectively. The unknown function u(x) must be sought in a Sobolev space W m, 2(Ω) , with m ≥ 2.Starting from (1) we derive the weak formulation by multiplying the Poisson equation times a weighting function v(x)
+
+and integrating over the domain Ω. This results in: 
+
+Z
+
+> Ω
+
+  − ∇· (κ(x)∇u) v(x) dΩ = 
+
+Z
+
+> Ω
+
+f (x) v dΩ . (2) The selection of the specific weighting functions v(x) and their support is crucial for the accuracy and computational efficiency of the method. This will be discussed later in the paper. After applying Green’s identity on the whole domain and splitting the boundary integral according to ∂Ω = Γ D ∪ ΓN , we obtain 
+
+Z
+
+> Ω
+
+κ(x)∇u · ∇ v dΩ −
+
+Z
+
+> ΓD
+
+κ(x)∂nu v dΣ −
+
+Z
+
+> ΓN
+
+κ(x)∂nu v dΣ = 
+
+Z
+
+> Ω
+
+f v dΩ . (3) Equation (3) allows to relax the condition on the weak derivative requirement, so u(x) can be sought in the Sobolev space W m−1,2(Ω) .As shown in equation (3) , two boundary integrals appear: one over the Dirichlet boundary ΓD and another one over the Neumann boundary ΓN .To avoid calculating normal derivatives of the potential function (∂nu) on the Dirichlet boundary ΓD , the weighting functions are chosen such that they belong to W m−1,20 (Ω) when their support includes ΓD . On the contrary, when their support does include ΓN the WF can be chosen in W m−1,2(Ω) . This eliminates the boundary integral associated with 
+
+ΓD , i.e. 
+
+Z
+
+> ΓD
+
+κ(x)∂nu v dΣ = 0 (4) and ∂nu does not need to be evaluated on ΓD . At the same time, the Neumann BCs can be directly imposed in the weak form: in order to do so, the weighting functions are chosen not to vanish on ΓN . In this way 
+
+Z
+
+> ΓN
+
+κ(x)∂nu v dΣ ̸ = 0 (5) and the Neumann condition ∂nu = gN be enforced "naturally" through the boundary integral. Thus, we obtain 
+
+Z
+
+> Ω
+
+κ(x)∇u · ∇ v dΩ −
+
+Z
+
+> Ω
+
+f v dΩ = 
+
+Z
+
+> ΓN
+
+κ(x)gN v dΣ , ∀v ∈ W m−1,2(Ω) ,u = gD , v = 0 , on ΓD ,∂nu = gN , v̸ = 0 , on ΓN .
+
+(6) Note that the weak formulation (6) not only handles the Neumann BC implicitly, but it is also capable of accommodating material discontinuities without the explicit enforcement of interface conditions. Many numerical methods for the solution of PDEs are based on domain discretization, and often the single component of this discretization is called element ; on the contrary in methods based on the projection on basis functions (for instance the meshless methods Patel and Rachchh [2020]) no discretization of the domain is performed. In these cases the functions on which the solution is projected do not necessarily have compact support. 4INI-VPINN DODGE ET AL .
+
+The weighting functions considered for IVI-PINN indeed have compact support as it will be shown later. As a consequence defining a set of weighting functions that achieve full coverage of the domain is equivalent to discretize the geometrical domain into a set of elements (using the common nomenclature of many classical numerical methods), each of them coincident with the support of the weighting functions. Consequently, from now on we will use the word element for each Vk (k = 1 , . . . , N ) in which the domain Ω is discretized; for each element, a corresponding test function (or a set of them, as it will be shown later) vk is defined. The weak form can then be written in an element-wise representation: 
+
+> N
+
+X
+
+> k=1
+
+Z
+
+> Vk
+
+κ(x)∇u · ∇ vk dΩ −
+
+> N
+
+X
+
+> k=1
+
+Z
+
+> Vk
+
+f v k dΩ = 
+
+> NΓ
+
+X
+
+> h=1
+
+Z
+
+> ΓN
+
+κ(x)gN vh dΣ (7) in which NΓ is the number of elements having a common side with the boundaries characterized by Neumann conditions (Γ N ); obviously NΓ < N and (7) must hold ∀vk ∈ W m−1,2(Ω) . This localized formulation (7) improves the convergence behaviour and provides better resolution of local features such as material discontinuities, sharp gradients, or corner singularities, as it will be shown later. 
+
+## 3 Numerical Implementation 
+
+3.1 Weighting functions families 
+
+The selection of weighting functions in the VPINN framework is not unique and depends on the specific problem. Early studies on VPINN and hp-VPINN formulations Kharazmi et al. [2019], Kharazmi et al. [2021] highlighted the flexibility of the approach, allowing for polynomial, trigonometric, and locally supported functions. Standard VPINNs Kharazmi et al. [2019] typically use orthogonal polynomial bases, while hp-VPINNs Kharazmi et al. [2021] introduce element-wise weighting functions through domain decomposition. The aim in this case is enhancing performance in problems with localized features or singularities. Our previous work on weak-form PINNs Barmada et al. [2025] further demonstrated that the choice of weighting functions significantly affects accuracy, convergence, and boundary-condition treatment. Different families, such as Gaussian and compactly supported functions, show distinct behaviors regarding localization and interaction with domain boundaries. In the INI-VPINN framework, different families of compact support weighting functions are available. For the sake of exposition, we describe below the three different families that we employed in the treatment of the benchmark problems reported here. Each of them is characterized by an oscillatory behavior determined by its rank n, higher ranks corresponding to higher spatial frequencies, which can be adjusted according to the complexity of the problem. In the remaining part of this section, for the sake of clarity and illustration, the 1D counterparts of the weighting functions used in Sect. 5 are described. Weighting functions are easily generalized to higher dimensional spaces by tensor product, as described below. • Odd cosine modes: For a general domain x ∈ [a, b ], the odd cosine weighting functions are defined by 
+
+v(cos)  
+
+> n
+
+(x) = cos 
+
+ (2 n − 1) π
+
+2
+
+x − ab − a
+
+
+
+, n = 1 , 2, . . . (8) These functions correspond to cosines whose wave number is an odd multiple of π; in Figure 1(a) they are shown in the case of [a, b ] = [0 , 1] . By construction, v(cos)  
+
+> n
+
+(a) = +1 for all n and v(cos)  
+
+> n
+
+(b) = 0 for all n, and the spatial frequency increases with the rank. • Odd sine modes: For a general domain x ∈ [a, b ], the odd sine weighting functions are defined by 
+
+v(sin)  
+
+> n
+
+(x) = ( −1) n sin 
+
+ (2 n − 1) π
+
+2
+
+x − ab − a
+
+
+
+, n = 1 , 2, . . . (9) These functions correspond to sines whose wave number is an odd multiple of π; in Figure 1(b) they are shown in the case of [a, b ] = [0 , 1] . The factor (−1) n ensures that v(sin)  
+
+> n
+
+(b) = +1 for all n, and v(sin)  
+
+> n
+
+(a) = 0 for all 
+
+n, so the family shares a consistent endpoint normalization. They complement the cosine modes, forming an odd-harmonic trigonometric basis. • Jacobian modes (Difference of Legendre polynomials): Let Pn(x) denote the Legendre polynomial of degree n defined on [a, b ]. Guo et al. [2006] The Jacobi-type difference functions are defined by 5INI-VPINN DODGE ET AL .1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00                              
+
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> vn(x)
+> (a)
+> Odd cosines
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> (b)
+> Odd sines
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+> x
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> vn(x)
+> (c)
+> Jacobi (Legendre): Pn+ 1 (x)Pn1(x)
+> n= 1 n= 2 n= 3 n= 4 n= 5
+
+Figure 1: Test function families: (a) odd cosines, (b) odd sines, and (c) Jacobi difference modes, shown for ranks 
+
+n = 1 , . . . , 5.
+
+v(Jac)  
+
+> n
+
+(x) = Pn+1 (x) − Pn−1(x), n = 1 , 2, . . . (10) These functions are differences of consecutive Legendre polynomials. They retain orthogonality properties from the Jacobi family and produce polynomial-type oscillations whose complexity increases with n. The Jacobi functions are shown in Figure 1(c). A key feature of these functions is that their values vanish at the domain boundaries, i.e., v(Jac)  
+
+> n
+
+(a) = 0 and v(Jac)  
+
+> n
+
+(b) = 0 .
+
+3.2 Selection of the weighting functions 
+
+Since the domain is divided into several non-overlapping elements, as explained before, the proper weighting functions must be chosen for each element among the three families introduced before; this choice is not trivial and is, on the contrary, fundamental for the accuracy of the solution. In the INI-VPINN framework, a few key principles govern the choice of weighting functions, based on the boundary and interface conditions at each element. The first guideline is that for interior elements (i.e., those that do not touch the global boundaries), Jacobian functions are the best-suited option, since they vanish at both endpoints, making them consistent at interfaces, avoiding spurious boundary residuals, and providing stable convergence. Another guideline is for elements with a boundary in common with the domain boundary Γ: if the boundary condition is of the Neumann type, one should select between odd cosine and odd sine functions depending on the location of the Neumann boundary, choosing the family that does not vanish on that boundary section. 6INI-VPINN DODGE ET AL .1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00             
+
+> x
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> vn(x)
+> Odd cosines Jacobi Jacobi Jacobi
+> n= 1 n= 2 n= 3 n= 4 n= 5
+
+Figure 2: Arrangement of test functions over a 1D domain: Odd cosine modes combined with Jacobi functions for Neumann-Dirichlet boundaries. Each family is shown for ranks n = 1 –5.For Dirichlet boundaries, Jacobi functions or odd sine or cosines, depending on the point where the condition must be enforced, can be used to enforce vanishing value condition. By setting the test functions v equal to zero on Dirichlet boundaries, we avoid computing the boundary integrals in (6) involving the normal derivative of u. However, this choice does not prescribe the actual value of u on the boundary. The enforcement of u = 0 (homogeneous case) or 
+
+u = gd̸ = 0 (non-homogeneous case) must still be treated explicitly, e.g., via a lifting function or explicitly enforcing the boundary condition. In order to show what explained before for a simple 1D configuration, in Figure 2 the computational domain is divided into four non-overlapping elements; this is the case when one endpoint is characterized by Dirichlet type BC and the other one characterized by Neumann type BC. As in in Figure 2, a combination of odd cosine modes (which satisfy 
+
+v(cos)  
+
+> n
+
+(a) = +1 at the Neumann side) and Jacobi modes is employed. Here, the truncation index n denotes the number of basis functions retained in the approximation. In general n is chosen large enough to achieve the desired accuracy. From the Petrov–Galerkin perspective, the truncation index n plays the role of p in the hp -framework: increasing n corresponds to p-refinement, while subdividing the domain corresponds to 
+
+h-refinement. In the case of a 2D problem, the domain is partitioned into N smaller rectangular elements, indexed by k = 1 , . . . , N ,as illustrated in Figure 3. For each element, the type of weighting function (Jacobi, odd cosines, or odd sines) is selected based on its location. Independent choices are made for the x- and y-directions, with ranks n = 1 , . . . , N x
+
+and m = 1 , . . . , N y , respectively. Consequently, each element is associated with a total of N x × N y tensor-product between suited 1D weighting functions. Let v(x) 
+
+> k,n
+
+and v(y) 
+
+> k,m
+
+denote the 1D test functions on element k in the x- and 
+
+y-directions, respectively. The corresponding tensor-product is defined as 
+
+v(x,y )
+
+> k,nm
+
+(x, y ) = vxk,n (x) vyk,m (y). (11) Also in the 2D case the truncation indexes m, n denotes the number of basis functions retained in the approximation. The INI-VPINN framework is not limited to the 2D problems; its extension to higher dimensions is achieved by extending the tensor product of the weighting functions (11) by adding additional terms. However, the computational burden for the construction of the tensor product and for the evaluation of the weak form on the 3D grid of points still needs further investigation. 
+
+3.3 Implicit Enforcement of Interface Conditions 3.3.1 Sharp interface representation (Heaviside) 
+
+Let us expand the Poisson equation as: 
+
+∇· (κ∇u) = κ ∇2u + ∇κ · ∇ u, (12) and define ΓI as the interface between two different materials, respectively characterized by constants κ1 and κ2.7INI-VPINN DODGE ET AL .−1 0 1
+
+x 
+
+> −1
+> 0
+> 1
+> y
+> (a)
+
+ΓD
+
+ΓD  
+
+> ΓN
+> ΓN
+> C×J
+> C×J
+> C×J
+> C×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> S×J
+> S×J
+> S×J
+> S×J
+> −1 01
+
+x
+
+> (b)
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> vn, m(x, y)
+> m = 1
+
+n = 1 n = 3 
+
+Figure 3: Localized weighting function v(k)1,1 (x, y ) on a partitioned domain with mixed boundary conditions. These functions vanishes at the Dirichlet boundaries ( ΓD ) and are normalised to one at the Neumann boundaries ( ΓN ). Element labels indicate the chosen local basis type (J = Jacobi, C = odd cosine, S = odd sine). (a) m = 1 , n = 1 , (b 
+
+Figure 4: Definition of the local coordinate system at the interface between two media. Figure 4 shows the outline of an interface between two different materials: in each point P ∈ ΓI a local reference system (xn, x τ ) can be defined, whose axis are aligned with the normal versor ˆn and the tangential versor ˆτ respectively (the extension to 3D geometries is trivial). The most straightforward way to encode two different materials is to use the Heaviside step function. In terms of the coordinate systems described in Figure 4 it reads as H(xn); in this way the change in the material property at the interface ΓI can be expressed as 
+
+κ(xn) = κ1 + ( κ2 − κ1) H(xn),
+
+∇κ(xn) = ( κ2 − κ1) δD (xn) ˆ n, (13) By modeling κ as a step function, as illustrated in Figure 5(a), the material changes suddenly at the interface ΓI . In this case ∇κ behaves as a Dirac function, leading to numerical ill conditioning. To overcome this difficulty, the problem is reformulated by introducing explicit interface conditions expressed with respect to the unknown function u:
+
+[u]ΓI = 0 ,
+
+[κ ∂ nu]ΓI = 0 . (14) 8INI-VPINN DODGE ET AL .
+
+Figure 5: Material coefficient κ(x) represented by a sharp Heaviside step function (a,c) and a smooth tanh approxima-tion with smoothing parameter δ = 0 .01 (b,d). Panels (a,b) show the 1D case, while (c,d) illustrate the corresponding 2D extensions. Here, [ · ]ΓI denotes the variation across the interface. The first condition enforces continuity of the function u (often referred as potential function), while the second condition ensures conservation of the flux through ΓI . Together, they replace the singular term in the strong form and provide a well-posed formulation for inhomogeneous materials. In contrast, the weak form (7) does not require derivating κ, and therefore it remains well-defined also for non-homogeneous materials. Note that the weak form integration automatically satisfies the interface conditions of (14) .Thus, even though κ is discontinuous, the weak form enforces the correct interface conditions without requiring explicit penalty terms or additional constraints, and the discontinuity is handled implicitly in the integral evaluation. 
+
+3.3.2 Smooth interface representation (tanh) 
+
+In the strong form, to address the issue of singularities, the material discontinuity can be approximated by a smooth 
+
+tanh function 
+
+κ(xn) = κ1 + ( κ2 − κ1) T (xn), T (xn) = 12
+
+ 1 + tanh( xn/t ). (15) with the coordinate system being the same shown in Figure 4 and where t > 0 controls the thickness of the transition layer. 9INI-VPINN DODGE ET AL .
+
+Although the derivative of this function, ddx n T (xn) = 12t , sech 2(xn/t ), is smooth and κ remains differentiable everywhere, when t is chosen very small to model a sharp discontinuity, numerical issues persist, and the strong form remains difficult to handle. On the other hand, if the smooth version of κ is used inside the weak form, the PDE remains well-defined because no derivatives of κ appear explicitly, and the weak formulation automatically enforces the correct interface conditions. As 
+
+t → 0, the solution converges to the sharp-interface problem. In practice, choosing a small but finite t regularizes the discontinuity in a way that preserves the underlying physics while avoiding numerical difficulties. As illustrated in Figure 5(b) and (d), the tanh smoothing introduces a very narrow but essential transition layer across the interface. This aspect is relevant when actually training the IVI-PINN adopting algorithms based on Automatic Differentiation (AD), such as ADAM Kingma and Ba [2015]. As a matter of fact, using a smooth function to describe material discontinuities improves AD, since the gradients of κ remain smooth and bounded, ensuring well-behaved sensitivities during training. It also improves the accuracy of numerical integration: in the weak form, terms such as R 
+
+> Ω
+
+κ(x) ∇u · ∇ v dx are evaluated using quadrature rules (e.g., Gauss points). If κ is a sharp step function, the discontinuity may fall between quadrature points, so the jump is not captured correctly, leading to aliasing and sampling errors. By contrast, with a smoothed material coefficient κ, the integrand is continuous, so quadrature points sample a well-defined function and the computed integral remains accurate even if the points do not align with the interface. 
+
+## 4 Neural network and loss function 
+
+From now on we refer to 2D problem, in which the element-wise representation of the weak form (7) is considered for each element Ωk with Neumann boundary ΓkN and test functions v(x)
+
+> k,n
+
+(x) and v(y)
+
+> k,m
+
+(y). The corresponding bilinear form is obtained from the left-hand side of (7). 
+
+U (k) 
+
+> n,m
+
+=
+
+Z
+
+> Ωk
+
+κ(x, y ) ∂u (x, y )
+
+∂x ∂v (x)
+
+> k,n
+
+(x)
+
+∂x v(y)
+
+> k,m
+
+(y) + ∂u (x, y )
+
+∂y v(x)
+
+> k,n
+
+(x) ∂v (y)
+
+> k,m
+
+(y)
+
+∂y 
+
+!
+
+dx dy 
+
+−
+
+Z
+
+> ΓkN
+
+κ(x, y ) gN v(x)
+
+> k,n
+
+(x) v(y)
+
+> k,m
+
+(y) dΓ.
+
+(16) The right-hand side contribution remains 
+
+F (k) 
+
+> n,m
+
+=
+
+Z
+
+> Ωk
+
+f (x, y ) v(x)
+
+> k,n
+
+(x) v(y)
+
+> k,m
+
+(y) dx dy. (17) It is worth mentioning that the integrals are computed using a tensor–product Gauss–Lobatto–Jacobi (GLJ) quadrature rule Doha et al. [2014] of order Nquad on each local element k, with the corresponding quadrature weights. This procedure results in N 2quad quadrature points per element. The use of GLJ quadrature is particularly convenient because the endpoints are included, allowing the boundary terms to be naturally captured in the weak formulation. Thus, the residual for each test function is 
+
+LV =
+
+> N
+
+X
+
+> k=1
+
+1
+
+N xN yN x
+
+X 
+
+> n=1
+> Ny
+
+X
+
+> m=1
+
+ R(k)
+
+> n,m
+
+2, in Ω ∪ ΓN . (18) where R(k) 
+
+> n,m
+
+= U (k) 
+
+> n,m
+
+− F (k)
+
+> n,m
+
+.For Dirichlet boundary conditions, an additional penalty term is imposed: 
+
+LD = 1
+
+ND
+
+X
+
+> ND
+
+ u − gD
+
+2, in ΓD . (19) The total training objective for VPINNs is then 
+
+LINI _VPINN = λD LD + λV LV, (20) where λD and λV are the weights associated with the Dirichlet boundary loss and the weak variational loss, respectively. 10 INI-VPINN DODGE ET AL .𝜕 𝑦 𝑢 
+
+AD 
+
+𝒙 
+
+𝒚 
+
+𝒖 
+
+Feedforward Neural Network  Loss Functions              
+
+> ℒ𝑉 =෍
+> 𝑘 =1
+> 𝑁
+> 1
+> 𝑁 𝑥 𝑁 𝑦 ෍
+> 𝑛 =1
+> 𝑁 𝑥
+> ෍
+> 𝑚 =1
+> 𝑁 𝑦
+> 𝑅 𝑛 ,𝑚
+> (𝑘 )2
+> ℒ𝐷 =1
+> 𝑁 𝐷
+> ෍
+> 𝑁 𝐷
+> 𝑢 −𝑔 𝐷 2
+> ℒ𝐼𝑁𝐼 _𝑉𝑃𝐼𝑁𝑁 =𝜆 𝑉 ℒ𝑉 +𝜆 𝐷 ℒ𝐷
+
+𝜴 
+
+𝜕 𝑥 𝑢     
+
+> 𝑜𝑛 Γ𝐷
+> 𝑜𝑛 Ω∪Γ𝐷
+
+Figure 6: Schematic of the INI-VPINN framework. The fully connected neural network, sketched in Figure 6, approximates u : Ω → R from the input (x, y ). The Poisson equation together with the Neumann boundary condition is enforced via a weak-form loss (mean–squared error of the element-wise variational residuals), while the Dirichlet conditions are imposed by a mean-squared error penalty on sampled boundary points. 
+
+## 5 Results 
+
+In this section, the performance of the INI-VPINN approach across different problem complexities, such as geometric singularity and material discontinuities, is evaluated. From a PDE perspective, the test cases can be divided into two categories: the Laplace equation and the Poisson equation with mixed boundary conditions. The results obtained by the INI-VPINN approach are compared with other PINN-based approaches present in the literature. The approches have been selected to directly reflect the specific challenges addressed by the proposed INI-VPINN formulation, namely: (i) the treatment of Neumann boundary conditions; (ii) the handling of interface conditions in multi-material domains; (iii) the difficulty of balancing multiple loss terms in PINNs; (iv) the presence of geometric singularities (e.g., corners), which are known to degrade the performance of standard PINN formulations. In particular, the comparison strategy is as follows: • Vanilla PINN: selected as a baseline reference, as it represents the standard formulation. It highlights known challenges related to balancing multiple loss terms (PDE, Dirichlet, and Neumann), especially in problems with mixed boundary conditions. • VPINN with explicit Neumann enforcement: selected to enable a direct comparison within a variational framework. Its weak formulation, which avoids second-order derivatives and introduces element-wise weight-ing functions via domain de- composition, facilitates assessment of the impact of explicit versus implicit enforcement of Neumann boundary conditions. • Conservative PINN (cPINN): selected as a representative method for multi-material problems, where interface conditions are enforced explicitly through domain decomposition. This enables a direct comparison with the proposed implicit interface treatment in INI-VPINN. Therefore, due to the nature of INI-VPINN, which is designed to address multiple challenges, the comparison is performed against representative and robust PINN variants tailored to each specific aspect. This strategy enables a structured and meaningful comparison, allowing the advantages of the proposed formulation to be clearly demonstrated. The proposed test cases are then purposely designed to target specific challenges, and the most appropriate PINN methods, including INI-VPINN, are evaluated for each case to assess their relative performance. In order to make a comparison with an accurate solution, all the test cases are also modeled and solved by the use of a commercial Finite Element Method (FEM) based software (i.e. Comsol Multiphysics Ver. 6.4 (c) ): quadratic elements are selected and the number of degrees of freedom (influenced by the mesh density) is selected in order to obtain constant accuracy given additional density increase. 11 INI-VPINN DODGE ET AL .C×C         
+
+> C×J
+> C×J
+> C×J
+> J×C
+> J×J
+> S×J
+> S×J
+> J×C
+> J×S
+> J×C
+> J×S
+> N
+> D
+> N
+> D
+> N
+> N
+> (a)
+> J×C
+> J×S
+> C×J
+> C×J
+> J×J
+> J×S
+> S×J
+> S×J
+> J×J
+> J×S
+> J×C
+> J×S
+> D
+> N
+> DD
+> NN
+> NN
+> (b)
+> C×C
+> C×J
+> C×J
+> C×J
+> J×C
+> J×J
+> S×J
+> S×J
+> J×C
+> J×S
+> J×C
+> J×S
+> Material A
+> Material B
+> N
+> D
+> N
+> D
+> N
+> N
+> (c)
+> C×J
+> C×J
+> C×J
+> C×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> S×J
+> S×J
+> S×J
+> S×J
+> D
+> D
+> NN
+> (d)
+> C×J
+> C×J
+> C×J
+> C×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> S×J
+> S×J
+> S×J
+> S×J
+> D
+> D
+> NN
+> (e)
+> C×J
+> C×J
+> C×J
+> C×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> J×J
+> S×J
+> S×J
+> S×J
+> S×J
+> Source g(x,y)
+> D
+> D
+> NN
+> (f)
+
+Figure 7: Schematic representation of the geometry of the test cases and distribution of the test functions within local elements for each case. (a) Homogeneous L-shaped domain. (b) Homogeneous T-shaped domain. (c) Non-homogeneous L-shaped domain with two materials. (d–e) Non-homogeneous square domains with different material inclusions: (d) square inclusion and (e) circular inclusion. (f) Square domain with Gaussian source term. First, two test cases with homogeneous materials but geometric singularities are examined, as illustrated in Figures 7(a) and (b), corresponding to the L-shaped and T-shaped domains. The square circumscribing the above defined domains is characterized by a side length L = 1 m; the choice of these shapes arises from the fact that corners pose a challenge for numerical solutions, especially when they are characterized by boundary conditions of the Neumann type. Since another strength of the INI-VPINN is its ability to handle material discontinuities, three test cases with material discontinuity are studied: (i) a L-shaped domain with heterogeneous materials (see Figure 7(c)), (ii) a nested square configuration where the inner square has a different material from the outer region (see Figure 7(d)), and (iii) a square domain containing a circular inclusion with different material properties (see Figure 7(e)). The main aim of the third case is assessing IVI-PINN in scenarios where the material interface is not aligned with the test function boundaries. Finally, a Poisson equation case with mixed boundary conditions is also considered to assess the method in the presence of a source term. 12 INI-VPINN DODGE ET AL .
+
+The neural network employs tanh activation functions in its hidden layers, with Xavier initialization applied to ensure stable gradient flow and mitigate vanishing or diverging values. As for the optimization, the Adam optimizer is used with a fixed learning rate of 0.001 to minimize the overall loss, composed by the weighted sum of the variational form term and the Dirichlet boundary condition term. The training points used within each element correspond to the quadrature nodes of a tensor–product Gauss–Lobatto–Jacobi (GLJ) rule of order Nquad = 10 , which are employed to numerically evaluate the integrals appearing in the variational (weak) formulation, resulting in N 2quad = 100 quadrature points per element. In addition to these points, there are NDir = 80 boundary points used to enforce the Dirichlet boundary condition. The rank n of the weighting functions is selected based on the complexity of the problem. In all test cases considered here n = 4 was found to be sufficient, as higher values do not yield noticeable gains in accuracy but only add extra computational cost. 
+
+5.1 Homogeneous L-Shaped Domain 
+
+In this test case, we consider the Laplace equation ( f = 0 ) on a L-shaped domain with mixed Neumann-Dirichlet boundary conditions. The Dirichlet boundary condition ( ΓD ) is prescribed as u = 1 on the top edge and u = 0 on the right edge, while the remaining edges are assigned Neumann conditions ( ΓN : ∂nu = 0 ), as illustrated in Figure 7(a). The material property in this case is homogeneous, with κ = 1 assigned throughout the entire domain. The main reason for choosing this geometry is that the corner at (x, y ) = (0 , 0) poses challenges for numerical methods, so it makes this test case an essential benchmark for evaluating the robustness of the proposed approach. The L-shaped domain is discretized into 12 uniform non-overlapping elements, with Nquad = 10 quadrature nodes in each element. As described in Section 3, the choice of test functions in each element depends on the block location, as illustrated in Figure 7(a). Along each direction x or y, if the left edge corresponds to a Neumann boundary, odd cosine test functions are used; if its left edge corresponds to a Neumann boundary, odd sine test functions are adopted. Otherwise, Jacobi polynomials are the most suitable choice for interior regions or Dirichlet boundaries. The details of three different PINN-based models compared in this section are summarized in Table 2. The standard PINN employs a loss function composed by a (weighted) sum of the residual in the strong-form PDE and the Dirichlet and Neumann terms. The VPINN (Ex) replaces the strong-form term with its variational form. Finally, the proposed INI-VPINN further simplifies the formulation by using only the variational and Dirichlet losses, implicitly enforcing the Neumann condition within the variational framework. The number of iterations for all cases is fixed to 40,000 epochs.                                 
+
+> Case Network Loss terms Iterations
+> PINN [2 ,5,5,5,1] LS,LD,LN(3 terms) 40,000 VPINN (Ex) [2 ,5,5,5,1] LV,LD,LN(3 terms) 40,000 INI-VPINN [2 ,5,5,5,1] LV,LD(2 terms) 40,000
+
+Table 2: Comparison of different models compared in the homogeneous L-shaped domain problem. The loss components correspond to LD: Dirichlet boundary condition, LV: Variational form, LN: Neumann boundary condition, and LS:Strong form. As shown in Figure 8 all methods reproduce the general potential distribution, but their accuracy differs significantly. INI-VPINN provides the closest agreement with FEM, achieving not only the lowest Mean Absolute Error ( MAE = 0 .002 ,
+
+MAPE = 0 .75% ), but also an error map that is uniformly distributed across the domain (as shown in Figure 8c)). VPINN (Ex), in which the Neumann boundary condition is explicitly enforced, also shows good agreement, but with slightly larger localized errors near the Neumann boundaries and in the vicinity of the corner ( MAE = 0 .009 ,
+
+MAPE = 2 .56% ). 13 INI-VPINN DODGE ET AL .
+
+Figure 8: Comparison of predicted u(x, y ) for the L-shaped domain with homogeneous material: (a) FEM (Ground Truth), (b) INI-VPINN, (d) VPINN (Ex), with explicitly enforced Neumann boundary condition, (f) PINN. Streamlines in each case illustrate the direction of the field ( −∇ u(x, y )). (c-e-g) Corresponding absolute error distributions 
+
+|uPred − uGT |.14 INI-VPINN DODGE ET AL .
+
+In contrast, the standard PINN struggles with geometries containing corners, especially in the presence of mixed boundary conditions. In this case, the loss function consists of three components—one for the PDE residual, one for the Dirichlet boundary condition, and one for the Neumann boundary condition. Balancing the relative contribution of these terms so that each one of them plays a significant role is the main challenge, which results in larger errors concentrated near the corner and along Neumann boundaries ( MAE = 0 .019 , MAPE = 7 .78% ). Note that while the accuracy of the solution in terms of the unknown function u(x, y ) is fundamental, also the derivative of u has often practical importance; for instance the gradient of the potential (electric or magnetic) gives the magnitude of the field (electric or magnetic); for this reason the field lines of (−∇ u) are also shown in the results for all cases. Field lines accuracy is especially critical under Neumann boundary conditions, where the flux must remain tangent to the boundary, and near the corner singularity, where gradients are large. As shown in the Figure 8, INI-VPINN streamlines are well aligned with the FEM reference. On the other hand VPINN (Ex) demonstrates slight localized deviations, especially in Neumann boundaries close to the corner. Finally, PINN shows noticeable mismatches with non-tangential field lines along Neumann boundaries and evident divergence near the corner. Overall, INI-VPINN demonstrates the most robust performance, outperforming VPINN (Ex) and significantly surpassing the standard PINN in both accuracy and physical consistency. 0 5000 10000 15000 20000 25000 30000 35000 40000     
+
+> Iteration
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Total Loss
+> PINN
+> VPINN (Ex)
+> INI-VPINN
+
+Figure 9: Training loss convergence of PINN, VPINN (Ex), and INI-VPINN models for the homogeneous L-shaped domain. The convergence trends shown in Figure 9 clearly indicate that the proposed INI-VPINN total loss curve drops much more steeply during the first few thousand iterations, which means it trains faster and more effectively among all models. In contrast, the standard PINN and VPINN (Ex) converge more slowly. All models were trained for a sufficient number of iterations to ensure convergence of their respective losses, so under these comparable conditions, the INI-VPINN clearly demonstrates faster convergence and efficiency. 
+
+5.2 Homogeneous T-Shaped Domain 
+
+A more challenging test case is the T-shaped geometry, characterized by mixed Neumann and Dirichlet boundary condi-tions and two corner singularities. As in the previous test, the Laplace equation ( f = 0 ) with mixed Neumann–Dirichlet boundary conditions is considered. The Dirichlet boundary condition ( ΓD ) is prescribed as u = 1 on the left, u = 0 .5
+
+on the right, and u = 0 on the bottom boundaries, while the remaining edges are subject to Neumann conditions ( ΓN :
+
+∂nu = 0 ), as illustrated in Figure 7b). The architecture, loss terms, and number of epochs of the two VPINN-based models used in this problem are summarized in Table 3. As shown in Figure 10, the VPINN (Ex) provides a reasonable approximation of the solution over the whole domain (MAPE = 2 .67% ), but the localized errors near the corners and along the Neumann boundaries are significant. By contrast, INI-VPINN achieves significantly improved accuracy, yielding both the lowest mean error ( MAE = 0 .0023 ,
+
+MAPE = 0 .46% ) and an error map that is uniformly distributed across the domain. The INI-VPINN field lines, more sensitive to slight deviations in the potential, remain well aligned with the FEM reference, especially near corners. VPINN (Ex), on the other hand, shows visible deviations near reentrant corners, 15 INI-VPINN DODGE ET AL .                  
+
+> Case Network Loss terms Iterations
+> VPINN (Ex) [2] + 4 ×[19] + [1] LV,LD,LN(3 terms) 80,000 INI–VPINN [2] + 4 ×[19] + [1] LV,LD(2 terms) 80,000
+
+Table 3: Comparison of different models implemented in the homogeneous T-shaped domain problem. The loss components correspond to LD: Dirichlet boundary condition, LV: Variational form, and LN: Neumann boundary condition. where flux lines fail to remain tangential to Neumann boundaries. Overall, INI-VPINN again demonstrates superior performance, providing the most consistent agreement with FEM in both solution accuracy and flux representation. 
+
+Figure 10: Comparison of predicted u(x, y ) in the T-shaped domain with homogeneous material using (a) FEM (Ground Truth), (b) INI-VPINN, and (c) VPINN (Ex). The colormap represents the scalar potential, while the streamlines illustrate the flux direction (−∇ u). Error distributions relative to FEM are shown in (c–e). 16 INI-VPINN DODGE ET AL .0 10000 20000 30000 40000 50000 60000 70000 80000       
+
+> Iteration
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Total Loss
+> VPINN (Ex)
+> INI-VPINN
+
+Figure 11: Training loss convergence comparison between VPINN (Ex) and INI-VPINN for the homogeneous T-shaped domain. The convergence behavior of the two compared models, presented in Figure 11, clearly reveals the better performance of the proposed INI-VPINN compared to the explicit VPINN. Although both models show a gradual decrease in total loss, the INI-VPINN converges faster, eventually achieving a final figure two orders of magnitude smaller than the VPINN. 
+
+5.3 Non-Homogeneous L-Shaped Domain 
+
+In this test case, the Laplace equation ( f = 0 ) on a non-homogeneous L-shaped domain with a material discontinuity at x = 0 is considered. The presence of two materials introduces additional challenges for learning-based methods. The material property for the left half of the domain ( x < 0) is set to κ = 1 , while for the right half ( x > 0) it is set to 
+
+κ = 8 . In addition, mixed Neumann–Dirichlet boundary conditions are imposed as described in section 5.1. To evaluate the ability to handle material discontinuities in the presence of geometric singularities, we compare IVI-VPINN with the conservative physics-informed neural network (cPINN) Jagtap et al. [2020] as described in Figure 12. The cPINN framework is specifically designed for multi-subdomain problems, where each subdomain is assigned its own neural network and continuity across interfaces is enforced through additional loss terms. As illustrated in Table 4, the cPINN model employs two separate networks to handle the two materials, with each network consisting of three hidden layers containing 32 neurons. In contrast, the proposed INI-VPINN uses a single network with four hidden layers of 16 neurons each. Moreover, the cPINN requires balancing four different loss terms with appropriate weighting, whereas the INI-VPINN formulation involves only two loss terms, simplifying the training process.                    
+
+> Case Network Loss terms Iterations
+> INI-VPINN [2] + 4 ×[16] + [1] LV,LD70,000 cPINN [2] + 3 ×[32] + [1] [2] + 3 ×[32] + [1] LS,LD,LN,LInt 70,000
+
+Table 4: Comparison of different models implemented in the non-homogeneous L-shaped domain problem. The loss components correspond to LD: Dirichlet boundary condition, LV: Variational form, LN: Neumann boundary condition, 
+
+LS: Strong form, and LInt : Interface condition. This decomposition allows material discontinuities to be handled more explicitly and provides a natural baseline for the non-homogeneous case, yielding reasonable errors ( MAE = 0 .007 and MAPE = 2 .30% ). On the other hand, it still struggles near the material interface and the concave corner, where enforcing flux continuity is most challenging. As a result, the localized error concentrations, as shown in Figure 12c), are significant. By contrast, INI-VPINN incorporates the interface condition implicitly through its variational formulation and integrated test functions. As a result, INI-VPINN achieves substantially higher accuracy, yielding the lowest mean error ( MAE = 0.002 , MAPE = 0 .70% ) and an error map that is uniformly distributed across the domain (Figure 12e). The field lines 17 INI-VPINN DODGE ET AL .
+
+further emphasize this difference: cPINN field lines deviate near the interface and lose tangential alignment along Neumann boundaries while INI-VPINN streamlines remain consistent with the FEM reference. It can be concluded that IVI-VPINN preserves both flux continuity across the interface and accuracy near the singular corner. 
+
+Figure 12: Comparison of predicted u(x, y ) in the non-homogeneous L-shaped domain with two materials, where 
+
+κ = 1 for x < 0 and κ = 8 for x > 0. The solutions obtained with (a) FEM (Ground Truth), (b) INI-VPINN, and (d) cPINN (conservative physics-informed neural network) are shown. The colormap represents the scalar potential, while the streamlines illustrate the flux direction (−∇ u). Error distributions relative to FEM are depicted in (c–e). Overall, although cPINN provides a structured way to address non-homogeneous domains through element decomposi-tion, its performance is limited by the difficulty of balancing the residual, boundary, and interface losses. INI-VPINN, by embedding interface conditions into the weak form, demonstrates superior robustness and accuracy in handling this 18 INI-VPINN DODGE ET AL .
+
+challenging two-material problem. It is also worth noting that INI-VPINN employs a single neural network, in contrast to cPINN which requires one network per subdomain, thereby offering lower computational cost for complex problems involving many materials. 
+
+5.4 Non-Homogeneous Domain with Square Material Discontinuity 
+
+In this test case, we consider the Laplace equation ( f = 0 ) on a non-homogeneous nested square domain, where the material property is set to κ = 8 inside the square inclusion and κ = 1 outside. This configuration introduces a sharp material interface with four inner corners, making it a challenging benchmark. In particular, the continuity of both the potential and the normal flux across the material boundary must be preserved. The geometric singularities at the corners amplify the difficulty of the problem. The Laplace equation ( f = 0 ) with mixed Neumann–Dirichlet boundary conditions is considered in this case. The Dirichlet boundary condition ( ΓD ) is prescribed as u = 1 on the top and 
+
+u = 0 on the bottom boundaries, while on the remaining edges Neumann conditions ( ΓN : ∂nu = 0 ) are imposed, as illustrated in Figure 7d). 
+
+Figure 13: Comparison of predicted u(x, y ) in the non-homogeneous nested square domain, with κ = 8 inside the square inclusion and κ = 1 outside. The solutions obtained with (a) FEM (Ground Truth), (b) INI-VPINN, and (d) cPINN (conservative physics-informed neural network) are shown. The colormap represents the scalar potential, while the streamlines illustrate the field direction (−∇ u). Error distributions relative to FEM are depicted in (c–e). 19 INI-VPINN DODGE ET AL .                   
+
+> Case Network Loss terms Iterations
+> INI-VPINN [2] + 5 ×[20] + [1] LV,LD70,000 cPINN [2] + 3 ×[32] + [1] [2] + 3 ×[32] + [1] LS,LD,LN,LInt 70,000
+
+Table 5: Comparison of different models implemented in the non-homogeneous domain with square and circular material Discontinuity problems. The loss components correspond to LD: Dirichlet boundary condition, LV: Variational form, 
+
+LN: Neumann boundary condition, LS: Strong form, and LInt : Interface condition. 0 20000 40000 60000             
+
+> Iteration
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Total Loss
+> (a) cPINN first network ( = 1 )
+> 020000 40000 60000
+> Iteration
+> (b) cPINN second network ( = 8 )
+> 020000 40000 60000
+> Iteration
+> (c) INI-VPINN
+
+Figure 14: Convergence histories of (a) cPINN – first network ( κ = 1 ), (b) cPINN – second network ( κ = 8 ), and (c) the proposed INI-VPINN. As shown in Figure 13, while the cPINN framework captures the general potential distribution ( MAE = 0 .013 ,
+
+MAPE = 2 .63% ), it produces noticeable errors around the inner corners and along the interface, indicating significant difficulties in maintaining continuity across the interfaces. By contrast, INI-VPINN incorporates interface conditions implicitly within its variational formulation, allowing the method to represent both the solution and the flux more accurately across the discontinuity. As a result, INI-VPINN achieves a substantially lower error ( MAE = 0 .003 , MAPE = 0 .54% ) and a more uniform error distribution across the domain, as shown in Figure 13c). The field lines further emphasize this improvement: while cPINN flux lines deviate and fail to remain smooth across the material boundary, INI-VPINN streamlines remain consistent with the FEM reference, preserving tangential alignment along Neumann boundaries and continuity across the interface. Figure 14 compares how the cPINN and INI-VPINN models converge during training. The cPINN uses two separate subnetworks—one for each material (with κ = 1 and κ = 8 )—and each one works on minimizing its own loss function. However, balancing multiple loss components and maintaining interface continuity constraints remains challenging for this approach. By comparison, the proposed INI-VPINN approach converges much more smoothly and steadily, reaching lower error levels in fewer steps. All models were trained until their respective losses had stabilized, ensuring a fair comparison of their convergence characteristics. 
+
+5.5 Non-Homogeneous Domain with Circular Material Discontinuity 
+
+In this test case, we consider the Laplace equation ( f = 0 ) on a square domain containing a circular subdomain with a different material property ( κ = 8 ). This configuration introduces a curved interface separating two materials making it a challenging benchmark. This is due to the lack of alignment between the subdomains interface and the elements’ weighting functions at the material discontinuity interface. The mixed Dirichlet–Neumann boundary conditions are prescribed on the outer boundaries: The Dirichlet boundary condition ( ΓD ) on the top ( u = 1 ) and on the bottom ( u = 0 ) boundaries, and Neumann conditions ( ΓN : ∂nu = 0 ) on the lateral boundaries, as illustrated in Figure 7(e). As shown in Figure 15, the cPINN approach successfully reproduces the potential distribution in both the inner (circular) and outer subdomains, achieving MAE = 0 .007 and MAPE = 1 .42% . However, its main limitation lies in handling the material interface, where the largest errors occur. By contrast, the INI-VPINN formulation embeds the interface 20 INI-VPINN DODGE ET AL .
+
+conditions implicitly within its weak-form framework, allowing for accurate enforcement of both potential and flux continuity without explicit interface sampling. Consequently, INI-VPINN achieves superior accuracy ( MAE = 0 .005 ,
+
+MAPE = 0 .95% ) and produces smoother error distributions across the domain. 
+
+Figure 15: Comparison of the predicted potential u(x, y ) in the non-homogeneous square domain with circular inclusion, where κ = 8 inside the inclusion and κ = 1 outside. The solutions obtained using (a) FEM (ground truth), (b) INI-VPINN, and (d) CPINN (conservative physics-informed neural network) are presented. The colormap represents the scalar potential, while streamlines indicate the field direction ( −∇ u). Panels (c)–(e) show the corresponding absolute error distributions with respect to FEM. 21 INI-VPINN DODGE ET AL .
+
+5.6 Square domain with source term 
+
+In this section, we evaluate the accuracy of the proposed approach in solving a Poisson problem on a square domain containing a compact source localized within the domain. The mixed boundary conditions are the same as those described in Section 5.4. The source term f (x, y ) models a piecewise-constant source supported on a circular region centered at (cx, c y ) = (0 .25 , 0.25) with radius r = 0 .25 , as illustrated in Figure 7(f): 
+
+f (x, y ) = A G (x, y ), G =
+
+(1, (x − cx)2 + ( y − cy )2 ≤ r2,
+
+0, otherwise , (21) where A = −22 .5 sets the source strength. As shown in Figures 16(a)–(b), the INI-VPINN is able to successfully predict the potential field distribution u(x, y ) and the corresponding streamlines of −∇ u, closely matching the FEM results. The error map shows that the differences between the two solutions are very small and mainly localized near the source region, with a mean absolute error (MAE) of 0.007 and a mean absolute percentage error (MAPE) of 0.66%. 
+
+Figure 16: Comparison between the FEM reference and the proposed INI-VPINN solution for the Poisson problem with a localized source.(a) FEM reference solution (b) INI-VPINN prediction (c) Absolute error distribution.          
+
+> Case Network Loss terms Iterations
+> INI-VPINN [2] + 5 ×[20] + [1] LV,LD20,000
+
+Table 6: Summary of INI-VPINN architecture and training setup in the square domain with the source term problem. The loss components correspond to LD: Dirichlet boundary condition, and LV: Variational form. 22 INI-VPINN DODGE ET AL .
+
+## 6 Conclusions 
+
+This study presents the INI-VPINN, a novel weak-form Physics-Informed Neural Network approach for the resolution of Partial Differential Equations. The main feature of the approach is a specific choice of the weighting functions, leading to a native enforcement of interface conditions and of Neumann boundary conditions thanks to its variational formulation. The numerical experiments on Poisson and Laplace problems with sharp interfaces and geometrically complex domains confirm the accuracy and robustness of the proposed approach. Compared to several existing weak and strong form PINN variants, the INI-VPINN exhibits higher fidelity in reproducing interface behavior and geometrical singularities. The comparison between the above mentioned approaches is carried out considering a ground truth solution obtained by a classical Finite Element Method software. It is worth mentioning here that classical approaches, e.g., FEM or BEM, were proposed decades ago, and have nowadays achieved highly optimized performance in terms of both computational time and accuracy. Conversely, physics-guided deep learning approaches are still in their exploratory stage, and their formulations and software implementations are far from being comparable to commercial software. Therefore, we fully agree that classical numerical methods remain the most efficient and reliable choice, until now, for solving PDEs when the problem is fully specified, and a high-quality mesh can be constructed. On the other hand, the goal of this work is not to compete with or replace such well-established approaches. Instead, the aim of this contribution is to propose a new PINN-based framework (INI-VPINN) to address scenarios where existing PINN formulations face practical limitations. In particular, the proposed framework is advantageous in the following contexts: 1. Mesh-free formulation : Unlike FEM, INI-VPINN does not require mesh generation, which can be challenging for complex geometries, singular domains, or problems with evolving interfaces. 2. Fast inference after training : Once trained, the model acts as a surrogate solution that can be evaluated at arbitrary points in the domain with negligible computational cost. While classical methods such as FEM rely on interpolation to evaluate the solution at off-mesh locations, neural networks provide a continuous, mesh-independent representation, which can be advantageous in applications that require frequent, flexible sampling of the solution. 3. Flexibility for inverse and data-driven problems : Classical methods such as FEM are primarily tailored for forward problems and often require substantial reformulation for inverse settings. In contrast, PINN-based approaches naturally combine physics and data in a unified framework. Although not the focus of this work, INI-VPINN has the potential to be extended to problems involving unknown parameters or limited data. We emphasize that FEM solutions are used as reference benchmarks throughout the paper, and the results demonstrate that INI-VPINN achieves comparable accuracy. In addition, IVI-VPINN shows increased flexibility and improved accuracy and convergence in complex scenarios compared to previous PINN variants. Therefore, INI-VPINN should be regarded as a complementary approach, offering improved effectiveness compared to existing PINN variants, rather than as a replacement for traditional numerical methods. Future developments will focus on extending the INI-VPINN to transient and nonlinear PDEs, exploring adaptive strate-gies for selecting weighting functions and quadrature schemes. In summary, the INI-VPINN provides a mathematically grounded, physically consistent, and computationally robust framework for solving PDEs with complex geometries and boundary conditions. By unifying interface treatment and boundary enforcement within a single variational formulation, it represents a significant step toward the practical deployment of Physics-Informed Neural Networks in multi-physics and engineering applications. 
+
+## References 
+
+J Sirignano and K Spiliopoulos. Dgm: A deep learning algorithm for solving partial differential equations. Journal of Computational Physics, 375:1339–1364, 2018. M Raissi, A Yazdani, and GE Karniadakis. Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science, 367(6481):1026–1030, 2020. X Zhang, C Tu, and Y Yan. Physics-informed neural network simulation of conjugate heat transfer in manifold microchannel heat sinks for high-power igbt cooling. International Communications in Heat and Mass Transfer, 159: 108036, 2024. C-T Chen and GX Gu. Physics-informed deep-learning for elasticity: forward, inverse, and mixed problems. Advanced Science, 10(18):2300439, 2023. 23 INI-VPINN DODGE ET AL .
+
+T Bandai and TA Ghezzehei. Forward and inverse modeling of water flow in unsaturated soils with discontinuous hydraulic conductivities using physics-informed neural networks with domain decomposition. Hydrology and Earth System Sciences Discussions, pages 1–42, 2022. S Barmada, S Dodge, and A Formisano. Weak formulation for physics-informed neural networks in the resolution of analysis problems in electromagnetics. IEEE Transactions on Magnetics, 2025. doi:10.1109/TMAG.2025.3626152. Shayan Dodge, Sami Barmada, and Alessandro Formisano. A stacked adaptive residual pinn (star-pinn) approach to 2d time-domain magnetic diffusion in nonlinear materials. IEEE Access, 13:141380 – 141394, 2025. ISSN 2169-3536. doi:10.1109/ACCESS.2025.3597869. S Barmada, S Dodge, M Tucci, A Formisano, P Di Barba, and ME Mognaschi. A novel hybrid boundary element–physics informed neural network method for numerical solutions in electromagnetics. IEEE Access, 12:171444–171457, 2024. doi:10.1109/ACCESS.2024.3500039. Y Chen and L Dal Negro. Physics-informed neural networks for imaging and parameter retrieval of photonic nanostructures from near-field data. APL Photonics, 7(1):010802, 2022. A Zhao, D Fattahi, and X Hu. Physics-informed neural networks for physiological signal processing and modeling: a narrative review. Physiological Measurement, 46:07TR02, 2025. A Dhiman and Y Hu. Physics informed neural network for option pricing. arXiv preprint arXiv:2312.06711, 2023. M Raissi, P Perdikaris, and GE Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics, 378:686–707, 2019. GE Karniadakis, IG Kevrekidis, L Lu, P Perdikaris, S Wang, and L Yang. Physics-informed machine learning. Nature Reviews Physics, 3(6):422–440, 2021. L Lu, X Meng, Z Mao, and GE Karniadakis. Deepxde: A deep learning library for solving differential equations. SIAM Review, 63(1):208–228, 2021. J Yang, J Zuo, Y Tian, and M Lei. Deep ritz method for solving high-dimensional fractional differential equations. Engineered Science, 21:789, 2022. AD Jagtap and GE Karniadakis. Extended physics-informed neural networks (xpinns): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations. Communications in Computational Physics, 28(5):2002–2041, 2020. Antareep Kumar Sarma, Sumanta Roy, Chandrasekhar Annavarapu, Pratanu Roy, and Shriram Jagannathan. Interface pinns (i-pinns): A framework of physics-informed neural networks for interface problems. Computer Methods in Applied Mechanics and Engineering, 2024. Preprint, LLNL-JRNL-863829. AD Jagtap, E Kharazmi, and GE Karniadakis. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering, 365:113028, 2020. Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why pinns fail to train: A neural tangent kernel perspective. Journal of Computational Physics, 449:110768, 2022. doi:10.1016/j.jcp.2021.110768. LD McClenny and UM Braga-Neto. Self-adaptive physics-informed neural networks. Journal of Computational Physics, 474:111722, 2023. E Kharazmi, Z Zhang, and GE Karniadakis. hp-vpinns: Variational physics-informed neural networks with domain decomposition. Computer Methods in Applied Mechanics and Engineering, 374:113547, 2021. Esteban Samaniego, Cosmin Anitescu, Somdatta Goswami, Vien Minh Nguyen-Thanh, Hongwei Guo, Khader M. Hamdia, Timon Rabczuk, and Xiaoying Zhuang. An energy approach to the solution of partial differential equations in computational mechanics via machine learning: Concepts, implementation and applications. Computer Methods in Applied Mechanics and Engineering, 362:112790, 2020. doi:10.1016/j.cma.2019.112790. Ehsan Kharazmi, Zhongqiang Zhang, and George E. Karniadakis. Variational physics-informed neural networks for solving partial differential equations. arXiv preprint arXiv:1912.00873, 2019. URL https://arxiv.org/abs/ 1912.00873 .Reza Khodayi-Mehr and Michael M. Zavlanos. Varnet: Variational neural networks for the solution of partial differential equations. In Proceedings of the 2nd Conference on Learning for Dynamics and Control, volume 120 of Proceedings of Machine Learning Research, pages 298–307, 2020. URL https://arxiv.org/abs/1912.07443 .Yaohua Zang, Gang Bao, Xiaojing Ye, and Haomin Zhou. Weak adversarial networks for high-dimensional partial differential equations. Journal of Computational Physics, 411:109409, 2020. doi:10.1016/j.jcp.2020.109409. 24 INI-VPINN DODGE ET AL .
+
+Rui Xu, Dongxiao Zhang, Miao Rong, and Nanzhe Wang. Weak form theory-guided neural network (tgnn-wf) for deep learning of subsurface single- and two-phase flow. Journal of Computational Physics , 436:110318, 2021. doi:10.1016/j.jcp.2021.110318. Chuang Liu and HengAn Wu. cv-pinn: Efficient learning of variational physics-informed neural network with domain decomposition. Extreme Mechanics Letters, 63:102051, 2023. doi:10.1016/j.eml.2023.102051. Stefano Berrone, Claudio Canuto, Moreno Pintore, and N. Sukumar. Enforcing dirichlet boundary conditions in physics-informed neural networks and variational physics-informed neural networks. Heliyon, 9(8):e18820, 2023. doi:10.1016/j.heliyon.2023.e18820. Stefano Berrone and Moreno Pintore. Meshfree variational-physics-informed neural networks (mf-vpinn): An adaptive training strategy. Algorithms, 17(9):415, 2024. doi:10.3390/a17090415. Sergio Rojas, Paweł Maczuga, Judit Muñoz-Matute, David Pardo, and Maciej Paszy´ nski. Robust variational physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering, 425:116904, 2024. doi:10.1016/j.cma.2024.116904. Vivek G. Patel and Nikunj V. Rachchh. Meshless method–review on recent developments. Materials Today: Proceedings, 26:1598–1603, 2020. doi:10.1016/j.matpr.2019.12.333. Ben-Yu Guo, Jie Shen, and Li-Lian Wang. Optimal spectral-galerkin methods using generalized jacobi polynomials. Journal of Scientific Computing, 27(1):305–322, 2006. Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. International Conference on Learning Representations (ICLR), 2015. arXiv:1412.6980. Eid H. Doha, Ali H. Bhrawy, Mohamed A. Abdelkawy, and Robert A. Van Gorder. Jacobi–gauss–lobatto collocation method for the numerical solution of 1+1 nonlinear schrödinger equations. Journal of Computational Physics, 261: 244–255, 2014. doi:10.1016/j.jcp.2014.01.003. 25

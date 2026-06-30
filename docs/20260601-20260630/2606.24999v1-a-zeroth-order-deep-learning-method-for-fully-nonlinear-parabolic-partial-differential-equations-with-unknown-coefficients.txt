@@ -1,0 +1,5765 @@
+Title: A Zeroth-Order Deep Learning Method for Fully Nonlinear Parabolic Partial Differential Equations with Unknown Coefficients
+
+URL Source: https://arxiv.org/pdf/2606.24999v1
+
+Published Time: Thu, 25 Jun 2026 00:03:53 GMT
+
+Number of Pages: 63
+
+Markdown Content:
+Zeroth-Order Deep Learning for PDEs 
+
+# A Zeroth-Order Deep Learning Method for Fully Nonlinear Parabolic Partial Differential Equations with Unknown Coefficients 
+
+Yanwei Jia yanweijia@cuhk.edu.hk 
+
+Department of Systems Engineering and Engineering Management The Chinese University of Hong Kong Shatin, New Territories, Hong Kong SAR 
+
+Du Ouyang duouyang99@outlook.com 
+
+Department of Mathematical Sciences Tsinghua University Beijing, Beijing 100084, China 
+
+Huyˆ en Pham huyen.pham@polytechnique.edu 
+
+CMAP Ecole Polytechnique Route de Saclay, Palaiseau 91128, France 
+
+Xun Yu Zhou xz2574@columbia.edu 
+
+Department of Industrial Engineering and Operations Research & The Data Science Institute Columbia University New York, NY 10027, USA 
+
+Abstract 
+
+High-dimensional partial differential equations (PDEs) with unknown coefficients arise widely in scientific machine learning, including continuous-time reinforcement learning, yet solving them efficiently in a data-driven way remains challenging. Existing deep learning solvers often rely on repeated automatic differentiation to evaluate differential operators, which can cause instability and amplify derivative errors in high dimensions, while proba-bilistic methods based on stochastic representations require explicit knowledge of the data-generating dynamics and therefore do not apply to black-box environments. We introduce two types of simulators as data-generating mechanisms, and take a “representing-then-learning” approach that learns the solutions and their derivatives under settings where the underlying PDE operators are accessible only through simulations and pointwise evalua-tions. Our representation of derivatives relies on the zeroth-order derivative (ZOD) esti-mators derived from perturbed Monte Carlo trajectories. This fully model-free approach generates targets for the gradient and Hessian networks using only function evaluations. We provide a statistical learning analysis of the proposed approach, including a bias– variance tradeoff for ZODs. Assuming a standard contraction property of the underlying operator, we establish a non-asymptotic error bound that decomposes the total error into discretization error, approximation error, statistical error, and ZOD bias. Crucially, we derive the sample complexity of the learned representations in (weighted) Sobolev space, characterizing the error up to second-order derivatives. Numerical experiments illustrate the competitive performance of the method in moderate and high dimensions. 
+
+Keywords: Nonlinear PDEs, zeroth-order derivative estimators, model-free methods, deep learning, sample complexity in Sobolev space 1
+
+> arXiv:2606.24999v1 [cs.LG] 23 Jun 2026 Jia, Ouyang, Pham, and Zhou
+
+1 Introduction 
+
+High-dimensional nonlinear partial differential equations (PDEs) are ubiquitous and funda-mental in various fields of science and engineering, ranging from physics and fluid dynamics to mathematical finance and stochastic control. Recent progress in scientific machine learn-ing employs deep neural networks (DNNs) for high-dimensional function approximation to solve PDEs, aiming to overcome the curse of dimensionality where the traditional numeri-cal methods fall apart. While various deep learning methods have been proposed and have achieved promising numerical results, there are still limitations in their stability, scope of applications, and availability of theoretical foundations. Broadly speaking, existing methods fall into two main categories. The first category consists of the residual-based methods, such as the deep Galerkin method (cf. Sirignano and Spiliopoulos 2018), and physics-informed neural networks (PINNs; cf. Raissi et al. 2019). These approaches approximate solutions by minimizing the PDE residuals over sampled points in space–time, and are applicable to a wide class of PDEs. However, they rely on repeated evaluation of differential operators through automatic differentiation and may suffer from optimization difficulties and stability issues, particularly in high dimensions or when second-order derivatives are involved. The second category consists of probabilistic methods that exploit stochastic representations of PDEs, including in particular methods based on backward stochastic differential equations (BSDEs) such as deep BSDEs (E et al., 2017) and deep backward dynamic programming (DBDP; cf. Hur´ e et al. 2020). However, these methods are primarily tailored to the special type of nonlinear PDEs where BSDE representations are available based on Peng’s nonlinear Feynman–Kac formula (Peng, 1992); in particular, these PDEs are linear in the Hessians. For fully nonlinear PDEs, which are nonlinear in the unknown functions up to the second-order derivatives, such representations generally do not exist, limiting their applicability. 1
+
+Notably, most of the existing literature on numerically solving PDEs, including the afore-mentioned papers, are “model-based”, namely, the studied PDEs are completely specified with their coefficient functions assumed to be known and given (hence so are the derivatives of those coefficients). However, PDEs that model complex systems can be impossible or im-practical to specify, leading to equations without knowledge of the underlying operators and the derivatives of their coefficients. These PDEs operate like black-boxes for which we can only observe certain input–output data streams. Solving those black-box PDEs is motivated by ample real-life applications such as fluid turbulence, climate control, and the stabilization of plasma fusion reactors; see e.g. Li et al. (2020); Jiao et al. (2021); Lagergren et al. (2020) and the references therein for more motivating applications. It is also related to the recently developed continuous-time reinforcement learning (Wang et al., 2020; Jia and Zhou, 2022b,a, 2023), where the Hamilton–Jacobi–Bellman (HJB) equation becomes a black-box PDE when the parameters of the underlying control problem are unknown. Another important aspect is that, besides obtaining the function approximation to the solution to a PDE, one often needs to find its derivatives for the downstream tasks, e.g., exe-cuting a control in a robotic system and hedging in finance, which concern the sensitivity of 
+
+> 1. We refer to Beck et al. (2023); Germain et al. (2023) for an overview, and to Zhang et al. (2026); Doum` eche et al. (2025); Gazoulis et al. (2025); Bonito et al. (2026); Wang et al. (2022) for more recent progress on these two types of methods.
+> 2Zeroth-Order Deep Learning for PDEs
+
+the solution with respect to the spatial variable. Existing methods generally treat derivatives implicitly. For example, PINNs and deep Galerkin follow a “learning-then-differentiating” approach: They train a neural network to minimize a value-based loss, which nonetheless does not theoretically guarantee that its derivatives will converge to the true derivatives. Consequently, when higher-order derivatives are computed via automatic differentiation on an imperfectly trained network, approximation errors compound, sometimes catastrophi-cally. On the other hand, deep BSDE and DBDP require the equation coefficients to be known and given and embed gradients within model-specific stochastic formulations. In this paper, we propose a new, data-driven approach to learning the solutions to a large class of fully nonlinear, black-box parabolic PDEs with strong theoretical guarantees in (weighted) Sobolev space up to second-order spatial derivatives. The PDEs consist of linear second-order parabolic operators and fully nonlinear source (nonhomogeneous) terms depending on the unknown solutions up to their second-order derivatives. Instead of recovering derivative information indirectly from a learned value approximation or from model-specific sensitivity representations, we adopt a representing-then-learning paradigm, where derivative quantities are first represented through stochastic estimators and then learned directly. This approach kills two birds with one stone: it deals with the unknown PDEs and learns the derivatives at the same time. One of the main contributions of the paper is to define precisely what “data” and “data-driven” mean in our context of solving PDEs. Instead of the knowledge of the functional forms of PDE coefficients, we only require access to a “ simulator ” that, given an initial state, produces stochastic trajectories (i.e., “data”). These trajectories are diffusion processes, or equivalently solutions to the stochastic differential equations (SDEs) whose infinitesimal generator coincides with the aforementioned parabolic PDE operators. Moreover, the non-linear source term and the function in the terminal condition are also black-box functions that can only output their function values when inputs are given. Our approach is appli-cable under two simulator settings: a “weak simulator” that takes an initial state as input and generates an independently and identically distributed (i.i.d.) random trajectory at each query, and a “strong simulator” that returns a family of trajectories indexed by a given set of initial states and driven by the same underlying randomness (Brownian mo-tion in our setting), while remaining independent across queries. The notions of weak and strong simulators align with the classical definitions of weak and strong solutions to SDEs and capture the key distinction between them: a strong solution is defined with respect to a fixed Brownian motion, whereas in a weak solution the Brownian motion is itself a part of the solution (cf. Karatzas and Shreve 2014, Chapter 5, Definitions 2.1 and 3.1). Clearly, a strong simulator is automatically a weak one (but not vice versa ) for which the “random seed” is also an input, so that querying the same initial state with the same seed produces the same trajectory. Importantly, the availability of the strong simulator covers model-based PDEs as a special case. It is also valid in applications such as finance where the “random seed” represents the realized asset price movements and inventory systems 
+
+> 3Jia, Ouyang, Pham, and Zhou
+
+where it represents exogenous demands. Note that in both cases, the simulator remains a black box, and we neither know nor attempt to learn or infer its internal structure. 2
+
+Our method combines: (i) approximate value iteration, to reduce a nonlinear problem to a sequence of linear problems, each effectively a Feynman–Kac-type equation (equivalent to the Bellman equation for policy evaluation in reinforcement learning); and (ii) zeroth-order derivative (ZOD) estimators, to approximate gradients and Hessians via function values at random perturbed points. At each iteration, we jointly learn the value, gradient, and Hessian through a composite loss function, ensuring consistency across all quantities. This loss function consists of two parts: the value loss and the derivative loss. The value loss is in the same spirit as the martingale loss function (Jia and Zhou, 2022b) for policy evaluation in continuous-time reinforcement learning, which captures the mean-squared error of the function value. The derivative loss captures the distance between the gradient/Hessian networks and their stochastic ZOD targets. Crucially, ZOD estimators require only function evaluations at perturbed trajectories and do not rely on model derivatives or automatic differentiation. The main contributions of this paper are as follows: 
+
+• We introduce the notions of weak and strong simulators, and develop a zeroth-order deep learning method to solve a wide class of fully nonlinear black-box PDEs. At each iteration, we query the available simulator with randomly generated initial states based on a specially designed distribution and collect corresponding trajectories. In addition, we only rely on the point-wise evaluation of the nonlinear source term in a PDE, which is a general function of the state, function value, gradient, and Hessian. Thus, our method leads to a model-free algorithm applicable in black-box environ-ments, in particular without attempting to estimate the PDE coefficients. 
+
+• To ensure convergence in (weighted) Sobolev space, we introduce a novel use of ZOD estimators as targets for approximating gradients and Hessians in the context of solv-ing PDEs. In general, ZOD estimators are biased and noisy, and we characterize their unique bias–variance tradeoff through their bandwidth. In particular, the conventional variance reduction techniques for ZOD in optimization (e.g., the multi-point scheme) are not sufficient in our setting, and we show that the variance of ZOD can only be bounded with the strong simulator but not the weak one. Furthermore, using ZODs, we essentially first derive a (biased) stochastic representation for the gradient and Hes-sian and then fit two neural networks for them respectively. This representing-then-learning paradigm is therefore fundamentally different from approaches that recover derivatives indirectly from value approximations or through model-specific sensitiv-ity representations. Notably, no automatic differentiation or the knowledge of the operator is required to derive ZOD. 
+
+• Most importantly, we establish convergence and sample complexity of the proposed learning method in the (weighted) Sobolev space up to second-order derivatives. To 
+
+> 2. There is a line of research called operator learning that aims to learn PDE solution operators by input– output data and DNNs (cf. Lu et al. 2021a), which is ultimately a model-based approach. By contrast, our approach is “model-free” (up to the form of the PDEs we study) in that we learn the solutions directly without learning the PDEs themselves.
+> 4Zeroth-Order Deep Learning for PDEs
+
+our best knowledge, these are the first theoretical results on model-free learning for PDEs with an error analysis in second-order Sobolev space for fully nonlinear PDEs. Our theoretical analysis is built on several standard assumptions on PDEs and statis-tical learning theory for DNNs. On the one hand, we require a contraction property of the solution operator to an associated linear PDE. This property is typical to ensure the existence and uniqueness of the solution to the original fully nonlinear PDE, and is often necessary for most value iteration algorithms. On the other hand, we exclude the optimization error from our analysis and assume that the class of neural networks is sufficiently smooth and regular. Under these assumptions, we obtain an error bound characterizing the trade-offs among approximation error, sampling error, and ZOD bias. The overall error consists of an exponentially decaying initialization error (in terms of the number of approximate value iterations) and a geometrically weighted accumulation of one-step learning errors (Theorem 6). When the d-dimensional state process is observed on a uniform time grid with N grid points and the sample size is 
+
+B, our results show that, besides the neural-network optimization and approximation errors, choosing the ZOD bandwidth optimally yields a one-step high-probability error bound of order O(( N −1 + P(d)B−1/2)1/4) under the weak simulator with one-point ZOD estimators, and of order O(( N −1 + P(d)B−1/2)1/2) under the strong simulator with multi-point ZOD estimators, up to logarithmic factors, where P(d) is a constant that depends polynomially on the dimension d (Theorem 9). We also experimentally demonstrate accurate approximation of both solutions and derivatives in moderate-and high-dimensional problems. 
+
+Related Literature 
+
+As a key ingredient of our method, ZOD estimators have been widely used in (black-box) stochastic optimization and reinforcement learning, where gradient information is unavail-able; see, e.g., Nesterov and Spokoiny (2017); Salimans et al. (2017) among many others, but not yet in the context of PDE solvers to our best knowledge. 3 Due to the unique con-text of solving parabolic PDEs, we rely on the celebrated Feynman–Kac formula to obtain a stochastic representation of the function value. Moreover, our ZOD estimator differs from the traditional one in optimization in two aspects. First, at every iteration, we query the simulator to generate a stochastic trajectory with the given initial state, which is then used to compute a functional value using the current function value, gradient and Hessian. Sec-ond, the ZOD estimator is not used for optimization directly; instead, it is used as a target to train other networks. Therefore, the bias–variance tradeoff of ZOD and its impact on the entire iterative procedure are both new problems in our context. Another key ingredient of our method is the approximate value iteration, which is a clas-sical approach adopted in reinforcement learning to solve the Bellman equations or HJB equations in continuous-time optimal controls, a well-known class of nonlinear equations; see, e.g., Bertsekas and Tsitsiklis (1996); Sutton and Barto (1998) for discrete-time Bell-man equations and Yong and Zhou (1999); Fleming and Soner (2006); Pham (2009) for 
+
+> 3. ZOD has been used to replace auto-differentiation. For instance, He et al. (2023); Shi et al. (2024); Hu et al. (2025) use ZOD to approximate the differential operators of a neural network in PINN. The role of ZOD is fundamentally different in our approach.
+> 5Jia, Ouyang, Pham, and Zhou
+
+continuous-time HJB equations. The core idea for the approximate value iteration is to reduce a fully nonlinear equation into successive linear equations. At every step, it is suffi-cient to solve the linear equation approximately, and the total error would be accumulated and controlled under suitable regularity conditions. We borrow this idea and solve a linear PDE at each iteration. Moreover, this linear PDE can be interpreted as a Feynman–Kac (Bellman) equation for policy evaluation in reinforcement learning and solvable in a model-free way (Jia and Zhou, 2022b). However, Jia and Zhou (2022b) only show the consistency of the value function, not its derivatives. In the current PDE setting, learning derivatives is equally crucial for the iteration to converge to the true solution because the nonlinear source term of the PDE depends explicitly on the gradient and Hessian. In supervised regression, recovering derivatives by automatic differentiation of a network trained only on function values is known to be statistically problematic, despite the avail-ability of the well-known universal approximation theorem of neural networks that can be employed to approximate derivatives (Hornik et al., 1990; Siegel, 2023). Using the typical mean-squared error as the loss function, the theoretical guarantee is often on the function value (e.g., Barron 1994). To discipline the behavior of the learned derivatives, a commonly used trick is to regularize and penalize large derivatives of the neural network; see, e.g., Kim and Gu (2004); Fischer and Steinwart (2020) among many others. One can then establish statistical errors in the Sobolev space. By contrast, we go down a different path due to our access to a simulator and aim to solve a PDE rather than simply fitting a function to a given, exogenous data set. Indeed, we can simulate stochastic trajectories strategically 
+
+to create training data. In other words, in our approach, data sets are also endogenously designed to learn a function in an “optimal” way in the Sobolev space. Therefore, our approach, representing-then-learning, should be regarded as a (black-box/model-free) simulation-based learning method, and the first “representing” stage is essentially a sampling stage. From this perspective, our approach is comparable to the sensitivity analysis associated with mathematical expectations in the simulation literature, such as the likelihood ratio method (cf. Glasserman 2004) and the Malliavin calculus approach (cf. Ma and Zhang 2002). In a similar context of deep learning for solving PDEs, Han et al. (2026) propose the method of deep Picard iteration (DPI), where neural networks are trained using Monte Carlo estimates of the solution and its derivatives. Picard iteration coincides with the approximate value iteration in our context. The main difference between DPI (and its extensions) and our approach is that DPI employs the exact stochastic representations for derivatives based on Malliavin calculus (Bismut–Elworthy–Li formulas; cf. Ba˜ nos 2018), which is unbiased but requires the knowledge of the coefficients of the differential operator and their derivatives, and thus operates in a model-based setting. Another line of work is the differential learning framework as in Lefebvre et al. (2023), which proposes to jointly learn the solution and its derivatives for fully nonlinear PDEs with convex Hamiltonians. Their approach leverages stochastic control representations and incorporates derivative information through Malliavin-type sensitivities. By contrast, our approach is applicable in a model-free context at the cost of inevitably incurring more bias. More importantly, we have theoretically justified the convergence of our resulting algorithm, showing that the bias introduced by ZOD can be controlled. This paper also contributes broadly to the literature on solving PDEs by machine learn-ing. In addition to the above-mentioned methods such as the deep Galerkin method (Sirig-
+
+> 6Zeroth-Order Deep Learning for PDEs
+
+nano and Spiliopoulos, 2018), PINNs (Raissi et al., 2019), deep BSDEs (E et al., 2017), DBDP (Hur´ e et al., 2020), and deep Picard iteration (Han et al., 2026), there are also specifically designed methods for special classes of PDEs, such as deep Ritz methods for variational problems (E and Yu, 2018; Lu et al., 2021b), actor–critic methods for HJB equa-tions (Zhou et al., 2021; Jia and Zhou, 2022a; Zhu et al., 2025), and the high-order scheme for policy evaluation (Mou and Zhu, 2025). However, few of them analyze statistical errors and sample complexity in the presence of neural network-based function approximation. Mou (2025) analyzes errors in the Sobolev space of a least-squares temporal-difference algorithm arising from continuous-time policy evaluation. Lu et al. (2022) analyze two particular al-gorithms to solve linear PDEs. Little is known about fully nonlinear PDEs, especially in a black-box setting. The present paper not only develops a new deep learning method that is applicable to a general class of nonlinear unknown PDEs, but also theoretically establishes the sample complexity. The remainder of the paper is organized as follows. In Section 2, we introduce the problem formulation, put forward the two simulators, and present the approximate value iteration framework for fully nonlinear PDEs. Section 3 develops the probabilistic repre-sentation of derivatives based on zeroth-order estimators and introduces the representing-then-learning paradigm. In Section 4, we develop the proposed deep learning algorithm, including the loss construction and implementation details. Section 5 provides the the-oretical analysis, establishing convergence of the method and quantifying the impact of discretization, approximation, sampling, and perturbation errors. Section 6 presents nu-merical experiments that validate the performance of the proposed approach in both low-and high-dimensional settings. Section 7 concludes. Supplementary materials and proofs of statements are placed in the Appendix. 
+
+2 Problem Description and Preliminaries 
+
+In this paper, we study how to effectively solve a class of nonlinear parabolic PDEs: 
+
+(
+
+∂tv + Lv + f (x, v, ∇v, ∇2v) = 0 , (t, x ) ∈ [0 , T ) × Rd,v(T, x ) = g(x), x ∈ Rd, (2.1) where ∇v ∈ Rd and ∇2v ∈ Rd×d are respectively the gradient and Hessian of v with respect to the spatial variables, and the second order differential operator L is 
+
+Lφ := 
+
+> d
+
+X
+
+> i,j =1
+
+aij (x)∂ij φ +
+
+> d
+
+X
+
+> i=1
+
+bi(x)∂iφ, 
+
+with ∂t, ∂ i being respectively the partial derivative in the time variable t and the i-th entry of the spatial variable xi, and ∂ij the corresponding second-order derivative. Let 
+
+a(x) ≡ (aij (x)) ∈ Sd
+
+> +
+
+, assumed to be a positive semidefinite matrix. The operator L can therefore be viewed as the infinitesimal generator of a time-homogeneous diffusion process driven by a d-dimensional Brownian motion W , satisfying the following stochastic differential equation (SDE): dXs = b(Xs)d s + √2σ(Xs)d Ws, (2.2) 
+
+> 7Jia, Ouyang, Pham, and Zhou
+
+where σ(x)σ(x)⊤ = a(x). 4 We further denote by Xt,x the solution to the SDE with initial condition Xt = x.We first reiterate the following important consideration and goal in our study: (1) The dimension of the spatial variable d can be potentially high, and we want to avoid the curse of dimensionality arising from the conventional grid-based numerical methods (such as finite-difference and finite-element methods). (2) The PDE can be potentially described in a black-box manner and we aim to develop model-free, data-driven methods. A black-box environment means (i) the functions g, f 
+
+are black-box functions that can only output their values if inputs are queried; and (ii) the operator L is not known and only its associated processes/trajectories {Xt,x s }t≤s≤T
+
+can be observed upon querying a simulator . Thus, “data” here means the trajectories that are returned upon a query. We now formalize the “simulators” considered in this paper. Note that any simulator defined below remains unknown to us, being a device outputting data upon a query, and we do not attempt to learn its underlying structure. We consider two settings. 
+
+Condition 1 A weak simulator returns a trajectory {Xt,x s }t≤s≤T for each query with input 
+
+(t, x ), such that (i) {Xt,x s }t≤s≤T is the weak solution to (2.2) ;(ii) the random sources (Brownian motions) in any two different queries are independent of each other. 
+
+Condition 2 A strong simulator returns a collection of trajectories 
+
+n
+
+{Xt,x k 
+
+> s
+
+}t≤s≤T , k = 1 , · · · , K 
+
+o
+
+for each query whose input is a finite set of initial states {(t, x 1), · · · , (t, x K )}, such that (i) upon each query, every trajectory of {Xt,x k 
+
+> s
+
+}t≤s≤T is the strong solution to (2.2) with respect to the same Brownian motion {Ws}t≤s≤T with the initial states (t, x k);(ii) the random sources (Brownian motions) in any two different queries are independent of each other. 
+
+Evidently, a weak simulator is implied by a strong simulator, which is further implied by a PDE with known coefficients. Neither converse implication, however, is true. The notions of weak and strong simulators coincide with the classical definitions of weak and strong solutions to SDEs and capture the subtle distinction between them: a strong solution is defined with respect to a fixed Brownian motion, whereas in a weak solution the Brownian motion is a part of the solution. The weak simulator is the typical setting in which each query produces an i.i.d. sample path. By contrast, the strong simulator not only generates multiple trajectories per query, but also keeps the underlying randomness fixed within that query, much like fixing a “random seed”. Mathematically, querying a strong simulator     
+
+> 4. For ease of presentation, in this paper we consider only the case where Land fdo not depend on time, i.e. time-homogeneous problems. All the conclusions can be readily extended to the time inhomogeneous case.
+> 8Zeroth-Order Deep Learning for PDEs
+
+with a set of initial states {(t, x 1), · · · , (t, x K )} means that K trajectories {Xt,x k 
+
+> s
+
+}t≤s≤T are generated satisfying 
+
+Xt,x k 
+
+> τ
+
+= xk +
+
+Z τt
+
+b(Xt,x k 
+
+> s
+
+)d s +
+
+Z τt
+
+√2σ(Xt,x k 
+
+> s
+
+)d Ws,
+
+for all τ ∈ [t, T ] and all k = 1 , · · · , K , almost surely, where the same Brownian motion 
+
+W drives all the K trajectories (but W is not the output of the simulator and hence is “hidden”). Upon another query, another hidden independent Brownian motion will be used to generate these trajectories. These precise definitions of the simulators also give precise meanings to the terms “model-free” and “data-driven”, and it is possible to extend them to settings other than PDEs. Our approach and results in this paper involve both settings, but the theoretical guarantees differ, depending on which simulator is available. In short, access to a strong simulator leads to substantially sharper results than access only to a weak simulator because the former facilitates variance reduction; see Proposition 5 and Theorem 9. Next, we discuss a few important building blocks of our approach and highlight the challenges of the existing approaches. As they are both well-known in the literature, we omit to specify needed regularity conditions to avoid unnecessary technicality in the discussion. Rigorous conditions and analysis will be presented in Section 5. 
+
+2.1 Value Iteration of the Nonlinear PDEs 
+
+We consider the value iteration for solving the nonlinear PDE (2.1): Define the solution mapping of a linear parabolic equation S : v 7 → u, such that u solves 
+
+(
+
+∂tu + Lu + f (x, v, ∇v, ∇2v) = 0 , (t, x ) ∈ [0 , T ) × Rd,u(T, x ) = g(x), x ∈ Rd. (2.3) By assuming suitable regularity conditions on L and f, g , S is a well-defined mapping from a suitable space to itself. For any given initial value v0, we can therefore define the value iteration sequence by v1 = Sv0, · · · , v n+1 = Svn, · · · . Based on the Feynman–Kac formula (cf. Karatzas and Shreve 2014), the solution mapping S admits a probabilistic representation: 
+
+Sv(t, x ) = u(t, x ) = E
+
+
+
+g(Xt,x T ) + 
+
+Z Tt
+
+f  Xt,x s , v (s, X t,x s ), ∇v(s, X t,x s ), ∇2v(s, X t,x s ) ds
+
+
+
+.
+
+(2.4) Hence, correspondingly, the value iteration can be represented by 
+
+vn+1 (t, x ) = E
+
+
+
+g(Xt,x T ) + 
+
+Z Tt
+
+f  Xt,x s , v n(s, X t,x s ), ∇vn(s, X t,x s ), ∇2vn(s, X t,x s ) ds
+
+
+
+.
+
+(2.5) We make three important observations. First, value iteration reduces the difficulty of solving a nonlinear PDE to solving linear PDEs successively and, thus, is commonly employed as the first attempt in many numerical procedures. It is also widely used to establish the well-posedness of nonlinear PDEs, and is referred to as Picard iteration in the 
+
+> 9Jia, Ouyang, Pham, and Zhou
+
+PDE literature (e.g., Han et al. 2026). In particular, if we assume that the solution mapping 
+
+S is a contraction under a suitable norm, then this iteration converges at an exponential rate. Such contraction properties are dictated by those of L and f, g , and we will present a sufficient condition in Appendix A for the contraction property. Second, besides value iteration, there are alternative ways to solve nonlinear PDEs by iteratively solving linearized PDEs, e.g., Newton’s method, which expands the nonlinear term f into its linear approximation. Our approach in this paper is a zeroth-order method: it uses only knowledge of f itself, rather than its first-order derivative (which is unknown in the black-box/model-free setting), but can be generalized to Newton’s method if such a form is known. Third, the value iteration (2.5) provides a theoretical mechanism to solve the nonlin-ear PDE by solving a sequence of linear problems. However, numerical challenges remain, and numerically solving linear (black-box) PDEs in high dimensions is already difficult. The probabilistic representation of the solution mapping S transforms the problem of solv-ing PDEs into evaluating expectations over stochastic trajectories which can in turn be computed using Monte Carlo methods, thus avoiding using grid points in the conventional numerical PDE methods. Such a probabilistic representation seems to be the only way to remedy the curse of dimensionality in solving PDEs. Moreover, the probabilistic represen-tation (2.4) only requires the function values of g, f along the trajectories of Xt and not the precise specification of L nor the exact functional forms of g, f . Hence it is applicable to a black-box environment. 5
+
+2.2 Is Deep Neural Network a Savior For All? 
+
+To overcome the curse of dimensionality, deep neural networks (DNNs) have been widely adopted in recent algorithms based on probabilistic representations such as (2.4) to approx-imate solutions to PDEs. DNNs have been shown, both theoretically and empirically, to approximate high-dimensional functions efficiently without suffering from an exponential dependence on dimension; see e.g. Han et al. (2018), Beck et al. (2023), Germain et al. (2023). In our context, the value iteration requires successively solving linear PDEs and, hence, DNNs can be used to approximate each solution vn. Such an approach has been ex-plored by Jia and Zhou (2022b) and more broadly in the reinforcement learning literature for policy evaluation. Does this, then, mean that DNNs provide a universal remedy for all these problems? The answer is negative. In value iteration, the solution obtained at the previous step is used as an input to define the next linear PDE. Therefore, it is crucial to ensure that the one-step error does not propagate and amplify over iterations. In particular, for a fully nonlinear PDE like (2.3), the next linear PDE in the value iteration (2.5) depends on the previous solution via its spatial derivatives up to the second order (i.e., f depends on ∇vn
+
+and ∇2vn). Consequently, the one-step approximation error must be controlled not only in the current function iterate, but also in its first- and second-order derivatives, which imposes significantly more stringent requirements on the approximation scheme. 
+
+> 5. This problem also arises in the context of policy evaluation in reinforcement learning (see, e.g., Jia and Zhou 2022b).
+> 10 Zeroth-Order Deep Learning for PDEs
+
+To illustrate the issue, let Vn be the DNN approximation of vn at step n. To compute the target for step n + 1, we must evaluate f (·, V n, ∇Vn, ∇2Vn). A standard approach would be to train Vn+1 to minimize the L2 distance to the target value implied by (2.5). However, convergence in the L2 norm of the value function does not guarantee convergence of its derivatives (i.e., ∥Vn − v∗∥L2 → 0 does not imply ∥∇ Vn − ∇ v∗∥L2 → 0), particularly in high-dimensional spaces. This phenomenon is well-known in Sobolev training and non-parametric regression; see e.g. Czarnecki et al. (2017). We emphasize that this error is not due to the numerical error in computing derivatives as in, say, the finite-difference method. When using DNNs, derivatives are computed via automatic differentiation (auto-diff) through backpropagation , which provides exact deriva-tives of the network representation. 6 Therefore, if ∇Vn and ∇2Vn are computed directly via automatic differentiation of an imperfectly trained network Vn, the errors in derivatives may be significantly amplified, destabilizing the source term f for the next iteration. Con-sequently, learning the value function alone is insufficient, and one has to learn the gradient and Hessian, denoted by Gn ≈ ∇ vn and Hn ≈ ∇ 2vn, and update them alongside with Vn.Existing approaches approximate derivatives using differential learning techniques in a model-based setting, often relying on the simulation of tangent processes associated with the underlying stochastic differential equation; see Glasserman (2004) and Huge and Savine (2020). These methods, however, typically require access to derivatives of the coefficients (e.g., the exact form of L) and in addition may introduce additional variance and compu-tational complexity. The above discussions motivate us to develop alternative approaches that avoid explicit differentiation while maintaining stability over iterations. 
+
+3 Approximate Probabilistic Representation of Derivatives 
+
+In this section, we detail the proposed numerical scheme. Based on the discussions in Section 2.2, the core challenge lies in generating accurate and low-variance training targets for networks ( G, H ) ≈ (∇v, ∇2v) that can be learned using function values of v. In other words, we will not rely on recovering derivatives from a learned value approximation, whether through automatic differentiation or model-dependent sensitivity formulas; rather, we need to derive a probabilistic model-free representation of the derivatives ( ∇v, ∇2v), i.e., forms similar to (2.4), and then train networks ( G, H ) to approximate them – a “representing-then-learning” paradigm. To achieve this, we rely on the “ zeroth-order derivative ” (ZOD) estimators as the fun-damental building block of our method. Since ZOD has not yet been utilized in the context of solving PDEs with DNNs, we first review its properties for the reader’s convenience. 
+
+3.1 Classical Zeroth-Order Derivative Estimators 
+
+The basic idea of ZOD is to use the function values at randomly perturbed points, u(t, x +
+
+ϵZ ), to approximate the derivative ∇u and even higher-order derivatives such as ∇2u, where 
+
+ϵ > 0 is the bandwidth of the perturbation and Z follows a standard, sphere-symmetric dis-     
+
+> 6. The only exception occurs for non-differentiable functions, e.g. v(x) = x+at x= 0. In practice, this is rarely an issue since neural networks are smooth or almost everywhere differentiable.
+> 11 Jia, Ouyang, Pham, and Zhou
+
+tribution. In our case, without loss of generality, we take Z ∼ N (0 , I ), a d-dimensional standard normal distribution. The following Lemmas 1 to 3 are standard results under slightly different regularity conditions; see, e.g., Nesterov and Spokoiny (2017); Balasubra-manian and Ghadimi (2022). For completeness and for the reader’s convenience, we provide their proofs in the appendix. These lemmas construct several well-known ZOD estimators and present their properties. 
+
+Lemma 1 Given function u(·, ·), (t, x ) ∈ [0 , T ] × Rd, and Z ∼ N (0 , I d). If u(t, ·) is three times continuously differentiable and its derivatives satisfy the polynomial growth condition, then Zϵ u(t, x + ϵZ ) is a biased estimator for ∇u(t, x ), and its bias and variance are upper bounded by 
+
+E
+
+ Zϵ u(t, x + ϵZ )
+
+
+
+− ∇ u(t, x ) ≤ Cϵ 2, Var 
+
+ Zϵ u(t, x + ϵZ )
+
+
+
+≤ C 1
+
+ϵ2 .
+
+Furthermore, if u(t, ·) is four times continuously differentiable and its derivatives satisfy the polynomial growth condition, then ZZ ⊤−Id 
+
+> ϵ2
+
+u(t, x + ϵZ ) is a biased estimator for ∇2u(t, x ),and its bias and variance are upper bounded by 
+
+E
+
+ ZZ ⊤ − Id
+
+ϵ2 u(t, x + ϵZ )
+
+
+
+− ∇ 2u(t, x ) ≤ Cϵ 2, Var 
+
+ ZZ ⊤ − Id
+
+ϵ2 u(t, x + ϵZ )
+
+
+
+≤ C 1
+
+ϵ4
+
+Variance Reduction of Multi-Point ZOD Estimators As shown in Lemma 1, the na¨ ıve one-point estimators suffer from a critical drawback: their variances diverge as the perturbation magnitude, ϵ, approaches zero. This means that to get an accurate derivative estimate, ϵ needs to be small to reduce the bias but the number of samples need to increase dramatically to reduce the variance. This issue can often be mitigated by the symmetric (or central) differencing technique, known as the multi-point zeroth-order estimators. We begin by considering the estimation of the gradient, ∇u(t, x ). A one-point estimator, as demonstrated in Lemma 1, has variances that scale as O(ϵ−2), whereas a two-point estimator exhibits bounded variances, as stipulated in Lemma 2: 
+
+Lemma 2 Given function u(·, ·), (t, x ) ∈ [0 , T ] × Rd, and Z ∼ N (0 , I d). Assume u(t, ·)
+
+is three times continuously differentiable and its derivatives satisfy the polynomial growth condition. Define 
+
+ˆg(t, x ; ϵ) := u(t, x + ϵZ ) − u(t, x − ϵZ )2ϵ Z. (3.1) 
+
+Then 
+
+|E [ˆ g(t, x ; ϵ)] − ∇ u(t, x )| ≤ Cϵ 2, Var [ˆ g(t, x ; ϵ)] ≤ C′,
+
+for some constants C, C ′ > 0 that are independent of ϵ.
+
+The one-point estimator for Hessian has even larger variances that diverge at a rate of 
+
+O(ϵ−4) and hence is much more inefficient. However, with symmetric differencing, we can construct a stable estimator with bounded variances. 
+
+> 12
+
+Zeroth-Order Deep Learning for PDEs 
+
+Lemma 3 Let the function u : [0 , T ] × Rd → R satisfy the conditions of Lemma 2, and further assume u(t, ·) is four times continuously differentiable and its derivatives satisfy the polynomial growth condition. Define 
+
+ˆH(t, x ; ϵ) := u(t, x + ϵZ ) − 2u(t, x ) + u(t, x − ϵZ )2ϵ2 (ZZ ⊤ − Id). (3.2) 
+
+Then 
+
+E
+
+h ˆH(t, x ; ϵ)
+
+i
+
+− ∇ 2u(t, x ) ≤ Cϵ 2, Var 
+
+h ˆH(t, x ; ϵ)
+
+i
+
+≤ C′,
+
+for some constants C, C ′ > 0 that are independent of ϵ.
+
+3.2 Illustrations of Representing-Then-Learning Paradigm 
+
+To illustrate our “representing-then-learning” paradigm, we first use a toy task of regression and contrast it with a conventional routine where the derivative is obtained from differenti-ating the learned value function. This simple regression task is indeed equivalent to solving a linear PDE, which will be demonstrated numerically in Subsection 6.1. The regression task is described as follows: suppose ( X, Y ) ∈ R2 follows a joint dis-tribution that can be written as π(d x)ρ(x, dy), where π(d x) is the marginal distribution of X and ρ(x, dy) is the conditional distribution of Y |X = x. We can generate samples from both X and Y |X = x, but do not know the functions π and ρ. We are interested in numerically finding the function f (x) and its derivatives f ′(x), f ′′ (x) where f (X) = E[Y |X]is the conditional expectation. 
+
+Learning-then-Differentiating Conventionally, one can first generate samples Xi ∼
+
+π(·) and Yi ∼ ρ(Xi, ·), and then fit a DNN regression by 
+
+V = arg min 
+
+> φ∈H
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+(Yi − φ(Xi)) 2 ,
+
+where H stands for the functional class of the chosen DNN family. The resulting function approximation V is well-known to satisfy performance guarantee (ignoring the optimization error). However, differentiating (equivalent to auto-diff) V to obtain V ′, V ′′ does not have any theoretical guarantee. 7
+
+Representing-then-Learning Our approach is based on obtaining a sample approxima-tion for the derivatives directly via ZOD estimators. Let us illustrate the one-point ZOD for estimating derivatives first. Besides the samples ( Xi, Y i), we further sample Zi ∼ N (0 , 1) and sample Y (+)  
+
+> i
+
+∼ ρ(Xi + ϵZ i, ·). Now consider the newly constructed sample Zi 
+
+> ϵ
+
+Y (+)  
+
+> i
+
+. It follows from Lemma 1 that 
+
+E
+
+ Zi
+
+ϵ Y (+)  
+
+> i
+
+Xi
+
+
+
+= E
+
+
+
+E
+
+ Zi
+
+ϵ Y (+)  
+
+> i
+
+Xi, Z i
+
+
+
+Xi
+
+
+
+= E
+
+ Zi
+
+ϵ f (Xi + ϵZ i) Xi
+
+
+
+≈ f ′(Xi) + bias .                   
+
+> 7. One possible mitigation to this is to consider the regularized regression by min φ∈H 1
+> n
+> Pni=1 (Yi−φ(Xi)) 2+λ|φ′′ (Xi)|2, with a tuning parameter λ > 0 that induces smoother function approximation; see e.g. Wahba (1990).
+
+13 Jia, Ouyang, Pham, and Zhou 
+
+Thus, Z1 
+
+> ϵ
+
+Y (+) 1 , · · · , Zn 
+
+> ϵ
+
+Y (+)  
+
+> n
+
+are n independent, biased samples of f ′(X1), · · · , f ′(Xn) respec-tively with heterogeneous bias and standard errors. Then, we learn a function G by 
+
+G = arg min 
+
+> φ∈H
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+ Zi
+
+ϵ Y (+)  
+
+> i
+
+− φ(Xi)
+
+2
+
+.
+
+Similarly, we can construct samples, Z2  
+
+> i−1
+> ϵ2
+
+Y (+)  
+
+> i
+
+, i = 1 , · · · , n , for the second-order derivative because 
+
+E
+
+ Z2 
+
+> i
+
+− 1
+
+ϵ2 Y (+)  
+
+> i
+
+Xi
+
+
+
+= E
+
+
+
+E
+
+ Z2 
+
+> i
+
+− 1
+
+ϵ2 Y (+)  
+
+> i
+
+Xi, Z i
+
+
+
+Xi
+
+
+
+= E
+
+ Z2 
+
+> i
+
+− 1
+
+ϵ2 f (Xi + ϵZ i) Xi
+
+
+
+≈ f ′′ (Xi) + bias .
+
+Hence, we can learn a function H by 
+
+H = arg min 
+
+> φ∈H
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+ Z2 
+
+> i
+
+− 1
+
+ϵ2 Y (+)  
+
+> i
+
+− φ(Xi)
+
+2
+
+.
+
+The learned DNNs G, H will then be reasonable approximations to f ′, f ′′ respectively, sub-ject to the optimization error (controlled by the optimization solvers), approximation error (controlled by the functional class H), sampling error (controlled by n and ϵ), and the bias (controlled by ϵ). Furthermore, the multi-point ZOD estimators can be constructed as follows: We sample 
+
+Y (±) 
+
+> i
+
+∼ ρ(Xi ± ϵZ i, ·), and consider Y (+)    
+
+> i−Y(−)
+> i
+> 2ϵ
+
+Zi and Y (+)   
+
+> i−2Yi+Y(−)
+> i
+> 2ϵ2
+
+ Z2 
+
+> i
+
+− 1 for the biased samples of f ′(Xi), f ′′ (Xi) respectively. In the following, for ease of presentation we only describe the construction under the one-point ZOD, but multi-point ZOD can be similarly constructed. 
+
+3.3 Estimators for Solutions to Linear PDEs 
+
+We now apply the ZOD framework to our specific problem of solving nonlinear PDEs. Recall that in the value iteration, the target function at the ( n + 1)-th step is given by the conditional expectation: ˆVn+1 (t, x ) = E Rt,x (Un) ,
+
+where Un = ( Vn, G n, H n) represents the networks from the previous iteration. The stochas-tic reward functional is defined as: 
+
+Rt,x (Un) := g(Xt,x T ) + 
+
+Z Tt
+
+f  Xt,x s , V n(s, X t,x s ), G n(s, X t,x s ), H n(s, X t,x s ) ds. 
+
+Since ˆVn+1 is not available analytically, we cannot directly apply the ZOD estimators to the function ˆVn+1 itself. However, we have access to the random variable Rt,x , which is an 
+
+unbiased estimator of ˆVn+1 (t, x ). This motivates the One-Point ZOD Estimator . Instead of estimating ˆVn+1 and then employing ZOD, we directly use the perturbed realization of the reward Rt,x +ϵZ to esti-mate the spatial derivatives. Taking the first-order derivative as an example, recall that 
+
+14 Zeroth-Order Deep Learning for PDEs  
+
+> Zϵ
+
+ˆVn+1 (t, x + ϵZ ) is a biased estimator for ∇ ˆVn+1 (t, x ), and Rt,x +ϵZ (Un) is an unbiased estimator of ˆVn+1 (t, x + ϵZ ). Thus, we are motivated to take Zϵ Rt,x +ϵZ (Un) as a one-point estimator for ∇ ˆVn+1 (t, x ), without relying on an intermediary estimate of ˆVn+1 . In a sim-ilar fashion, a one-point estimator for the second-order derivative can also be constructed. The following proposition presents the error bounds of the one-point ZOD estimators in L2
+
+norm. For integers l, k ≥ 0, Cl,k b ([0 , T ] × Rd) denotes the class of functions that are l times continuously differentiable in t and k times continuously differentiable in x, and whose derivatives are uniformly bounded, and Cl,k p ([0 , T ] × Rd) denotes the corresponding class in which these derivatives have at most polynomial growth in x. Similarly, Ckb (Rd) and Ckp (Rd)denote the time-independent counterparts. These notations are understood componentwise for vector- or matrix-valued functions. We need the following standing assumption. 
+
+Assumption 1 The coefficients b and σ are sufficiently regular so that the SDE (2.2) ad-mits a unique strong solution. Moreover, they satisfy the linear growth and bounded condi-tion, i.e., there are constants Lb and σ0 such that 
+
+|b(t, x )| ≤ Lb(1 + |x|), |σ(t, x )| ≤ σ0, for all (t, x ) ∈ [0 , T ] × Rd.
+
+Assumption 1 is a standard condition for SDEs, and we require the existence and unique-ness of a strong solution since we consider both the weak and strong simulators. Further-more, we impose regularity conditions on the drift and volatility coefficient so that the usual moment estimates for the solution of SDE hold, which is needed in the subsequent analysis. In particular, we require stronger boundedness condition on the volatility coefficient for us to establish the desired statistical error guarantee later; otherwise, the underlying SDEs may be too volatile, losing the property required for the empirical loss functions used in the training to concentrate around its population counterpart. Under Assumption 1, we present the property of ZOD estimators under our context. 
+
+Proposition 4 Suppose Assumption 1 holds. Assume also that the coefficients b, σ, g, f, V n, G n, H n
+
+are smooth enough so that ˆVn+1 ∈ C0,3 
+
+> p
+
+([0 , T ] × Rd) and Un, f, g all have polynomial growth in x, uniformly in t ∈ [0 , T ]. Then Zϵ Rt,X t+ϵZ (Un) is a biased estimator for ∇ ˆVn+1 (t, X t)
+
+conditioning on Xt, and there is a constant C > 0 independent of ϵ such that its bias and variance are upper bounded by 
+
+E
+
+"Z T
+
+> 0
+
+E
+
+ Zϵ Rt,X t+ϵZ (Un) Xt
+
+
+
+− ∇ ˆVn+1 (t, X t)
+
+> 2
+
+dt
+
+#
+
+≤ Cϵ 4, Var 
+
+ Zϵ Rt,X t+ϵZ (Un)
+
+
+
+≤ C 1
+
+ϵ2 ,
+
+Moreover, if ˆVn+1 ∈ C0,4 
+
+> p
+
+([0 , T ] × Rd), then ZZ ⊤−Id 
+
+> ϵ2
+
+Rt,X t+ϵZ (Un) is a biased estimator for 
+
+∇2 ˆVn+1 (t, X t) conditioning on Xt, and there is a constant C > 0 independent of ϵ such that its bias and variance are upper bounded by 
+
+E
+
+"Z T
+
+> 0
+
+E
+
+ ZZ ⊤ − Id
+
+ϵ2 Rt,X t+ϵZ (Un) Xt
+
+
+
+− ∇ 2 ˆVn+1 (t, X t)
+
+> 2
+
+dt
+
+#
+
+≤ Cϵ 4,
+
+Var 
+
+ ZZ ⊤ − Id
+
+ϵ2 Rt,X t+ϵZ (Un)
+
+
+
+≤ C 1
+
+ϵ4 .
+
+> 15
+
+Jia, Ouyang, Pham, and Zhou 
+
+Proposition 4 describes the one-point ZOD estimators for the derivatives of the solution to a linear PDE and confirms that their biases are small and controlled by ϵ2. A significant limitation is that the variances of the estimators are generally unbounded, and in fact have the orders of ϵ−2 and ϵ−4 for the gradient and Hessian respectively, similarly to the classical ZOD in Lemma 1. We refer to them as “ZOD-1” in our subsequent numerical experiment, and will demonstrate that they usually produce worse results in learning derivatives. 
+
+Variance Reduction with Strong Simulators Theoretically, it is natural to inves-tigate the symmetric versions (analogous to Lemma 2 and Lemma 3) of ZOD estimators for the gradient and Hessian of the solution to this linear PDE and inquire whether this variance reduction technique is helpful in the current PDE setting as well. It turns out that the answer depends on which type of simulators is accessible to us, i.e., when sim-ulating multiple trajectories starting from different initial states x, x + ϵZ , and x − ϵZ ,whether we can control the noises in the environment in a way that the corresponding rewards Rt,x , R t,x +ϵZ , R t,x −ϵZ are highly correlated and therefore cancel the noises off to great extent. 8 With a weak simulator, we need to query the simulator separately , one at a time, to generate the trajectories Xt,x , X t,x +ϵZ , X t,x −ϵZ . Because the Brownian motions in the underlying stochastic processes are independent, these trajectories, as well as the as-sociated rewards Rt,x , R t,x +ϵZ , R t,x −ϵZ , are conditionally independent (conditioned on the realized Z), and hence we cannot expect the benefit of variance reduction. However, with a strong simulator, we are presented with trajectories of Xt,x , X t,x +ϵZ , X t,x −ϵZ driven by the same Brownian path upon one single query , and Rt,x , R t,x +ϵZ , R t,x −ϵZ are expected to be highly correlated, leading to additional noise cancellation in Rt,x +ϵZ − Rt,x −ϵZ and 
+
+Rt,x +ϵZ + Rt,x −ϵZ − 2Rt,x . The next Proposition 5 formalizes and indeed validates this idea. 
+
+Proposition 5 Suppose Assumption 1 holds, and Un, f, g all have polynomial growth in x,uniformly in t ∈ [0 , T ]. Construct 
+
+ˆg := Z
+
+2ϵ
+
+ Rt,X t+ϵZ (Un) − Rt,X t−ϵZ (Un) ,
+
+ˆh := ZZ ⊤ − Id
+
+2ϵ2
+
+ Rt,X t+ϵZ (Un) + Rt,X t−ϵZ (Un) − 2Rt,X t (Un) .
+
+(a) With a weak simulator as specified in Condition 1, if the coefficients b, σ, g, f, V n, G n, H n
+
+are smooth enough so that ˆVn+1 ∈ C0,3 
+
+> p
+
+([0 , T ] × Rd), then ˆg is a biased estimator for 
+
+∇ ˆVn+1 (t, X t) conditioning on Xt, and its bias and variance are upper bounded by 
+
+E
+
+Z T
+
+> 0
+
+E [ˆ g | Xt] − ∇ ˆVn+1 (t, X t) 2
+
+dt
+
+
+
+≤ Cϵ 4, |Var[ˆ g]| ≤ C 1
+
+ϵ2 .
+
+Furthermore, if ˆVn+1 ∈ C0,4 
+
+> p
+
+([0 , T ] × Rd), then ˆh is a biased estimator for ∇2 ˆVn+1 (t, X t)
+
+conditioning on Xt, and its bias and variance are upper bounded by 
+
+E
+
+Z T
+
+> 0
+
+E
+
+hˆh | Xt
+
+i
+
+− ∇ 2 ˆVn+1 (t, X t) 2
+
+dt
+
+
+
+≤ Cϵ 4, Var[ ˆh] ≤ C 1
+
+ϵ4 .    
+
+> 8. This idea resembles the classical simulation techniques of control variates and antithetic variates (cf. Glasserman 2004, Chapter 4) to use correlated samples for variance reduction.
+
+16 Zeroth-Order Deep Learning for PDEs 
+
+(b) With a strong simulator as specified in Condition 2, if b, σ ∈ C0,4 
+
+> b
+
+([0 , T ] × Rd), ˜f ∈
+
+C0,3 
+
+> p
+
+([0 , T ] × Rd) where ˜f (t, x ) := f (t, x, Un(t, x )) and g ∈ C3 
+
+> p
+
+(Rd), then ˆg has the same order of biases as the one-point estimator in Proposition 4 but bounded variances as 
+
+ϵ → 0. Furthermore, if b, σ ∈ C0,5 
+
+> b
+
+([0 , T ] × Rd), ˜f ∈ C0,4 
+
+> p
+
+([0 , T ] × Rd) and g ∈ C4 
+
+> p
+
+(Rd),then ˆh has the same order of biases as the one-point estimator in Proposition 4 but bounded variances as ϵ → 0.
+
+Proposition 5 reveals a unique bias–variance tradeoff associated with the multi-point ZOD estimators in our particular context and the critical difference between the weak and strong simulators. It turns out that the conventional bounded variance in Lemmas 2 and 3 no longer holds for the weak simulator and only holds for the strong simulator. In particular, a multi-point ZOD estimator does not reduce variance with a weak simulator, and its variance still has the same order as the one-point ZOD in Proposition 4. Hence, in general, there is no benefit to apply multi-point ZOD when only a weak simulator is accessible. We refer to the multi-point ZOD estimator with a strong simulator as “ZOD-m” in our subsequent numerical experiments, and will demonstrate that it produces much more stable results in learning derivatives while requiring fewer samples. 
+
+4 The Zeroth-Order Deep Learning Algorithm 
+
+Let U = ( V, G, H ) denote the triplet of functions. We define the approximating neural networks as: 
+
+φθ := ( φθv, φ θg, φ θh),
+
+where φθv : [0 , T ] × Rd → R, φθg : [0 , T ] × Rd → Rd, and φθh : [0 , T ] × Rd → Rd×d approximate the value, gradient, and Hessian, respectively. The parameters are denoted by θ ∈ Θ ⊂ Rp.We define the reward function starting from state ( t, x ) given a function triplet U as: 
+
+Rt,x (U) := g(Xt,x T ) + 
+
+Z Tt
+
+f  Xt,x s , V (s, X t,x s ), G (s, X t,x s ), H (s, X t,x s ) ds. 
+
+Crucially, the source term f is evaluated using the explicit outputs of G and H, rather than derivatives computed via auto-diff. We implement the value iteration (2.5) as follows: At iteration n, let Un = ( Vn, G n, H n)be the trained networks from the previous step. We aim to learn Un+1 such that: 1. Vn+1 (t, x ) ≈ ˆVn+1 (t, x ) := E[Rt,x (Un)]. 2. Gn+1 (t, x ) ≈ ∇ ˆVn+1 (t, x ). 3. Hn+1 (t, x ) ≈ ∇ 2 ˆVn+1 (t, x ). 
+
+4.1 Loss Function Design 
+
+To train the candidate networks φ = ( φv, φ g, φ h) at iteration n, we minimize a composite loss function that enforces consistency between the networks and the stochastic targets derived from Un:
+
+L(φ, Un) := Lv(φv, Un) + Lg(φg, Un) + Lh(φh, Un),
+
+where each individual loss will be defined below, with β > 0 some fixed constant. 
+
+> 17
+
+Jia, Ouyang, Pham, and Zhou 
+
+4.1.1 Value Loss 
+
+The value network φθv is trained to match the conditional expectation of the reward. The loss is defined as the mean squared error (MSE) against the stochastic realization: 
+
+Lv(φv, Un) := βE
+
+Z T
+
+> 0
+
+eβs φv(s, X s) − Rs,X s (Un) 2 ds
+
+
+
+.
+
+Minimizing this loss implies φv(t, x ) ≈ E[Rt,x (Un)]. 
+
+4.1.2 Zeroth-Order Derivatives Losses 
+
+Since ˆVn+1 is defined as an expectation, its derivatives are not directly available. We employ the one-point ZOD estimators (Proposition 4) to construct biased targets using perturbed trajectories. 9 Let Z ∼ N (0 , I d) be a perturbation vector independent of the trajectory X.
+
+Gradient Loss. We rely on the relationship ∇E[Rt,x ] ≈ E[ Zϵ Rt,x +ϵZ ]. The gradient network φθg minimizes: 
+
+Lg(φθg, Un) := βE
+
+"Z T
+
+> 0
+
+eβt φθg(t, X t) − Zϵ Rt,X t+ϵZ (Un)
+
+> 2
+
+dt
+
+#
+
+.
+
+Hessian Loss. Similarly, the Hessian network φθh minimizes the error against the second-order ZOD estimator, where the norm stands for the Frobenius norm for matrices: 
+
+Lh(φθh, Un) := E
+
+"Z T
+
+> 0
+
+eβt φθh(t, X t) − ZZ ⊤ − Id
+
+ϵ2 Rt,X t+ϵZ (Un)
+
+> 2
+
+dt
+
+#
+
+.
+
+4.2 Discretization and Implementation 
+
+In the numerical implementation, expectations are estimated via Monte Carlo sampling. We define a uniform time grid G := {0 = t0 < · · · < t N = T } with steps ∆ tj := tj+1 − tj = TN .Let {X(b)}Bb=1 denote a batch of base trajectories starting from (0 , x 0). For the value loss, the empirical reward along a base trajectory is computed using the frozen networks Un:˜Rtj ,X (b) 
+
+> tj
+
+(Un) := g(X(b) 
+
+> T
+
+) +  
+
+> N−1
+
+X
+
+> i=j
+
+f
+
+
+
+X(b) 
+
+> ti
+
+, V n(ti, X (b) 
+
+> ti
+
+), G n(ti, X (b) 
+
+> ti
+
+), H n(ti, X (b) 
+
+> ti
+
+)
+
+
+
+∆ti. (4.1) To compute the derivative losses, for each sample b and time step j, we generate a random perturbation Z(b) ∼ N (0 , I d) and simulate (observe) one perturbed trajectory 
+
+{Xtj ,X (b) 
+
+> tj+ϵZ (b)
+
+}s≥tj starting from X(b) 
+
+> tj
+
++ ϵZ (b). The reward along this perturbed path is: ˜Rtj ,X (b) 
+
+> tj+ϵZ (b)
+
+(Un) := g(Xtj ,X (b)  
+
+> tj+ϵZ (b)
+> T
+
+)+ 
+
+> N−1
+
+X
+
+> i=j
+
+f Xtj ,X (b)  
+
+> tj+ϵZ (b)
+> ti
+
+, V n(ti, X tj ,X (b)  
+
+> tj+ϵZ (b)
+> ti
+
+), G n(ti, X tj ,X (b)  
+
+> tj+ϵZ (b)
+> ti
+
+), H n(ti, X tj ,X (b)  
+
+> tj+ϵZ (b)
+> ti
+
+)
+
+!
+
+∆ti.
+
+(4.2) 
+
+9. Here we present the one-point ZOD estimators for illustration. Multi-point ZOD `a la Proposition 5 can be discussed similarly. 
+
+18 Zeroth-Order Deep Learning for PDEs 
+
+The tractable empirical loss functions are: ˜L(B) 
+
+> v
+
+(φv, Un) := β 1
+
+B
+
+> B
+
+X 
+
+> b=1
+> N−1
+
+X
+
+> j=0
+
+eβt j
+
+
+
+φv(tj , X (b) 
+
+> tj
+
+) − ˜Rtj ,X (b) 
+
+> tj
+
+(Un)
+
+2
+
+∆tj ,
+
+˜L(B) 
+
+> g
+
+(φg, Un) := β 1
+
+B
+
+> B
+
+X 
+
+> b=1
+> N−1
+
+X
+
+> j=0
+
+eβt j φg(tj , X (b) 
+
+> tj
+
+) − Z(b)
+
+ϵ ˜Rtj ,X (b) 
+
+> tj+ϵZ (b)
+
+(Un)
+
+> 2
+
+∆tj ,
+
+˜L(B) 
+
+> h
+
+(φh, Un) := 1
+
+B
+
+> B
+
+X 
+
+> b=1
+> N−1
+
+X
+
+> j=0
+
+eβt j φh(tj , X (b) 
+
+> tj
+
+) − Z(b)(Z(b))⊤ − Id
+
+ϵ2 ˜Rtj ,X (b) 
+
+> tj+ϵZ (b)
+
+(Un)
+
+> 2
+
+∆tj .
+
+The empirical total loss is defined by ˜L(B)(φ, Un) := ˜L(B) 
+
+> v
+
+(φv, Un) + ˜L(B) 
+
+> g
+
+(φg, Un) + ˜L(B) 
+
+> h
+
+(φh, Un). (4.3) The complete procedure is summarized in Algorithm 1. 
+
+5 Convergence Analysis 
+
+In this section, we establish the convergence properties of the proposed zeroth-order based learning algorithm. Let p(t, ·) denote the probability density function of Xt. We define the following weighted norms: 
+
+∥v∥2 
+
+> L2(p)
+
+:= 
+
+Z
+
+> Rd
+
+|v(t, x )|2p(t, x )d x, ∥v∥2 
+
+> β
+
+:= 
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+|v(t, x )|2p(t, x )d xdt, 
+
+as well as the mixed derivative norm: 
+
+∥v∥2 
+
+> β, mix
+
+:= β∥v∥2 
+
+> β
+
++ β∥∇ v∥2 
+
+> β
+
++ ∥∇ 2v∥2 
+
+> β
+
+.
+
+For a function triplet U := ( V, G, H ), we abuse the notation slightly and define its corre-sponding norm as: 
+
+∥U∥2 
+
+> β, mix
+
+:= β∥V ∥2 
+
+> β
+
++ β∥G∥2 
+
+> β
+
++ ∥H∥2 
+
+> β
+
+.
+
+We formally define the solution mapping S that maps a coefficient triplet to a solution triplet. Let U = ( V, G, H ) be a given triplet in an appropriate Hilbert space. Let u be the unique classical solution to the linear parabolic PDE: 
+
+(
+
+∂tu + Lu + f  x, V (t, x ), G (t, x ), H (t, x ) = 0 , (t, x ) ∈ [0 , T ) × Rd,u(T, x ) = g(x), x ∈ Rd.
+
+The solution mapping S is then defined as the operator that returns the solution and its spatial derivatives: 
+
+S(U) := ( u, ∇u, ∇2u).
+
+Under this definition, the fixed-point problem u∗ = S(u∗) is equivalent to the original nonlinear PDE (2.1) with v∗ being the solution of PDE and u∗ = ( v∗, ∇v∗, ∇2v∗). To proceed with the analysis, we introduce the following contraction assumption on S.
+
+19 Jia, Ouyang, Pham, and Zhou 
+
+Algorithm 1 Zeroth-Order PDE Solver via Independent Networks 
+
+1: Input: Function f , terminal condition g, time horizon T , initial state x0, time grid 
+
+G = {0 = t0 < · · · < t N = T } with ∆ tj = tj+1 − tj , batch size B, outer iterations M ,gradient steps per iteration K, learning rate η, perturbation size ϵ.
+
+2: Required Program: A simulator generating sample trajectories whose infinitesimal generator is L.
+
+3: Initialize: Independent neural networks U0 = ( V0, G 0, H 0), parameter θ0.
+
+4: for n = 0 to M − 1 do 
+
+5: Initialize candidate networks φθ = ( φθv, φ θg, φ θh) with parameters θ = θn
+
+6: for k = 1 to K do 
+
+7: Observe B trajectories {X(b) 
+
+> s
+
+}s∈[0 ,T ],b =1 ,...,B starting from (0 , x 0). 
+
+8: For 0 ≤ j ≤ N , 1 ≤ b ≤ B, evaluate Gn(tj , X (b) 
+
+> tj
+
+) and Hn(tj , X (b) 
+
+> tj
+
+) using frozen networks. 
+
+9: Compute empirical reward random variable ˜Rtj ,X (b) 
+
+> tj
+
+(Un) by (4.1). 
+
+10: Compute ˜L(B) 
+
+> v
+
+:= β 1
+
+> B
+
+PBb=1 
+
+PN −1 
+
+> j=0
+
+eβt j
+
+
+
+˜Rtj ,X (b) 
+
+> tj
+
+(Un) − φθv(tj , X (b) 
+
+> tj
+
+)
+
+2
+
+∆tj .
+
+11: Sample {Z(b)}Bb=1 ∼ N (0 , I d), for each 0 ≤ j ≤ N , 1 ≤ b ≤ B, observe one trajectory 
+
+(
+
+Xtj ,X (b) 
+
+> tj+ϵZ (b)
+> t
+
+) 
+
+> tj≤t≤T
+
+starting at ( tj , X (b) 
+
+> tj
+
++ ϵZ (b)). 
+
+12: For 0 ≤ j ≤ N , 1 ≤ b ≤ B, j ≤ i ≤ N , evaluate Gn(ti, X tj ,X (b)  
+
+> tj+ϵZ (b)
+> ti
+
+) and 
+
+Hn(ti, X tj ,X (b)  
+
+> tj+ϵZ (b)
+> ti
+
+) on the perturbed paths. 
+
+13: Compute perturbed reward random variable ˜Rtj ,X (b) 
+
+> tj+ϵZ (b)
+
+(Un) by (4.2). 
+
+14: Compute the derivatives loss by zeroth-order estimators: ˜L(B) 
+
+> g
+
+:= β 1
+
+B
+
+> B
+
+X 
+
+> b=1
+> N−1
+
+X
+
+> j=0
+
+eβt j Z(b)
+
+ϵ ˜Rtj ,X (b) 
+
+> tj+ϵZ (b)
+
+(Un) − φθg(tj , X (b) 
+
+> tj
+
+)
+
+!2
+
+∆tj ,
+
+˜L(B) 
+
+> h
+
+:= 1
+
+B
+
+> B
+
+X 
+
+> b=1
+> N−1
+
+X
+
+> j=0
+
+eβt j Z(b)(Z(b))⊤ − Id
+
+ϵ2 ˜Rtj ,X (b) 
+
+> tj+ϵZ (b)
+
+(Un) − φθh(tj , X (b) 
+
+> tj
+
+)
+
+!2
+
+∆tj .
+
+15: Total Loss: ˜L(B) := ˜L(B) 
+
+> v
+
++ ˜L(B) 
+
+> g
+
++ ˜L(B)
+
+> h
+
+16: Update θ ← θ − ηD θ ˜L(B).
+
+17: end for 
+
+18: Set θn+1 ← θ and Un+1 ← φθn+1 
+
+19: end for 
+
+20: Output: Trained networks UM = ( VM , G M , H M )
+
+20 Zeroth-Order Deep Learning for PDEs 
+
+Assumption 2 (Contraction) There exist constants β > 0 and γ < 1, such that for any two triplets U1 = ( V1, G 1, H 1) and U2 = ( V2, G 2, H 2), the following inequality holds 
+
+∥S (U1) − S (U2)∥β, mix ≤ γ∥U1 − U2∥β, mix .
+
+In our context, Assumption 2 represents the fundamental condition required for the well-posedness and convergence of the underlying value iteration scheme itself, independent of the numerical approximation errors. While establishing the necessary and sufficient conditions for general nonlinear PDEs to satisfy this contraction property is beyond the scope of this paper, we will provide a rigorous justification for its validity in an important and relevant setting. Specifically, in Appendix A we will study the case of Langevin dynamics with a stationary distribution and present a sufficient condition for Assumption 2. 
+
+5.1 Approximate Value Iteration 
+
+In this subsection, we analyze the propagation of learning errors through the iterative process and establish a global error bound for the proposed algorithm. Let H denote the space of neural network triplets. We consider the empirical risk minimization (ERM) problem (cf. Shalev-Shwartz and Ben-David 2014) at iteration n. Let 
+
+Un be the empirical minimizer: 
+
+Un ∈ arg min 
+
+> φ∈H
+
+˜L(B)(φ, Un−1), (5.1) where ˜L(B) is the empirical loss defined in (4.3). Under the ERM framework, omitting the optimization error, at each iteration n ≥ 1, the algorithm produces a neural network triplet 
+
+Un = ( Vn, G n, H n), which is the ERM minimizer, intended to approximate the theoretical target S(Un−1). We define the one-step approximation error at iteration n as the deviation between the trained network and the exact image of the previous iterate under the solution map S:
+
+En := ∥Un − S (Un−1)∥β, mix . (5.2) The quantity En aggregates two sources of error: the statistical error arising from the Monte Carlo estimation of the reward and its derivatives (via ZOD estimators), and the approximation error associated with the neural network hypothesis space (optimization and statistical error) to be defined momentarily. The following theorem characterizes the convergence of the sequence {Un}n≥0 to the ground truth u∗.
+
+Theorem 6 Suppose that Assumption 2 holds with a contraction constant γ ∈ [0 , 1) . Let 
+
+{Un = ( Vn, G n, H n)}n≥0 be the sequence of function triplets, which are ERM minimizers defined by (5.1) . Then, almost surely, for any n ≥ 1, the total error is bounded by: 
+
+∥Un − u∗∥β, mix ≤ γn∥U0 − u∗∥β, mix +
+
+> n
+
+X
+
+> k=1
+
+γn−kEk. (5.3) Theorem 6 presents the convergence result of the proposed method as an approximate value iteration . The error bound consists of two distinct components: 
+
+> 21 Jia, Ouyang, Pham, and Zhou
+
+1. The contraction term γn∥U0 − u∗∥β, mix , which decays exponentially. This term cap-tures the inherent stability of the value iteration for the underlying PDE. 2. The accumulation term Pnk=1 γn−kEk, which represents the accumulated error. The magnitude of Ek is determined by the expressivity of the neural networks (approxi-mation error) and the variance of the ZOD estimators (statistical error). This result highlights a critical trade-off: while the contraction constant γ is dictated and fixed by the PDE physics, the approximation accuracy Ek can be controlled by increasing the network capacity and the batch size B, and properly tuning the ZOD perturbation 
+
+ϵ. In Section 5.2, we will provide a detailed analysis of Ek, explicitly characterizing its dependence on the sample size B and perturbation parameter ϵ.
+
+5.2 One-Step Sample Complexity Analysis 
+
+In this subsection, we provide an analysis of the one-step approximation error En. Recall from (5.2) that En = ∥Un − S (Un−1)∥β, mix , where Un is the trained network triplet (the ERM minimizer) and S(Un−1) is the ground truth target defined by the solution mapping. To characterize the learning target, we first introduce the ZOD solution mapping Sϵ,which maps the previous iterate to the expected values of the zeroth-order estimators. Namely, Sϵ(Un−1) := ( V ϵ, G ϵ, H ϵ) is the target triplet defined by the conditional expecta-tions: 
+
+V ϵ(t, x ) := E Rt,x (Un−1) ≡ ˆVn(t, x ),Gϵ(t, x ) := E
+
+ Zϵ Rt,x +ϵZ (Un−1)
+
+
+
+,Hϵ(t, x ) := E
+
+ ZZ ⊤ − Id
+
+ϵ2 Rt,x +ϵZ (Un−1)
+
+
+
+.
+
+Note that Sϵ(Un−1) represents the “smoothed” solution induced by the Gaussian pertur-bation, which serves as the proxy for the true solution S(Un−1). Under the strong simulator in Condition 2, the derivative components of the empirical loss can alternatively be evaluated by the multi-point ZOD estimators ˆ g and ˆh in Proposition 5. In this multi-point construction, the rewards entering each estimator are generated with the same Brownian path upon a single query. By the symmetry of Z and the linearity of expectation, these multi-point ZOD estimators have the same conditional means as Gϵ
+
+and Hϵ. Thus the population target remains Sϵ(Un−1); in other words, the multi-point construction changes the variance and the empirical-process analysis, but not the target being learned. The following lemma establishes the relationship between the population loss function and this ZOD target. 
+
+Lemma 7 For any triplet φ, the population loss with respect to the previous iterate Un−1
+
+decomposes as: 
+
+L(φ, Un−1) = ∥φ − S ϵ(Un−1)∥2 
+
+> β, mix
+
++ C, 
+
+where C is a constant independent of φ.
+
+> 22 Zeroth-Order Deep Learning for PDEs
+
+As a direct consequence of Lemma 7, the triplet Sϵ(Un−1) is the unique minimizer of the population loss over the space of all measurable functions: 
+
+Sϵ(Un−1) ∈ arg min  
+
+> φ
+
+L(φ, Un−1).
+
+Hence, the learning process can be viewed as approximating the ZOD target Sϵ(Un−1) via empirical risk minimization. We now define the network architecture and hypothesis space used in this paper. For a smooth activation function ρ : R → R, we use the same notation ρ(z) for its element-wise application to a vector z.
+
+Definition 8 Given input dimension din , output dimension dout , depth L, and width vector 
+
+m = ( m0, m 1, . . . , m L) with m0 = din and mL = dout , we define the multilayer perceptron (MLP) Φ( ·; ϑ) : Rdin → Rdout by 
+
+Φ( x; ϑ) := AL ◦ ρ ◦ A L−1 ◦ · · · ◦ ρ ◦ A 1(x),
+
+where each Al : Rml−1 → Rml is the affine map Al(z) = Wlz + bl. The parameter vector ϑ
+
+collects all trainable parameters of this MLP, namely ϑ = ( Wl, b l)Ll=1 . The hypothesis space is defined by 
+
+H := {φθ = ( Vθ, G θ, H θ) | θ ∈ Θ} ,
+
+where Vθ : [0 , T ] × Rd → R, Gθ : [0 , T ] × Rd → Rd, and Hθ : [0 , T ] × Rd → Rd×d are three possibly different MLPs. The output of Hθ has dimension d2 and is reshaped into a d × d
+
+matrix. 
+
+Note that we use the same symbol θ for all the three networks: θ denotes the collection of their trainable parameters, and when appearing in one of Vθ, Gθ, or Hθ it refers to the corresponding subcollection of parameters. 
+
+Assumption 3 The activation function satisfies ρ ∈ C5 
+
+> b
+
+(R). The parameter set Θ ⊂ Rp
+
+is compact and satisfies |θ|∞ ≤ R for all θ ∈ Θ, where p is the total number of trainable parameters in the three networks. 
+
+Under the above construction and assumption, due to the smoothness of ρ and the compactness of Θ, all functions in H and their partial derivatives up to the fourth order with respect to x are uniformly bounded. Next we introduce the regularity assumption on the expected reward function induced by any candidate in the hypothesis space. This is crucial for establishing the one-step sample complexity result. For any φ ∈ H , denote 
+
+J1(t, x ; φ) := E Rt,x (φ) , J2(t, x ; φ) := E[( Rt,x (φ)) 2], ˜f (t, x ; φ) := f (t, x, φ (t, x )) .
+
+Assumption 4 The functions J1(·, ·; φ) ∈ C1,4 
+
+> p
+
+([0 , T ]×Rd), J 2(·, ·; φ) ∈ C1,2 
+
+> p
+
+([0 , T ]×Rd), ˜f ∈
+
+C1,2 
+
+> p
+
+([0 , T ] × Rd) uniformly over the hypothesis space φ ∈ H in the sense that their deriva-tives have polynomial growth with constants independent of φ. The terminal function g has polynomial growth. 
+
+> 23
+
+Jia, Ouyang, Pham, and Zhou 
+
+Assumption 4 is a regularity condition on the solutions to the linear PDE in the value iterate. Typical sufficient conditions for it to hold include stronger regularity conditions on the SDE coefficients and/or uniform ellipticity. 
+
+Theorem 9 Suppose Assumptions 1, 3, and 4 hold. Let 0 < ϵ < 1 and 0 < δ < 1, and define LB,δ := log B + log(1 /δ ). Let P be a polynomial determined by the architecture of 
+
+H, C be a constant depending only on the PDE coefficients and the constants in the above assumptions. Let q be a constant depending only on the polynomial growth orders of the functions in Assumption 4. (a) With the weak simulator in Condition 1, if the derivative terms in the empirical loss are evaluated using the one-point ZOD estimators, then, with probability at least 1 − δ,
+
+E2 
+
+> n
+
+≤C
+
+
+
+1
+
+N ϵ 4
+
+|{z} 
+
+> Discretization Error
+
++ ϵ4
+
+|{z} 
+
+> ZOD Bias
+
++
+
+
+
+1 + plog(1 /δ )
+
+ P(d)plog(1 /ϵ )LqB,δ 
+
+B1/2ϵ4
+
+| {z }
+
+> Statistical Error
+
+
+
++ 2 inf  
+
+> φ∈H
+
+∥φ − S ϵ(Un−1)∥2
+
+> β, mix
+
+| {z }
+
+> Approximation Error
+
+.
+
+(b) Suppose further that b, σ ∈ C0,5 
+
+> b
+
+([0 , T ]×Rd), g ∈ C4 
+
+> p
+
+(Rd) and f (t, x, φ (t, x )) ∈ C1,5 
+
+> p
+
+([0 , T ]×
+
+Rd) uniformly over the hypothesis space φ ∈ H in the sense that their derivatives have polynomial growth with constants independent of φ. With the strong simulator in Con-dition 2, if the derivative terms in the empirical loss are evaluated using the multi-point estimators stipulated in Proposition 5, then, with probability at least 1 − δ,
+
+E2 
+
+> n
+
+≤C
+
+
+
+1
+
+N|{z} 
+
+> Discretization Error
+
++ ϵ4
+
+|{z} 
+
+> ZOD Bias
+
++
+
+
+
+1 + plog(1 /δ )
+
+ P(d)Γ ϵ,B,δ 
+
+B1/2
+
+| {z }
+
+> Statistical Error
+
+
+
++ 2 inf  
+
+> φ∈H
+
+∥φ − S ϵ(Un−1)∥2
+
+> β, mix
+
+| {z }
+
+> Approximation Error
+
+,
+
+where Γϵ,B,δ := min 
+
+n
+
+ϵ−4plog(1 /ϵ )LqB,δ , exp  CpLB,δ 
+
+o
+
+.
+
+Theorem 9 provides high-probability upper bounds on the one-step error, under both the weak and strong simulators, in terms of four components: the discretization error from approximating the time integral, the ZOD bias from using ZOD-based derivative representations instead of exact stochastic representations, the statistical error from the empirical loss due to a finite sample size, and the approximation error of the neural-network family. Several points are worth noting. First, the discretization error is controlled by the number of time-grid points used to compute the integrals. Since we use the simplest forward Euler scheme, this term is of order N −1, which can be improved by adopting a higher-order numerical integration scheme. Importantly, increasing the number of time-grid points does 
+
+24 Zeroth-Order Deep Learning for PDEs 
+
+not introduce instability into the algorithm or the loss function. Second, the ZOD bias is controlled by the bandwidth and is of order ϵ4 in both simulator settings. This part of the error follows from Propositions 4 and 5. Third, the statistical error is jointly controlled by the sample size and the complexity of the neural-network class. Our statistical bound is conservative: the squared one-step error contains a sample-size term of order B−1/2 and depends polynomially on the dimension of the state variable; this rate arises from our use of a global Rademacher-complexity bound for the empirical-loss term. 10 Finally, the approximation error is in terms of the weighted Sobolev norm of the neural network classes, which reflects the quality of the neural network classes chosen. Moreover, under the weak simulator, the ZOD estimator has exploding variances. As a consequence, both the discretization error and the statistical error contain the factor 
+
+ϵ−4, which substantially worsens the bound and creates a bias–variance tradeoff against the ZOD bias. Ignoring logarithmic factors, the dominant terms are of the order ( N −1 +
+
+P(d)B−1/2)ϵ−4 + ϵ4. This suggests choosing ϵ = O(( N −1 + P(d)B−1/2)1/8) to yield the squared one-step error E2 
+
+> n
+
+= O(( N −1 + P(d)B−1/2)1/2), up to logarithmic factors and the approximation error. By contrast, under the strong simulator, the variance of the multi-point ZOD estimator is bounded uniformly in ϵ. Hence neither the discretization error nor the statistical error suffers from the ϵ−4 blow-up. We note, however, that to cancel this ϵ−4 term, one relies on the tangent process. Since the global Rademacher complexity argument requires a bounded loss class, a truncation argument is needed. The tangent process typically has a heav-ier tail than the original state process, which leads to the factor exp( Cplog B + log(1 /δ )) in the statistical error bound. Although this factor is worse than the logarithmic fac-tor appearing in the weak one-point estimate, it is still sub-polynomial in both B and 1/δ , because exp( CpLB,δ ) = ( B/δ )o(1) . Consequently, in the asymptotic sense, choosing 
+
+ϵ = O(( N −1 + P(d)B−1/2)1/4) balances the ZOD bias with the discretization and statistical errors, and gives the squared one-step error E2 
+
+> n
+
+= O(N −1 + P(d)B−1/2), up to the approx-imation error. To sum, compared with the weak simulator, the strong simulator gives a substantially better asymptotic order by removing the unfavorable ϵ−4 dependence. Combining our analysis for the approximate value iteration and one-step sample com-plexity results, Theorem 10 presents the total error of the algorithm up to the n-th value iterate with any fixed bandwidth ϵ, the number of time discretization grids N , and the sample size B for training. 
+
+Theorem 10 Suppose Assumptions 1–4 hold. Let 0 < ϵ < 1 and 0 < δ < 1, and write 
+
+LB,δ,n := log B + log( n/δ ). Let P be a polynomial determined by the architecture of H, C
+
+be a constant depending only on the PDE coefficients and the constants in the assumptions. Let q be a constant depending only on the polynomial growth orders of the functions in Assumption 4. 
+
+> 10. Sharper localized critical radius analyses are possible in principle, but they require additional technical assumptions and substantially more involved arguments, which are not the focus of this paper; see, e.g., Bartlett et al. (2005); Wainwright (2019).
+> 25
+
+Jia, Ouyang, Pham, and Zhou 
+
+(a) Under the conditions of Theorem 9-(a), with probability at least 1 − δ, we have 
+
+∥Un − u∗∥β, mix ≤ γn∥U0 − u∗∥β, mix + √2
+
+> n
+
+X
+
+> k=1
+
+γn−k inf  
+
+> φ∈H
+
+∥φ − S ϵ(Uk−1)∥β, mix 
+
++C 1 − γn
+
+1 − γ
+
+N −1/2ϵ−2 + ϵ2 +
+
+
+
+1 + (log( n/δ )) 1/4 pP(d)(log(1 /ϵ )) 1/4Lq/ 2
+
+> B,δ,n
+
+B1/4ϵ2
+
+ .
+
+(b) Under the conditions of Theorem 9-(b), with probability at least 1 − δ, we have 
+
+∥Un − u∗∥β, mix ≤γn∥U0 − u∗∥β, mix + √2
+
+> n
+
+X
+
+> k=1
+
+γn−k inf  
+
+> φ∈H
+
+∥φ − S ϵ(Uk−1)∥β, mix 
+
++ C 1 − γn
+
+1 − γ N −1/2 + ϵ2 +
+
+
+
+1 + (log( n/δ )) 1/4 pP(d)Γ ϵ,B,δ,n 
+
+B1/4
+
+!
+
+,
+
+where Γϵ,B,δ,n := min 
+
+n
+
+ϵ−4plog(1 /ϵ )LqB,δ,n , exp  CpLB,δ,n 
+
+o
+
+.
+
+6 Numerical Experiments 
+
+In this section, we investigate the numerical performance of the proposed zeroth-order solver in learning the full solution triplet ( v⋆, ∇v⋆, ∇2v⋆). Let Un = ( Vn, G n, H n) denote the learned value, gradient, and Hessian networks re-spectively after the n-th value iteration. Throughout the numerical experiments, we report empirical relative root mean squared errors (rRMSE) between the learned networks and the ground truth solution by evaluating the errors on a set of randomly generated test samples. Specifically, given test samples zi = ( ti, x i) and a target quantity Q⋆ evaluated at these samples, define rRMSE( bQ, Q ⋆) = 
+
+PNtest  
+
+> i=1
+
+bQ(zi) − Q⋆(zi) 2
+
+PNtest  
+
+> i=1
+
+|Q⋆(zi)|2
+
+
+
+> 1/2
+
+,
+
+with the absolute value for scalar quantities, the Euclidean norm for vectors, and the Frobe-nius norm for matrices. 11 For the solution triplet, bQ is taken directly from Vn, Gn, or Hn
+
+and compared with v⋆, ∇v⋆, or ∇2v⋆, respectively. Note once again that our approach learns the three networks separately, and the derivatives are not obtained by auto-differentiating the learned value network Vn.For the PDE-solving experiments reported below, we use a short initialization stage as a pre-training stage. With the initial scalar network V0 fixed, the derivative networks 
+
+G0 and H0 are pretrained to fit ∇xV0 and ∇2
+
+> x
+
+V0, respectively, where these derivatives are computed by automatic differentiation of V0 on samples from the corresponding training  
+
+> 11. In our theoretical analysis, we rely on the weighted Sobolev norm that depends on a constant β. This constant exists in theory but is difficult to determine in experiments. Therefore, in the numerical study, we only calculate the unweighted Sobolev norm in training and present the results for function value, gradient, and Hessian in terms of the relative mean squared errors respectively.
+
+26 Zeroth-Order Deep Learning for PDEs 
+
+law. This pretraining is used only to initialize the derivative networks. In the subsequent value iterations, the networks are warm-started: the parameters of Vn+1 , G n+1 , H n+1 are initialized from the trained parameters of Vn, G n, H n rather than from a fresh random initialization. All numerical experiments were run on a single NVIDIA RTX 3090 GPU with 24 GB memory. Code is available at https://github.com/du-ouyang/ZO4PDE .In the following subsections, we first present a simple toy example of a linear PDE in Subsection 6.1, which is effectively a regression problem explained in Subsection 3.2, to contrast our approach to the existing ones. In Subsections 6.2 and 6.3, we compare our method to the deep Picard iteration (DPI) in Han et al. (2026) on benchmark nonlinear PDEs where the accuracy can be measured against exact solutions. For a fairer comparison in these DPI benchmarks, we use the multi-point ZOD estimators (ZOD-m) for gradients and Hessians (see Proposition 5). This is because the DPI method is model-based, which assumes knowing the operator L, a much stronger assumption including the availability of a strong simulator as a special case. Moreover, the SDEs in these benchmarks can be exactly simulated without numerical error. Hence, the time integrals appearing both in the training loss and in the reward random variable R can be estimated by sampling t uniformly on [0 , T ] and then sampling Xt exactly from its marginal law. 12 In this way, the reported errors isolate the learning and ZOD-estimation errors, without having to consider the time discretization errors. 
+
+6.1 A Linear PDE: Regression 
+
+We consider the following (one-dimensional) linear PDE: 
+
+∂tv(t, x ) + 12 σ2∂xx v(t, x ) = 0 , (t, x ) ∈ [0 , T ) × R, (6.1) with terminal condition v(T, x ) = g(x). We are interested only in the time-0 value, gradient, and Hessian, namely u(x) = v(0 , x ), 
+
+u′(x) = ∂xv(0 , x ), and u′′ (x) = ∂xx v(0 , x ). By the Feynman–Kac formula, this is equivalent to computing the conditional expectation 
+
+u(x) = E [g (XT ) | X0 = x] ,
+
+where d Xt = σdWt. It is also equivalent to a regression task introduced in Subsection 3.2, with Y = g(X + σξ ). Set the terminal function g as 
+
+g(y) = A1 sin( αy ) + A2 cos( βy ) + 
+
+> J
+
+X
+
+> j=1
+
+aj exp − (y − cj )2
+
+2ℓ2
+
+> j
+
+!
+
+,                                          
+
+> 12. More precisely, the time integral in the loss is evaluated by first sampling t∼Unif[0 , T ] and then sampling Xtexactly from its marginal law, using the identity RT
+> 0eβt E[ℓ(t, X t)] d t=TE[eβt ℓ(t, X t)]. Similarly, for the reward Rt,x =g(Xt,x T) + RTtf(s, X t,x s,U(s, X t,x s)) d s, the integral term is estimated by first sampling s∼Unif[ t, T ] and then sampling Xt,x sexactly from the transition law, so that
+> RTtE[f(s, X t,x s,U(s, X t,x s))] d s= ( T−t)E[f(s, X t,x s,U(s, X t,x s))].
+
+27 Jia, Ouyang, Pham, and Zhou 
+
+and the ground truth solution is available by Gaussian convolution: 
+
+u∗(x) = A1e−α2σ2/2 sin( αx ) + A2e−β2σ2/2 cos( βx )+
+
+> J
+
+X
+
+> j=1
+
+aj
+
+ℓj
+
+sj
+
+exp − (x − cj )2
+
+2s2
+
+> j
+
+!
+
+, s2 
+
+> j
+
+= ℓ2 
+
+> j
+
++ σ2.
+
+The ground truth derivatives can then be computed analytically from the above expression, denoted by u∗′ , u ∗′′ .For the learning-then-differentiating paradigm, we first train a scalar network Vϑ with the least-squares loss function: 
+
+LNN (ϑ) = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+|Vϑ(xi) − g(xi + σξ i)|2 ,
+
+where xi ∼ Unif[ −2, 2] and ξi ∼ N (0 , T ). The derivative estimates are then obtained by automatic differentiation: 
+
+b∆NN (x) = ∂xVϑ(x), bΓNN (x) = ∂xx Vϑ(x).
+
+For our ZOD approach, we train three networks ( Vθv , G θg , H θh ), parameterized col-lectively by θ. At each step, we sample {xi}Bi=1 ∼ Unif[ −2, 2], {zi}Bi=1 ∼ N (0 , 1), and 
+
+{ξi}Bi=1 ∼ N (0 , T ). With the multi-point ZOD estimator, define 
+
+bVi = g(xi + σξ i),
+
+bGi = zi
+
+2ϵ [g(xi + ϵz i + σξ i) − g(xi − ϵz i + σξ i)] ,
+
+bHi = z2 
+
+> i
+
+− 12ϵ2 [g(xi + ϵz i + σξ i) + g(xi − ϵz i + σξ i) − 2g(xi + σξ i)] .
+
+The three networks are trained jointly by 
+
+LZOD (θ) = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+
+
+|Vθv (xi) − bVi|2 + |Gθg (xi) − bGi|2 + |Hθh (xi) − bHi|2
+
+.
+
+Note that the same Brownian noise ξi is reused in definition of the multi-point ZOD esti-mator bGi and bHi, which is available only with the strong simulator. In the experiment, we use 
+
+σ = 0 .02 , T = 1 , A1 = 0 .22 , A2 = 0 .06 , α = 1 .3, β = 4 .7, J = 7 ,
+
+(cj ) = ( −1.55 , −1.05 , −0.62 , −0.18 , 0.24 , 0.71 , 1.28) ,
+
+(ℓj ) = (0 .065 , 0.055 , 0.070 , 0.060 , 0.055 , 0.065 , 0.060) ,
+
+(aj ) = (0 .035 , −0.030 , 0.032 , 0.028 , −0.034 , 0.030 , −0.027) .
+
+Both auto-differentiation and ZOD methods use MLPs with four hidden layers of width 256 and tanh activation. The rRMSEs are evaluated on 1000 uniformly generated initial spatial points in [ −2, 2]. NN-autodiff is trained with 10000 gradient steps and batch size 
+
+28 Zeroth-Order Deep Learning for PDEs 
+
+Table 1: rRMSEs for the linear PDE (6.1) .                        
+
+> Method Value Error Gradient Error Hessian Error Time (s) NN-autodiff 5.425 ×10 −24.532 ×10 −19.368 ×10 −147 .2ZOD-m 7.184 ×10 −26.751 ×10 −23.633 ×10 −144 .1
+
+B = 32768, learning rate 3 × 10 −4. Our ZOD estimator is trained with 5000 gradient steps, batch size B = 16384, learning rate 5 × 10 −4, and ZOD bandwidth ϵ = 0 .01. Table 1 summarizes the rRMSEs of both approaches under comparable running times. Observe that although the value errors are of the same order, our ZOD approach yields substantially smaller derivative errors in both the first and second order and outperforms by at least 3 times. Judging from the magnitude of these errors, one might conclude that NN-autodiff, while lagging behind ZOD, could still achieve reasonable accuracy in the derivatives. However, rRMSE is an averaged measure (over the initial states) that may not fully capture the point-by-point errors of a learned function from its oracle. To visualize the latter, we draw diagnostic plots in Figure 1, where we put the ground truth solution and the learned functions by the two approaches together as functions of x. In terms of the learned value function, both methods produce very close fit to the true one, whereas the gap becomes significant for the gradient and Hessian. In particular, the ZOD-based derivatives follow the oracle solutions closely all the time, capturing almost every peak and trough as well as the shapes of the functions, but the ones by NN-autodiff smoothly vary over the whole interval and miss most of the peaks and troughs. Thereby, despite the small average errors in the gradient and Hessian, the learned derivative functions are not close at all with NN-autodiff. This example highlights the limitations of auto-differentiating a learned value function directly when accurate derivative approximation is required, and justifies our method that aims for theoretical guarantee in not only function values, but also in derivatives values. 
+
+6.2 A Semilinear PDE 
+
+We next consider a semilinear PDE studied in Han et al. (2026). 
+
+∂tu(t, x ) + 12 ∆u(t, x ) + x · ∇ u(t, x ) − 12 |∇ u(t, x )|2 − d = 0 , (t, x ) ∈ [0 , T ) × Rd, (6.2) with terminal condition u(T, x ) = g(x) := − log p0(x). Here p0 is the density of a five-component Gaussian mixture 
+
+p0(x) = 
+
+> 5
+
+X
+
+> k=1
+
+πk N (x; μ(k)0 , Σ(k)0 ), (6.3) where the means μ(k)0 are sampled uniformly from [ −1, 1] d, the covariance matrices are diagonal with Σ (k)0 = 2 Id, and the weights πk are positive and normalized with P5 
+
+> k=1
+
+πk = 1. This equation has differential operator Lu = 12 ∆u, which corresponds to the SDE dXt = d Wt, X0 = ξ, (6.4) 
+
+> 29
+
+Jia, Ouyang, Pham, and Zhou −0.2         
+
+> 0.0
+> 0.2
+> Value
+> Ground truth
+> NN-autodiff
+> ZOD-m
+> −0.5
+> 0.0
+> 0.5
+> Gradient
+> −2.0 −1.5 −1.0 −0.5 0.0 0.5 1.0 1.5 2.0
+> x
+> −5
+> 0
+> 5
+> Hessian
+
+Figure 1: The learned value function, gradient, and Hessian for example (6.1). NN-autodiff learns the value function by the least-squares method and obtains derivatives by automatic differentiation. ZOD-m trains value, gradient, and Hessian networks directly using multi-point ZOD estimators. and the nonlinear source term is f (t, x, ∇u) = x · ∇ u(t, x ) − 12 |∇ u(t, x )|2 − d.Then we can find the exact solution u∗ of the PDE (6.2) as 13 
+
+u∗(t, x ) = − log p(T − t, x ),
+
+where 
+
+p(t, x ) = 
+
+> 5
+
+X
+
+> k=1
+
+πk N (x; μ(k) 
+
+> t
+
+, Σ(k) 
+
+> t
+
+),
+
+with 
+
+μ(k) 
+
+> t
+
+= e−tμ(k)0 , Σ(k) 
+
+> t
+
+= 2 e−2tId + 1 − e−2t
+
+2 Id.
+
+In our experiment, we set d = 20 , T = 1. The above configuration is identical to that in Han et al. (2026) except that we lower the dimension to d = 20. This is because we also need to evaluation and compare the accuracy of the learned Hessian, which has an output 
+
+13. This is because we know the density p(t, x ) of ˆXt, where d ˆXt = − ˆXtdt+d Wt, satisfies the Fokker–Planck equation ∂tp = ∇ · (xp ) + 12 ∆p. And we can verify that u(t, x ) = − log p(T − t, x ) satisfies PDE (6.2). Hence, if ˆXt has the initial distribution p0(x), we can deduce its distribution time-t distribution p(t, x ). 
+
+30 Zeroth-Order Deep Learning for PDEs 
+
+dimension d2, whereas Han et al. (2026) only evaluate the gradient whose output dimension is d. For the SDE (6.4) used to generate training and test datasets, we set ξ ∼ N (0 , 4Id) as in Han et al. (2026). For a fair comparison, both ZOD and the DPI baseline use the same neural network framework from Han et al. (2026), which explicitly enforces the terminal condition. Denote 
+
+uθ(t, x ) = ( rη(T − t) − r0(0)) ⟨Nγ (T − t, x ), x ⟩ +  1 − rη(T − t) + rη(0)  g
+
+
+
+e−(T −t)/2x
+
+
+
+, (6.5) where Nγ (t, x ) ∈ Rd and rη(t) ∈ R+ are neural networks. Consequently, uθ(T, x ) = g(x). Note that we compare our ZOD approach with DPI in Han et al. (2026) on the 20-dimensional PDE (6.2), using the same Gaussian-mixture terminal density (6.3) and the same network (6.5) for the value function. This isolates the main algorithmic difference: how derivative information is represented and controlled over iterations. For ZOD, we use the three-network model, where the value network uses the parameter-ization (6.5) and the gradient and Hessian networks are 4-layer MLPs with width 512 and ELU activations. We use the Adam optimizer with a learning rate 10 −3, batch size 16384, 10 value iterations, and 512 gradient updating steps per iteration. The derivative networks are pretrained for 5000 steps. The bandwidth of ZOD is ϵ = 0 .02. For DPI, we use the configuration in Han et al. (2026). Specifically, the value network is again (6.5) with the same 4 hidden layers of width 512 and ELU activations. DPI uses 10 outer Picard iterations, batch size 512, data size 4096, and 16 epochs per outer iteration, with the Adam optimizer and a learning rate 10 −3. Gradient supervision is enabled with the same weight as in Han et al. (2026). Moreover, second-order information is obtained by differentiating the learned scalar value approximation. Figure 2 reports the rRMSE of the learned value, gradient, and Hessian over itera-tions for the problem (6.2). The curves show the means over three random seeds, and the shaded regions indicate the empirical 2 .5%–97 .5% quantile range across seeds. We see that our ZOD approach converges faster than DPI in all the three quantities, and eventually achieves slightly smaller errors in terms of the value and gradient after sufficient numbers of iterations. However, the performance differs dramatically in terms of the Hessian accuracy. Over iterations, DPI barely reduces the error while ZOD effectively decreases it although the terminal error tends to be larger than its gradient and value counterparts. Table 2 summarizes the corresponding mean final errors at the 10 value (Picard) itera-tions. The two methods produce comparable approximations of the value function and its gradient. ZOD achieves a smaller rRMSE, while the gradient errors of the two are similar. However, the final Hessian rRMSE of ZOD is 1 .252 × 10 −1, whereas DPI gives 1 .434, dif-fering by more than 10 times. This discrepancy is a result of how the Hessian is obtained. In DPI, the Hessian is not learned directly; rather it is obtained by applying automatic dif-ferentiation twice on the learned value network. Since the training loss does not explicitly control the second-order derivative, the resulting Hessian need not be accurate even when the value function and its gradient are reasonably well approximated. By contrast, the pro-posed ZOD method augments the learning procedure with a dedicated Hessian network and a second-order zeroth-order objective. This second-order training signal directly targets the Hessian, leading to a substantially more accurate approximation. Finally, it is notable that ZOD spends about 30% less time obtaining these results. 
+
+> 31
+
+Jia, Ouyang, Pham, and Zhou 0 1 2 3 4 5 6 7 8 9 10                      
+
+> Iterations
+> 10 −2
+> 10 −1
+> 10 0
+> rRMSEs
+> Value
+> 012345678910
+> Iterations
+> 10 −1
+> 10 0
+> Gradient
+> 012345678910
+> Iterations
+> 10 0
+> Hessian
+> ZOD-m DPI
+
+Figure 2: rRMSE of the learned value, gradient, and Hessian over iterations for the PDE (6.2) with dimension d = 20. ZOD-m and DPI use the same network (6.5) for value function. Table 2: rRMSEs for the semilinear PDE (6.2). The results are based on 10 value (Picard) iterations. 
+
+Method Value Error Gradient Error Hessian Error Time (s) DPI 2.576 × 10 −2 7.429 × 10 −2 1.434 × 10 0 1301 ZOD-m 7.921 × 10 −3 6.757 × 10 −2 1.252 × 10 −1 1025 
+
+6.3 A Fully Nonlinear PDE 
+
+We next consider a fully nonlinear PDE studied in Han et al. (2026): 
+
+∂tu(t, x ) + 12 ∆u(t, x ) + 14
+
+> d
+
+X
+
+> i=1
+
+∂2u∂x 2
+
+> i
+
+(t, x ) − h(t, x ) = 0 , (t, x ) ∈ [0 , T ) × Rd. (6.6) The form of this PDE is reverse-engineered from the exact solution 
+
+u⋆(t, x ) = 
+
+> J
+
+X
+
+> j=1
+
+vj sin t +
+
+> d
+
+X
+
+> i=1
+
+wji xi
+
+!
+
+, (6.7) with 
+
+h(t, x ) = ∂tu⋆(t, x ) + 12 ∆u⋆(t, x ) + 14
+
+> d
+
+X
+
+> i=1
+
+∂2u⋆
+
+∂x 2
+
+> i
+
+(t, x ) .
+
+The PDE (6.6) has differential operator Lu = 12 ∆u, and the source term f (t, x, ∇2u) = 
+
+> 14
+
+Pdi=1 ∂2u∂x 2
+
+> i
+
+(t, x ) − h(t, x ). Hence, it corresponds to the SDE d Xt = d Wt.We use d = 20, T = 1 .0, J = 2 and set X0 = 0. The parameters in (6.7) are sampled once and then fixed throughout the experiment: 
+
+wji ∼ d−1/2N (0 , 1) , vj ∼ N (0 , 1) .
+
+32 Zeroth-Order Deep Learning for PDEs 
+
+For the DPI baseline, we use a configuration with data size 4096, integral sample size 1024, three hidden layers of width 128, 16 epochs per iteration, and in total 40 iterations. For ZOD, we use the three-network model with 3 hidden layers of width 64, ELU acti-vations, ZOD bandwidth ϵ = 0 .05. The derivative networks are pretrained for 5000 steps. To ensure a fair comparison, we control the computational time of ZOD to be comparable to that of DPI. To this end, in our implementation of ZOD, we use batch size 32768 and 4096 gradient steps per value iteration. Figure 3 compares the time-matched ZOD run with the 40-iteration DPI run. The rapid decay of the ZOD errors in the first few value (Picard) iterations is consistent with the contraction estimate in Theorem 6. After a small number of Picard iterations, the curves approach stable accuracy levels. This behavior agrees with the structure of (5.3): once the one-step learning error has been reduced to a fixed floor, the geometrically weighted accumulation term limits the additional gain from further iterations. Meanwhile, DPI decreases more gradually under the reported configuration. In particular, directly learning the Hessian through a second-order ZOD target gives a substantially lower second-order error than differentiating a learned scalar value approximation. Table 3 further reports the final errors and runtimes. ZOD is more accurate than DPI for all the three quantities, and the gap is the largest for the Hessian. 0 10 20 30 40          
+
+> Iterations
+> 10 −2
+> 10 −1
+> 10 0
+> rRMSEs
+> Value
+> 010 20 30 40
+> Iterations
+> 10 −2
+> 10 −1
+> 10 0
+> Gradient
+> 010 20 30 40
+> Iterations
+> 10 −1
+> 10 0
+> Hessian
+> ZOD-m DPI
+
+Figure 3: rRMSE of the learned value, gradient, and Hessian over iterations 
+
+for the fully nonlinear PDE (6.6) with d = 20. The panels show value, gradient, and Hessian rRMSEs over iterations for the time-matched ZOD configuration and DPI. Curves are averaged over three random seeds, and shaded regions indicate empirical 2 .5%–97 .5% quantile bands. Table 3: rRMSE for the fully nonlinear PDE (6.6). The results of ZOD are based on 10 value iterations, while DPI is based on 40 iterations. 
+
+Method Value Error Gradient Error Hessian Error Time (s) DPI 1.155 × 10 −2 3.167 × 10 −2 2.160 × 10 −1 1553 ZOD-m 2.333 × 10 −3 1.015 × 10 −2 5.649 × 10 −2 1886 33 Jia, Ouyang, Pham, and Zhou 
+
+Finally, we examine two controlled ablations for our ZOD approach. Table 4 summarizes the impact of training budget, batch size, and availability of the strong simulator. In the training-budget panel, we vary the number of gradient steps while fixing the batch size at 32768 and the bandwidth at ϵ = 0 .05. In the batch-size panel, we vary the batch size while fixing the training budget at 4096 steps and the bandwidth at ϵ = 0 .05. These two panels demonstrate the expected monotone improvement as the training budget and batch size in-crease, consistent with the theoretical decomposition in Theorem 9. Specifically, increasing the number of gradient steps reduces the optimization error in training the empirical loss (although we did not include the optimization error in Theorem 9). On the other hand, the batch-size ablation aligns directly with the theorem: a larger batch size decreases the statistical error term in the one-step bound, and therefore is expected to reduce the overall error. These results are also illustrated in Figure 4. The last panel of Table 4 shows the effect of the strong simulator availability when everything else is the same. As predicted by the theoretical results, access to the strong simulator boosts performance. In Appendix B, we further examine the performance of ZOD when only the weak simulator is available. Overall, ZOD-1 is slightly worse than ZOD-m, and a small bandwidth is not always preferred with the former. Table 4: ZOD ablations for the fully nonlinear PDE (6.6). Each row reports the mean final rRMSE over three random seeds.                                                                                                          
+
+> Setting Gradient Steps Batch Size Bandwidth
+> ϵ
+> Strong Simulator Value Error Gradient Error Hessian Error Time (s) Varying training steps 2048 32768 0.05 ✓3.601 ×10 −31.336 ×10 −27.736 ×10 −21006 4096 32768 0.05 ✓2.333 ×10 −31.015 ×10 −25.649 ×10 −21886 8192 32768 0.05 ✓2.032 ×10 −37.518 ×10 −34.083 ×10 −23665 Varying batch size 4096 16384 0.05 ✓3.016 ×10 −31.140 ×10 −26.713 ×10 −21061 4096 32768 0.05 ✓2.333 ×10 −31.015 ×10 −25.649 ×10 −21886 4096 65536 0.05 ✓1.997 ×10 −37.607 ×10 −34.575 ×10 −23636 Strong simulator availability 2048 65536 0.25 ✗6.398 ×10 −32.781 ×10 −26.192 ×10 −11330 2048 65536 0.25 ✓3.687 ×10 −31.205 ×10 −25.178 ×10 −21819
+
+7 Concluding Remarks 
+
+In this paper we develop a data-driven learning method for solving a broad class of po-tentially high-dimensional, fully nonlinear black-box PDEs. The thrust of our analysis is to represent the derivatives of the solutions via ZODs and then learn them in the same way as learning the solutions, rather than outright differentiating the learned solutions. Thus, the learning ultimately corresponds to policy evaluation (Jia and Zhou, 2022b) in continuous-time reinforcement learning (RL). Indeed, we solve the nonlinear PDEs through iterations each of which is a linear PDE and hence a policy evaluation problem. This idea 
+
+34 Zeroth-Order Deep Learning for PDEs 2048 4096 8192     
+
+> Gradient steps per iteration
+> 10 −2
+> 10 −1
+> rRMSEs
+> 16384 32768 65536
+> Batch size
+> 10 −2
+> Value Gradient Hessian
+
+Figure 4: Ablations for the fully nonlinear PDE (6.6) . All curves report the mean rRMSE over 3 seeds, and shaded regions indicate one empirical standard deviation. further inspires us to formulate learning the gradient and Hessian also as policy evaluation problems. 14 
+
+The approach developed in this paper hints on an important implication in the study of data-driven methodologies in machine learning: the design of algorithms should be tailored to the availability of the data-generating mechanisms or the properties of simulators. With strong simulators similar to the one introduced in this paper, various variance reduction tricks in simulations may be employed to improve the efficiency of the algorithms. This opens a gate to further studying its potential in other tasks. 
+
+Acknowledgments and Disclosure of Funding 
+
+Huyˆ en Pham is supported by the Soci´ et´ e G´ en´ erale Chair “Risques Financiers”, FiME (Laboratory of Finance and Energy Markets), and the EDF–CACIB Chair “Finance and Sustainable Development”. Yanwei Jia is supported by the University Start-up Fund at The Chinese University of Hong Kong. Xun Yu Zhou is supported by the Nie Center for Intelligent Wealth Management at Columbia. The authors thank Xuefeng Gao, Chun Liu, and Jiale Zha for discussions on the contents of this paper. 
+
+14. It should be noted that although the PDEs studied in this paper include in form the class of HJB equations as a special case, our assumption that the value of the nonlinear source term is known for each given input excludes the applicability to HJB in the model-free RL setting. However, Jia and Zhou (2022a, 2023) decompose the RL into policy evaluation and policy improvement/q-learning, and show that the latter can be reformulated as policy evaluation. In this sense, black-box HJB equations can also be solved essentially by policy evaluation, albeit in a very different way from this paper. 
+
+35 Jia, Ouyang, Pham, and Zhou 
+
+Appendix A. A Sufficient Condition for Assumption 2 
+
+We provide a concrete sufficient condition for Assumption 2. Consider the operator Lv := ∆ v − ∇ h · ∇ v that corresponds to the Langevin SDE: dXt = −∇ h(Xt)d t + √2d Wt.
+
+Consider the norm defined in Section 5 with a weighting parameter β to be specified later: 
+
+∥v∥2 
+
+> β, mix
+
+:= β∥v∥2 
+
+> β
+
++ β∥∇ v∥2 
+
+> β
+
++ ∥∇ 2v∥2 
+
+> β
+
+.
+
+For a triplet U = ( V, G, H ), we denote the corresponding norm as 
+
+∥U∥2 
+
+> β, mix
+
+:= β∥V ∥2 
+
+> β
+
++ β∥G∥2 
+
+> β
+
++ ∥H∥2 
+
+> β
+
+,
+
+and denote the solution mapping as 
+
+U 7 → v = S(U), such that ∂tv + Lv + f (x, V, G, H ) = 0 , v(T, x ) = g(x).
+
+For any two input triplets Ui = ( Vi, G i, H i), i = 1 , 2. Denote δf := f (x, U1) − f (x, U2), 
+
+v := S(U1) − S (U2). Then v satisfies the linear PDE 
+
+∂tv + Lv = −δf, v(T, x ) = 0 . (A.1) We aim to prove the contraction property through the bound 
+
+∥v∥β, mix ≤ γ∥U1 − U2∥β, mix 
+
+for some constant γ < 1. We need the following assumption in this section. 
+
+Assumption 5 (i) h ∈ C2 
+
+> p
+
+(Rd), the eigenvalues of ∇2h have a uniform lower bound −k
+
+for some k ≥ 0, and 
+
+lim 
+
+> |x|→∞
+
+h(x)log |x| = ∞. (A.2) 
+
+(ii) The nonlinearity f is Lipschitz in the value, gradient, and Hessian variables: 
+
+|f (x, V, G, H ) − f (x, V ′, G ′, H ′)| ≤ Lv|V − V ′| + Lg|G − G′| + Lh|H − H′|.
+
+(iii) v := S(U1) − S (U2) ∈ C1,3 
+
+> p
+
+([0 , T ] × Rd).
+
+Under Assumption 5 (i), the potential h is a smooth confining potential, and the Langevin dynamics admits the invariant density, see, e.g., (Pavliotis, 2014, Proposition 4.2), 
+
+p(x) := 1
+
+C exp {− h(x)} ,
+
+where C := R 
+
+> Rd
+
+exp {− h(x)}dx < ∞.From now on, we take X0 ∼ p(·), and then Xt ∼ p(·) for all t ≥ 0. Consequently, the norms have the following explicit form: 
+
+∥v∥2 
+
+> L2(p)
+
+:= 
+
+Z
+
+> Rd
+
+|v(t, x )|2p(x)d x, ∥v∥2 
+
+> β
+
+:= 
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+|v(t, x )|2p(x)d xdt. 
+
+The following theorem provides a sufficient condition for the contraction property used in the main text. 
+
+> 36
+
+Zeroth-Order Deep Learning for PDEs 
+
+Theorem 11 Suppose Assumption 5 holds. If 12 L2 
+
+> h
+
+< 1, then there exists a sufficiently large β ≥ k such that 
+
+ηβ := 12 
+
+
+
+(L2 
+
+> v
+
++ L2
+
+> g
+
+) β + 1 
+
+β2 + L2
+
+> h
+
+β + 1 
+
+β
+
+
+
+< 1, (A.3) 
+
+and set γ = √ηβ . Then 
+
+∥S (U1) − S (U2)∥β, mix ≤ γ∥U1 − U2∥β, mix .
+
+That is, Assumption 2 holds. 
+
+The rest of this appendix is devoted to proving Theorem 11. We first analyze the norm of the value and the gradient. The following lemma holds in a general diffusion setting, where L is the infinitesimal generator of the diffusion, Lv = b · ∇ v + 12 Tr  σσ ⊤∇2v.
+
+Lemma 12 Suppose Assumption 5 holds. Assume that σσ ⊤ is uniformly elliptic, i.e., there is a constant λ > 0, such that x⊤σσ ⊤x ≥ λ|x|2. Then the value and gradient have the following upper bound: β
+
+2 ∥v∥2 
+
+> β
+
++ λ∥∇ v∥2 
+
+> β
+
+≤ 2
+
+β ∥δf ∥2 
+
+> β
+
+. (A.4) 
+
+Proof Denote Yt := eβt v(t, X t)2. It follows from Ito’s formula that dYt = βe βt v2dt + 2 eβt v(∂t + L)vdt + eβt ∇v⊤σσ ⊤∇vdt + d Mt,
+
+where M is a martingale. Taking expectation on both sides and noting YT = 0 , (∂t + L)v =
+
+−δf , we have 
+
+−E[Y0] = E
+
+Z T
+
+> 0
+
+βe βt v2 − 2eβt vδf + eβt ∇v⊤σσ ⊤∇vdt
+
+
+
+.
+
+Thus, 
+
+β∥v∥2 
+
+> β
+
++ E
+
+Z T
+
+> 0
+
+eβt ∇v⊤σσ ⊤∇vdt
+
+
+
+= E
+
+Z T
+
+> 0
+
+2eβt vδf dt
+
+
+
+− E[Y0].
+
+It follows from the uniform ellipticity of σσ ⊤ that ∇v⊤σσ ⊤∇v ≥ λ∥∇ v∥2. This along with the inequality 2 |vδf | ≤ β 
+
+> 2
+
+|v|2 + 2 
+
+> β
+
+|δf |2 yields 
+
+β∥v∥2 
+
+> β
+
++ λ∥∇ v∥2 
+
+> β
+
+≤ β
+
+2 ∥v∥2 
+
+> β
+
++ 2
+
+β ∥δf ∥2 
+
+> β
+
+− E[Y0].
+
+However, Y0 ≥ 0; thus β
+
+2 ∥v∥2 
+
+> β
+
++ λ∥∇ v∥2 
+
+> β
+
+≤ 2
+
+β ∥δf ∥2 
+
+> β
+
+.
+
+The desired result then follows. The preceding estimate controls the value component and provides an initial control on the gradient. To handle the Hessian component, we use the reversibility of the Langevin generator with respect to the stationary density. 
+
+37 Jia, Ouyang, Pham, and Zhou 
+
+Lemma 13 Suppose Assumption 5 (i) holds. Let r ∈ C2 
+
+> p
+
+(Rd) and g ∈ C1 
+
+> p
+
+(Rd). Then 
+
+Z
+
+> Rd
+
+(Lr)g(x)p(x)d x = −
+
+Z
+
+> Rd
+
+∇r · ∇ gp (x)d x. 
+
+Proof Note that ∇p = 1 
+
+> C
+
+exp {− h(x)} (−∇ h) = −p∇h. Thus, 
+
+∇p + p∇h = 0 . (A.5) It follows from the integration by parts (the remainder terms vanish due to (A.2)) that 
+
+Z
+
+> Rd
+
+(Lr)g(x)p(x)d x =
+
+Z
+
+> Rd
+
+(∆ r − ∇ h · ∇ r)g(x)p(x)d x
+
+= −
+
+Z
+
+> Rd
+
+∇r · ∇ (gp )d x −
+
+Z
+
+> Rd
+
+∇h · ∇ rgp dx
+
+= −
+
+Z
+
+> Rd
+
+∇r · ∇ gp dx −
+
+Z
+
+> Rd
+
+∇r · (∇p + p∇h)gdx
+
+= −
+
+Z
+
+> Rd
+
+∇r · ∇ gp dx. 
+
+where the last equality follows from the identity (A.5). Next, we turn to the Hessian bound. The following lemma represents the norm of the Hessian ∇2v.
+
+Lemma 14 Under Assumption 5, for Lv = ∆ v − ∇ h · ∇ v, we have 
+
+12 L(|∇ v|2) − ∇ v · ∇ (Lv) = |∇ 2v|2 + ∇v⊤∇2h∇v. (A.6) 
+
+Proof Note that 12 ∆( |∇ v|2) = 12
+
+> d
+
+X
+
+> i=1
+
+∂2
+
+> id
+
+X
+
+> j=1
+
+(∂j v)2 = 12
+
+> d
+
+X
+
+> i,j =1
+
+∂i(2 ∂j v∂ 2 
+
+> ij
+
+v) = 
+
+> d
+
+X
+
+> i,j =1
+
+(∂2 
+
+> ij
+
+v∂ 2 
+
+> ij
+
+v + ∂j v∂ i(∂2 
+
+> ij
+
+v)) = |∇ 2v|2 + ∇v · ∇ (∆ v).
+
+Thus, 12 L(|∇ v|2) − ∇ v · ∇ (Lv) = 12 ∆( |∇ v|2) − 12 ∇h · ∇ (|∇ v|2) − ∇ v · ∇ (∆ v − ∇ h · ∇ v)= 12 ∆( |∇ v|2) − ∇ v · ∇ (∆ v) − 12 ∇h · ∇ (|∇ v|2) + ∇v · ∇ (∇h · ∇ v)= |∇ 2v|2 − 12 ∇h · ∇ (|∇ v|2) + ∇v · ∇ (∇h · ∇ v).
+
+(A.7) We now compute the second and third terms, respectively. Indeed, 
+
+− 12 ∇h · ∇ (|∇ v|2) = − 12
+
+> d
+
+X
+
+> i=1
+
+∂ih∂ i(
+
+> d
+
+X
+
+> j=1
+
+(∂j v)2) = −
+
+> d
+
+X
+
+> i,j =1
+
+∂ih∂ j v∂ 2 
+
+> ij
+
+v, (A.8) 
+
+38 Zeroth-Order Deep Learning for PDEs 
+
+while 
+
+∇v · ∇ (∇h · ∇ v) = 
+
+> d
+
+X
+
+> i=1
+
+∂iv∂ i(
+
+> d
+
+X
+
+> j=1
+
+∂j h∂ j v) = 
+
+> d
+
+X
+
+> i,j =1
+
+∂iv∂ 2 
+
+> ij
+
+h∂ j v +
+
+> d
+
+X
+
+> i,j =1
+
+∂ih∂ j v∂ 2 
+
+> ij
+
+v
+
+= ∇v⊤∇2h∇v +
+
+> d
+
+X
+
+> i,j =1
+
+∂ih∂ j v∂ 2 
+
+> ij
+
+v. 
+
+(A.9) The desired result follows from (A.7), (A.8) and (A.9). Integrating the above identity against the invariant density converts the local Hessian identity into an L2(p) estimate. The integration by parts formula above removes the total-divergence term. 
+
+Lemma 15 Under Assumption 5, we have 
+
+∥∇ 2v∥2 
+
+> β
+
+= ∥L v∥2 
+
+> β
+
+−
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dxdt. 
+
+Proof It follows from the formula (A.6) that 
+
+Z
+
+> Rd
+
+12 L(|∇ v|2)pdx −
+
+Z
+
+> Rd
+
+∇v · ∇ (Lv)pdx =
+
+Z
+
+> Rd
+
+|∇ 2v|2pdx +
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dx. (A.10) Lemma 13 yields that the first term on the left hand side of the above equation equals 0: 
+
+Z
+
+> Rd
+
+12 L(|∇ v|2)pdx = −
+
+Z
+
+> Rd
+
+∇(|∇ v|2) · ∇ 
+
+ 12
+
+
+
+pdx = 0 .
+
+The second term can be written as 
+
+−
+
+Z
+
+> Rd
+
+∇v · ∇ (Lv)pdx =
+
+Z
+
+> Rd
+
+(Lv)2pdx. 
+
+Therefore, integrating (A.10) over [0 , T ] with the weight eβt , we have 
+
+∥∇ 2v∥2 
+
+> β
+
+= ∥L v∥2 
+
+> β
+
+−
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dxdt. 
+
+The desired result follows. Lemma 15 gives the unfinished bound of Hessian ∇2v, which contains the norm of Lv.To bound Lv, we have to analyze ∂tv.
+
+Lemma 16 Under Assumption 5, we have 
+
+∥∂tv∥2 
+
+> β
+
++ β∥∇ v∥2 
+
+> β
+
+≤ ∥ δf ∥2 
+
+> β
+
+.
+
+39 Jia, Ouyang, Pham, and Zhou 
+
+Proof Multiply (A.1) by ∂tv and integrate over Rd with weight p to get 
+
+Z
+
+> Rd
+
+(∂tv)2pdx +
+
+Z
+
+> Rd
+
+Lv∂ tvp dx =
+
+Z
+
+> Rd
+
+−δf ∂ tvp dx. (A.11) For the second term on the left hand side of the above equation, by Lemma 13, 
+
+Z
+
+> Rd
+
+Lv∂ tvp dx = −
+
+Z
+
+> Rd
+
+∇v · ∇ (∂tv)pdx = − 12ddt
+
+Z
+
+> Rd
+
+|∇ v|2pdx. 
+
+Integrating over [0 , T ] with weight eβt and using integration by parts with respect to t, we obtain 
+
+Z T
+
+> 0
+
+eβt − 12ddt
+
+Z
+
+> Rd
+
+|∇ v|2pdxdt = − 12
+
+Z T
+
+> 0
+
+ddt
+
+
+
+eβt 
+
+Z
+
+> Rd
+
+|∇ v|2pdx
+
+
+
+dt
+
++ β
+
+2
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+|∇ v|2pdxdt
+
+= 12
+
+Z
+
+> Rd
+
+|∇ v(0 , ·)|2pdx + β
+
+2 ∥∇ v∥2 
+
+> β
+
+≥ β
+
+2 ∥∇ v∥2 
+
+> β
+
+,
+
+where in the second equality, we used the fact that v(T, x ) = 0. This along with (A.11) yields 
+
+∥∂tv∥2 
+
+> β
+
++ β
+
+2 ∥∇ v∥2 
+
+> β
+
+≤
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+|δf ∂ tv|pdxdt ≤ 12 ∥δf ∥2 
+
+> β
+
++ 12 ∥∂tv∥2 
+
+> β
+
+.
+
+This proves the desired result. Combining these lemmas, we have the upper bound for the norm of Hessian ∇2v.
+
+Theorem 17 Under Assumption 5, 
+
+∥∇ 2v∥2 
+
+> β
+
+≤ 4∥δf ∥2 
+
+> β
+
+− (2 β − k)∥∇ v∥2 
+
+> β
+
+.
+
+Proof It follows from Lemma 15 and Lemma 16 that 
+
+∥∇ 2v∥2 
+
+> β
+
+= ∥L v∥2 
+
+> β
+
+−
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dxdt
+
+≤ 2∥∂tv∥2 
+
+> β
+
++ 2 ∥δf ∥2 
+
+> β
+
+−
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dxdt
+
+≤ 4∥δf ∥2 
+
+> β
+
+− 2β∥∇ v∥2 
+
+> β
+
+−
+
+Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dxdt. 
+
+Since the eigenvalues of ∇2h have a uniform lower bound −k, ∇2h + kI is positive semi-definite. Therefore, Z T
+
+> 0
+
+eβt 
+
+Z
+
+> Rd
+
+∇v⊤∇2h∇vp dxdt ≥ − k∥∇ v∥2 
+
+> β
+
+,
+
+which yields 
+
+∥∇ 2v∥2 
+
+> β
+
+≤ 4∥δf ∥2 
+
+> β
+
+− (2 β − k)∥∇ v∥2 
+
+> β
+
+.
+
+40 Zeroth-Order Deep Learning for PDEs 
+
+This proves the desired result. We now finish the proof of the sufficient condition by relating δf to the distance between the two input triplets. 
+
+Proof [Proof of Theorem 11] For the Langevin dynamics considered here, (A.4) holds with 
+
+λ = 2. Hence 
+
+β∥v∥2 
+
+> β
+
+≤ 4
+
+β ∥δf ∥2 
+
+> β
+
+, β∥∇ v∥2 
+
+> β
+
+≤ ∥ δf ∥2 
+
+> β
+
+.
+
+Together with Theorem 17, this gives 
+
+∥v∥2 
+
+> β, mix
+
+= β∥v∥2 
+
+> β
+
++ β∥∇ v∥2 
+
+> β
+
++ ∥∇ 2v∥2
+
+> β
+
+≤ 4∥δf ∥2 
+
+> β
+
+− (2 β − k)∥∇ v∥2 
+
+> β
+
++ β∥∇ v∥2 
+
+> β
+
++ 4
+
+β ∥δf ∥2
+
+> β
+
+≤ 4(1 + 1
+
+β )3  L2
+
+> v
+
+∥V1 − V2∥2 
+
+> β
+
++ L2
+
+> g
+
+∥G1 − G2∥2 
+
+> β
+
++ L2
+
+> h
+
+∥H1 − H2∥2
+
+> β
+
+ − (β − k)∥∇ v∥2
+
+> β
+
+≤ 12 
+
+
+
+(L2 
+
+> v
+
++ L2
+
+> g
+
+) β + 1 
+
+β2 + L2
+
+> h
+
+β + 1 
+
+β
+
+
+
+∥U1 − U2∥2 
+
+> β, mix
+
+− (β − k)∥∇ v∥2 
+
+> β
+
+.
+
+For any β ≥ k, the last term is nonpositive, and therefore 
+
+∥v∥2 
+
+> β, mix
+
+≤ ηβ ∥U1 − U2∥2
+
+> β, mix
+
+,
+
+where ηβ is defined in (A.3). If ηβ < 1, taking square roots gives the contraction inequality with γ = √ηβ < 1. Finally, if 12 L2 
+
+> h
+
+< 1, then ηβ → 12 L2 
+
+> h
+
+as β → ∞ , so such a choice of β
+
+is available. 
+
+Appendix B. Addition Numerical Results with Weak Simulator 
+
+We examine the performance of our approach when only the weak simulator is available on the fully nonlinear PDE example in Subsection 6.3, as a robustness check. The results are summarized in Table 5. Overall, consistent with our theoretical results, the performance of ZOD-1 is slightly worse than that with ZOD-m. Indeed, in this case it is no longer true that the smaller bandwidth the better performance. Table 5: Summary of ZOD ablations for the fully nonlinear PDE (6.6). Each row reports the mean final rRMSE over three random seeds.                                                                                             
+
+> Setting Gradient Steps Batch Size Bandwidth
+> ϵ
+> Strong Simulator Value Error Gradient Error Hessian Error Time (s) Varying bandwidth 2048 65536 0.1 ✗3.854 ×10 −24.571 ×10 −22.320 ×10 01328 2048 65536 0.2 ✗9.834 ×10 −33.168 ×10 −29.591 ×10 −11326 2048 65536 0.25 ✗6.398 ×10 −32.781 ×10 −26.192 ×10 −11330 2048 65536 0.5 ✗4.255 ×10 −33.697 ×10 −22.703 ×10 −11327 Varying batch size 2048 65536 0.25 ✗6.398 ×10 −32.781 ×10 −26.192 ×10 −11330 2048 131072 0.25 ✗4.896 ×10 −32.481 ×10 −24.939 ×10 −12512 2048 262144 0.25 ✗5.000 ×10 −31.982 ×10 −23.955 ×10 −14880
+
+41 Jia, Ouyang, Pham, and Zhou 
+
+Appendix C. Proof of Statements 
+
+C.1 Proof of Lemma 1 Proof We prove the d = 1 case for illustration. It follows from Taylor’s expansion that 
+
+Zϵ u(t, x + ϵZ ) = Zϵ
+
+
+
+u(t, x ) + ∇u(t, x )ϵZ + 12 ∇2u(t, x )ϵ2Z2 + c(t, x, x + ϵZ )ϵ3Z3
+
+
+
+. (C.1) Thus, 
+
+E
+
+ Zϵ u(t, x + ϵZ )
+
+
+
+− ∇ u(t, x ) = E
+
+ 12 ∇2u(t, x )ϵZ 3 + c(t, x, x + ϵZ )ϵ2Z4
+
+
+
+= E[c(t, x, x + ϵZ )Z4] ϵ2 ≤ Cϵ 2.
+
+Similarly, if u has the fourth-order Taylor expansion, then 
+
+ZZ ⊤ − Id
+
+ϵ2 u(t, x + ϵZ )= Z2 − 1
+
+ϵ2 u(t, x ) + Z3 − Zϵ ∇u(t, x ) + 12 (Z4 − Z2)∇2u(t, x )+ 16 ϵ∇3u(t, x )( Z5 − Z3) + c′(t, x, x + ϵZ )( Z6 − Z4)ϵ2.
+
+(C.2) Consequently, 
+
+E
+
+ ZZ ⊤ − Id
+
+ϵ2 u(t, x + ϵZ )
+
+
+
+− ∇ 2u(t, x ) = E[c′(t, x, x + ϵZ )( Z6 − Z4)] ϵ2 ≤ Cϵ 2.
+
+The variance parts follow from (C.1), (C.2) and the fact that c, c ′ have polynomial growth. 
+
+C.2 Proof of Lemma 2 Proof For notational simplicity, we suppress the variable t. The Taylor expansions of 
+
+u(x ± ϵZ ) are: 
+
+u(x + ϵZ ) = u(x) + ϵ∇u⊤Z + ϵ2
+
+2 Z⊤∇2u(x)Z + O(ϵ3),u(x − ϵZ ) = u(x) − ϵ∇u⊤Z + ϵ2
+
+2 Z⊤∇2u(x)Z + O(ϵ3).
+
+Subtracting the second expansion from the first cancels all even-order terms: 
+
+u(x + ϵZ ) − u(x − ϵZ ) = 2 ϵ∇u⊤Z + O(ϵ3).
+
+Substituting this into the estimator definition in Eq. (3.1): ˆg(x; ϵ) = 2ϵ∇u⊤Z + O(ϵ3)2ϵ Z = ( ∇u⊤Z)Z + O(ϵ2).
+
+> 42 Zeroth-Order Deep Learning for PDEs
+
+The expectation is E[( ∇u⊤Z)Z] = ∇u, since E[ZZ ⊤] = Id. The bias is therefore dominated by the O(ϵ2) term. For the variance, observe that the leading term of the estimator, ( ∇u⊤Z)Z, is indepen-dent of ϵ. Its variance is a constant determined by the moments of Z and the magnitude of 
+
+∇u:lim  
+
+> ϵ→0
+
+Var[ˆ g(x; ϵ)] = Var[( ∇u⊤Z)Z].
+
+This variance is finite and does not depend on ϵ. Thus, the total variance is bounded. 
+
+C.3 Proof of Lemma 3 Proof We suppress the variable t. Using the Taylor expansions up to the fourth order, the central difference numerator becomes: 
+
+u(x + ϵZ ) − 2u(x) + u(x − ϵZ ) = ϵ2Z⊤∇2uZ + ϵ4
+
+12 
+
+X
+
+> 1≤i,j,k,l ≤d
+
+∂4u(x)
+
+∂x i∂x j ∂x k∂x l
+
+ZiZj ZkZl + o(ϵ4).
+
+The symmetric construction cancels all the odd-order terms. Substituting this into Eq. (3.2) yields: ˆH(x; ϵ) = 
+
+ 12 Z⊤∇2uZ + ϵ2
+
+24 
+
+X
+
+> 1≤i,j,k,l ≤d
+
+∂4u(x)
+
+∂x i∂x j ∂x k∂x l
+
+ZiZj ZkZl + o(ϵ2)
+
+ (ZZ ⊤ − Id).
+
+Thus, the variance is bounded when ϵ tends to 0. For the bias part, we take the expectation of the leading term. Using the property of Gaussian moments that E[( Z⊤∇2uZ )( ZZ ⊤ −
+
+Id)] = 2 H for a symmetric matrix ∇2u (derived from Isserlis’ theorem), we find 
+
+E[ ˆH(x; ϵ)] = 12 E
+
+h
+
+(Z⊤∇2uZ )( ZZ ⊤ − Id)
+
+i
+
++ O(ϵ2)= 12 (2 H) + O(ϵ2) = ∇2u + O(ϵ2).
+
+The bias is therefore of order O(ϵ2). 
+
+C.4 Proof of Proposition 5 Proof The proof of the results for the weak simulator case is the same as the Proposition 4. We only prove the strong simulator case. For simplicity, we use R(t, x ) to represent Rt,x (Un). We only prove the variance result for ˆh; the other parts are similar. Due to the regularity conditions of b and σ, it follows from Protter (2005, Theorem 40) and Kunita (2019, Theorem 3.4.2) that Xt,x s is four times continuously differentiable in x, and for every p > 2, there is a constant Cp > 0 such that for any multi-index i with 0 < |i| ≤ 4, it holds that sup  
+
+> x∈Rd,0≤t≤T
+
+E
+
+"
+
+sup 
+
+> t≤s≤T
+
+|∂i
+
+> x
+
+Xt,x s |p
+
+#
+
+≤ Cp. (C.3) 
+
+> 43
+
+Jia, Ouyang, Pham, and Zhou 
+
+Therefore, R(t, x ) is also four times continuously differentiable in x and admits the Taylor expansion 
+
+R(t, x + ϵZ ) = R(t, x ) + ϵ∇R(t, x )⊤Z + ϵ2
+
+2 Z⊤∇2R(t, x )Z + ϵ3
+
+6 ∇3R(t, x )( Z, Z, Z )+ ϵ4
+
+24 ∇4R(t, x + θ1ϵZ )( Z, Z, Z, Z ),R(t, x − ϵZ ) = R(t, x ) − ϵ∇R(t, x )⊤Z + ϵ2
+
+2 Z⊤∇2R(t, x )Z − ϵ3
+
+6 ∇3R(t, x )( Z, Z, Z )+ ϵ4
+
+24 ∇4R(t, x − θ2ϵZ )( Z, Z, Z, Z ),
+
+where θ1, θ 2 ∈ (0 , 1) and 
+
+∇3R(t, x )( Z, Z, Z ) := X
+
+> 1≤i,j,k ≤d
+
+∂3
+
+> x
+
+R(t, x )
+
+∂x i∂x j ∂x k
+
+ZiZj Zk,
+
+∇4R(t, x )( Z, Z, Z, Z ) := X
+
+> 1≤i,j,k,l ≤d
+
+∂4
+
+> x
+
+R(t, x )
+
+∂x i∂x j ∂x k∂x l
+
+ZiZj ZkZl.
+
+Denote ˆh(t, x ) := ZZ ⊤−Id 
+
+> 2ϵ2
+
+(R(t, x + ϵZ ) + R(t, x − ϵZ ) − 2R(t, x )). Then ˆh(t, x ) = ZZ ⊤ − Id
+
+2 Z⊤∇2R(t, x )Z
+
++ ϵ2
+
+48 (ZZ ⊤ − Id) ∇4R(t, x + θ1ϵZ ) + ∇4R(t, x − θ2ϵZ ) (Z, Z, Z, Z ).
+
+It follows from the regularity conditions of g, ˜f and (C.3) that for every p > 0 there are constants Cp > 0 and q > 0 such that for all t, x ∈ [0 , T ] × Rd,
+
+E |∇ 2R(t, x )|p ≤ Cp(1 + |x|q), E |∇ 4R(t, x )|p ≤ C(1 + |x|q).
+
+This along with the moments bound of Xt yields 
+
+E[|ˆh|2] ≤ 2E
+
+"
+
+ZZ ⊤ − Id
+
+2 Z⊤∇2R(t, X t)Z
+
+> 2
+
+#
+
++ 2 E
+
+"
+
+ϵ2
+
+48 (ZZ ⊤ − Id) ∇4R(t, X t + θ1ϵZ ) + ∇4R(t, X t − θ2ϵZ ) (Z, Z, Z, Z )
+
+> 2
+
+#
+
+≤ E
+
+
+
+ZZ ⊤ − Id
+
+> 2
+
+∇2R(t, X t) 2 |Z|4
+
+
+
++ ϵ2
+
+24 E
+
+
+
+ZZ ⊤ − Id
+
+> 2
+
+∇4R(t, X t + θ1ϵZ ) + ∇4R(t, X t − θ2ϵZ ) 2 |Z|8
+
+
+
+≤ C, 
+
+for some constant C > 0. This proves the desired result. 
+
+44 Zeroth-Order Deep Learning for PDEs 
+
+C.5 Proof of Theorem 6 Proof By the triangle inequality, we decompose the total error at step n into the compu-tational error introduced at the current step and the propagated error from the previous step: 
+
+∥Un − u∗∥β, mix ≤ ∥ Un − S (Un−1)∥β, mix + ∥S (Un−1) − u∗∥β, mix .
+
+The first term on the right-hand side is exactly the definition of the one-step error En. For the second term, using the fixed-point property u∗ = S(u∗) and the Contraction Assumption 2, we have: 
+
+∥S (Un−1) − u∗∥β, mix = ∥S (Un−1) − S (u∗)∥β, mix ≤ γ∥Un−1 − u∗∥β, mix .
+
+Combining these inequalities yields the recursive relationship: 
+
+∥Un − u∗∥β, mix ≤ γ∥Un−1 − u∗∥β, mix + En.
+
+Thus, 
+
+∥Un − u∗∥β, mix ≤ γ (γ∥Un−2 − u∗∥β, mix + En−1) + En
+
+= γ2∥Un−2 − u∗∥β, mix + γE n−1 + En
+
+≤ γn∥U0 − u∗∥β, mix +
+
+> n
+
+X
+
+> k=1
+
+γn−kEk.
+
+This proves the desired result. 
+
+C.6 Proof of Lemma 7 Proof We derive the result for the gradient component only; the others follow similarly. Let Yg = Zϵ Rt,X t+ϵZ denote the stochastic gradient target. The gradient loss is: 
+
+Lg(φg, Un−1) = βE
+
+Z T
+
+> 0
+
+eβt |Yg − φg(t, X t)|2dt
+
+
+
+.
+
+Note that 
+
+E
+
+h
+
+|φg(t, X t) − Yg|2i
+
+= E E |φg(t, X t) − Gϵ(t, X t) + Gϵ(t, X t) − Yg|2 t, X t
+
+ .
+
+Since Gϵ(t, X t) = E[Yg|t, X t], the cross-term in the expansion of the square above vanishes. Thus 
+
+Lg(φg, Un−1) = βE
+
+Z T
+
+> 0
+
+eβt |φg(t, X t) − Gϵ(t, X t)|2dt
+
+
+
++ βE
+
+Z T
+
+> 0
+
+eβt |Gϵ(t, X t) − Yg|2dt
+
+
+
+=: β∥φg − Gϵ∥2 
+
+> β
+
++ C, 
+
+where C is a constant independent of φ. Summing the components for V, G, H yields the result. 
+
+45 Jia, Ouyang, Pham, and Zhou 
+
+C.7 Proof of Theorem 9 
+
+We first prove Theorem 9-(a), the case with the weak simulator. For simplicity, we suppress the notation Un−1 and use L(φ), ˜L(B)(φ) for total loss and empirical total loss, respectively. The following lemma provides the upper bound of En in terms of the statistical error, approximation error and the bias due to the ZOD estimator. 
+
+Lemma 18 The one step approximation error En = ∥Un − S (Un−1)∥β, mix has the upper bound 
+
+E2 
+
+> n
+
+≤ 4 sup 
+
+> φ∈H
+
+|L(φ)− ˜L(B)(φ)|+2 inf  
+
+> φ∈H
+
+∥φ − S ϵ(Un−1)∥2
+
+> β, mix
+
++2 ∥S ϵ(Un−1) − S (Un−1)∥2 
+
+> β, mix
+
+.
+
+Proof Denote UH 
+
+> n
+
+∈ arg min φ∈H L(φ). It follows from the decomposition in Lemma 7 that 
+
+E2 
+
+> n
+
+= ∥Un − S (Un−1)∥2
+
+> β, mix
+
+≤ 2 ∥Un − S ϵ(Un−1)∥2 
+
+> β, mix
+
++ 2 ∥S ϵ(Un−1) − S (Un−1)∥2
+
+> β, mix
+
+≤ 2( L(Un) − L(Sϵ(Un−1))) + 2 ∥S ϵ(Un−1) − S (Un−1)∥2
+
+> β, mix
+
+≤ 2( L(Un) − L(UH 
+
+> n
+
+)) + 2( L(UH 
+
+> n
+
+) − L(Sϵ(Un−1))) + 2 ∥S ϵ(Un−1) − S (Un−1)∥2
+
+> β, mix
+
+= 2( L(Un) − L(UH 
+
+> n
+
+)) + 2 inf  
+
+> φ∈H
+
+∥φ − S ϵ(Un−1)∥2 
+
+> β, mix
+
++ 2 ∥S ϵ(Un−1) − S (Un−1)∥2 
+
+> β, mix
+
+,
+
+(C.4) where in the last equality we used the fact L(UH 
+
+> n
+
+)−L(Sϵ(Un−1)) = UH 
+
+> n
+
+− S ϵ(Un−1) 2 
+
+> β, mix
+
+=inf φ∈H ∥φ − S ϵ(Un−1)∥2
+
+> β, mix
+
+. For the first term on the right hand side of the above equation, note that 
+
+L(Un) − L(UH 
+
+> n
+
+) = L(Un) − ˜L(B)(Un) + ˜L(B)(Un) − ˜L(B)(UH 
+
+> n
+
+) + ˜L(B)(UH 
+
+> n
+
+) − L(UH 
+
+> n
+
+)
+
+≤ L(Un) − ˜L(B)(Un) + ˜L(B)(UH 
+
+> n
+
+) − L(UH 
+
+> n
+
+)
+
+≤ 2 sup 
+
+> φ∈H
+
+| ˜L(B)(φ) − L(φ)|,
+
+where the first inequality follows from ˜L(B)(Un)− ˜L(B)(UH 
+
+> n
+
+) ≤ 0 due to Un ∈ arg min φ∈H ˜L(B)(φ). This along with (C.4) yields the desired result. 
+
+The ZOD error It follows from Assumption 4 and Proposition 4 that 
+
+∥S ϵ(Un−1) − S (Un−1)∥2 
+
+> β, mix
+
+≤ Cϵ 4.
+
+The statistical error Now we focus on the statistical error sup φ∈H |L(φ) − ˜L(B)(φ)|.Denote the time discretization version of the loss function with respect to the time grid 
+
+G := {0 = t0 < t 1 < · · · < t N = T } as 
+
+LG (φ) := LG 
+
+> v
+
+(φv) + LG 
+
+> g
+
+(φg) + LG 
+
+> h
+
+(φh)
+
+46 Zeroth-Order Deep Learning for PDEs 
+
+where 
+
+LG 
+
+> v
+
+(φv) := βE
+
+ 
+
+> N−1
+
+X
+
+> j=0
+
+eβt j
+
+
+
+φv(tj , X tj ) − ˜Rtj ,X tj (Un−1)
+
+2
+
+∆tj
+
+ ,LG 
+
+> g
+
+(φg) := βE
+
+ 
+
+> N−1
+
+X
+
+> j=0
+
+eβt j φg(tj , X tj ) − Zϵ ˜Rtj ,X tj +ϵZ (Un−1)
+
+> 2
+
+∆tj
+
+ ,LG 
+
+> h
+
+(φh) := E
+
+ 
+
+> N−1
+
+X
+
+> j=0
+
+eβt j φh(tj , X tj ) − ZZ ⊤ − Id
+
+ϵ2 ˜Rtj ,X tj +ϵZ (Un−1)
+
+> 2
+
+∆tj
+
+ .
+
+Noting that E[ ˜L(B)(φ)] = LG (φ), we have sup 
+
+> φ∈H
+
+L(φ) − ˜L(B)(φ) ≤ sup 
+
+> φ∈H
+
+˜L(B)(φ) − LG (φ) + sup 
+
+> φ∈H
+
+LG (φ) − L(φ) . (C.5) The second term on the right hand side of (C.5) is the time discretization error, which is bounded by the following lemma. 
+
+Lemma 19 Under Assumptions 3, 4, 1, there is a constant C independent of ϵ and N such that 
+
+sup 
+
+> φ∈H
+
+LG (φ) − L(φ) ≤ Cϵ −4N −1.
+
+Proof We aim to bound the difference between the continuous-time population loss L(φ)and its discrete-time approximation LG (φ). We prove the Hessian loss for illustration, and the value and gradient components are treated in the same way and are of lower order in ϵ.Let the estimator be denoted by 
+
+ξϵ(Z) := ZZ ⊤ − Id
+
+ϵ2 , ˜f (t, x ) := f (t, x, Un−1(t, x )) .
+
+The continuous and discrete losses are defined as: 
+
+Lh(φh) := 
+
+Z T
+
+> 0
+
+E
+
+h
+
+eβt φh(t, X t) − ξϵ(Z)Rt,X t+ϵZ (Un−1) 2i
+
+dt, LG 
+
+> h
+
+(φh) :=  
+
+> N−1
+
+X
+
+> i=0
+
+E
+
+
+
+eβt i φh(ti, X ti ) − ξϵ(Z) ˜Rti,X ti +ϵZ (Un−1) 2
+
+∆ti,
+
+where ˜Rt,x (Un−1) uses the discrete reward approximation ˜Rt,x (Un−1) = g(Xt,x T ) + X
+
+> i
+
+f (ti, X t,x ti , Un−1(ti, X t,x ti ))∆ ti,
+
+instead of the exact Rt,x (Un−1)
+
+Rt,x (Un−1) = g(Xt,x T ) + 
+
+Z Tt
+
+f (s, X t,x s , Un−1(s, X t,x s ))d s. 
+
+47 Jia, Ouyang, Pham, and Zhou 
+
+Denote ∆( t, y ) := ˜Rt,y (Un−1) − Rt,y (Un−1).
+
+Introduce the intermediate grid loss ¯LG 
+
+> h
+
+obtained by replacing the time integral in Lh with the grid sum while keeping the exact reward R.¯Lh(φh)G :=  
+
+> N−1
+
+X
+
+> i=0
+
+E
+
+h
+
+eβt i φh(ti, X ti ) − ξϵ(Z)Rti,X ti +ϵZ (Un−1) 2i
+
+∆ti.
+
+We have the following inner and outer error decompositions 
+
+Lh(φh) − LG 
+
+> h
+
+(φh) ≤ LG 
+
+> h
+
+(φh) − ¯LG 
+
+> h
+
+(φh)
+
+| {z }
+
+> Inner Discretization Error
+
++ ¯LG 
+
+> h
+
+(φh) − Lh(φh)
+
+| {z }
+
+> Outer Discretization Error
+
+.
+
+Therefore, there are two types of error – the inner and the outer discretization errors. For the inner discretization error, it suffices to bound 
+
+E
+
+h
+
+φh(ti, X ti ) − ξϵ(Z)Rti,X ti +ϵZ 2i
+
+− E
+
+
+
+φh(ti, X ti ) − ξϵ(Z) ˜Rti,X ti +ϵZ 2
+
+≤ E
+
+h
+
+2φh(ti, X ti ) − ξϵ(Z)( ˜Rti,X ti +ϵZ + Rti,X ti +ϵZ ) |ξϵ(Z)| | ∆( ti, X ti + ϵZ )|
+
+i
+
+.
+
+(C.6) Due to the polynomial growth condition and the moment bounds of Xt, it suffices to bound 
+
+∥∆( ti, X ti + ϵZ )∥L2 . To this end, recall that Rt,y = g(Xt,y T ) + R Tt ˜f (s, X t,y s )d s. The terminal part cancels and ∆( ti, y ) =  
+
+> N−1
+
+X
+
+> k=i
+
+Z tk+1 
+
+> tk
+
+h ˜f (tk, X ti,y tk ) − ˜f (s, X ti,y s )
+
+i
+
+ds. 
+
+By Assumption 4, Itˆ o’s formula gives d ˜f (s, X ti,y s ) = As ds + Bs dWs, E |As|2 + |Bs|2 ≤ C(1 + |y|q)for some q ≥ 0, uniformly in s. Stochastic Fubini therefore yields ∆( ti, y ) = − 
+
+> N−1
+
+X
+
+> k=i
+
+Z tk+1 
+
+> tk
+
+(tk+1 − u)Au du − 
+
+> N−1
+
+X
+
+> k=i
+
+Z tk+1 
+
+> tk
+
+(tk+1 − u)Bu dWu.
+
+The drift term has L2 norm at most CN (T /N )2 ≤ C/N . For the martingale term, Itˆ o’s isometry and orthogonality of martingale increments give 
+
+E 
+
+> N−1
+
+X
+
+> k=i
+
+Z tk+1 
+
+> tk
+
+(tk+1 − u)Bu dWu
+
+> 2
+
+≤ CN h 3 ≤ CN 2 .
+
+Hence 
+
+∥∆( ti, y )∥L2 ≤ C(1 + |y|q)
+
+N .
+
+48 Zeroth-Order Deep Learning for PDEs 
+
+Conditioning on Z, taking y = Xti + ϵZ , and using the moment bounds for Xti together with Gaussian moments, 
+
+∥∆( ti, X ti + ϵZ )∥L2 ≤ CN .
+
+This along with (C.6) yields sup 
+
+> φh∈H
+
+|LG 
+
+> h
+
+(φh) − ¯LG 
+
+> h
+
+(φh)| ≤ CN ϵ 4 .
+
+Now we bound the outer discretization error: 
+
+Z T
+
+> 0
+
+l(t)d t − 
+
+> N−1
+
+X
+
+> i=0
+
+l(ti)∆ ti , where l(t) = eβt E
+
+h
+
+φh(t, X t) − ξϵ(Z)Rt,X t+ϵZ 2i
+
+.
+
+It suffices to show that the time derivative ddt l(t) is bounded. Indeed, 
+
+l(t) = eβt E
+
+h
+
+φh(t, X t) − ξϵ(Z)Rt,X t+ϵZ 2i
+
+= eβt 
+
+E
+
+h
+
+∥φh(t, X t)∥2i
+
++ E
+
+h
+
+ξϵ(Z)Rt,X t+ϵZ 2i
+
+− 2E ⟨φh(t, X t), ξ ϵ(Z)⟩Rt,X t+ϵZ 
+
+.
+
+Since φh is smooth and bounded, we need only to analyze the second and third terms. For the second term, using the conditional expectation, we have 
+
+I2(t) := E
+
+h
+
+ξϵ(Z)Rt,X t+ϵZ 2i
+
+= E ∥ξϵ(Z)∥2E (Rt,X t+ϵZ )2 | Z, X t
+
+ .
+
+Denote u(t, x ) := E[( Rt,x )2]. Under Assumption 4, the derivatives of u satisfy the polynomial growth condition. Therefore, the time derivative of the expectation is: ddt E
+
+h
+
+ξϵ(Z)Rt,X t+ϵZ 2i
+
+= E[∥ξϵ(Z)∥2 ddt u(t, X t + ϵZ )] = E
+
+h
+
+∥ξϵ(Z)∥2(∂t + L)FZ (t, x ) x=Xt
+
+i
+
+,
+
+where FZ (t, x ) = u(t, x + ϵZ ). This confirms that | ddt I2(t)| ≤ Cϵ −4.Similarly, for the cross term involving E[⟨φ, ξ ϵ(Z)Rt,X t+ϵZ ⟩], the derivative involves terms related to E[Rt,x ]. Using Assumption 4, the derivative is bounded by Cϵ −2.Combining these bounds, the total discretization error is bounded by: sup 
+
+> φ∈H
+
+LG 
+
+> h
+
+(φ) − Lh(φ) ≤ C  ϵ−4N −1 + ϵ−2N −1 ≤ Cϵ −4N −1.
+
+This proves the desired result. The first term on the right hand side of (C.5) is the classical statistical error, and we aim to bound it via the Rademacher complexity. Typically, the Rademacher complexity framework works for bounded loss functions. We first truncate the loss function and denote 
+
+49 Jia, Ouyang, Pham, and Zhou 
+
+G as the implicit function and W as the underlying random variable, such that LG (φ) = 
+
+E[G(φ; W )] and ˜L(B)(φ) = 1
+
+> B
+
+PBi=1 G(φ; Wi). Write the grid loss as 
+
+G(φ; W ) =  
+
+> N−1
+
+X
+
+> j=0
+
+∆tj ℓj (φ; W ),
+
+where ℓj is the one-point squared value-gradient-Hessian loss at time tj . For each grid index, define the local truncation event ΩK,j := 
+
+(
+
+sup 
+
+> 0≤t≤T
+
+|Xt| < K 
+
+)
+
+∩ {| Z| < K } ∩ 
+
+(
+
+sup  
+
+> tj≤s≤T
+
+Xtj ,X tj +ϵZ s < K 
+
+)
+
+.
+
+We clip the grid loss term by term: 
+
+G(K)(φ; W ) :=  
+
+> N−1
+
+X
+
+> j=0
+
+∆tj ℓj (φ; W )1ΩK,j .
+
+By Assumption 4, there exists a finite exponent q ≥ 1, depending only on the polynomial growth orders of g(x), J1(t, x ; φ), J2(t, x ; φ), and ˜f (t, x ; φ) uniformly over φ ∈ H , such that on Ω K,j the one-point value, gradient, and Hessian targets are bounded by Cϵ −2(1 + Kq). As a consequence of this truncation, G(K) has the following bound 
+
+|G(K)(φ; W )| ≤ Cϵ −4(1 + Kq).
+
+Next, we aim to derive the probability of the truncation sets. To this end, we need the following lemmas. To derive the tail probability of the trajectory of X, we will use the following Bernstein martingale inequality from Dzhaparidze and Van Zanten (2001). 
+
+Lemma 20 Let Mt be a continuous square integrable martingale. Then 
+
+P sup 
+
+> 0≤t≤T
+
+|Mt| ≥ z, ⟨M ⟩T ≤ L
+
+!
+
+≤ 2 exp 
+
+
+
+− 12
+
+z2
+
+L
+
+
+
+.
+
+Based on this lemma, we state the tail probability of the trajectory of X.
+
+Lemma 21 (Sub-Gaussian Tail of Base Trajectory) Under Assumption 1, let X be the solution to the SDE (2.2) starting from X0. Then there exist constants C1, C 2 > 0
+
+depending only on T, L b, σ 0 and X0, such that for any K > 0:
+
+P sup 
+
+> 0≤t≤T
+
+|Xt| > K 
+
+!
+
+≤ C1 exp( −C2K2).
+
+Proof The SDE in integral form is given by: 
+
+Xt = X0 +
+
+Z t
+
+> 0
+
+b(s, X s) d s + Mt, where Mt = √2
+
+Z t
+
+> 0
+
+σ(s, X s) d Ws.
+
+50 Zeroth-Order Deep Learning for PDEs 
+
+Note that Mt is a continuous square-integrable martingale. Taking the norm and using the linear growth condition we get 
+
+|Xt| ≤ | X0| +
+
+Z t
+
+> 0
+
+Lb(1 + |Xs|) d s + |Mt|
+
+= ( |X0| + LbT + |Mt|) + Lb
+
+Z t
+
+> 0
+
+|Xs| ds. 
+
+Let M ∗ 
+
+> T
+
+:= sup 0≤t≤T |Mt|. Applying Gr¨ onwall’s inequality yields a path-wise bound: sup 
+
+> 0≤t≤T
+
+|Xt| ≤ (|X0| + LbT + M ∗ 
+
+> T
+
+) eLbT .
+
+Therefore, the event {sup 0≤t≤T |Xt| > K } implies: 
+
+M ∗ 
+
+> T
+
+> Ke −LbT − (|X0| + LbT ).
+
+For sufficiently large K, the RHS is approximately proportional to K. Thus, it suffices to bound the tail of M ∗ 
+
+> T
+
+. We invoke Bernstein’s inequality for continuous martingales (Lemma 20). Under the bounded diffusion assumption, the quadratic variation is deterministically bounded: 
+
+⟨M ⟩T =
+
+Z T
+
+> 0
+
+∥σ(s, X s)∥2 ds ≤ T σ 2max .
+
+Setting L = T σ 2max , we obtain: 
+
+P(M ∗ 
+
+> T
+
+≥ z) ≤ 2 exp 
+
+
+
+− z2
+
+2T σ 2max 
+
+
+
+.
+
+Combining this with the Gr¨ onwall bound proves the lemma. Recall the ψ2-Orlicz norm (sub-Gaussian norm) is defined as ∥X∥ψ2 = inf {C > 0 :
+
+E[exp( |X|2/C 2)] ≤ 2}.As a direct consequence of Lemma 21, the supremum of the base trajectory satisfies: 
+
+sup 
+
+> 0≤t≤T
+
+|Xt|
+
+> ψ2
+
+≤ Cbase , (C.7) where Cbase is a constant depending only on the SDE coefficients and T .We now extend this analysis to the branching paths used in the ZOD estimation. Let 
+
+G = {t1, . . . , t N } be the time discretization grid. For each j, let Xtj ,ξ j 
+
+> s
+
+denote the conditional path starting at time tj from ξj = Xtj + ϵZ . The path satisfies: 
+
+Xtj ,ξ j 
+
+> s
+
+= ξj +
+
+Z stj
+
+b(u, X tj ,ξ j 
+
+> u
+
+) d u + √2
+
+Z stj
+
+σ(u, X tj ,ξ j 
+
+> u
+
+) d Wu, s ∈ [tj , T ].
+
+The following lemma bounds the branching trajectories. 
+
+51 Jia, Ouyang, Pham, and Zhou 
+
+Lemma 22 (Uniform Tail for Branching Paths) Under Assumption 1, there exists a constant C > 0 independent of j, N such that for any K > 0:
+
+sup 
+
+> 0≤j<N
+
+P sup  
+
+> tj≤s≤T
+
+Xtj ,X tj +ϵZ s > K 
+
+!
+
+≤ 2 exp( −CK 2).
+
+The same bounds hold with Xtj − ϵZ and Xtj in place of Xtj + ϵZ .
+
+Proof Fix an index j ∈ { 1, . . . , N }. Let X(j) 
+
+> s
+
+:= Xtj ,X tj +ϵZ s . By applying Gr¨ onwall’s inequality under the linear growth condition on b, we obtain the pathwise bound: sup   
+
+> s∈[tj,T ]
+
+|X(j) 
+
+> s
+
+| ≤ eLbT |Xtj | + ϵ|Z| + LbT + sup   
+
+> s∈[tj,T ]
+
+|M (j) 
+
+> s
+
+|
+
+!
+
+,
+
+where M (j) 
+
+> s
+
+= √2 R stj σ(u, X (j) 
+
+> u
+
+)d Wu.We analyze the Orlicz ψ2-norm of each term on the right-hand side of the above: 1. Base Path: By (C.7), we have ∥ sup |Xt|∥ ψ2 ≤ Cbase .2. Perturbation: Since Z ∼ N (0 , I d), it is sub-Gaussian with ∥Z∥ψ2 ≤ CGauss .3. Martingale: Since the diffusion σ is uniformly bounded, the quadratic variation is bounded by σ2max T . By Bernstein’s inequality for continuous martingales, sup s |M (j) 
+
+> s
+
+|
+
+is sub-Gaussian with norm bounded by a constant Cmart independent of the path history. By the triangle inequality for the ψ2-norm, the supremum of the j-th branching path is sub-Gaussian: 
+
+sup  
+
+> tj≤s≤T
+
+|X(j) 
+
+> s
+
+|
+
+> ψ2
+
+≤ Cpath , (C.8) where Cpath is independent of j and N .The tail bound follows directly from (C.8) and the definition of the ψ2-norm. The proof for the branch started at Xtj − ϵZ is identical. Combining Lemma 21, the Gaussian tail of Z, and Lemma 22 gives the probability of the local truncation events Ω cK,j used in the proof of Theorem 9. 
+
+Lemma 23 Under Assumption 1, there exist constants C1, C 2 > 0, independent of j and 
+
+N , such that 
+
+sup 
+
+> 0≤j<N
+
+P(Ω cK,j ) ≤ C1 exp( −C2K2).
+
+52 Zeroth-Order Deep Learning for PDEs 
+
+We are ready to obtain the upper bound of the first term on the right hand side of (C.5). It can be decomposed as sup 
+
+> φ∈H
+
+˜L(B)(φ) − LG (φ) = sup 
+
+> φ∈H
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+G(φ; Wi) − E[G(φ; W )] 
+
+≤ sup 
+
+> φ∈H
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+G(K)(φ; Wi) − E[G(K)(φ; W )] 
+
++ sup 
+
+> φ∈H
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+
+
+G(K)(φ; Wi) − G(φ; Wi)
+
+
+
++ sup 
+
+> φ∈H
+
+E
+
+h
+
+G(K)(φ; W ) − G(φ; W )
+
+i
+
+.
+
+(C.9) Let 
+
+RK (W ) := sup 
+
+> φ∈H
+
+|G(φ; W ) − G(K)(φ; W )|.
+
+Since the networks in H are uniformly bounded, the supremum over φ in the local squared loss is bounded pointwise by the reward targets: sup 
+
+> φ∈H
+
+ℓj (φ; W ) ≤ C  1 + |Yv,j |2 + ∥Y ϵg,j ∥2 + ∥Y ϵh,j ∥2 ,
+
+where 
+
+Yv,j := ˜Rtj ,X tj (Un−1), Y ϵg,j := Zϵ ˜Rtj ,X tj +ϵZ (Un−1),
+
+and 
+
+Y ϵh,j := ZZ ⊤ − Id
+
+ϵ2 ˜Rtj ,X tj +ϵZ (Un−1).
+
+The assumption 4 and the polynomial growth of g imply that, for some q ≥ 0, 
+
+|Rtj ,y (Un−1)| + | ˜Rtj ,y (Un−1)| ≤ C 1 + sup  
+
+> tj≤s≤T
+
+|Xtj ,y s |q
+
+!
+
+.
+
+Together with Assumption 1 and the Gaussian moments of Z, this gives sup 
+
+> 0≤j<N
+
+E
+
+ sup 
+
+> φ∈H
+
+ℓj (φ; W )
+
+!2 ≤ Cϵ −8.
+
+Hence, by Cauchy–Schwarz applied to each grid summand, Lemma 23, and PN −1 
+
+> j=0
+
+∆tj = T ,
+
+ERK (W ) ≤ 
+
+> N−1
+
+X
+
+> j=0
+
+∆tj E
+
+"
+
+sup 
+
+> φ∈H
+
+ℓj (φ; W )1ΩcK,j 
+
+#
+
+≤ 
+
+> N−1
+
+X
+
+> j=0
+
+∆tj
+
+E
+
+ sup 
+
+> φ∈H
+
+ℓj (φ; W )
+
+!2
+
+> 1/2
+
+P(Ω cK,j )1/2
+
+≤ Cϵ −4 exp( −CK 2).
+
+(C.10) 
+
+53 Jia, Ouyang, Pham, and Zhou 
+
+In particular, sup 
+
+> φ∈H
+
+E
+
+h
+
+|G(K)(φ; W ) − G(φ; W )|
+
+i
+
+≤ ERK (W ) ≤ Cϵ −4 exp( −CK 2).
+
+Therefore, by Markov’s inequality, with probability at least 1 − δ,1
+
+B
+
+> B
+
+X
+
+> i=1
+
+RK (Wi) + ERK (W ) ≤ Cδ −1ϵ−4 exp( −CK 2).
+
+For the first term on the right hand side of (C.9), we use the Rademacher complexity. Denote S = ( W1, . . . , W B ) and define Φ( S) := sup 
+
+> φ
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+G(K)(φ; Wi) − E
+
+h
+
+G(K)(φ; W )
+
+i
+
+.
+
+Let S′ = ( W1, . . . , W ′ 
+
+> j
+
+, . . . , W B ) differ from S only at j-th component. It follows from Jensen’s inequality and the upper bound of G(K) that 
+
+Φ( S) − Φ( S′) ≤ sup 
+
+> φ∈H
+
+1
+
+B G(K)(φ; Wj ) − G(K)(φ; W ′ 
+
+> j
+
+) ≤ Cϵ −4(1 + Kq)
+
+B .
+
+By McDiarmid’s inequality, 
+
+P Φ( S) − E[Φ( S)] > Cϵ −4(1 + Kq)
+
+r log(1 /δ )
+
+B
+
+!
+
+< δ. (C.11) Now we use the Rademacher complexity to bound E[Φ]. Let W ′ be the independent copy of W , and {σi}Bi=1 are i.i.d. random variables with P(σi = 1) = P(σi = −1) = 12 . Then 
+
+E[Φ( S)] = E
+
+"
+
+sup 
+
+> φ
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+G(K)(φ; Wi) − E
+
+h
+
+G(K)(φ; W )
+
+i #
+
+= E
+
+"
+
+sup 
+
+> φ∈H
+
+EW ′
+
+"
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+
+
+G(K)(φ; W ′ 
+
+> j
+
+) − G(K)(φ; Wj )
+
+# # 
+
+= E
+
+"
+
+sup 
+
+> φ∈H
+
+EW ′,σ 
+
+"
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+σi
+
+
+
+G(K)(φ; W ′ 
+
+> j
+
+) − G(K)(φ; Wj )
+
+# # 
+
+≤ EW,W ′,σ 
+
+"
+
+sup 
+
+> φ∈H
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+σiG(K)(φ; W ′ 
+
+> i
+
+)
+
+#
+
++ EW,W ′,σ 
+
+"
+
+sup 
+
+> φ∈H
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+σiG(K)(φ; Wi)
+
+#
+
+≤ 2RB (G(K)(H) ∪ − G(K)(H)) (C.12) where G(K)(H) = G(K)(φ; ·)|φ ∈ H . For the Rademacher complexity in terms of the parameterized function class, we have the following lemma by Jiao et al. (2024). 
+
+54 Zeroth-Order Deep Learning for PDEs 
+
+Lemma 24 Let G be a parameterized function class G = f (·; θ) : Rd → R|θ ∈ Θ , where 
+
+Θ = {θ|θ ∈ Rp, ∥θ∥∞ < R }. If there are constants C1, C 2, such that 
+
+sup 
+
+> x∈Rd
+
+|f (x; θ1) − f (x; θ2)| ≤ C1∥θ1 − θ2∥∞,
+
+sup 
+
+> θ∈Θ
+
+sup 
+
+> x∈Rd
+
+|f (x; θ)| ≤ C2,
+
+then 
+
+Rm(G) ≤ 4
+
+√m + 6√pC 2
+
+√m
+
+q
+
+log(2 RC 1p√m).
+
+Based on this lemma, it follows from Assumption 3 that 
+
+RB (G(K)(H) ∪ − G(K)(H)) 
+
+≤ 4
+
+√B + 6√pC (1 + ϵ−4(1 + Kq)) 
+
+√B
+
+q
+
+log(2 RCϵ −2(1 + Kq)p√B), (C.13) where C is a constant depending only on the coefficients of (2.1). The desired result follows now from (C.11), (C.10), (C.12) and (C.13) by choosing K = C(log B + log(1 /δ )) 1/2 with 
+
+C large enough, which gives the factor LqB,δ after increasing q once more if necessary. We now prove Theorem 9-(b) with the strong simulator. The only parts that differ from the preceding one-point proof are the ZOD target, the discretization estimate, and the envelope used in the empirical-process bound. The first entry in the minimum defining Γϵ,B,δ follows from the same truncation and Rademacher-complexity argument as in the weak-simulator case. We therefore focus below on the second entry of the minimum under the strong-simulator coupling. In the remainder of this proof, all the rewards 
+
+Rt,x +ϵZ (Un−1), Rt,x −ϵZ (Un−1), Rt,x (Un−1)are evaluated under the same Brownian path within one strong-simulator query. The exact multi-point derivative targets are the two central differences 
+
+Z
+
+2ϵ
+
+ Rt,x +ϵZ (Un−1) − Rt,x −ϵZ (Un−1) ,
+
+and ZZ ⊤ − Id
+
+2ϵ2
+
+ Rt,x +ϵZ (Un−1) + Rt,x −ϵZ (Un−1) − 2Rt,x (Un−1) .
+
+By Gaussian symmetry and linearity, their conditional means are Gϵ and Hϵ. Let Lm be the corresponding population loss and let ˜L(B) 
+
+> m
+
+be its quadrature empirical version. By the same conditional-expectation decomposition as in Lemma 7, 
+
+Lm(φ, Un−1) = ∥φ − S ϵ(Un−1)∥2 
+
+> β, mix
+
++ Cm,
+
+where Cm is independent of φ. Hence the ERM argument in Lemma 18 gives 
+
+E2 
+
+> n
+
+≤4 sup 
+
+> φ∈H
+
+Lm(φ) − ˜L(B) 
+
+> m
+
+(φ) + 2 inf  
+
+> φ∈H
+
+∥φ − S ϵ(Un−1)∥2
+
+> β, mix
+
++ 2 ∥S ϵ(Un−1) − S (Un−1)∥2 
+
+> β, mix
+
+.
+
+(C.14) 
+
+55 Jia, Ouyang, Pham, and Zhou 
+
+By Proposition 5, the multi-point estimators have the same O(ϵ2) bias as the one-point estimators under the stated smoothness assumptions. Therefore, 
+
+∥S ϵ(Un−1) − S (Un−1)∥2 
+
+> β, mix
+
+≤ Cϵ 4. (C.15) It remains to bound the statistical error term in (C.14). Let LG 
+
+> m
+
+be the time-discretized version of Lm. As before, sup 
+
+> φ∈H
+
+Lm(φ) − ˜L(B) 
+
+> m
+
+(φ) ≤ sup 
+
+> φ∈H
+
+˜L(B) 
+
+> m
+
+(φ) − LG
+
+> m
+
+(φ) + sup 
+
+> φ∈H
+
+LG
+
+> m
+
+(φ) − Lm(φ) . (C.16) We first control the discretization term. To separate the two sources of time discretization, let ¯LG 
+
+> m
+
+denote the time-grid population loss obtained from Lm by replacing the time integral with the grid sum while keeping the exact rewards Rt,x (Un−1) unchanged. Then sup 
+
+> φ∈H
+
+LG
+
+> m
+
+(φ) − Lm(φ) ≤ sup 
+
+> φ∈H
+
+LG
+
+> m
+
+(φ) − ¯LG
+
+> m
+
+(φ) + sup 
+
+> φ∈H
+
+¯LG
+
+> m
+
+(φ) − Lm(φ) .
+
+Write ∆( t, x ) := ˜Rt,x (Un−1) − Rt,x (Un−1).
+
+Because the three rewards in the multi-point estimator are generated by the same Brow-nian path and the same quadrature grid, the discretization error enters through the finite differences Z
+
+2ϵ {∆( t, x + ϵZ ) − ∆( t, x − ϵZ )}
+
+and ZZ ⊤ − Id
+
+2ϵ2 {∆( t, x + ϵZ ) + ∆( t, x − ϵZ ) − 2∆( t, x )}.
+
+Under the regularity assumptions b, σ ∈ C0,5 
+
+> b
+
+, f (·, ·, Un−1(·, ·)) ∈ C1,5 
+
+> p
+
+, and g ∈ C4 
+
+> p
+
+, using the same method as in the proof of Lemma 19, there are constants C > 0, q > 0 such that 
+
+∥∂rx∆( t, x )∥L2 ≤ CN (1 + |x|q).
+
+Applying Taylor’s expansion yields 
+
+Z
+
+2ϵ {∆( t, X t + ϵZ ) − ∆( t, X t − ϵZ )} L2
+
+≤ CN ,
+
+ZZ ⊤ − Id
+
+2ϵ2 {∆( t, X t + ϵZ ) + ∆( t, X t − ϵZ ) − 2∆( t, X t)} L2
+
+≤ CN .
+
+Using the same method as in the proof of Lemma 19 gives sup 
+
+> φ∈H
+
+LG
+
+> m
+
+(φ) − ¯LG
+
+> m
+
+(φ) ≤ CN .
+
+The outer discretization error is treated in the same way, leading to sup 
+
+> φ∈H
+
+LG
+
+> m
+
+(φ) − Lm(φ) ≤ CN . (C.17) 
+
+56 Zeroth-Order Deep Learning for PDEs 
+
+For the first term on the right hand side of (C.16), denote and note that 
+
+Y ϵ,m g (t, x ) := Z
+
+2ϵ
+
+ ˜Rt,x +ϵZ (Un−1) − ˜Rt,x −ϵZ (Un−1)
+
+
+
+= Z
+
+Z 1
+
+> −1
+
+∇x ˜Rt,x +sϵZ (Un−1)⊤Z ds
+
+2 ,Y ϵ,m h (t, x ) := ZZ ⊤ − Id
+
+2ϵ2
+
+ ˜Rt,x +ϵZ (Un−1) + ˜Rt,x −ϵZ (Un−1) − 2 ˜Rt,x (Un−1)
+
+
+
+= ZZ ⊤ − Id
+
+2
+
+Z 1
+
+> −1
+
+(1 − | s|)Z⊤∇2 
+
+> x
+
+˜Rt,x +sϵZ (Un−1)Z ds. 
+
+(C.18) Set ˜f (s, x ) := f (s, x, Un−1(s, x )) , D(r) 
+
+> s
+
+:= ∂rxXt,x s , r = 1 , . . . , 4.
+
+For D(1) , differentiating the SDE gives a linear equation with bounded drift and multiplica-tive diffusion coefficients: dD(1)  
+
+> s
+
+= ∇xb(s, X t,x s )D(1)  
+
+> s
+
+ds + √2
+
+> d
+
+X
+
+> ℓ=1
+
+∇xσℓ(s, X t,x s )D(1)  
+
+> s
+
+dW ℓs .
+
+For r = 2 , 3, 4, D(r) satisfies dD(r) 
+
+> s
+
+= A(r) 
+
+> s
+
+D(r) 
+
+> s
+
+ds + √2
+
+> d
+
+X
+
+> ℓ=1
+
+B(r) 
+
+> ℓ,s
+
+D(r) 
+
+> s
+
+dW ℓs + F (r) 
+
+> s
+
+ds + √2
+
+> d
+
+X
+
+> ℓ=1
+
+H(r) 
+
+> ℓ,s
+
+dW ℓs , (C.19) where A(r) 
+
+> s
+
+and B(r) 
+
+> ℓ,s
+
+are bounded, and the forcing terms depend polynomially on lower-order derivatives: 
+
+|F (2)  
+
+> s
+
+| + X
+
+> ℓ
+
+|H(2)  
+
+> ℓ,s
+
+| ≤ C|D(1)  
+
+> s
+
+|2,
+
+|F (3)  
+
+> s
+
+| + X
+
+> ℓ
+
+|H(3)  
+
+> ℓ,s
+
+| ≤ C
+
+
+
+|D(1)  
+
+> s
+
+|3 + |D(1)  
+
+> s
+
+|| D(2)  
+
+> s
+
+|
+
+
+
+,
+
+|F (4)  
+
+> s
+
+| + X
+
+> ℓ
+
+|H(4)  
+
+> ℓ,s
+
+| ≤ C
+
+
+
+|D(1)  
+
+> s
+
+|4 + |D(1)  
+
+> s
+
+|2|D(2)  
+
+> s
+
+| + |D(2)  
+
+> s
+
+|2 + |D(1)  
+
+> s
+
+|| D(3)  
+
+> s
+
+|
+
+
+
+.
+
+Applying BDG and Gr¨ onwall first to D(1) and then inductively to (C.19) yields, for every 
+
+p ≥ 2, sup 
+
+> t,x
+
+1 + 
+
+> 4
+
+X
+
+> r=1
+
+sup 
+
+> t≤s≤T
+
+|D(r) 
+
+> s
+
+|
+
+> Lp
+
+≤ Ce cp . (C.20) Since ˜Rtj ,x (Un−1) = g(Xtj ,x T ) +  
+
+> N−1
+
+X
+
+> i=j
+
+˜f (ti, X tj ,x ti )∆ ti,
+
+Fa` a di Bruno’s formula, along with the fact that g ∈ C4 
+
+> p
+
+, ˜f ∈ C1,5 
+
+> p
+
+and the bound (C.20), implies that there are constant C, c > 0 and q > 0 such that for every p ≥ 2, sup 
+
+> j
+
+|∇ x ˜Rtj ,x (Un−1)| + |∇ 2 
+
+> x
+
+˜Rtj ,x (Un−1)| Lp ≤ Ce cp (1 + |x|q).
+
+57 Jia, Ouyang, Pham, and Zhou 
+
+Combining (C.18) with 
+
+∥Z∥Lp ≤ Cp 1/2, ∥ZZ ⊤ − Id∥Lp ≤ Cp, 
+
+and the moment bound of Xt gives sup 
+
+> 0<ϵ ≤1
+
+sup 
+
+> j
+
+|Y ϵ,m g (tj , X tj )| + |Y ϵ,m h (tj , X tj )| Lp ≤ Ce cp , p ≥ 2. (C.21) Define the truncation event ΩK,m,j := 
+
+(
+
+sup  
+
+> tj≤t≤T
+
+Xtj ,X tj 
+
+> t
+
+< K 
+
+)
+
+∩ {| Y ϵ,m g (tj , X tj )| ≤ K} ∩ {| Y ϵ,m h (tj , X tj )| ≤ K}.
+
+With qK = max {2, ⌊α log(1 + K)⌋} , Markov’s inequality and (C.21) give 
+
+P(|Y ϵ,m g (tj , X tj )| > K ) ≤
+
+ Ce cq K
+
+K
+
+qK
+
+,
+
+P(|Y ϵ,m h (tj , X tj )| > K ) ≤
+
+ Ce cq K
+
+K
+
+qK
+
+.
+
+Choosing α > 0 small enough and K large enough yields sup 
+
+> 1≤j≤N
+
+P(Ω cK,m,j ) ≤ C1 exp  −C2(log(1 + K)) 2 . K ≥ 2, (C.22) Write the time-discretized sample loss as 
+
+Gm(φ; W ) =  
+
+> N−1
+
+X
+
+> j=0
+
+∆tj ℓm,j (φ; W ),
+
+where ℓm,j is the squared value-gradient-Hessian loss at the grid time tj . Clip the grid loss term by the term: 
+
+G(K) 
+
+> m
+
+(φ; W ) :=  
+
+> N−1
+
+X
+
+> j=0
+
+∆tj ℓm,j (φ; W )1ΩK,m,j .
+
+Hence, after summing over the time grid and using PN −1 
+
+> j=0
+
+∆tj = T ,
+
+|G(K) 
+
+> m
+
+(φ; W )| ≤ C(1 + Kq),
+
+where q depends on the polynomial growth condition of g and f . Recall the decomposition (C.9), by McDiarmid’s inequality and the parameterized Rademacher bound, sup 
+
+> φ∈H
+
+1
+
+B
+
+> B
+
+X
+
+> i=1
+
+G(K) 
+
+> m
+
+(φ; Wi) − E[G(K) 
+
+> m
+
+(φ; W )] 
+
+≤ C(1 + plog(1 /δ )) P(d)(1 + Kq)
+
+√B
+
+q
+
+log( CRp (1 + Kq)√B).
+
+58 Zeroth-Order Deep Learning for PDEs 
+
+with probability at least 1 − δ. Let 
+
+RK (W ) := sup 
+
+> φ∈H
+
+|Gm(φ; W ) − G(K) 
+
+> m
+
+(φ; W )|.
+
+Since the networks in H are uniformly bounded, sup 
+
+> φ∈H
+
+ℓm,j (φ; W ) ≤ C  1 + |Yv|2 + ∥Y ϵ,m g ∥2 + ∥Y ϵ,m h ∥2 .
+
+Therefore, 
+
+ERK (W ) ≤ 
+
+> N−1
+
+X
+
+> j=0
+
+∆tj E
+
+"
+
+sup 
+
+> φ∈H
+
+ℓm,j (φ; W )1ΩcK,m,j 
+
+#
+
+≤ C 
+
+> N−1
+
+X
+
+> j=0
+
+∆tj 1 + |Yv|2 + ∥Y ϵ,m g ∥2 + ∥Y ϵ,m h ∥2 
+
+> L2
+
+P(Ω cK,m,j )1/2.
+
+It follows from the moment bound (C.21), the moments of Xtj , the truncation tail (C.22), and the identity PN −1 
+
+> j=0
+
+∆tj = T that 
+
+ERK (W ) ≤ C exp  −C(log(1 + K)) 2 .
+
+Markov’s inequality therefore gives, with probability at least 1 − δ,1
+
+B
+
+> B
+
+X
+
+> i=1
+
+RK (Wi) + ERK (W ) ≤ Cδ −1 exp  −C(log(1 + K)) 2 .
+
+Choosing K = exp 
+
+
+
+Cplog B + log(1 /δ )
+
+
+
+, we obtain sup 
+
+> φ∈H
+
+˜L(B) 
+
+> m
+
+(φ) − LG
+
+> m
+
+(φ)
+
+≤ C
+
+
+
+1 + plog(1 /δ )
+
+ P(d)
+
+B1/2 exp 
+
+
+
+Cplog B + log(1 /δ )
+
+
+
+.
+
+(C.23) Combining (C.14), (C.15), (C.16), (C.17), and (C.23) proves the strong-simulator bound. 
+
+C.8 Proof of Theorem 10 
+
+The conclusion follows by taking δ = δ/n in Theorem 9, and combining with the conclusion in Theorem 6. 
+
+References 
+
+K. Balasubramanian and S. Ghadimi. Zeroth-Order Nonconvex Stochastic Optimization: Handling Constraints, High Dimensionality, and Saddle Points. Foundations of Compu-tational Mathematics , 22(1):35–76, Feb. 2022. 
+
+59 Jia, Ouyang, Pham, and Zhou 
+
+D. Ba˜ nos. The Bismut-Elworthy-Li formula for mean-field stochastic differential equations. 
+
+Annales de L’Institut Henri Poincare Section (B) Probability and Statistics , 54(1):220– 233, 2018. A. R. Barron. Approximation and estimation bounds for artificial neural networks. Machine Learning , 14(1):115–133, 1994. P. L. Bartlett, O. Bousquet, and S. Mendelson. Local Rademacher complexities. The Annals of Statistics , 33(4), Aug. 2005. C. Beck, M. Hutzenthaler, A. Jentzen, and B. Kuckuck. An overview on deep learning-based approximation methods for partial differential equations. Discrete and Continuous Dynamical Systems-B , 28(6):3697–3746, 2023. D. P. Bertsekas and J. N. Tsitsiklis. Neuro-Dynamic Programming . Athena Scientific, Belmont, Massachusetts, 1996. A. Bonito, R. DeVore, G. Petrova, and J. W. Siegel. Convergence and error control of consistent PINNs for elliptic PDEs. IMA Journal of Numerical Analysis , 46(1):90–148, 2026. W. M. Czarnecki, S. Osindero, M. Jaderberg, G. Swirszcz, and R. Pascanu. Sobolev training for neural networks. In Advances in Neural Information Processing Systems , 2017. N. Doum` eche, G. Biau, and C. Boyer. On the convergence of PINNs. Bernoulli , 31(3): 2127–2151, 2025. K. Dzhaparidze and H. Van Zanten. On Bernstein-type inequalities for martingales. Stochas-tic Processes and their Applications , 93(1):109–117, May 2001. W. E and B. Yu. The deep Ritz method: A deep learning-based numerical algorithm for solving variational problems. Communications in Mathematics and Statistics , 6(1):1–12, 2018. W. E, J. Han, and A. Jentzen. Deep learning-based numerical methods for high dimensional parabolic partial differential equations and backward stochastic differential equations. 
+
+Communication in Mathematical Statistics , 5(4):349–380, 2017. S. Fischer and I. Steinwart. Sobolev norm learning rates for regularized least-squares algo-rithms. Journal of Machine Learning Research , 21(205):1–38, 2020. W. H. Fleming and H. M. Soner. Controlled Markov Processes and Viscosity Solutions .Springer, 2006. D. Gazoulis, I. Gkanis, and C. G. Makridakis. On the stability and convergence of physics informed neural networks. IMA Journal of Numerical Analysis , page draf090, 2025. M. Germain, H. Pham, and X. Warin. Neural networks-based algorithms for stochastic con-trol and PDEs in finance. In C.-A. Lehalle and A. Capponi, editors, Machine Learning and Data Sciences for Financial Markets: A Guide to Contemporary Practices . Cambridge University Press, 2023. 
+
+> 60 Zeroth-Order Deep Learning for PDEs
+
+P. Glasserman. Monte Carlo Methods in Financial Engineering , volume 53. Springer, 2004. J. Han, A. Jentzen, and W. E. Solving high-dimensional partial differential equations using deep learning. Proceedings of the National Academy of Sciences , 115:8505–8510, 2018. J. Han, W. Hu, J. Long, and Y. Zhao. Deep Picard iteration for high-dimensional nonlinear PDEs. SIAM Journal of Scientitic Computing , 48:1–24, 2026. D. He, S. Li, W. Shi, X. Gao, J. Zhang, J. Bian, L. Wang, and T.-Y. Liu. Learning physics-informed neural networks without stacked back-propagation. In International Conference on Artificial Intelligence and Statistics , pages 3034–3047. PMLR, 2023. K. Hornik, M. Stinchcombe, and H. White. Universal approximation of an unknown map-ping and its derivatives using multilayer feedforward networks. Neural Networks , 3(5): 551–560, 1990. Z. Hu, Z. Yang, Y. Wang, G. E. Karniadakis, and K. Kawaguchi. Bias-variance trade-off in physics-informed neural networks with randomized smoothing for high-dimensional PDEs. SIAM Journal on Scientific Computing , 47(4):C846–C872, 2025. B. Huge and A. Savine. Differential machine learning. SSRN 3591734 , 2020. C. Hur´ e, H. Pham, and X. Warin. Deep backward schemes for high-dimensional nonlinear PDEs. Mathematics of Computation , 89:1547–1579, 2020. Y. Jia and X. Y. Zhou. Policy gradient and actor-critic learning in continuous time and space: Theory and algorithms. Journal of Machine Learning Research , 23(275):1–50, 2022a. Y. Jia and X. Y. Zhou. Policy evaluation and temporal-difference learning in continuous time and space: A martingale approach. Journal of Machine Learning Research , 23(154): 1–55, 2022b. Y. Jia and X. Y. Zhou. q-learning in continuous time. Journal of Machine Learning Research , 24(161):1–61, 2023. A. Jiao, H. He, R. Ranade, J. Pathak, and L. Lu. One-shot learning for solution operators of partial differential equations. arXiv preprint arXiv:2104.05512 , 2021. Y. Jiao, Y. Lai, Y. Lo, Y. Wang, and Y. Yang. Error analysis of deep Ritz methods for elliptic equations. Analysis and Applications , 22(01):57–87, 2024. I. Karatzas and S. Shreve. Brownian Motion and Stochastic Calculus . Springer, 2014. Y.-J. Kim and C. Gu. Smoothing spline gaussian regression: More scalable computation via efficient approximation. Journal of The Royal Statistical Society Series B: Statistical Methodology , 66(2):337–356, 2004. H. Kunita. Stochastic Flows and Jump-Diffusions , volume 92 of Probability Theory and Stochastic Modelling . Springer Singapore, Singapore, 2019. 
+
+> 61 Jia, Ouyang, Pham, and Zhou
+
+J. H. Lagergren, J. T. Nardini, G. Michael Lavigne, E. M. Rutter, and K. B. Flores. Learning partial differential equations for biological transport models from noisy spatio-temporal data. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sci-ences , 476(2234), 2020. W. Lefebvre, G. Loeper, and H. Pham. Differential learning methods for solving fully nonlinear PDEs. Digital Finance , 51(1):183–2229, 2023. Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anand-kumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021a. Y. Lu, J. Lu, and M. Wang. A priori generalization analysis of the deep Ritz method for solving high dimensional elliptic partial differential equations. In Conference on Learning Theory , pages 3196–3241. PMLR, 2021b. Y. Lu, H. Chen, J. Lu, L. Ying, and J. Blanchet. Machine learning for elliptic PDEs: Fast rate generalization bound, neural scaling law and minimax optimality. In International Conference on Learning Representations , 2022. J. Ma and J. Zhang. Representation theorems for backward stochastic differential equations. 
+
+The Annals of Applied Probability , 12(4):1390–1418, 2002. W. Mou. Statistical guarantees for continuous-time policy evaluation: Blessing of ellipticity and new tradeoffs. arXiv preprint arXiv:2502.04297 , 2025. W. Mou and Y. Zhu. On Bellman equations for continuous-time policy evaluation: high-order discretization and function approximation. SIAM Journal on Mathematics of Data Science , 2025. Y. Nesterov and V. Spokoiny. Random gradient-free minimization of convex functions. 
+
+Foundations of Computational Mathematics , 17(2):527–566, 2017. G. A. Pavliotis. Stochastic Processes and Applications: Diffusion Processes, the Fokker-Planck and Langevin Equations , volume 60 of Texts in Applied Mathematics . Springer New York, New York, NY, 2014. S. Peng. A nonlinear feynman-kac formula and applications. In Proceedings of Symposium of System Sciences and Control Theory , pages 173–184. World Scientific, 1992. H. Pham. Continuous-Time Stochastic Control and Optimization with Financial Applica-tions , volume 61. Springer Science & Business Media, 2009. P. E. Protter. Stochastic Integration and Differential Equations , volume 21 of Stochastic Modelling and Applied Probability . Springer Berlin Heidelberg, Berlin, Heidelberg, 2005. 
+
+> 62 Zeroth-Order Deep Learning for PDEs
+
+M. Raissi, P. Perdikarais, and G. Karniadakis. Physics-informed neural neworks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. T. Salimans, J. Ho, X. Chen, S. Sidor, and I. Sutskever. Evolution strategies as a scalable alternative to reinforcement learning. arXiv preprint arXiv:1703.03864 , 2017. S. Shalev-Shwartz and S. Ben-David. Understanding Machine Learning: From Theory to Algorithms . Cambridge university press, 2014. Z. Shi, Z. Hu, M. Lin, and K. Kawaguchi. Stochastic Taylor derivative estimator: Effi-cient amortization for arbitrary differential operators. Advances in Neural Information Processing Systems , 37:122316–122353, 2024. J. W. Siegel. Optimal approximation rates for deep ReLU neural networks on Sobolev and Besov spaces. Journal of Machine Learning Research , 24(357):1–52, 2023. J. Sirignano and K. Spiliopoulos. DGM: A deep learning algorithm for solving partial differential equations. Journal of Computational Physics , 375:1339–1364, 2018. R. S. Sutton and A. G. Barto. Reinforcement Learning: An Introduction , volume 1. MIT press Cambridge, 1998. G. Wahba. Spline Models for Observational Data . SIAM, 1990. M. J. Wainwright. High-Dimensional Statistics: A Non-Asymptotic Viewpoint . Cambridge University Press, 1 edition, Feb. 2019. C. Wang, S. Li, D. He, and L. Wang. Is L2 physics informed loss always suitable for training physics informed neural network? Advances in Neural Information Processing Systems ,35:8278–8290, 2022. H. Wang, T. Zariphopoulou, and X. Y. Zhou. Reinforcement learning in continuous time and space: A stochastic control approach. Journal of Machine Learning Research , 21 (198):1–34, 2020. J. Yong and X. Y. Zhou. Stochastic Controls: Hamiltonian Systems and HJB Equations ,volume 43. Springer Science & Business Media, 1999. W. Zhang, Z. Hu, W. Cai, and G. Karniadaki. Deep neural networks for solving high-dimensional parabolic partial differential equations. arXiv:2601.13256 , 2026. M. Zhou, J. Han, and J. Lu. Actor-critic method for high dimensional static Hamilton– Jacobi–Bellman partial differential equations based on neural networks. SIAM Journal on Scientific Computing , 43(6):A4043–A4066, 2021. Y. Zhu, Y. Zhang, and H. Zhang. Optimal-PhiBE: A PDE-based model-free framework for continuous-time reinforcement learning. arXiv preprint arXiv:2506.05208 , 2025.

@@ -6,85 +6,71 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-04
-- 运行时间：2026-07-04 21:38:16 UTC
+- 最新运行日期：2026-07-05
+- 运行时间：2026-07-05 21:47:06 UTC
 - 运行状态：成功
-- 本次总论文数：21
-- 精读区：8
-- 速读区：13
+- 本次总论文数：17
+- 精读区：6
+- 速读区：11
 
 ### 今日简报（AI）
-今日精读8篇高分论文，聚焦智能体自演化与高频PDE求解两大前沿方向。
-最值得关注的是下一代自演化智能体强化学习系统（9.0分）和频移物理信息极限学习机（9.0分），均代表领域突破。
-建议普通读者优先精读这两篇，并关注速读列表中的三篇自演化智能体相关论文以巩固理解。
-- 详情：[/202607/04/README](/202607/04/README)
+今日精选17篇AI论文，多机器人强化学习与超属性引导部分可观测MARL获最高8分。最值得关注多智能体协调采样与GUI智能体主动记忆机制两个方向。建议优先精读两篇8分论文，掌握多目标协同与部分观测下的前沿方法。
+- 详情：[/202607/05/README](/202607/05/README)
 
 ### 精读区论文标签
-1. [Next-Generation Agentic Reinforcement Learning Systems Enable Self-Evolving Agents](/202607/04/2607.01120v2-next-generation-agentic-reinforcement-learning-systems-enable-self-evolving-agents)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：通过强化学习实现自演化智能体
-2. [Frequency Shift Physics-Informed Extreme Learning Machine for Solving High-Frequency Partial Differential Equations](/202607/04/2607.01694v1-frequency-shift-physics-informed-extreme-learning-machine-for-solving-high-frequency-partial-differential-equations)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：用于高频偏微分方程的物理信息极限学习机
-3. [MALOQ: Massively Accelerated Learning of Operators for Quantum Transport](/202607/04/2606.28911v1-maloq-massively-accelerated-learning-of-operators-for-quantum-transport)  
+1. [Sampling-Based Coordination-Informed Multi-Objective Multi-Robot Reinforcement Learning](/202607/05/2606.30893v1-sampling-based-coordination-informed-multi-objective-multi-robot-reinforcement-learning)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：多目标多机器人强化学习协调与采样
+2. [HyPOLE: Hyperproperty-Guided Multi-Agent Reinforcement Learning under Partial Observation](/202607/05/2606.30966v1-hypole-hyperproperty-guided-multi-agent-reinforcement-learning-under-partial-observation)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：超属性引导的部分可观测多智能体强化学习
+3. [Learning from Failure: Inference-Time Self-Improvement for Computer-Use Agents](/202607/05/2606.31270v1-learning-from-failure-inference-time-self-improvement-for-computer-use-agents)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：提出基于失败的推理时自我改进循环，利用失败轨迹提升智能体
+4. [Learning dynamical systems from noisy data with Weak-form Kernel Ridge Regression](/202607/05/2607.00257v1-learning-dynamical-systems-from-noisy-data-with-weak-form-kernel-ridge-regression)  
+   标签：评分：8.0/10、query:sr
+   evidence：用弱形式核岭回归从含噪数据学习动力系统
+5. [COMFYCLAW: Self-Evolving Skill Harnesses for Image Generation Workflows](/202607/05/2607.01709v1-comfyclaw-self-evolving-skill-harnesses-for-image-generation-workflows)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：用于智能体工作流的自进化技能套件
+6. [Self-explainable Operator Learning for Discovering Spatial Patterns in Functional Data](/202607/05/2607.02203v1-self-explainable-operator-learning-for-discovering-spatial-patterns-in-functional-data)  
    标签：评分：8.0/10、query:physics-ml
-   evidence：基于SO(2)等变骨架学习量子输运算子
-4. [Toward Exascale AI for Science: A Scalable AI Skill for Autonomous Microkinetics Discovery](/202607/04/2606.29100v1-toward-exascale-ai-for-science-a-scalable-ai-skill-for-autonomous-microkinetics-discovery)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：可扩展的AI技能用于自主科学发现
-5. [PIE-ADA: Physics-Informed Ensemble with Adaptive Data Augmentation for Photometric Transient Classification](/202607/04/2606.29367v1-pie-ada-physics-informed-ensemble-with-adaptive-data-augmentation-for-photometric-transient-classification)  
-   标签：评分：8.0/10、query:physics-ml
-   evidence：用于暂现源分类的物理信息生成模型
-6. [RESOURCE2SKILL: Distilling Executable Agent Skills from Human-Created Multimodal Resources](/202607/04/2606.29538v1-resource2skill-distilling-executable-agent-skills-from-human-created-multimodal-resources)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：从多模态资源中提取可执行智能体技能的框架
-7. [Scaling the Horizon, Not the Parameters: Reaching Trillion-Parameter Performance with a 35B Agent](/202607/04/2606.30616v1-scaling-the-horizon-not-the-parameters-reaching-trillion-parameter-performance-with-a-35b-agent)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：智能体视野缩放实现万亿参数性能
-8. [Why Solve It Twice? Hierarchical Accumulation of Skills for Transfer-Efficient ML Engineering](/202607/04/2606.30911v2-why-solve-it-twice-hierarchical-accumulation-of-skills-for-transfer-efficient-ml-engineering)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：层级化多智能体技能积累与迁移学习
+   evidence：自解释算子学习，用于发现函数数据中的空间模式
 
 ### 速读区论文标签
-1. [Self-Evolving World Models for LLM Agent Planning](/202607/04/2606.30639v1-self-evolving-world-models-for-llm-agent-planning)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：自演化世界模型用于智能体规划与技能提升
-2. [SkillCoach: Self-Evolving Rubrics for Evaluating and Enhancing Agentic Skill-Use](/202607/04/2607.01874v1-skillcoach-self-evolving-rubrics-for-evaluating-and-enhancing-agentic-skill-use)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：用于评估和增强agent技能使用的自进化评估框架
-3. [EvoPolicyGym: Evaluating Autonomous Policy Evolution in Interactive Environments](/202607/04/2607.02440v1-evopolicygym-evaluating-autonomous-policy-evolution-in-interactive-environments)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：评估智能体自主策略进化的基准
-4. [Physics Models for Sim-to-Real Transfer in Professional-Level Robot Table Tennis](/202607/04/2606.28805v1-physics-models-for-sim-to-real-transfer-in-professional-level-robot-table-tennis)  
+1. [What Memory Do GUI Agents Really Need? From Passive Records to Active Task-Driving States](/202607/05/2606.31612v1-what-memory-do-gui-agents-really-need-from-passive-records-to-active-task-driving-states)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：通过物理模型实现智能体技能迁移
-5. [Self-Supervised Calibration of Scientific Instruments Using Physical Consistency Constraints](/202607/04/2606.29466v1-self-supervised-calibration-of-scientific-instruments-using-physical-consistency-constraints)  
+   evidence：主动记忆方法提升GUI代理技能执行
+2. [A multilevel stochastic-gradient neural solver for boundary integral equations](/202607/05/2607.00560v1-a-multilevel-stochastic-gradient-neural-solver-for-boundary-integral-equations)  
    标签：评分：7.0/10、query:physics-ml
-   evidence：使用物理一致性约束的自监督校准
-6. [A Bayesian Filtering Approach for Learning Lagrangian Dynamics from Noisy Measurements](/202607/04/2606.31137v1-a-bayesian-filtering-approach-for-learning-lagrangian-dynamics-from-noisy-measurements)  
-   标签：评分：7.0/10、query:physics-ml
-   evidence：利用贝叶斯滤波结合物理信息的神经网络求解运动方程
-7. [ACE: Pluggable Adaptive Context Elasticizer across Agents](/202607/04/2606.31564v1-ace-pluggable-adaptive-context-elasticizer-across-agents)  
+   evidence：多级随机梯度神经求解器，用于边界积分方程
+3. [Atomic Task Graph: A Unified Framework for Agentic Planning and Execution](/202607/05/2607.01942v1-atomic-task-graph-a-unified-framework-for-agentic-planning-and-execution)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：可插拔上下文管理模块提升智能体技能
-8. [TRIE: An Evaluation Framework for Stochastic PDE Surrogates](/202607/04/2607.00196v1-trie-an-evaluation-framework-for-stochastic-pde-surrogates)  
-   标签：评分：7.0/10、query:physics-ml
-   evidence：评估随机PDE代理，关注不变测度和不确定性
-9. [A Task-State Representation for Long-Horizon Mobile GUI Agents](/202607/04/2607.00502v1-a-task-state-representation-for-long-horizon-mobile-gui-agents)  
+   evidence：原子任务图用于代理规划和执行
+4. [Controllable Sim Agents with Behavior Latents](/202607/05/2607.02496v1-controllable-sim-agents-with-behavior-latents)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：解耦任务状态与感官输入以改进代理记忆
-10. [Physics Equivariance for Robust Generalization in Wireless Foundation Model](/202607/04/2606.28847v1-physics-equivariance-for-robust-generalization-in-wireless-foundation-model)  
+   evidence：通过强化学习实现具有行为潜在变量的可控模拟智能体
+5. [Holonic Active Distillation for Scalable Multi-Agent Learning in Multi-Sensor Systems](/202607/05/2606.31578v1-holonic-active-distillation-for-scalable-multi-agent-learning-in-multi-sensor-systems)  
+   标签：评分：6.0/10、query:cfd-agent
+   evidence：全息主动蒸馏用于可扩展的多智能体学习
+6. [Data-Adaptive Learning of Dynamical Systems by Matching Transfer Operators and Invariant Measures](/202607/05/2607.00391v1-data-adaptive-learning-of-dynamical-systems-by-matching-transfer-operators-and-invariant-measures)  
    标签：评分：6.0/10、query:physics-ml
-   evidence：物理等变性在无线基础模型中的应用
-11. [AI Trading's Alpha Singularity: Emergent Market Reasoning through Agent-to-Agent Self-Evolution](/202607/04/2606.29194v1-ai-tradings-alpha-singularity-emergent-market-reasoning-through-agent-to-agent-self-evolution)  
+   evidence：通过转移算子的数据自适应动力系统学习
+7. [Multi-scale Mixture of World Models for Embodied Agents in Evolving Environments](/202607/05/2607.00457v1-multi-scale-mixture-of-world-models-for-embodied-agents-in-evolving-environments)  
    标签：评分：6.0/10、query:cfd-agent
-   evidence：交易中智能体间自进化进行alpha挖掘
-12. [DAIN: Dynamic Agent-Based Interaction Network for Efficient and Collaborative Multimodal Reasoning](/202607/04/2606.30189v1-dain-dynamic-agent-based-interaction-network-for-efficient-and-collaborative-multimodal-reasoning)  
+   evidence：具身智能体在演进环境中的多尺度世界模型混合与进化
+8. [Human-Machine Collaboration on Generative Meta-Learning: Model and Algorithm](/202607/05/2607.00926v1-human-machine-collaboration-on-generative-meta-learning-model-and-algorithm)  
+   标签：评分：6.0/10、query:physics-ml
+   evidence：利用人类对目标物理的信念指导数据生成
+9. [Geometry-Aware R-Structured Kolmogorov-Arnold Networks](/202607/05/2607.01449v1-geometry-aware-r-structured-kolmogorov-arnold-networks)  
+   标签：评分：6.0/10、query:sr
+   evidence：集成几何先验知识的混合KAN网络
+10. [PhysMani: Physics-principled 3D World Model for Dynamic Object Manipulation](/202607/05/2607.01938v1-physmani-physics-principled-3d-world-model-for-dynamic-object-manipulation)  
+   标签：评分：6.0/10、query:physics-ml
+   evidence：物理原理的3D高斯世界模型用于动态物体操作
+11. [SkillFuzz: Fuzzing Skill Composition for Implicit Intents Discovery in Open Skill Marketplaces](/202607/05/2607.02345v1-skillfuzz-fuzzing-skill-composition-for-implicit-intents-discovery-in-open-skill-marketplaces)  
    标签：评分：6.0/10、query:cfd-agent
-   evidence：多智能体动态交互网络实现协作推理
-13. [A Single Rewrite Suffices: Empirical Lessons from Production Skill Description Optimization](/202607/04/2606.30775v1-a-single-rewrite-suffices-empirical-lessons-from-production-skill-description-optimization)  
-   标签：评分：6.0/10、query:cfd-agent
-   evidence：自动优化智能体技能描述以提升路由准确性
+   evidence：模糊测试跨代理的技能组合以发现非预期交互行为
 
 
 <div class="dpr-home-promo-card">

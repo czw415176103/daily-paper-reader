@@ -1,0 +1,1125 @@
+Title: CaLiSym: Learning Symplectic Dynamics of Real-World Systems through Structured Canonical Lifts
+
+URL Source: https://arxiv.org/pdf/2607.06824v1
+
+Published Time: Thu, 09 Jul 2026 00:13:17 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+> PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 1
+
+# CALISYM : Learning Symplectic Dynamics of Real-World Systems through Structured Canonical Lifts 
+
+Aristotelis Papatheodorou ∗,1 Pranav Vaidhyanathan ∗,1
+
+Natalia Ares 1 Ioannis Havoutis 1 Gerard J. Milburn 2
+
+Abstract —Physics-informed learning promises data-efficient and stable dynamics prediction, yet its strongest geometric guarantees have largely remained confined to closed conservative systems. This excludes many robotic systems of practical inter-est, where actuation, dissipation, and constraints continuously exchange energy and momentum with the environment. We introduce CALISYM †, a lightweight framework that extends exact symplectic learning to such systems by changing where the geometric prior is imposed. Rather than enforcing symplecticity on the measured physical state, CALISYM embeds the state and its physical ports into a structured lifted canonical phase space, where the learned dynamics evolve through an exactly symplectic map. The lift is explicit and algebraic, requiring neither recurrent latent states, transformer decoders, implicit optimization, nor inference-time ODE integration. We instantiate the framework with generalized-ridge S YMP NET predictors and introduce GRB-S YMP NET , a B-spline variant that combines local approximation with exact symplectic structure. Experiments on a controlled dissipative double pendulum, a real-world quadrotor, and a contact-rich quadruped demonstrate consistent improve-ments in out-of-distribution autoregressive prediction while using parameter-efficient models. At the same time, the learned lifted dynamics preserve the symplectic form to numerical precision. These results show that symplectic learning can be extended beyond conservative mechanics through structured canonical lifts, enabling geometry-preserving dynamics models for real-world robotic systems. 
+
+Index Terms —robot dynamics learning, symplectic neural net-works, geometric machine learning, structure-preserving learn-ing, Hamiltonian systems, contact-rich robotics, model-based control. 
+
+I. I NTRODUCTION 
+
+# DYNAMICS has been studied extensively, producing a wide range of methods for explaining, predicting, and controlling the physical systems around us. The arrival of com-putation extended that reach to systems of scale and complex-ity that no closed-form analysis could touch. Amongst other fields, this shift has been highly consequential for robotics, where accurate dynamics models now underpin nearly every aspect of estimation, prediction and control. However, accu-racy almost always comes with a cost. 
+
+> 1
+
+Aristotelis Papatheodorou, Pranav Vaidhyanathan, Natalia Ares and Ioan-nis Havoutis are with the Department of Engineering Science, University of Oxford, Oxford, UK. A.P. is supported by Oxford’s Clarendon Fund and the JPMorgan Chase AI PhD Fellowship. P.V. is supported by the United States Army Research Office under Award No. W911NF-21-S-0009-2. N.A. acknowledges support from the European Research Council (Grant agree-ment 948932) and the Royal Society (URF-R1-191150). 
+
+> 2
+
+School of Mathematics and Physics, University of Sussex, Brighton, BN1 9RH, UK. National Centre for Quantum Computing, Rutherford Appleton Laboratory, Harwell Campus, Didcot, Oxfordshire, OX11 0QX UK 
+
+> ∗
+
+Equal Contribution {aristotelis, pranav }@robots.ox.ac.uk 
+
+> †
+
+Open-source implementation will be released upon acceptance. 
+
+Fig. 1. Overview of C ALISYM . The measured state lives in the physical phase space T ∗Q, the cotangent bundle of the configuration manifold Q. Because the system exchanges energy and impulses through actuation, dissipation, and contact, the physical dynamics on T ∗Q need not be closed or symplectic. CALISYM therefore embeds the physical state xt = ( qt, pt) and its current ports et into a gauge-fixed data section Set of the lifted phase space T ∗ eQ.An exactly symplectic map Φ∆tθ advances the lifted state from Zt to ¯Zt+1 ,after which the prediction is projected back to the physical state ˆxt+1 =ΠX ( ¯Zt+1 ). For autoregressive rollout, the prediction is re-embedded with the next port value through Zt+1 = σet+1 (ˆ xt+1 ). Thus, symplecticity is enforced in T ∗ eQ, while the projected physical dynamics on T ∗Q may remain forced, dissipative, or contact-rich. 
+
+Classical model-based control [1], [2] rests on first-principles descriptions of the system, such as rigid-body mechanics, contact models, and actuator dynamics [3]. Yet these descriptions face two limits at once, one computational and one more fundamental. The computational limit surfaces in methods such as model-predictive control [4] and state estimation [5], which must repeatedly query the underlying model. High-fidelity models are often too expensive to eval-uate at control rates, leading practitioners toward elaborate hand-engineered models [6], [7] or coarse simplifications that widen the simulation-to-reality gap [8]. The second limitation is more fundamental. Clean analytical models capture the dominant inertial, gravitational, and Coriolis effects, but high-performance robots operate precisely where neglected effects matter [9]. Aerial robots face thrust limits and aerodynamic drag [10], while legged robots face friction, compliance, impacts, and intermittent contact [11]. These are exactly the non-conservative effects that are hardest to derive from first principles and, as we will argue, the ones that most strongly violate the assumptions behind today’s most reliable learned models [12]–[15]. With the emergence of data-driven methods, predicting dynamics has shifted from hand-derived equations toward learned world models [16], i.e., neural predictors trained to roll out of the future state of a system directly from data. In arXiv:2607.06824v1 [cs.RO] 7 Jul 2026 2 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+model-based reinforcement learning [17], [18], such models are no longer passive simulators but are queried in closed loop, generating the imagined trajectories on which planning and policy optimization depend [19]. Their promise is speed without the brittleness of hand-tuned simplifications, with a single forward pass replacing an expensive solve. Their peril is that a learned map can be arbitrary. Small single-step errors compound over a rollout, and without any constraint grounding the prediction to the underlying physics, long-horizon trajectories drift and violate conservation laws the real system obeys. Their performance degradation is only amplified if we consider distributions shifts and conditions out of their nominal training scenarios [20]. This is the gap physics-informed learning sets out to close [21], [22]. Rather than being left to learn an uncon-strained transition map, the network is restricted to a model class built from known physical structure, so that its dynam-ics respect the physics by construction rather than only on average. In robotics, structure-preserving neural models have shown that such geometric priors improve data efficiency, extrapolation, and long-horizon stability [23]–[26]. Yet the strongest of these guarantees comes with a catch. Exact sym-plecticity holds only for closed conservative systems, while the systems we want to control are forced, dissipative, and contact-rich. As shown in Fig. 1, we resolve this by imposing symplecticity on the right space, embedding the physical state and its ports into a structured lifted space T ∗ ˜Q where the learned map is exactly symplectic, while the projected physical dynamics it induces reside in T ∗Q and may be constrained, forced or dissipative. The practical stakes of this construction extend beyond prediction accuracy. Learned dynamics models are increas-ingly queried in closed loop, serving as the transition model inside model-predictive control and imagination-based policy optimization, where compounding rollout error is the binding constraint [19], [27]. This is where geometric fidelity earns its keep. A predictor that remains geometrically anchored over long horizons, while staying Markovian and requiring only a single forward pass, makes learned models usable inside such planners rather than merely alongside them. The interface matches how modern robot controllers are actually built. The model predicts from the current state and ports alone, exactly the information a state-feedback controller or estimator holds at runtime, and the ports coincide with the joint torques and contact forces that predictive controllers already treat as decision variables [4]. A receding-horizon solver can query the lifted predictor directly, with no observa-tion history to maintain and no context window to replay at every iteration. Robustness under distribution shift matters for the same reason. A deployed robot routinely meets terrains, payloads, and contact modes absent from training, and the out-of-distribution gains reported here target precisely this regime. Our framework offers a second advantage beyond stability. Because the learned map is exactly symplectic and the ports enter as explicit canonical variables, the model exposes the en-ergy exchange between robot and environment as a first-class quantity rather than an implicit byproduct of the fit. This opens a path toward passivity-based and certificate-based control synthesis [28], [29], where energy bookkeeping is the object on which guarantees are built. Training stays equally practical, since teacher forcing avoids backpropagation through time and its attendant memory and gradient pathologies, keeping the model cheap to retrain as new operating data arrive. The predictor achieves all of this at parameter counts and inference costs compatible with control rates on embedded hardware. 
+
+A. Contributions 
+
+This work introduces C ALISYM , a framework for learning Canonical Lifted Symplectic representations of real-world robot dynamics. The central idea is to enforce exact symplectic structure in a structured lifted phase space while allowing the induced physical dynamics to remain actuated, dissipative, and contact constrained. This bridges the gap between the theoretical guarantees of symplectic learning and the non-conservative dynamics encountered in practical robotic sys-tems. Particularly, we make the following contributions:  
+
+> •
+
+Symplectic learning beyond conservative systems. We introduce C ALISYM , a framework that extends symplec-tic learning to controlled, dissipative, and constrained robotic systems (e.g. contacts).  
+
+> •
+
+Structured lift and gauge fixed rollout. We introduce a structured lift that augments the physical state with variables governing energy exchange with the environ-ment and constraints such as contacts. A gauge-fixed lift, projection, and re-embedding procedure enables autore-gressive prediction under time varying controls and inter-mittent contacts. Due to the enforced symplectic priors the autoregressive error accumulation remains minimal, while the overall markovian rollouts remain stable.  
+
+> •
+
+GRB-S YMP NET . We introduce GRB-S YMP NET , a gen-eralized ridge B-spline symplectic architecture that com-bines local spline approximation with exactly symplec-tic flow layers, improving expressivity while preserving symplectic structure by construction. We further intro-duce a universal approximation theorem covering GRB-SYMP NET ’s approximation capacity (see Appendix C).  
+
+> •
+
+Cross system evaluation. We evaluate C ALISYM on a simulated, forced and dissipative double pendulum, a 
+
+real-world aerial quadrotor and a real-world contact-rich quadruped. To the best of our knowledge, this is the first physics informed symplectic learning framework demonstrated across 
+
+real-world robotic systems whose observed dynamics are controlled, dissipative, or contact constrained. The results show that the proposed framework is architecture agnostic, scales across system dimensions, and improves long-horizon autoregressive prediction while remaining parameter efficient. II. R ELATED WORK 
+
+CALISYM builds upon several developments spanning robot dynamics learning [30], geometric machine learning [31], and structure preserving representations of physical systems [32]. We review the works most closely related to the proposed framework and organize them according to the key design principles underlying our approach. 3
+
+A. Learning Dynamics Models 
+
+Learning dynamics from data is a fundamental problem in robotics, underpinning model predictive control [4], state estimation [33], system identification [34], and model-based reinforcement learning [4], [5], [18]. Existing approaches span a broad spectrum of learning paradigms. At one end, black-box neural predictors and sequence models directly learn state transitions from data and have demonstrated strong empir-ical performance across a variety of robotic systems [35]– [37]. More recently, learned world models have extended this paradigm by constructing latent representations that jointly capture dynamics, observations, and control, enabling plan-ning and imagination-based reinforcement learning [35], [36]. However, because these models are primarily black-box, they generally provide no guarantees regarding the preservation of physical quantities such as energy, momentum, or geometric structure, often leading to drift and instability during long-horizon rollouts [20]. A complementary direction is operator learning, where the objective is to learn mappings between function spaces rather than individual trajectories. Architectures such as Fourier Neu-ral Operators (FNOs) [38], [39] and related neural operators have achieved remarkable success in modeling complex phys-ical systems and partial differential equations by exploiting global spectral representations. While highly expressive, these methods are fundamentally designed to approximate solution operators and likewise do not explicitly enforce the geometric structure underlying mechanical systems. As a result, con-servation laws and phase-space invariants may be violated even when short-term prediction accuracy is high, while their scalability is yet to be proven. Within robotics, specialized sequence architectures such as RWM [40] augment autoregressive (AR) prediction with latent memory representations to improve long-horizon fore-casting and capture history-dependent effects. By maintaining a learned latent state, these models can represent complex non-Markovian behaviors and partially mitigate error accu-mulation over extended prediction horizons. Nevertheless, the learned latent dynamics remain largely unconstrained by the underlying physical laws, providing no guarantees regarding the preservation of conservation laws, geometric structure, or physically meaningful invariants. As a result, predictions may become physically inconsistent under distribution shift or dur-ing long-horizon rollouts. Furthermore, training such recurrent and autoregressive world models typically relies on backprop-agation through time (BPTT) [41], [42], requiring gradients to be propagated through long computational graphs. This introduces substantial memory and computational overhead while also exposing training to the well-known challenges of vanishing and exploding gradients, which can negatively impact optimization stability and scalability to increasingly long prediction horizons. The common limitation across these families of methods is that physical structure is treated as an emergent property to be learned from data rather than a fundamental constraint imposed by the model architecture. In contrast, C ALISYM 
+
+incorporates a strong geometric inductive bias by constructing the learned dynamics directly within a symplectic framework. This enables the model to preserve the underlying phase-space structure by design, substantially improving long-horizon sta-bility, robustness to distribution shift, and the faithful repro-duction of physically meaningful invariants. Its training relies entirely on teacher forcing, while the C ALISYM ’s predictions are entirely Markovian (i.e. single-step maps). 
+
+B. Geometric Models of Physical Systems 
+
+A complementary line of research seeks to improve gen-eralization and long-horizon stability by embedding physical structure directly into the learning architecture rather than relying solely on data-driven regularization [21]. Hamiltonian Neural Networks (HNNs) learn a Hamiltonian function whose gradients generate the system dynamics [24], while Lagrangian Neural Networks (LNNs) parameterize the Lagrangian and recover the equations of motion through the Euler–Lagrange formalism [23]. These approaches leverage fundamental prin-ciples of classical mechanics to restrict the learned dynamics to physically plausible trajectories, resulting in improved extrap-olation and data efficiency compared to unconstrained neural predictors. A related but distinct class of methods focuses on preserving geometric structure directly at the level of the flow map. Symplectic neural networks such as S YMP NET s [26] construct discrete-time updates that preserve the canonical symplectic form exactly. By learning the dynamics map itself rather than an underlying energy function, these architectures avoid repeated differentiation during rollout and inherit the long-term stability properties associated with geometric numerical integrators. Consequently, they have emerged as one of the most promising directions for learning stable dynamics models from data, especially in data-scarce regimes. Despite these advances, existing geometric learning methods remain largely confined to conservative mechanical systems. Real robotic platforms are fundamentally non-conservative, since they exchange energy with their environment through actuation, damping, friction, impacts, contacts, sensing, and control. As a result, the assumptions underlying the classical Hamiltonian formalism are frequently violated in practice. While HNNs and LNNs can incorporate certain extensions, they still require recovering the dynamics through differenti-ating learned energy functions, increasing computational cost and sensitivity to approximation errors. Existing symplectic architectures, on the other hand, preserve geometric structure exactly but are generally unable to represent dissipative or externally driven dynamics without sacrificing their underlying theoretical guarantees. CALISYM bridges this gap by extending structure-preserving dynamics learning beyond conservative systems. Through a lifted symplectic representation, it retains the favorable stability and geometric properties of symplec-tic models while accommodating the strongly dissipative, actuated, and constrained dynamics encountered in real-world robotics. Moreover, the resulting predictor remains lightweight, parameter-efficient, and requires only a single forward pass per time step, making it practical for large-scale robotic learning and control applications. 4 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+C. Open and Constrained Dynamical Systems 
+
+Most real-world robotic systems are fundamentally non-conservative. Through actuation, damping, friction, impacts, contacts, and feedback control, they continuously exchange energy, momentum, and information with their environment. To model such phenomena, geometric mechanics has de-veloped a variety of extensions to classical Hamiltonian theory, including port-Hamiltonian systems, dissipative and metriplectic dynamics, and controlled mechanical systems, which incorporate energy exchange and irreversible processes while preserving an underlying geometric structure [43]–[45]. Likewise, constrained Hamiltonian mechanics, presymplectic geometry, and Dirac structures provide principled frameworks for representing contacts, kinematic constraints, and admissi-ble motions [46]. A recurring theme across these formulations is that appar-ently non-Hamiltonian behavior can often be represented as Hamiltonian dynamics on an appropriately augmented state space. Symplectification, cotangent lifts, and extended-phase-space constructions introduce auxiliary coordinates through which dissipation, forcing, and constraints arise as projections of a higher-dimensional conservative system [47], [48]. De-spite their importance in geometric mechanics, these ideas have seen limited adoption in modern dynamics learning, where most symplectic architectures remain restricted to con-servative systems. C ALISYM builds directly on this geometric perspective, employing a lifted symplectic representation that enables the learning of dissipative, actuated, and constrained robotic dynamics while retaining the stability and structure-preserving properties of symplectic models. 
+
+D. Local Function Approximation 
+
+Recent advances in neural approximation theory have highlighted the benefits of localized function representa-tions. Spline-based models and Kolmogorov–Arnold Networks (KANs) exploit the observation that many high-dimensional nonlinear mappings can be represented efficiently through compositions of low-dimensional functions, often yielding superior parameter efficiency and interpretability compared to conventional multilayer perceptrons [49], [50]. In particular, local basis functions are well suited to physical systems whose dynamics exhibit strongly nonlinear behavior only within restricted regions of the state space, a common characteris-tic of robotic systems with contacts, saturation effects, and configuration-dependent dynamics. Despite their approximation power, generic spline and KAN-style architectures are purely function approximators and do not preserve the geometric structure of the underlying dynamical system. Consequently, improved local accuracy does not necessarily translate into physically consistent long-horizon predictions. For dynamical systems, preserving the structure of the flow can be as important as accurately ap-proximating the vector field itself. Our proposed GRB-S YMP NET combines the advantages of local function approximation with exact geometric preserva-tion (see Appendix C). Building upon the generalized ridge formulation of SympNets, it replaces global nonlinearities with compact tensor-product spline representations, enabling highly expressive local approximations of the scalar Hamiltonian while preserving symplecticity exactly by construction. The resulting architecture inherits the parameter efficiency and locality of spline-based models while retaining the long-term stability and geometric guarantees of structure-preserving symplectic networks. III. R OBOT DYNAMICS AND HAMILTONIAN MECHANICS 
+
+Robot dynamics is primarily described by the Equations of Motion (EoMs) that connect the forces acting on the rigid bod-ies comprising the system and the accelerations they produce. There has been extensive research [3] on algorithms that effi-ciently assemble these EoMs, with most notable the Recursive Newton-Euler Algorithm (RNEA) and the Articulated-Body Algorithm (ABA) [51], [52]. However, they all rely on the rigid-body assumption, while phenomena such as friction are commonly modeled using the Lagrangian formalism. 
+
+A. Lagrangian Formalism 
+
+The Lagrangian formalism provides the variational counter-part to the Newton–Euler bookkeeping that RNEA and ABA carry out [53]. A robot’s configuration is a point on a smooth manifold rather than in a vector space, with the manifold determined by its kinematic structure. For a free-floating base together with n revolute joints, the base pose belongs to the special Euclidean group SE (3) and the joint angles to Rn, so the configuration is the composite Lie group 
+
+Q = SE (3) × Rn, (1) a manifold of dimension 6 + n. Each configuration q ∈ Q 
+
+carries velocities in its tangent space TqQ, which the Lie-group structure identifies with the Lie algebra se (3) × Rn ∼=
+
+R6+ n. The generalized velocity v pairs the base twist with the joint rates, the base component being an element of se (3) 
+
+rather than a derivative of pose coordinates. It relates to the configuration rate ˙q ∈ TqQ through the tangent map of left translation, 
+
+˙q = q v∧, (2) where (·)∧ maps the twist to its matrix form in se (3) [54]. On the Euclidean factor this reduces to the identity ˙q = v,while on SE (3) it reconstructs the pose derivative from the body twist. The state (q, v) then lives in the tangent bundle 
+
+T Q.On this bundle the Lagrangian is a map L : T Q → R given by kinetic minus potential energy, 
+
+L(q, v) := T (q, v) − V (q), (3) where T (q, v) is the kinetic energy and V (q) the potential en-ergy. The Euler–Lagrange equations on Q yield the canonical manipulator equation, 
+
+M(q) ˙ v + h(q, v) + g(q) = τ , (4) with M(q) the joint-space inertia matrix, h(q, v) the Coriolis and centrifugal terms, g(q) the gravitational generalized force, and τ the applied generalized forces. 5
+
+While the Lagrangian formulation on the tangent bundle T Q
+
+provides a familiar framework for deriving a robot’s equations of motion, its velocity-based state (q, v) carries three struc-tural limitations. First, naive integration of the resulting vector field preserves none of the geometric invariants of the flow, so long-horizon simulations accumulate artificial energy drift and violate phase-space volume preservation. Second, symmetries and their associated conserved quantities remain implicit, rather than appearing as explicit geometric objects that in-tegrators and learning models can exploit. Third, algebraic constraints from intermittent contact or closed kinematic loops are typically handled by penalty terms or Lagrange multipliers appended to the dynamics, an approach that degrades when the velocity-to-momentum map p = M(q)v becomes ill-conditioned under constraint projection and destabilizes the recursion. 
+
+B. Hamiltonian Formalism 
+
+Transitioning to the Hamiltonian formulation on the cotan-gent bundle T ∗Q, which pairs configurations with generalized momenta rather than velocities, resolves several limitations of the classical Lagrangian framework. The cotangent bundle is naturally equipped with the canonical symplectic two-form 
+
+ω =
+
+> n
+
+X
+
+> i=1
+
+dq i ∧ dp i, (5) allowing the dynamics to be expressed as the first-order Hamiltonian system 
+
+˙q = ∂H ∂p , ˙p = − ∂H ∂q , (6) where H denotes the Hamiltonian of the system. Beyond providing an equivalent description of the dynam-ics, this formulation exposes the geometric structure underly-ing mechanical systems. The Hamiltonian flow preserves the symplectic form exactly, and consequently preserves phase-space volume through Liouville’s theorem. When discretized using symplectic integrators, this structure often leads to fa-vorable long-horizon numerical behavior and bounded energy drift. Furthermore, Noether’s theorem associates continuous symmetries with conserved momentum maps J : T ∗Q → g∗,exposing physically meaningful invariants such as linear and angular momentum. Finally, constrained Hamiltonian mechan-ics and the associated Dirac bracket formalism provide a principled mechanism for restricting trajectories to admissible constraint manifolds, making contacts and kinematic con-straints part of the geometric structure of the system rather than external corrections. These properties are particularly attractive from a learning perspective. By restricting the admissible dynamics to sym-plectic transformations on T ∗Q, the hypothesis space is dra-matically reduced, providing a powerful geometric inductive bias that can improve data efficiency, extrapolation, and long-horizon stability. 
+
+C. Symplecticity in Machine Learning 
+
+Beyond their physical interpretation, these geometric prop-erties fundamentally reshape the learning problem. By re-stricting the admissible dynamics to symplectomorphisms on 
+
+T ∗Q, the model no longer needs to approximate arbitrary state transitions, but only those consistent with the underlying mechanics [55], [56]. This restriction acts as a strong inductive bias, reducing the effective hypothesis space and improving long horizon prediction, where unconstrained neural models often accumulate geometric errors that manifest as energy drift, instability, and violation of conserved quantities. Since the Hamiltonian flow preserves the symplectic form exactly, satisfying LXH ω = 0 [57], a data driven model can be constrained to learn a discrete time transition map Φθ
+
+satisfying Φ∗ 
+
+> θ
+
+ω = ω. Embedding this invariant directly into the network architecture yields learned dynamics that inherit the geometric structure of the underlying system, resulting in minimal long horizon energy error, volume preserving evolution, and improved autoregressive stability. This perspective has motivated a broad class of Hamiltonian and symplectic neural networks. Their strongest theoretical guarantees, however, apply only when the observed state evolves as a closed conservative Hamiltonian system. Most robotic systems do not satisfy this assumption. A torque con-trolled double pendulum exchanges energy through actuation and damping. A quadrotor is driven by thrust and aerody-namic forces, while a legged robot exchanges energy and impulses through intermittent contact with the environment. Consequently, the measured physical state x := (q, p) is generally forced, dissipative, and contact constrained. Impos-ing symplecticity directly on this state therefore enforces the wrong geometric structure. 
+
+D. Symplectic Learning beyond Conservative Systems 
+
+This paper proposes C ALISYM . Rather than enforcing sym-plecticity on the measured physical state, we impose it on a structured lifted phase space that augments the state with vari-ables governing energy exchange with the environment [48]. Dynamics are learned using exactly symplectic neural predic-tors in this lifted space and subsequently projected back to the physical state. Consequently, the learned model preserves symplectic structure in the lifted representation while remain-ing compatible with actuation, dissipation, and contact in the observed dynamics. The lift is structured rather than latent. Given a physical state and port variables e, such as control inputs or contact forces, the system is embedded into a gauge fixed section of a canonical lifted phase space. Prediction proceeds through lifting, symplectic evolution, projection, and re-embedding, 
+
+xkσek
+
+−−−→ zk
+
+> Φθ
+
+−−→ ¯zk+1 ΠX
+
+−−−→ ˆxk+1 . (7) For autoregressive rollout, the projected state is lifted again using the next port value, 
+
+zk+1 = σek+1 (ˆ xk+1 ). (8) 6 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+This construction enables a single symplectic predictor to model systems with time varying controls, dissipation, and in-termittent contact while preserving exact symplectic structure in the lifted space. We also introduce GRB-S YMP NET , a generalized-ridge B-spline SympNet. GRB-S YMP NET keeps the exact sym-plectic generalized-ridge layer, but parameterizes the scalar ridge Hamiltonian with a compact B-spline/KAN-style local function. This improves local expressivity in low-dimensional lifted systems while preserving exact symplecticity. In this paper, GRB-S YMP NET is used for the controlled dissipative double pendulum. For the higher-dimensional quadrotor and quadruped experiments, we use GR-S YMP NET as the scalable lifted predictor. This separation is intentional: the structured lift is the transferable contribution across systems, while GRB-S YMP NET is an architecture contribution evaluated in the low-dimensional setting where spline ridge parameteriza-tions are most appropriate. We evaluate CALISYM on three systems of increasing complexity. The controlled dissipative double pendulum iso-lates the effect of the lift and tests whether GRB-S YMP NET 
+
+improves low-dimensional lifted symplectic prediction. The quadrotor tests whether the same lifted formulation handles unbounded forced dynamics with time-varying controls. The quadruped tests whether the structured lift scales to high-dimensional contact-rich robot dynamics when paired with GR-S YMP NET . Together, these experiments test the main claim of the paper: symplectic robot learning can be extended beyond conservative systems by lifting the physical dynamics into a structured canonical phase space. IV. M ETHODS 
+
+The goal of C ALISYM is to learn a discrete time predictor for robotic systems whose measured physical dynamics are not closed Hamiltonian systems. The key idea is to separate where symplecticity is enforced from where prediction is evaluated. The measured state and its interaction variables are embedded into a structured canonical phase space, an exactly symplectic map is learned in that space, and the physical trajectory is recovered by projection. This section formalizes the lifted representation, states the geometric properties of the construction, describes the symplectic predictors used in our experiments, and gives the training, normalization, and verification procedures. 
+
+A. Problem Setting 
+
+Consider a robotic system evolving on a configuration man-ifold Q with generalized coordinates q ∈ Q and generalized momenta, 
+
+p = M(q)v, (9) where M(q) denotes the generalized mass matrix and v ∈
+
+TqQ the generalized velocity. The measured physical state is therefore 
+
+x = ( q, p) ∈ T ∗Q. (10) Unlike closed Hamiltonian systems, robotic systems con-tinuously exchange energy and momentum with their environ-ment through actuation, dissipation, and contact. We represent these interactions through a collection of physical ports ,
+
+e ∈ E , (11) whose precise interpretation depends on the system under consideration. Examples include actuator torques, rotor thrusts, contact forces, or other externally supplied interaction vari-ables. A broad class of robotic systems with constraints such as contacts can be written as, 
+
+M(q) ˙ v + h(q, v) + g(q) + cdiss (v) = B(q)u + Jc(q)⊤fc
+
+s.t.: ϕ(q) = 0 , with Jc(q) = ∂ϕ ∂q .
+
+(12) The corresponding energy balance is 
+
+dH dt = v⊤B(q)u − v⊤cdiss (v), (13) which shows that energy is continuously exchanged through actuation, and dissipative effects. Ideal contacts as constraints perform no work. Consequently, the measured state generally does not evolve as a closed conservative Hamiltonian system. The central challenge is therefore to retain the stability and geometric guarantees of symplectic learning while modeling dynamics that are inherently open. C ALISYM addresses this challenge by constructing a lifted representation that admits an exactly symplectic formulation while remaining faithful to the underlying physical dynamics. 
+
+B. Structured Lift and Augmented Cotangent-lifted space 
+
+The central idea of C ALISYM is to enforce symplecticity on an augmented canonical phase space rather than on the measured physical state itself. Let 
+
+x = ( q, p) ∈ X := T ∗Q (14) denote the measured physical state, and let e ∈ E denote the physical ports through which the system exchanges energy and momentum with its environment. Since the physical subsystem is generally open, the transition map on X need not be symplectic. We therefore embed the physical state and ports into a structured lifted phase space on which an exactly symplectic map can be learned. We define the lifted canonical state, 
+
+Z = ( Q, P ) ∈ Z , Ω = X
+
+> i
+
+dQ i ∧ dP i, (15) where Ω is the canonical symplectic form in the augmented space. For a controlled system with contact ports, we use: 
+
+Q = ( q, y, λu, λc), (16) 
+
+P = ( r, p, μu, πc). (17) Here (q, p) are the physical configuration and momentum variables. The pair (r, y) consists of auxiliary conjugate fibers associated with the physical state. The pair (λu, μu) represents the actuation port, and (λc, πc) represents the contact port. 7
+
+The lift is generic, hence blocks that are not present for a given system are omitted. With this ordering, the lifted symplectic form is 
+
+Ω = dq ∧ dr + dy ∧ dp + dλu ∧ dμu + dλc ∧ dπc.
+
+(18) Here wedge products between vector-valued variables denote the corresponding componentwise sum. Equivalently, using a symplectic rotation transformation we define the equivalent base–fiber coordinates, 
+
+b = ( q, p, μu, λc), (19) 
+
+ζ = ( r, −y, −λu, πc). (20) Then the symplectic form becomes, 
+
+Ω = X
+
+> i
+
+db i ∧ dζ i. (21) Thus, the lifted variables form a canonical cotangent represen-tation over the base variables b. The purpose of the lift is not merely to augment the state dimension, but to transform the learning problem into one of modeling Hamiltonian dynamics on an augmented canonical symplectic manifold. The lifted dynamics are generated by a Hamiltonian on this augmented phase space. Let 
+
+a(q, p) (22) denote the physical configuration dynamics and let 
+
+f (q, p, μu, λc) (23) denote the corresponding momentum dynamics, including the effects of actuation, contact forces, and dissipation. Motivated by the cotangent lift of a forced vector field, we consider lifted Hamiltonians of the form, 
+
+Hlift (b, ζ) = r⊤a(q, p) − y⊤f (q, p, μu, λc) + G(b), (24) where G is an arbitrary scalar function of the base variables. The first term propagates the configuration dynamics, while the second couples the physical momentum evolution to the auxiliary fibers. The Hamiltonian is linear in the fiber variables 
+
+(r, y) and therefore represents a cotangent lift of the physical dynamics augmented with canonical port variables. 
+
+C. Dynamics and Section Invariance 
+
+The lifted Hamiltonian induces a coupled evolution of the physical and auxiliary variables. The physical subsystem evolves according to: 
+
+˙q = a(q, p), ˙p = f (q, p, μu, λc),
+
+˙r = −(∂qa)⊤r + ( ∂qf )⊤y − ∇ qG, 
+
+˙y = ( ∂pa)⊤r − (∂pf )⊤y + ∇pG, 
+
+˙μu = 0, ˙λu = −(∂μu f )⊤y + ∇μu G, 
+
+˙λc = 0, ˙πc = ( ∂λc f )⊤y + ∇λc G, 
+
+(25) The lifted dynamics evolve on the full augmented phase space Z. In practice, however, only the physical state and interaction ports are observed. The measured data therefore occupy a distinguished gauge-fixed section of the lifted space obtained by fixing the port variables and setting all auxiliary fibers to zero. Under this gauge choice and given the ports, 
+
+ek = ( uk, f c,k ), (26) we define the physical data section, 
+
+Sek =
+
+n
+
+Z ∈ Z : r = 0, y = 0, λu = 0,
+
+πc = 0, μu = uk, λc = f c,k 
+
+o
+
+.
+
+(27) For systems without contacts, the contact block (λc, πc) is omitted. The corresponding section embedding 
+
+σek : X → Z (28) maps a measured state xk = ( qk, pk) onto Sek .The physical section identifies the subset of lifted states that correspond to realizable observations. The physical co-ordinates and ports are preserved, while the auxiliary fibers vanish. Consequently, the physical dynamics are recovered by the projection ΠX : Z → X ,
+
+ΠX (b, ζ) = ( q, p). (29) Although the physical section provides the initialization manifold for the observed data, it is not generally invariant under the lifted Hamiltonian dynamics. The auxiliary fibers may therefore evolve away from zero during prediction. This observation motivates the projection and re-embedding pro-cedure introduced next, which restores consistency with the measured ports at every rollout step. 
+
+D. Autoregressive Gauge-Fixed Lifted Rollout 
+
+The gauge-fixed section identifies the subset of the aug-mented phase space corresponding to physically realizable observations. Since the lifted Hamiltonian flow is not generally constrained to remain on this section, prediction proceeds by alternating between the physical section and the full lifted phase space. At each step, the current physical state is embedded into the augmented space, evolved by an exactly symplectic map, projected back to the physical state, and subsequently re-embedded using the next port value. A one-step prediction is computed as, 
+
+Zk = σek (xk),
+
+¯Zk+1 = Φ ∆tθ (Zk),
+
+ˆxk+1 = Π X ( ¯Zk+1 ),
+
+(30) where Φ∆tθ : Z → Z is exactly symplectic, i.e.,  Φ∆tθ
+
+∗ Ω = Ω. For autoregressive rollout, the projected physical prediction is re-embedded using the next measured or commanded port, 
+
+Zk+1 = σek+1 (ˆ xk+1 ). (31) Thus, the induced physical predictor is 
+
+ˆxk+1 = Π X ◦ Φ∆tθ ◦ σek (xk), (32) which need not be symplectic on the physical state alone. This lift–evolve–project–re-embed procedure separates the learned symplectic dynamics from the physical mechanisms 8 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+Algorithm 1: Gauge-Fixed Lifted Rollout 
+
+Input: Initial state x0, ports {ek}Hk=0 , section embedding σ, projection ΠX , symplectic predictor Φ∆tθ
+
+Output: Predicted physical trajectory {ˆxk}Hk=1  
+
+> 1
+
+Z0 ← σe0 (x0); 
+
+> 2
+
+for k = 0 , . . . , H − 1 do  
+
+> 3
+
+¯Zk+1 ← Φ∆tθ (Zk); 
+
+> 4
+
+ˆxk+1 ← ΠX ( ¯Zk+1 ); 
+
+> 5
+
+Zk+1 ← σek+1 (ˆ xk+1 );responsible for energy exchange. The predictor evolves as an exactly symplectic map in the augmented phase space, while projection and re-embedding enforce consistency with the measured state and ports. Consequently, symplecticity is preserved in the lifted representation even though the induced dynamics on X may be controlled, dissipative, and contact constrained. 
+
+E. Symplectic Predictors 
+
+The structured lift is architecture-agnostic, since any exactly symplectic map can be used as Φ∆tθ . In this paper, we use GR-SYMP NET for the quadrotor and quadruped experiments, and GRB-S YMP NET for the double pendulum. Both predictors are explicit discrete-time maps, so inference requires only a forward pass through the composed layers, not numerical integration of a learned vector field. Let 
+
+JΩ =
+
+ 0 I
+
+−I 0
+
+
+
+(33) denote the canonical symplectic matrix. A differentiable map 
+
+Φ : Z → Z is symplectic when 
+
+DΦ( Z)⊤JΩDΦ( Z) = JΩ. (34) 
+
+a) GR-S YMP NET : Let (Q, P ) ∈ Rd × Rd denote lifted canonical coordinates. A GR-S YMP NET layer is generated by the scalar Hamiltonian 
+
+Hℓ(Q, P ) = Kℓ(ξℓ), where ξℓ = AℓP + BℓQ, (35) and 
+
+Aℓ, Bℓ ∈ Rm×d with m ≪ d. (36) Furthermore, symplecticity is preserved iff 
+
+AℓB⊤ 
+
+> ℓ
+
+= BℓA⊤ 
+
+> ℓ
+
+. (37) Hamilton’s equations for (35) give 
+
+˙Q = A⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ), (38) 
+
+˙P = −B⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ). (39) The ridge coordinate is invariant along the layer flow: 
+
+˙ξℓ = Aℓ ˙P + Bℓ ˙Q (40) 
+
+=  −AℓB⊤ 
+
+> ℓ
+
++ BℓA⊤
+
+> ℓ
+
+ ∇Kℓ(ξℓ) (41) 
+
+= 0. (42) Therefore, the exact time-hℓ map is 
+
+Q′ = Q + hℓA⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ), (43) 
+
+P ′ = P − hℓB⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ). (44) Each layer is an exact Hamiltonian flow and is therefore symplectic. The full predictor is a composition 
+
+Φ∆tθ = ϕL ◦ · · · ◦ ϕ1, (45) and remains symplectic by closure of symplectic maps under composition. Since ξℓ ∈ Rm with m ≪ d, the nonlinear computation is performed in a low-dimensional ridge coor-dinate, which keeps the high-dimensional quadruped predictor parameter-efficient. 
+
+b) GRB-S YMP NET : GRB-S YMP NET keeps the exact generalized-ridge symplectic layer in (44), but changes the scalar function Kℓ. We write: 
+
+Kℓ(ξ) = Kℓ, spline (ξ) + Kℓ, smooth (ξ). (46) The spline term is 
+
+Kℓ, spline (ξ) = X
+
+> α∈A
+
+cℓ,α mY
+
+> j=1
+
+B(r) 
+
+> αj
+
+(ξj ), (47) where B(r) 
+
+> αj
+
+is a degree-r B-spline basis function. The smooth term provides a bounded global tail: 
+
+Kℓ, smooth (ξ) = 
+
+> Ns
+
+X
+
+> j=1
+
+aℓj φ  w⊤ 
+
+> ℓj
+
+ξ + bℓj 
+
+ . (48) Because Kℓ appears only as a scalar Hamiltonian in the exact generalized-ridge layer, replacing it with a spline parameteri-zation does not affect symplecticity. The spline is evaluated in the low-dimensional ridge coordinate ξ ∈ Rm, not in the full lifted state. This gives a local KAN-style approximation while preserving the explicit low-latency symplectic map. GRB-SYMP NET s proved to be parameter efficient but they inherit the same limitation with KAN-based architectures in terms of scalability. Hence, we use them only for the double-pendulum experiments. Finally, similar to (44) the required gradients are calculated analytically, so no additional backward pass is required. 
+
+F. Training, Normalization, and Verification 
+
+The datasets provide configurations and generalized veloc-ities. We convert velocities to momenta using 
+
+pk = M(qk)vk. (49) For the double pendulum and quadrotor, M(q) is com-puted from the analytical model. For the quadruped, M(q)
+
+is computed from the robot model. For systems with Lie-group configuration components, errors are computed in local coordinates. We write 
+
+q1 ⊖ q2 ∈ Tq2 Q (50) for the local configuration difference. For Euclidean joints this is ordinary subtraction. For orientation components, it is computed using the logarithm map. The physical state error is 
+
+x1 ⊖ x2 = ( q1 ⊖ q2, p1 − p2) . (51) 9
+
+Hence, the one-step loss is 
+
+L1 = 1
+
+|D| 
+
+X
+
+> k
+
+Wx
+
+ ΠX
+
+Φ∆tθ (σek (xk))  ⊖ xk+1 
+
+ 22 ,
+
+(52) where Wx balances configuration and momentum errors. For multi-step training over horizon H, we roll out with Algorithm 1 and minimize the Teacher-Forcing (TF) loss: 
+
+LH = 1
+
+H
+
+> H−1
+
+X
+
+> j=0
+
+∥Wx (ˆ xj+1 ⊖ xj+1 )∥22 . (53) We also penalize drift away from the data section before re-embedding. If ¯Zj+1 = ( ¯bj+1 , ¯ζj+1 ) (54) is the lifted prediction before gauge fixing, then 
+
+Lsec = 1
+
+H
+
+> H−1
+
+X
+
+> j=0
+
+Wζ ¯ζj+1  
+
+> 22
+
+. (55) This term encourages the learned map to remain close to the measured data section over one step. It does not enforce symplecticity, since symplecticity is structurally enforced by the predictor architecture. The total objective is: 
+
+L = w1L1 + wH LH + wsec Lsec + wreg ∥θ∥22. (56) The lifted variables have heterogeneous units and scales. We therefore normalize in base–fiber coordinates. For each pair (bi, ζ i), define 
+
+˜bi = bi − μi
+
+si , ˜ζi = siζi. (57) Then 
+
+d˜bi ∧ d˜ζi = db i ∧ dζ i, (58) so the normalization preserves the canonical symplectic form. This is essential, since independently standardizing all entries of (b, ζ) would generally destroy the canonical pairing. Finally, although GR-S YMP NET and GRB-S YMP NET are symplectic by construction, we verify this numerically through the Jacobian residual 
+
+ϵJΩ = DΦ∆tθ (Z)⊤JΩDΦ∆tθ (Z) − JΩ F
+
+∥JΩ∥F
+
+. (59) For exactly symplectic predictors, this residual should be at numerical precision. For unconstrained baselines, it is not expected to vanish. At inference time, the model is rolled out autoregressively using Algorithm 1. Each step amounts to a lift, one explicit symplectic forward pass, a projection, and a re-embedding with the next port value. V. R ESULTS 
+
+We evaluate C ALISYM on robotic systems whose observed dynamics violate the assumptions underlying classical sym-plectic learning. In particular, we consider controlled, dissipa-tive, and contact-rich systems, where the measured physical dynamics do not evolve as closed conservative Hamiltonian systems. The objective of these experiments is to determine whether enforcing symplectic structure in a structured lifted phase space improves long-horizon prediction while remaining applicable across systems of different dimensionality and complexity. Our evaluation is designed to answer the following ques-tions: 1) Can symplectic learning be extended beyond conservative systems by enforcing symplectic structure in a structured lifted phase space? 2) Does the proposed lifted formulation improve markovian long-horizon autoregressive prediction while remaining parameter-efficient? 3) Does the same lift construction transfer across robotic systems with substantially different dimensionality and interaction mechanisms, ranging from controlled dissipa-tive systems to contact-rich locomotion? To investigate these questions, we consider three representa-tive systems of increasing complexity. A controlled dissipative double pendulum serves as a low-dimensional benchmark for isolating the effect of the proposed lift and evaluating GRB-SYMP NET in the chaotic regime [58]. A real-world quadrotor platform introduces floating-base, nonlinear dynamics, testing whether the framework extends beyond simple mechanical systems. Finally, the real-world quadrupedal dynamics of ANYmal D [59] involving floating-base motion, underactu-ation, and intermittent contact provides a demanding high-dimensional benchmark for evaluating scalability when com-bined with GR-S YMP NET . Together, these experiments assess the effectiveness of the proposed lifted symplectic represen-tation across dissipative, controlled, and contact-rich robotic systems, as well as its impact on long-horizon autoregressive prediction accuracy. 
+
+A. Baselines and Metrics 
+
+All models are trained using one-step teacher forcing and evaluated under autoregressive rollout. We deliberately avoid autoregressive training objectives to isolate the quality of the learned dynamics representation from the effects of the training procedure. While autoregressive training can improve rollout performance by exposing models to their own predic-tion errors, it may also encourage compensation for rollout-induced distribution shift and introduce additional optimization challenges for long prediction horizons [60], [61]. Teacher forcing therefore provides a cleaner comparison of each ar-chitecture’s ability to learn the underlying dynamics. Importantly, all OOD evaluations are performed on trajecto-ries drawn from previously unseen dynamical regimes, rather than on held-out segments of trajectories observed during training. The OOD splits correspond to distinct energy regimes for the double pendulum, held-out flight trajectories for the quadrotor, and unseen locomotion scenarios and environments for the quadruped. This contrasts with common evaluation protocols in the physics informed literature that train on partial trajectories and evaluate on disjoint temporal segments of the same underlying trajectories [62], [63]. We compare C ALISYM against both black-box and physics-informed baselines, including an MLP, a Transformer, teacher-forcing-trained RWM-TF [40], a Dissipative Hamiltonian Neu-10 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 2                             
+
+> 0
+> 2
+> q1 [rad]
+> ground truth
+> prediction
+> 0.0 0.5 1.0 1.5 2.0
+> time [s]
+> 5
+> 0
+> 5
+> p1 [kg m 2/s] 2
+> 0
+> 2
+> q2 [rad]
+> 0.0 0.5 1.0 1.5 2.0
+> time [s]
+> 5
+> 0
+> 5
+> p2 [kg m 2/s] GRB-SympNet Transformer RWM-TF DHNN DSymODEN MLP
+> ~3.7K ~10K ~10K ~10K ~10K ~10K
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> OOD AR MSE
+> 2.341
+> 7.732
+> 9.483
+> 8.659
+> 10.922
+> 7.688
+> Model |
+> Size |
+> Fig. 2. Controlled dissipative double pendulum. A simulated torque-controlled, damped system. ( Left ) An autoregressive out-of-distribution 200-timestep rollout of the physical state (q1, q 2, p 1, p 2), the joint angles and their corresponding momenta. ( Right ) The bar plot reports out-of-distribution autoregressive MSE and model size. C ALISYM with GRB-S YMP NET achieves the lowest OOD error ( 2.341 vs. 7.688 for the strongest baseline, a ∼69.5% reduction) using only ∼3.7K parameters against ∼10K for the baselines, showing the gain comes from structure rather than capacity.
+
+ral Network (DHNN) [24], and Dissipative SymODEN (D-SymODEN) [64]. The Transformer and RWM-TF operate on a 32-step context window and therefore receive access to multiple past observations, whereas all other methods, including C ALISYM , predict using only the current state and port variables. Unless otherwise stated, C ALISYM is instantiated using either GRB-S YMP NET or GR-S YMP NET depending on the dimensionality of the lifted state space. All results are re-ported under autoregressive rollout, the regime most relevant to planning and model-predictive control. We report out-of-distribution autoregressive mean-squared error (OOD AR MSE) and parameter count, thereby evaluating both long-horizon predictive accuracy and model efficiency. 
+
+B. Controlled Dissipative Double Pendulum 
+
+We first evaluate C ALISYM on a controlled dissipative double pendulum, a benchmark that isolates the central chal-lenge addressed by this work, i.e., learning non-conservative, complex dynamics using a symplectic lifted representation. The system consists of two coupled rotational degrees of freedom subject to gravity, viscous damping, and external torque inputs as shown in Table I. Although the underlying mechanical dynamics originate from a Hamiltonian system, damping and control inputs continuously inject and dissipate energy, making the observed dynamics fundamentally non-conservative. 
+
+> TABLE I DOUBLE PENDULUM PHYSICAL PARAMETERS .
+
+Parameter Value (m1, m2) [ kg ] (2.1, 1.3) (l1, l2) [m] (0.4, 1.3) (I1, I2) [ kg · m2] (1.1, 0.7) (k1, k2) [ [N m/rad ] (0.03, 0.06) (b1, b2) [ N · m · s/rad ] (0.3, 0.6) 
+
+g [m/s 2] 9.81 
+
+The measured state is 
+
+x = ( q, p) ∈ R4, (60) where q = ( q1, q 2) denotes the joint angles and p = ( p1, p 2)
+
+the corresponding generalized momenta. The physical state and control torques are embedded into the lifted section 
+
+Q = ( q, 0, 0) ∈ R6, P = ( 0, p, τ ) ∈ R6, (61) and evolved using GRB-S YMP NET within the lifted symplec-tic phase space. Figure 2 shows representative autoregressive rollouts together with a quantitative comparison against all baselines. C ALISYM accurately tracks both joint angles and generalized momenta over long prediction horizons despite the presence of actuation and dissipation. Quantitatively, C AL-
+
+> I
+
+SYM achieves an OOD AR MSE of 2.341 , compared to 7.688 
+
+for the strongest competing baseline, corresponding to a 69 .5% 
+
+reduction in rollout error. This improvement is obtained us-ing only approximately 3.7K parameters, whereas competing methods require roughly 10 K parameters. The results suggest that the lifted symplectic representation successfully resolves the mismatch between non-conservative physical dynamics and conventional symplectic learning, while the local spline approximation of GRB-S YMP NET provides sufficient expres-sivity to capture the resulting dynamics with a compact model. 
+
+C. Quadrotor Dynamics 
+
+The quadrotor experiment evaluates whether the proposed structured lift remains effective for underactuated aerial sys-tems with strongly control-dependent dynamics. Unlike the quadruped, where energy and momentum are exchanged through both actuation and intermittent contact, the quadrotor interacts with its environment primarily through rotor thrust and aerodynamic effects. Rotor inputs continuously inject energy into the system, while aerodynamic drag and other un-modeled effects introduce dissipation that is difficult to capture through purely conservative formulations. The used real-world dataset [65], [66] comprises 54 flights of a quadrotor with parameters as shown in II. The physical state consists of the vehicle pose, orientation, and generalized momenta. The available ports correspond to the commanded rotor thrusts and body torques. C ALISYM 
+
+embeds the physical state together with the control ports into the lifted section, 
+
+Q = ( q, 0, 0) ∈ R18 , P = ( 0, p, τ ) ∈ R18 , (62) 11 1                                            
+
+> 0
+> 1
+> x [m]  ground truth
+> prediction
+> 0.0 0.5 1.0
+> time [s]
+> 1
+> 0
+> px [kg m/s] 1
+> 0
+> 1
+> y [m]
+> 0.0 0.5 1.0
+> time [s]
+> 1
+> 0
+> py [kg m/s] 1
+> 0
+> 1
+> z [m]
+> 0.0 0.5 1.0
+> time [s]
+> 1
+> 0
+> pz [kg m/s] GR-SympNet Transformer RWM-TF DHNN DSymODEN MLP
+> ~24K ~52K ~52K ~50K ~51K ~53K
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> OOD AR MSE
+> 0.180
+> 0.358 0.357 0.357 0.355
+> 0.495
+> Model |
+> Size |
+> Fig. 3. Quadrotor dynamics. An underactuated aerial forced system with rotor thrust, aerodynamic and other unmodeled effects. ( Left ) An autoregressive 100-timestep out-of-distribution rollout of the body position (x, y, z )and corresponding momenta. ( Right ) The bar plot reports out-of-distribution autoregressive MSE and model size. C ALISYM achieves the lowest OOD rollout error while remaining parameter-efficient, showing that the same lift transfers without modification to forced aerial dynamics. TABLE II QUADROTOR (A SC TEC PELICAN )PHYSICAL PARAMETERS .Parameter Value
+> m[kg ]1.6(Ixx , I yy , I zz )[kg m 2](0 .002 ,0.002 ,0.001)
+> kf9.9865 ×10 −6
+> km1.5978 ×10 −7
+> l[m]0.21
+
+where τ denotes the control inputs. The lifted dynamics are evolved using an exactly symplectic GR-S YMP NET predictor before being projected back onto the physical state space through the gauge-fixed rollout procedure described in Sec-tion IV. This experiment is particularly challenging because quadro-tor dynamics are highly sensitive to control inputs and rapidly accumulate prediction errors during autoregressive rollout. Small inaccuracies in attitude prediction can quickly propagate into translational motion, resulting in substantial trajectory drift. Consequently, the task provides a stringent test of whether the proposed lifted representation can maintain sta-ble long-horizon predictions despite the strongly forced and dissipative nature of the underlying dynamics. Figure 3 shows representative autoregressive rollouts to-gether with the corresponding OOD comparison. C ALISYM 
+
+achieves the lowest OOD rollout error among the evaluated methods while remaining parameter-efficient. More impor-tantly, the results demonstrate that the same lift formulation used for the double pendulum transfers directly to aerial dynamics without modification, supporting the claim that the structured lift is a general mechanism for extending symplectic learning beyond conservative systems. 
+
+D. Quadruped Dynamics 
+
+The quadruped experiment evaluates whether the proposed lifted symplectic representation remains effective in the high-dimensional, contact-rich regime characteristic of real robotic systems. The physical state comprises floating-base and joint coordinates together with their corresponding generalized mo-menta [67]. We evaluate C ALISYM on the G RAND TOUR loco-motion dataset [68], which contains extensive real-world tra-jectories of a quadruped robot performing diverse locomotion behaviors across varying commands, terrains, and environmen-tal conditions. This benchmark poses a particularly challenging dynamics-learning problem due to the combination of floating-base motion, intermittent contacts, impacts, actuator dynamics, contact slippage, and rapidly changing contact modes, all of which can amplify small modeling errors during long-horizon autoregressive rollout. CALISYM represents these effects by embedding control torques and contact forces into the lifted section 
+
+Q = ( q, 0, 0, f c) ∈ R66 , P = ( 0, p, ¯τ , 0) ∈ R66 , (63) where ¯τ = ( 06, τ ) augments the joint torques with zeros corresponding to the unactuated floating-base coordinates. The lifted dynamics are modeled using GR-S YMP NET , whose generalized-ridge parameterization scales efficiently to the resulting high-dimensional state space. Figure 4 presents representative autoregressive rollouts to-gether with an OOD comparison against all baselines. The rollout trajectories demonstrate that C ALISYM accurately cap-tures both the dominant floating-base motion and the evolution of representative leg joints despite the heterogeneous scales of base coordinates, joint angles, contact forces, and generalized momenta. Quantitatively, C ALISYM achieves the lowest OOD autoregressive error among all evaluated methods, obtaining an OOD AR MSE of 2.697 compared to 3.089 for the Transformer, 3.565 for RWM-TF, 4.676 for DHNN, and 5.080 
+
+for D-SymODEN. This corresponds to a 12 .7% reduction relative to the strongest baseline and a 46 .9% reduction relative to D-SymODEN. Importantly, these improvements are achieved with smaller network sizes compared to the baselines. CALISYM uses approximately 316 K parameters, compared to roughly 400 Kparameters for the Transformer, DHNN, and D-SymODEN, and approximately 720 K parameters for RWM-TF. The results therefore suggest that the gains arise from the lifted symplectic representation and the associated symplectic inductive bias rather than large model size. Moreover, they demonstrate that the generalized-ridge architecture of GR-S YMP NET can scale the proposed framework to realistic contact-rich robotic systems without resorting to large autoregressive sequence models with large context windows. 12 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 0.5                                     
+
+> 0.0
+> 0.5
+> base  x [m]
+> ground truth
+> prediction
+> 1
+> 0
+> 1
+> qHAA  [rad]
+> 0.0 0.5 1.0
+> time [s]
+> 2
+> 0
+> 2
+> pHAA  [kg m 2/s] 0.5
+> 0.0
+> 0.5
+> base  y [m]
+> 1
+> 0
+> 1
+> qHFE  [rad]
+> 0.0 0.5 1.0
+> time [s]
+> 2
+> 0
+> 2
+> pHFE  [kg m 2/s] 0.0
+> 0.5
+> 1.0
+> base  z [m]
+> 1
+> 0
+> 1
+> qKFE  [rad]
+> 0.0 0.5 1.0
+> time [s]
+> 2
+> 0
+> 2
+> pKFE  [kg m 2/s] GR-SympNet Transformer RWM-TF DHNN DSymODEN MLP
+> ~316K ~400K ~720K ~400K ~400K ~400K
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> 16
+> OOD AR MSE
+> 2.697 3.089 3.565
+> 4.676 5.080
+> 17.153
+> Model |
+> Size |
+> Fig. 4. Quadruped dynamics. A high-dimensional, contact-rich floating-base system actuated through joint torques and ground contact. ( Left ) An autoregressive out-of-distribution rollout of the floating-base position and representative right-leg coordinates and momenta, where qHAA ,qHFE ,qKFE
+> denote hip abduction/adduction, hip flexion/extension, and knee flexion/extension, with conjugate momenta pHAA ,pHFE ,pKFE . C ALISYM embeds joint torques and contact forces into the lift, keeping the projected dynamics contact-rich and non-conservative. ( Right ) The bar plot reports out-of-distribution autoregressive MSE and model size. C ALISYM with GR-S YMP NET achieves the lowest OOD error ( 2.697 vs. 3.089 for the strongest baseline, a ∼12.7% reduction) with ∼316K parameters, fewer than the main baselines (400K–720K).
+
+E. Summary 
+
+Across the double pendulum, quadrotor, and quadruped benchmarks, the results consistently support the central hy-potheses of this work. First, learning dynamics in a structured lifted symplectic space improves long-horizon prediction for non-conservative systems. Despite actuation, dissipation, and contact interactions, CALISYM achieves the lowest OOD autoregressive rollout error across all three systems. Second, these improvements come with strictly smaller models. CALISYM uses roughly 3.7K parameters against 
+
+10 K for every baseline on the double pendulum, 24 K against 
+
+∼ 50 K on the quadrotor, and 316 K against 400 K to 720 K
+
+on the quadruped, ruling out capacity as the main source of the gains. The comparison is if anything conservative, since the Transformer and RWM-TF additionally condition on a 
+
+32 -step context window while C ALISYM predicts from the current state and ports alone (fully markovian rollout). That both GRB-S YMP NET and GR-S YMP NET outperform these larger baselines at every scale indicates the gains arise from the geometric inductive bias of the lifted representation, not from capacity or access to history. Third, the same lift-evolve-project-re-embed procedure transfers across systems with substantially different dimen-sionality and interaction mechanisms, from a controlled dissi-pative pendulum to an aerial quadrotor and an underactuated quadruped. Empirically, parameter count scales quadratically with the lifted phase-space dimension ( d) across the three systems, consistent with Θ( md ) ridge matrices whose width 
+
+m is chosen proportional to d. Fixing the ridge dimension instead would recover linear scaling, at the cost of per-layer expressivity. Taken together, these results demonstrate that symplectic dynamics learning is not confined to conservative Hamiltonian systems. The lift is what makes this possible. Evolution in the lifted phase space remains symplectic by construction, so the geometric prior responsible for stability is preserved regardless of what happens physically, and control, dissipation, and constraint enter only through the projection back to the physical state. By enforcing symplectic structure in this lifted space while leaving the induced physical dynamics free to be controlled, dissipative, or constrained, C ALISYM unites the stability of geometric learning with the flexibility that real-world robotics demands. VI. C ONCLUSION 
+
+We introduced C ALISYM , a framework for learning sym-plectic representations of robotic systems whose observed dy-namics are controlled, dissipative, and constrained. The central idea is to enforce symplectic structure in a structured lifted canonical phase space rather than directly on the measured physical state, allowing the induced physical dynamics to remain non-conservative. The proposed framework separates geometric structure from physical energy exchange. Dynamics are learned as exact symplectic maps in the lifted space, while projection and re-embedding ensure consistency with the observed state, controls, and constraints. Because the ports enter as explicit canonical variables, this separation also exposes the energy exchange between the robot and its environment as a first-class quantity rather than an implicit byproduct of the fit, opening a path from learned dynamics toward passivity-based and certificate-based control synthesis [28], [69]. The model predicts from the current state and ports alone, which is the information a receding-horizon solver already holds at each step of its internal rollout, so there is no observation history to maintain and no context window to replay at every itera-tion. This construction retains the computational advantages of explicit SympNet-style predictors while extending their applicability beyond closed Hamiltonian systems. Across controlled dissipative and contact-constrained robotic systems, CALISYM consistently improves out-of-distribution autoregressive prediction while remaining parameter-efficient. The predictor achieves this at parameter counts and inference costs compatible with control rates on embedded hardware, making the underlying guarantees prac-tically realizable rather than a purely theoretical consideration. 13 
+
+These results demonstrate that symplectic learning can be extended beyond conservative systems through a structured canonical lift, providing a practical geometric inductive bias for long-horizon robot dynamics prediction. Future work will investigate richer port representations, uncertainty-aware lifted dynamics, and integration with model-predictive control, trajectory optimization, and planning pipelines. More generally, this work suggests that physically meaningful geometric structure can be recovered and exploited even when it is not apparent in the measured dynamics, opening new opportunities for structure-preserving learning in complex robotic systems. REFERENCES [1] J. H. Connell and S. Mahadevan, Robot learning . Springer Science & Business Media, 2012, vol. 233. [2] R. M. Murray, Z. Li, and S. S. Sastry, A mathematical introduction to robotic manipulation . CRC press, 2017. [3] R. Featherstone, Rigid Body Dynamics Algorithms , ser. Engineering. Springer US, 2014. [4] C. Mastalli, W. Merkt, G. Xin, J. Shim, M. Mistry, I. Havoutis, and S. Vijayakumar, “Agile maneuvers in legged robots: a predictive control approach,” 2022. [Online]. Available: https://arxiv.org/abs/2203.07554 [5] T. D. Barfoot, State estimation for robotics . Cambridge University Press, 2024. [6] H. Dai, A. Valenzuela, and R. Tedrake, “Whole-body motion planning with centroidal dynamics and full kinematics,” in 2014 IEEE-RAS International Conference on Humanoid Robots , 2014, pp. 295–302. [7] A. Papatheodorou, W. Merkt, A. L. Mitchell, and I. Havoutis, “Momentum-aware trajectory optimisation using full-centroidal dynam-ics and implicit inverse kinematics,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2024, pp. 11 940– 11 947. [8] P.-B. Wieber, Holonomy and Nonholonomy in the Dynamics of Articu-lated Motion . Springer Berlin Heidelberg, 2006, pp. 411–425. [9] O. G. Selfridge, R. S. Sutton, and A. G. Barto, “Training and tracking in robotics.” in Ijcai , 1985, pp. 670–672. [10] H. Nguyen, M. Kamel, K. Alexis, and R. Siegwart, “Model predictive control for micro aerial vehicles: A survey,” in 2021 European Control Conference (ECC) , 2021, pp. 1556–1563. [11] R. Tedrake, Underactuated Robotics , 2023. [Online]. Available: https://underactuated.csail.mit.edu [12] B. Ai, S. Tian, H. Shi, Y. Wang, T. Pfaff, C. Tan, H. I. Christensen, H. Su, J. Wu, and Y. Li, “A review of learning-based dynamics models for robotic manipulation,” Science Robotics ,vol. 10, no. 106, p. eadt1497, 2025. [Online]. Available: https: //www.science.org/doi/abs/10.1126/scirobotics.adt1497 [13] T. Tsuji, Y. Kato, G. Solak, H. Zhang, T. Petriˇ c, F. Nori, and A. Ajoudani, “A survey on imitation learning for contact-rich tasks in robotics,” 2025. [Online]. Available: https://arxiv.org/abs/2506.13498 [14] S. Ha, J. Lee, M. van de Panne, Z. Xie, W. Yu, and M. Khadiv, “Learning-based legged locomotion: State of the art and future perspectives,” Int. J. Rob. Res. , vol. 44, no. 8, p. 1396–1427, Jul. 2025. [Online]. Available: https://doi.org/10.1177/02783649241312698 [15] J. Liu, P. Borja, and C. Della Santina, “Physics-informed neural networks to model and control robots: A theoretical and experimental investigation,” Advanced Intelligent Systems , vol. 6, no. 5, p. 2300385, 2024. [Online]. Available: https://advanced.onlinelibrary.wiley.com/doi/ abs/10.1002/aisy.202300385 [16] D. Ha and J. Schmidhuber, “World models,” 2018. [Online]. Available: https://zenodo.org/record/1207631 [17] R. S. Sutton, A. G. Barto et al. , Reinforcement learning: An introduction .MIT press Cambridge, 1998, vol. 1, no. 1. [18] T. M. Moerland, J. Broekens, A. Plaat, and C. M. Jonker, “Model-based reinforcement learning: A survey,” 2022. [Online]. Available: https://arxiv.org/abs/2006.16712 [19] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi, “Dream to control: Learning behaviors by latent imagination,” 2020. [Online]. Available: https://arxiv.org/abs/1912.01603 [20] A. I. K´ aroly, P. Galambos, J. Kuti, and I. J. Rudas, “Deep learning in robotics: Survey on model structures and training strategies,” IEEE Transactions on Systems, Man, and Cybernetics: Systems , vol. 51, no. 1, pp. 266–279, 2020. [21] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang, “Physics-informed machine learning,” Nature Reviews Physics ,vol. 3, no. 6, pp. 422–440, 2021. [22] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, and A. Anandkumar, “Physics-informed neural operator for learning partial differential equations,” 2023. [Online]. Available: https://arxiv.org/abs/2111.03794 [23] M. Cranmer, S. Greydanus, S. Hoyer, P. Battaglia, D. Spergel, and S. Ho, “Lagrangian neural networks,” arXiv preprint arXiv:2003.04630 , 2020. [24] S. Greydanus, M. Dzamba, and J. Yosinski, “Hamiltonian neural net-works,” Advances in neural information processing systems , vol. 32, 2019. [25] F. J. Roth, D. K. Klein, M. Kannapinn, J. Peters, and O. Weeger, “Stable port-hamiltonian neural networks,” Advances in Neural Information Processing Systems , vol. 38, pp. 50 737–50 762, 2026. [26] P. Jin, Z. Zhang, A. Zhu, Y. Tang, and G. E. Karniadakis, “Sympnets: Intrinsic structure-preserving symplectic networks for identifying hamil-tonian systems,” Neural Networks , vol. 132, pp. 166–179, 2020. [27] N. Hansen, H. Su, and X. Wang, “Td-mpc2: Scalable, robust world models for continuous control,” 2024. [28] A. van der Schaft, L2-Gain and Passivity Techniques in Nonlinear Control , 3rd ed. Cham, Switzerland: Springer International Publishing, 2017. [29] D. Kushwaha and Z. Biron, “A review on safe reinforcement learning using lyapunov and barrier functions,” Artificial Intelligence Review , vol. 59, no. 11611, 2026. [Online]. Available: https: //link.springer.com/article/10.1007/s10462-026-11611-9 [30] P. Vaidhyanathan, A. Papatheodorou, M. T. Mitchison, N. Ares, and I. Havoutis, “Metasym: A symplectic meta-learning framework for physical intelligence,” arXiv preprint arXiv:2502.16667 , 2025. [31] M. M. Bronstein, J. Bruna, T. Cohen, and P. Velickovic, “Geometric deep learning: Grids, groups, graphs, geodesics, and gauges,” CoRR ,vol. abs/2104.13478, 2021. [Online]. Available: https://arxiv.org/abs/ 2104.13478 [32] Q. Hern´ andez, A. Bad´ ıas, D. Gonz´ alez, F. Chinesta, and E. Cueto, “Structure-preserving neural networks,” Journal of Computational Physics , vol. 426, p. 109950, Feb. 2021. [Online]. Available: http://dx.doi.org/10.1016/j.jcp.2020.109950 [33] S. Martinez, R. Griffin, and C. Mastalli, “Multi-contact inertial param-eters estimation and localization in legged robots,” IEEE Robotics and Automation Letters , vol. 10, no. 5, pp. 4730–4737, 2025. [34] S. Martinez, S. Tonneau, and C. Mastalli, “System identification under constraints and disturbance: A bayesian estimation approach,” 2026. [Online]. Available: https://arxiv.org/abs/2602.16358 [35] D. Ha and J. Schmidhuber, “Recurrent world models facilitate policy evolution,” Advances in neural information processing systems , vol. 31, 2018. [36] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi, “Dream to control: Learn-ing behaviors by latent imagination,” arXiv preprint arXiv:1912.01603 ,2019. [37] A. Sanchez-Gonzalez, J. Godwin, T. Pfaff, R. Ying, J. Leskovec, and P. Battaglia, “Learning to simulate complex physics with graph networks,” in International conference on machine learning . PMLR, 2020, pp. 8459–8468. [38] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar, “Fourier neural operator for parametric partial differential equations,” arXiv preprint arXiv:2010.08895 , 2020. [39] Z. Li, D. Z. Huang, B. Liu, and A. Anandkumar, “Fourier neural operator with learned deformations for pdes on general geometries,” Journal of Machine Learning Research , vol. 24, no. 388, pp. 1–26, 2023. [40] C. Li, A. Krause, and M. Hutter, “Robotic world model: A neural network simulator for robust policy optimization in robotics,” 2025. [Online]. Available: https://arxiv.org/abs/2501.10100 [41] P. Werbos, “Backpropagation through time: what it does and how to do it,” Proceedings of the IEEE , vol. 78, no. 10, pp. 1550–1560, 1990. [42] R. Pascanu, T. Mikolov, and Y. Bengio, “On the difficulty of training recurrent neural networks,” 2013. [Online]. Available: https://arxiv.org/abs/1211.5063 [43] A. van der Schaft, L2-Gain and Passivity Techniques in Nonlinear Control , 3rd ed. Springer Publishing Company, Incorporated, 2018. [44] B. Maschke and A. van der Schaft, “Port-controlled hamiltonian systems: Modelling origins and systemtheoretic properties,” IFAC Proceedings Volumes , vol. 25, no. 13, pp. 359–365, 1992, 2nd IFAC 14 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+Symposium on Nonlinear Control Systems Design 1992, Bordeaux, France, 24-26 June. [Online]. Available: https://www.sciencedirect.com/ science/article/pii/S1474667017523083 [45] P. J. Morrison, “Bracket formulation for irreversible classical fields,” Physics Letters A, vol. 100, no. 8, pp. 423–427, 1984. [Online]. Available: https://www.sciencedirect.com/science/article/pii/ 0375960184906352 [46] H. Yoshimura and J. E. Marsden, “Dirac structures in lagrangian mechanics part i: Implicit lagrangian systems,” Journal of Geometry and Physics , vol. 57, pp. 133–156, 2006. [Online]. Available: https://api.semanticscholar.org/CorpusID:5698662 [47] R. Abraham and J. Marsden, Foundations of Mechanics , ser. AMS Chelsea publishing. AMS Chelsea Pub./American Mathematical Society, 2008. [Online]. Available: https://books.google.co.uk/books? id=4Y-ownk6ilsC [48] M. Betancourt, M. I. Jordan, and A. C. Wilson, “On symplectic optimization,” arXiv preprint arXiv:1802.03653 , 2018. [49] B. Igelnik and N. Parikh, “Kolmogorov’s spline network,” IEEE trans-actions on neural networks , vol. 14, no. 4, pp. 725–733, 2003. [50] Z. Liu, P. Ma, Y. Wang, W. Matusik, and M. Tegmark, “Kan 2.0: Kolmogorov-arnold networks meet science,” arXiv preprint arXiv:2408.10205 , 2024. [51] G. Buondonno and A. De Luca, “A recursive newton-euler algorithm for robots with elastic joints and its application to control,” in 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2015, pp. 5526–5532. [52] R. Featherstone, “The calculation of robot dynamics using articulated-body inertias,” The international journal of robotics research , vol. 2, no. 1, pp. 13–30, 1983. [53] H. Goldstein, C. P. Poole, J. Safko et al. , Classical mechanics . Addison-wesley Reading, MA, 1950, vol. 2. [54] J. Sol` a, J. Deray, and D. Atchuthan, “A micro lie theory for state estimation in robotics,” 2021. [Online]. Available: https: //arxiv.org/abs/1812.01537 [55] V. Guillemin and S. Sternberg, Symplectic techniques in physics . Cam-bridge university press, 1990. [56] A. Weinstein, Lectures on symplectic manifolds . American Mathemat-ical Soc., 1977, no. 29. [57] J. L. Koszul and Y. M. Zou, Introduction to symplectic geometry .Springer, 2019. [58] S. H. Strogatz, Nonlinear Dynamics and Chaos: With Applications to Physics, Biology, Chemistry, and Engineering , 2nd ed. CRC Press, 2018. [59] M. Hutter, C. Gehring, D. Jud, A. Lauber, C. D. Bellicoso, V. Tsou-nis, J. Hwangbo, K. Bodie, P. Fankhauser, M. Bloesch, R. Diethelm, S. Bachmann, A. Melzer, and M. Hoepflinger, “Anymal - a highly mo-bile and dynamic quadrupedal robot,” in 2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2016, pp. 38–44. [60] A. Lamb, A. Goyal, Y. Zhang, S. Zhang, A. Courville, and Y. Bengio, “Professor forcing: A new algorithm for training recurrent networks,” 2016. [Online]. Available: https://arxiv.org/abs/1610.09038 [61] X. Huang, Z. Li, G. He, M. Zhou, and E. Shechtman, “Self forcing: Bridging the train-test gap in autoregressive video diffusion,” 2025. [Online]. Available: https://arxiv.org/abs/2506.08009 [62] B. K. Tapley, “Symplectic neural networks based on dynamical systems,” 2024. [Online]. Available: https://arxiv.org/abs/2408.09821 [63] A. Gruber, K. Lee, H. Lim, N. Park, and N. Trask, “Efficiently parameterized neural metriplectic systems,” 2025. [Online]. Available: https://arxiv.org/abs/2405.16305 [64] Y. D. Zhong, B. Dey, and A. Chakraborty, “Symplectic ODE-Net: Learning Hamiltonian Dynamics with Control,” 8th International Conference on Learning Representations, ICLR 2020 , 9 2019. [Online]. Available: https://arxiv.org/abs/1909.12077v4 [65] N. Mohajerin, M. Mozifian, and S. Waslander, “Deep learning aquadrotor dynamic model for multi-step prediction,” in 2018 IEEE International Conference on Robotics and Automation (ICRA) , 2018, pp. 2454–2459. [66] N. Mohajerin and S. L. Waslander, “Multistep prediction of dynamic systems with recurrent neural networks,” IEEE Transactions on Neural Networks and Learning Systems , vol. 30, no. 11, pp. 3370–3383, 2019. [67] Y. Fan, Z. Pei, C. Wang, M. Li, Z. Tang, and Q. Liu, “A review of quadruped robots: Structure, control, and autonomous motion,” Ad-vanced Intelligent Systems , vol. 6, no. 6, p. 2300783, 2024. [68] J. Frey, T. Tuna, F. Fu, K. Patterson, T. Xu, M. Fallon, C. Ca-dena, and M. Hutter, “Grandtour: A legged robotics dataset in the wild for multi-modal perception and state estimation,” arXiv preprint arXiv:2602.18164 , 2026. [69] L. Brunke, M. Greeff, A. W. Hall, Z. Yuan, S. Zhou, J. Panerati, and A. P. Schoellig, “Safe learning in robotics: From learning-based control to safe reinforcement learning,” 2021. [Online]. Available: https://arxiv.org/abs/2108.06266 
+
+APPENDIX AAUTOREGRESSIVE ROLLOUT AND MULTI -H ORIZON 
+
+EVALUATION 
+
+The main experiments evaluate CAL ISYM autoregressively, with the model queried on its own predictions. Errors then compound along the horizon, which a one step metric cannot reveal. To characterize this, we roll out the same trained lifted predictor on the controlled dissipative double pendulum over horizons from 5 to 800 steps at a fixed ∆t = 0 .01 s (0.05 to 
+
+8.00 s ), reporting in-distribution (ID) and out-of-distribution (OOD) mean-squared error (Table III). The ID error stays small across the full sweep, rising from 
+
+∼ 10 −5 at 5 steps to ∼ 10 −2 at 800 steps with no runaway growth, so the lifted map remains numerically stable over an 8 s horizon despite the driven, dissipative dynamics. The OOD error grows steeply, as expected. Once a trajectory leaves the training distribution, each step is conditioned on an increasingly model generated state, compounding distribution shift error. The two effects are distinct. One is bounded numerical stability from the symplectic structure, and the other is error growth from distribution shift, rather than a single rollout failure. 
+
+TABLE III ID AND OOD MULTI -HORIZON ROLLOUT ERROR .Timesteps ∆T [s] ID MSE OOD MSE 5 0.05 1.130 × 10 −5 0.070 10 0.10 2.616 × 10 −5 0.258 20 0.20 7.027 × 10 −5 0.718 50 0.50 2.478 × 10 −4 1.771 100 1.00 2.591 × 10 −4 4.892 200 2.00 6.396 × 10 −4 14.341 400 4.00 7.922 × 10 −4 39.553 600 6.00 0.033 69.460 800 8.00 0.033 101.397 
+
+APPENDIX BSYMPLECTICITY CONSERVATION 
+
+The defining property of the learned lifted predictor is exact symplecticity in the lifted canonical phase space. For a differentiable map Φ∆tθ on lifted coordinates Z, symplecticity means 
+
+DΦ∆tθ (Z)⊤JΩDΦ∆tθ (Z) = JΩ, (64) where JΩ is the canonical symplectic matrix of the lifted space. GR-S YMP NET and GRB-S YMP NET satisfy this by construction, since each layer is the exact flow of a Hamilto-nian system and the composition of symplectic maps remains symplectic. We still verify the property numerically for the trained models (Table IV), for two reasons. First, it confirms that the trained architecture realizes the intended geometry rather than approximating it. Second, it separates a hard architectural con-straint from a soft-regularization penalty, since a structurally 15 
+
+symplectic map sits at numerical precision regardless of the training loss, whereas a penalized one would track it. For each model we compute the normalized residual, 
+
+ϵJΩ = DΦ∆tθ (Z)⊤JΩDΦ∆tθ (Z) − JΩ F
+
+∥JΩ∥F
+
+. (65) The Jacobian is taken with respect to the lifted state Z, not the projected physical state. This distinction is central to C AL-
+
+> I
+
+SYM , as the physical predictor induced by lifting, projecting, and embedding back is not required to be symplectic on the measured state. Symplecticity is enforced only on the lifted map.                               
+
+> TABLE IV SYMPLECTICITY RESIDUALS ARE AT NUMERICAL PRECISION .
+> System Architecture Dim. ϵJΩmean ϵJΩmax
+> Double pendulum GRBS YMP NET 12 3×10 −16 4×10 −15
+> Quadrotor GRS YMP NET 36 3×10 −15 8×10 −15
+> Quadruped GRS YMP NET 132 5×10 −16 8×10 −16
+
+APPENDIX CUNIVERSAL APPROXIMATION OF GRB-S YMP NET 
+
+This appendix states the approximation property of the GRB-S YMP NET predictor used for compact low-dimensional lifted dynamics. The result is local in a canonical coordinate chart of the lifted phase space. This is the relevant setting for CALISYM , where symplecticity is imposed on the lifted map 
+
+Φ∆tθ : Z → Z ,
+
+while the induced physical predictor 
+
+ΠX ◦ Φ∆tθ ◦ σek : X → X
+
+need not be symplectic on the measured physical state space 
+
+X := T ∗Q.Let Z = ( Q, P) ∈ Z ≃ R2d, with canonical symplectic form Ω = P 
+
+> i
+
+dQ i ∧ dP i and canonical symplectic matrix JΩ.For a compact set K ⊂ Z , write ∥ · ∥ Cs(K) for the maximum over derivatives up to order s. To avoid conflict with the auxiliary lifted coordinate r, we denote the B-spline degree in this appendix by rspl .A GRB-S YMP NET layer is the exact generalized-ridge Hamiltonian flow 
+
+ξℓ = AℓP + BℓQ,
+
+Q′ = Q + hℓA⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ),
+
+P′ = P − hℓB⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ),
+
+AℓB⊤ 
+
+> ℓ
+
+= BℓA⊤ 
+
+> ℓ
+
+.
+
+Equivalently, φℓ(Q, P) = ( Q′, P′). The scalar ridge Hamil-tonian is parameterized as 
+
+Kℓ(ξ) = Kℓ, spline (ξ) + Kℓ, smooth (ξ),Kℓ, spline (ξ) = X
+
+> α∈A
+
+cℓ,α Bα(ξ),
+
+Bα(ξ) = 
+
+> m
+
+Y
+
+> j=1
+
+B(rspl ) 
+
+> αj
+
+(ξj ).
+
+The smooth tail is 
+
+Kℓ, smooth (ξ) = 
+
+> Ns
+
+X
+
+> j=1
+
+aℓj ϕ(ρℓj ),ρℓj = w⊤ 
+
+> ℓj
+
+ξ + bℓj .
+
+The smooth tail is useful in the experimental model class, but it is not needed for the density argument. Setting Kℓ, smooth ≡ 0
+
+gives a subclass of the full GRB-S YMP NET family. 
+
+Theorem. Lifted universal approximation by full-ridge GRB-SYMP NET s. Let U ⊂ Z ≃ R2d be open, let K ⋐ U be compact, and let Ψ : U → Z be a Cs+1 symplectic map, meaning 
+
+DΨ( Z)⊤JΩDΨ( Z) = JΩ,
+
+Z ∈ U .
+
+Assume that the generalized-ridge dimension may be chosen as m = d, and assume that the B-spline spaces used for 
+
+Kℓ, spline are Cs+1 -dense on compact subsets of Rd. For simple knots, it is sufficient to take rspl ≥ s+2 . Then, for every ε > 0,there exists a finite-depth GRB-S YMP NET 
+
+Φ∆tθ = φL ◦ · · · ◦ φ1
+
+such that 
+
+∥Φ∆tθ − Ψ∥Cs(K) < ε 
+
+and 
+
+DΦ∆tθ (Z)⊤JΩDΦ∆tθ (Z)= JΩ.
+
+Thus GRB-S YMP NET s are dense, on compact subsets of the lifted canonical phase space, in the class of smooth symplectic maps, while remaining exactly symplectic for every parameter value. 
+
+a) Proof.: First, each GRB-S YMP NET layer is exactly symplectic. The layer is the time-hℓ flow of the scalar Hamil-tonian Hℓ(Q, P) = Kℓ(AℓP + BℓQ)= Kℓ(ξℓ).
+
+Hamilton’s equations give 
+
+˙Q = A⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ),
+
+˙P = −B⊤ 
+
+> ℓ
+
+∇Kℓ(ξℓ).
+
+Hence ˙ξℓ = Aℓ ˙P + Bℓ ˙Q
+
+=  −AℓB⊤ 
+
+> ℓ
+
++ BℓA⊤
+
+> ℓ
+
+ ∇Kℓ(ξℓ)= 0.
+
+Thus ξℓ is constant along the layer flow. The Hamiltonian flow therefore integrates exactly to the explicit GRB layer above. Since exact Hamiltonian flows preserve Ω, each φℓ
+
+is symplectic. The composition Φ∆tθ is symplectic because symplectic maps are closed under composition. It remains to prove density. In the full-ridge case m = d,the GRB layer contains the two standard gradient shears. For 
+
+(A, B) = ( Id, 0),
+
+SQK (Q, P) = ( Q + ∇K(P), P).16 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+For (A, B) = ( 0, Id),
+
+SPK (Q, P) = ( Q, P − ∇ K(Q)) .
+
+Let K0(u) = 12 ∥u∥2. The canonical symplectic rotation 
+
+R(Q, P) = ( P, −Q)
+
+factors as 
+
+R = SPK0 ◦ SQK0 ◦ SPK0 .
+
+Indeed, the three shears map (Q, P) to (Q, P − Q), then to 
+
+(P, P − Q), and finally to (P, −Q).For a scalar potential V : Rd → R and a constant vector 
+
+η ∈ Rd, define the H´ enon-like symplectic map 
+
+HV, η (Q, P) = ( P + η, −Q + ∇V (P)) .
+
+It is represented using GRB shears by 
+
+HV, η = T Q 
+
+> η
+
+◦ R ◦ SQ 
+
+> −V
+
+,T Q 
+
+> η
+
+(Q, P) = ( Q + η, P).
+
+The translation T Q 
+
+> η
+
+is generated by the linear potential 
+
+K(P) = η⊤P, while the rotation is generated by quadratic shear potentials. These linear and quadratic potentials are contained in, or can be approximated arbitrarily well by, the spline Hamiltonian class on compact sets. By the H´ enon approximation theorem for symplectic maps, and by the same approximation route underlying SympNet uni-versality [26], there exist smooth scalar potentials V1, . . . , V N
+
+and constant vectors η1, . . . , ηN such that 
+
+H = HVN ,ηN ◦ · · · ◦ HV1,η1 ,
+
+∥Ψ − H∥ Cs(K) < ε
+
+2 .
+
+Let Kj be compact neighborhoods of the image sets encoun-tered by this finite composition, and let πP denote projection onto the P-coordinates. Since the spline Hamiltonian class is 
+
+Cs+1 -dense, choose spline potentials Kj,G such that 
+
+∥Vj − Kj,G ∥Cs+1 (πP Kj ) < δ j .
+
+Because HVj ,ηj depends on Vj only through ∇Vj , there is a compact-set constant Cj with 
+
+∥HVj ,ηj − HKj,G ,ηj ∥Cs(Kj ) ≤ Cj δj .
+
+Define the spline-composed H´ enon approximation 
+
+eHG = HKN,G ,ηN ◦ · · · ◦ HK1,G ,η1 .
+
+Continuity of finite composition in the Cs topology allows the 
+
+δj to be chosen so that 
+
+∥H − eHG∥Cs(K) < ε
+
+2 .
+
+The map eHG is a GRB-S YMP NET because each H´ enon-like factor is built from GRB shears with spline scalar Hamiltoni-ans. Hence the resulting network satisfies 
+
+∥Φ∆tθ − Ψ∥Cs(K) < ε. 
+
+Exact symplecticity follows from the layer construction. 
+
+b) Spline-rate form.: After fixing a H´ enon approximation 
+
+H = HVN ,ηN ◦ · · · ◦ HV1,η1 ,
+
+the usual spline approximation rate gives a quantitative version of the preceding argument. If each Vj has sufficient smooth-ness on the relevant compact set and the spline grid for Vj has 
+
+Gj intervals in each ridge coordinate, then 
+
+∥Ψ − Φ∆tθ,G ∥Cs(K) ≤ εHenon + Ccomp 
+
+> N
+
+X
+
+> j=1
+
+G−(rspl −s) 
+
+> j
+
+.
+
+Here εHenon = ∥Ψ−H∥ Cs(K) is the finite H´ enon-composition error, and Ccomp depends on the compact image chain and derivative bounds of the composed maps. The loss of one derivative is intrinsic: the symplectic layer uses ∇Kℓ, so Cs
+
+approximation of the map requires Cs+1 approximation of the scalar Hamiltonian. 
+
+c) Fixed-ridge interpretation.: The theorem above is a full-ridge universal approximation result, since it allows m =
+
+d. The practical GRB-S YMP NET regime may use m ≪ d
+
+for parameter efficiency. In that case, the corresponding state-ment is ridge-structured rather than fully universal. Suppose the generating potentials in the H´ enon approximation admit additive generalized-ridge structure, 
+
+Vj (P) = 
+
+> Rj
+
+X
+
+> ν=1
+
+Wj,ν (Cj,ν P), Cj,ν ∈ Rm×d.
+
+Then 
+
+∇Vj (P) = 
+
+> Rj
+
+X
+
+> ν=1
+
+C⊤ 
+
+> j,ν
+
+gj,ν (P),
+
+gj,ν (P) = ∇Wj,ν (Cj,ν P).
+
+Each summand is exactly the update produced by a GRB layer with A = Cj,ν and B = 0:
+
+Q′ = Q + C⊤ 
+
+> j,ν
+
+∇Wj,ν (Cj,ν P),
+
+P′ = P.
+
+Because these layers leave P fixed, their composition adds the ridge-gradient contributions. The same argument applies to P-shears. Thus, for m ≪ d, GRB-S YMP NET is universal for the class of symplectic maps whose scalar generating potentials admit smooth low-dimensional generalized-ridge decompositions. This is the regime targeted by the low-dimensional double-pendulum experiment, where the spline ridge parameterization remains compact. 
+
+d) Induced physical predictor: The lifted result directly implies an approximation statement for the C ALISYM physical predictor. Let CX ⋐ X and CE ⋐ E be compact sets of physical states and ports. Suppose the one-step physical transition 
+
+f : X × E → X, f (x, e) = fe(x),
+
+admits a smooth lifted symplectic realization on the data section. That is, assume there exists a Cs+1 symplectic map 
+
+Ψ such that fe(x) = Π X
+
+ Ψ( σe(x)) ,
+
+(x, e) ∈ CX × CE .17 
+
+Let 
+
+KS = {σe(x) : x ∈ CX , e ∈ CE } ⊂ Z .
+
+By the theorem, Ψ can be approximated in Cs on a compact neighborhood of KS by a GRB-S YMP NET Φ∆tθ . Define the induced physical predictor 
+
+bfθ, e = Π X ◦ Φ∆tθ ◦ σe.
+
+Then, for every ε > 0, there exists a GRB-S YMP NET lifted predictor such that 
+
+sup 
+
+> e∈CE
+
+∥ bfθ, e − fe∥Cs(CX ) < ε. 
+
+At the same time, the lifted map remains exactly symplectic: 
+
+DΦ∆tθ (Z)⊤JΩDΦ∆tθ (Z) = JΩ.
+
+This formalizes the modeling principle used throughout C AL-
+
+> I
+
+SYM . The projected physical dynamics may be forced, dis-sipative, or contact-rich, while the learned map in the lifted canonical coordinates remains exactly symplectic. A sufficient local condition for the lifted-realization assump-tion is that the joint map 
+
+F (x, e) = ( fe(x), e)
+
+is a local diffeomorphism. In the base–fiber coordinates used by the lift, 
+
+b = ( q, p, μu, λc),
+
+ζ = ( r, −y, −λu, πc),
+
+Ω = X
+
+> i
+
+db i ∧ dζ i,
+
+the cotangent lift T ∗F is symplectic and recovers the physical transition after projection to the gauge-fixed data section. This is why C ALISYM can impose symplecticity in Z without requiring the projected map on X to be symplectic. 
+
+e) KAN interpretation.: The B-spline/KAN-style approx-imation is applied to the scalar ridge Hamiltonians Kℓ, not componentwise to the vector-valued map Z 7 → Φ∆tθ (Z). This distinction is essential: componentwise approximation does not preserve 
+
+DΦ⊤JΩDΦ = JΩ.
+
+In GRB-S YMP NET , the learned spline functions enter only through scalar Hamiltonians inside exact generalized-ridge flows, so expressivity is added without breaking the symplectic constraint. APPENDIX DTRAINING DETAILS 
+
+A. Double pendulum training 1) Hyperparameters: Table V gives the configuration for the double pendulum, the low dimensional setting for the spline variant GRB-S YMP NET . The lifted phase space is 12 
+
+dimensional and the model is small, 3,660 parameters over 12 
+
+layers. The scalar ridge Hamiltonian uses a cubic B-spline over 12 intervals on [−3.5, 3.5] , evaluated in a projection dimension m = 2 , which adds compact local expressivity in the ridge coordinate without breaking the exact symplectic flow. Training runs in FP64 with AdamW for 500 epochs. The loss emphasizes the physical state ( wq = 10 , wp = 5 ) with a single control port ( wμ = 5 ), since the pendulum is isolated with one torque port and no contacts. 
+
+2) Data Preparation: Unlike the quadruped and quadrotor benchmarks, which are derived from real-world datasets, the double-pendulum benchmark is generated directly from aknown physical model. The system consists of a two-link planar pendulum subject to gravity, viscous damping, and external control torques. Trajectories are produced by numer-ically integrating the equations of motion using a high-order DOP853 integrator with zero-order-hold control inputs, yield-ing a controlled dissipative mechanical system with known ground-truth dynamics. The state is represented using joint angles and generalized momenta. Since the configuration space is Euclidean, no manifold preprocessing is required. Control inputs are gener-ated independently for each joint using randomized sinusoidal torque profiles, producing a diverse set of excitation patterns. Trajectories are generated directly at 100 Hz and segmented into overlapping windows of 100 time steps ( 1 s) with a stride of 10 samples, resulting in approximately 40 ,000 training windows and 1,600 OOD windows. To evaluate out-of-distribution generalization, the train and OOD splits are constructed using the system’s total mechanical energy rather than a random partition of trajectories. OOD episodes are initialized in an energy regime approximately 
+
+36% higher than that used for training, creating a physically meaningful distribution shift. Since mechanical energy directly governs the amplitude of motion, nonlinear coupling strength, and overall complexity of the resulting dynamics, higher-energy trajectories explore larger regions of phase space and exhibit qualitatively different long-horizon behavior than those observed during training. Importantly, the distribution shift persists beyond the initial conditions. Although viscous friction continuously dissipates energy throughout each rollout, OOD trajectory windows exhibit approximately 56% higher mean mechanical energy than training windows and consistently occupy more energetic regions of phase space throughout their evolution. Conse-quently, the benchmark evaluates generalization across distinct dynamical regimes and trajectory families rather than simple interpolation between nearby samples, yielding a substantially more challenging and physically grounded OOD evaluation protocol than conventional random trajectory splits. 
+
+B. Quadrotor training 1) Hyperparameters: Table V gives the configuration for the quadrotor, the forced underactuated setting for GR-SYMP NET without contact ports. The lifted phase space is 36 
+
+dimensional, realized with 23 ,688 parameters. The lift embeds the rotor thrust and body torque commands as a single control port, so the contact block is omitted and energy enters only through actuation while drag acts as unmodeled dissipation. Training runs in FP64 with AdamW at a constant learning rate of 3 × 10 −3 for 500 epochs, using a teacher forcing schedule held at α = 1 .0 for 50 epochs followed by a 50 epoch linear 18 PAPATHEODOROU & VAIDHYANATHAN et al. : CALISYM 
+
+ramp. The loss emphasizes the physical state ( wq = wp = 10 )with light section and port weights ( wsec = wμ = 0 .1), in contrast to the heavily port weighted quadruped objective, since the quadrotor has a single smooth actuation channel rather than several heterogeneous ports. 
+
+2) Data Preparation: We evaluate the quadrotor experi-ments on the AscTec Pelican Flight Dataset [65], [66], which contains 54 real-world flight trajectories collected on an As-cTec Pelican platform. Unlike the quadruped, the quadrotor is a single free-flying rigid body without articulated joints or contacts, resulting in a substantially simpler preprocessing pipeline. The dataset provides pose, velocities, body rates, and motor commands at 100 Hz. Each trajectory is expressed in local tangent-space coordinates by applying the logarithm map on SE (3) relative to the initial pose of each window, yielding a six-dimensional configuration vector q ∈ R6.Generalized momenta are computed as p = Mv using the constant rigid-body mass matrix M = diag( mI3, Ibody ). Con-trol inputs are represented as generalized wrenches obtained by mapping the four motor commands through the quadrotor allocation matrix, yielding τ ∈ R6.The trajectories require no resampling or filtering and are segmented into overlapping windows of 100 time steps ( 1 s) with a stride of 10 samples. After a momentum-smoothness validation step removes anomalous segments, the resulting data are split into disjoint training and OOD flight sets to evaluate generalization to previously unseen trajectories. 
+
+C. Quadruped training 1) Hyperparameters: Table V gives the configuration for the quadruped, the high dimensional contact rich setting for GR-S YMP NET . The lifted phase space is 132 dimensional, re-alized with ∼ 316K parameters over 18 layers of width 66 . The generalized-ridge layers confine the nonlinear computation to a low dimensional ridge coordinate, which keeps the predictor parameter efficient despite the large phase space. Training runs in FP64 with Muon for 500 epochs. The loss weights the control and contact ports heavily ( wμ = 65 , wfc = 55 ) against an equal state weighting ( wq = wp = 0 .5) and a light section penalty ( wsec = 0 .01 ). The heavy port weighting is the channel through which actuation work and contact impulses enter an otherwise conservative lifted flow. 
+
+2) Data Preparation: The G RAND TOUR dataset [68] com-prises diverse real-world locomotion trajectories collected on the ANYmal-D quadruped [59] across a wide range of ter-rains, commands, gaits, and environmental conditions. The onboard state-estimation stack provides measurements at 400 
+
+Hz. To construct a dataset compatible with the proposed lifted formulation, the raw estimator outputs are transformed into a canonical mechanical state representation and subsequently filtered, resampled, and validated. The quadruped configuration consists of an SE (3) floating-base pose together with Euclidean joint coordinates. Since only the floating base evolves on a nonlinear manifold, each trajectory window is expressed relative to its initial base pose using the SE (3) logarithm map implemented in Pinocchio, while the joint coordinates remain unchanged. Generalized momenta are then computed from the rigid-body dynamics model yielding the canonical state representation (q, p) used throughout this work. The resulting trajectories are resampled from 400 Hz to 
+
+100 Hz. Prior to decimation, the momentum channels are filtered using an 18 Hz sixth-order low-pass filter. Given the target Nyquist frequency of 50 Hz, this removes high-frequency transients arising from impacts, contact transitions, and estimator noise while preserving the dominant locomotion dynamics, which typically lie below 10 Hz. This prevents aliasing artifacts from contaminating the momentum channels after downsampling. Finally trajectories are segmented into overlapping windows of 100 time steps ( 1 s) with a stride of 10 samples. A valida-tion stage rejects windows exhibiting anomalous momentum discontinuities, and the remaining data are partitioned into dis-joint training and OOD mission sets to evaluate generalization across previously unseen operating conditions.

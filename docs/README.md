@@ -6,83 +6,85 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-09
-- 运行时间：2026-07-09 22:17:10 UTC
+- 最新运行日期：2026-07-13
+- 运行时间：2026-07-13 03:00:00 UTC
 - 运行状态：成功
 - 本次总论文数：21
 - 精读区：8
 - 速读区：13
 
 ### 今日简报（AI）
-今日精读聚焦域分解与物理信息神经网络求解流形椭圆方程，以及自主PDE代理管道实现无求解器推理。最值得关注的是域分解与PINN结合在复杂几何上的高精度表现，以及PDEFlow自动化工作流对神经算子训练的效率提升。建议优先阅读这两篇9.0分论文，深入理解其方法设计，并尝试将域分解思想应用于非标准几何问题。
-- 详情：[/202607/09/README](/202607/09/README)
+今日精选8篇精读与13篇速读，重点关注宇宙学原始振荡与流体力学AI方法。
+其中《Inverse-k Primordial Oscillations》与《Physics-informed neural networks》均获满分，分别揭示宇宙早期结构新线索和神经网络突破激波捕捉精度。
+速读中强化学习自反馈机制与DFT的AI进展也值得跟进，适合拓展应用视野。
+- 详情：[/202607/13/README](/202607/13/README)
 
 ### 精读区论文标签
-1. [Domain decomposition methods with Physics-informed neural networks for elliptic equations on manifolds](/202607/09/2607.04285v1-domain-decomposition-methods-with-physics-informed-neural-networks-for-elliptic-equations-on-manifolds)  
+1. [Inverse-k Primordial Oscillations from a Symbolic Regression Search](/202607/13/2607.04925v1-inverse-k-primordial-oscillations-from-a-symbolic-regression-search)  
+   标签：评分：10.0/10、query:sr
+   evidence：符号回归用于无模板搜索原初振荡特征
+2. [Physics-informed neural networks for shock capturing in inviscid flows around an airfoil](/202607/13/2607.08130v1-physics-informed-neural-networks-for-shock-capturing-in-inviscid-flows-around-an-airfoil)  
+   标签：评分：10.0/10、query:physics-ml
+   evidence：PINN用于含激波的PDE求解
+3. [Generalizable turbulence closures across bluff-body shapes by PINN-based solver-agnostic training](/202607/13/2607.04491v1-generalizable-turbulence-closures-across-bluff-body-shapes-by-pinn-based-solver-agnostic-training)  
    标签：评分：9.0/10、query:physics-ml
-   evidence：物理信息神经网络结合域分解求解流形上的椭圆偏微分方程
-2. [PDEFlow: Autonomous Agentic PDE Pipelines for Neural Operator Learning and Solver-Free Inference](/202607/09/2607.05134v1-pdeflow-autonomous-agentic-pde-pipelines-for-neural-operator-learning-and-solver-free-inference)  
+   evidence：基于PINN的湍流闭合训练，求解器无关且无网格
+4. [Learning to Control LLM Agent Harnesses with Offline Reinforcement Learning](/202607/13/2607.05458v1-learning-to-control-llm-agent-harnesses-with-offline-reinforcement-learning)  
+   标签：评分：9.0/10、query:cfd-agent
+   evidence：离线强化学习用于LLM智能体技能提升
+5. [LLT: Local Linear Transformer for PDE Operator Learning](/202607/13/2607.07718v1-llt-local-linear-transformer-for-pde-operator-learning)  
    标签：评分：9.0/10、query:physics-ml
-   evidence：自主智能体框架实现神经算子学习与无求解器推理
-3. [Kernel-based Operator Learning: Error Analysis, Budget Allocation, and a Physics-Informed Extension](/202607/09/2607.06287v1-kernel-based-operator-learning-error-analysis-budget-allocation-and-a-physics-informed-extension)  
+   evidence：通过Transformer学习PDE求解算子
+6. [PGD-NO: A Neural Operator with Precomputed Geometry Decomposition for 3D Million-scale Physics Simulations](/202607/13/2607.08025v1-pgd-no-a-neural-operator-with-precomputed-geometry-decomposition-for-3d-million-scale-physics-simulations)  
    标签：评分：9.0/10、query:physics-ml
-   evidence：基于核的算子学习，包含物理信息扩展，用于偏微分方程求解
-4. [Harness-Aware Self-Evolving: Co-Evolving Model Weights, Harness, and Task Solutions](/202607/09/2607.03935v1-harness-aware-self-evolving-co-evolving-model-weights-harness-and-task-solutions)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：智能体技能自我进化中的协同优化框架
-5. [PhysMiner: An Agentic AI Framework for Discovering Turbulence Physics](/202607/09/2607.04009v1-physminer-an-agentic-ai-framework-for-discovering-turbulence-physics)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：用于湍流物理发现的智能体AI框架
-6. [Spectral Diffusion for Protein Dynamics](/202607/09/2607.04134v1-spectral-diffusion-for-protein-dynamics)  
-   标签：评分：8.0/10、query:physics-ml
-   evidence：使用频谱扩散的物理信息生成模型用于蛋白质动力学，匹配物理信息生成模型
-7. [Mass weighting algorithm optimizes Fourier-based physics-informed neural network in adhesive contact mechanics](/202607/09/2607.04288v1-mass-weighting-algorithm-optimizes-fourier-based-physics-informed-neural-network-in-adhesive-contact-mechanics)  
-   标签：评分：8.0/10、query:physics-ml
-   evidence：物理信息神经网络用于求解偏微分方程，采用频谱预处理
-8. [Physics-Audited Agentic Discovery in Scientific Machine Learning](/202607/09/2607.07379v1-physics-audited-agentic-discovery-in-scientific-machine-learning)  
-   标签：评分：8.0/10、query:sr
-   evidence：物理审计的代理式科学机器学习发现与方程提取
+   evidence：用于三维PDE模拟的神经算子
+7. [DeepPySR -- A Symbolic Regression Framework with Dynamic Pruning, Pareto Selection, and Hierarchical Composition for Real-World Scientific Discovery](/202607/13/2607.08150v1-deeppysr----a-symbolic-regression-framework-with-dynamic-pruning-pareto-selection-and-hierarchical-composition-for-real-world-scientific-discovery)  
+   标签：评分：9.0/10、query:sr
+   evidence：用于科学发现的符号回归框架
+8. [DegenDetector: Symbolic Recovery of Parameter Degeneracies in Bayesian Posteriors](/202607/13/2607.08755v1-degendetector-symbolic-recovery-of-parameter-degeneracies-in-bayesian-posteriors)  
+   标签：评分：9.0/10、query:sr
+   evidence：使用符号回归从贝叶斯后验中恢复参数简并性的闭式方程
 
 ### 速读区论文标签
-1. [Approximate Feedback Linearization for a Nonlinear Hyperbolic PDE Class -- Part II: Neural Operator](/202607/09/2607.04362v1-approximate-feedback-linearization-for-a-nonlinear-hyperbolic-pde-class----part-ii-neural-operator)  
+1. [Agent Reinforcement Learning via Pivotal-Aware Self-Feedback Retry](/202607/13/2607.03702v1-agent-reinforcement-learning-via-pivotal-aware-self-feedback-retry)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：用于LLM代理技能发展的强化学习
+2. [ML and AI for density functional theory: different priorities for Kohn-Sham and orbital-free DFT, for electronic and nuclear DFT](/202607/13/2607.04095v1-ml-and-ai-for-density-functional-theory-different-priorities-for-kohn-sham-and-orbital-free-dft-for-electronic-and-nuclear-dft)  
+   标签：评分：8.0/10、query:sr
+   evidence：强调符号回归在DFT动能泛函中的优势
+3. [TurnOPD: Making On-Policy Distillation Turn-Aware for Efficient Long-Horizon Agent Training](/202607/13/2607.05804v1-turnopd-making-on-policy-distillation-turn-aware-for-efficient-long-horizon-agent-training)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：面向高效长时域强化学习智能体训练的在线策略蒸馏
+4. [Feature Learning for the High Dimensional Stationary Schödinger Equation with Deep Ritz Method](/202607/13/2607.06369v1-feature-learning-for-the-high-dimensional-stationary-schdinger-equation-with-deep-ritz-method)  
    标签：评分：8.0/10、query:physics-ml
-   evidence：用于偏微分方程反馈线性化的神经算子
-2. [EdgeBench: Unveiling Scaling Laws of Learning from Real-World Environments](/202607/09/2607.05155v1-edgebench-unveiling-scaling-laws-of-learning-from-real-world-environments)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：代理在真实世界环境中学习的规模法则
-3. [MeGA-MP: Metric Graph Advection Message Passing -- A Physics-Informed Message Passing Operator for Advection-Dominated Metric Graphs](/202607/09/2607.05167v1-mega-mp-metric-graph-advection-message-passing----a-physics-informed-message-passing-operator-for-advection-dominated-metric-graphs)  
+   evidence：深度Ritz方法求解高维薛定谔方程
+5. [CoFINN: Conservation Flux Informed Neural Networks for Physics Problems Governed by Conservation Laws](/202607/13/2607.06587v1-cofinn-conservation-flux-informed-neural-networks-for-physics-problems-governed-by-conservation-laws)  
    标签：评分：8.0/10、query:physics-ml
-   evidence：面向度量图上输运现象的物理信息消息传递算子
-4. [EvoAgentBench: Benchmarking Agent Self-Evolution via Ability Transfer](/202607/09/2607.05202v1-evoagentbench-benchmarking-agent-self-evolution-via-ability-transfer)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：智能体自我进化能力迁移基准
-5. [Beyond Static Evaluation: Building Simulation Environments for Scalable Agentic Reinforcement Learning](/202607/09/2607.05773v1-beyond-static-evaluation-building-simulation-environments-for-scalable-agentic-reinforcement-learning)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：为可扩展的智能体强化学习构建仿真环境
-6. [Convolutional Symmetric AutoEncoders: enhancing latent stability via differential geometry](/202607/09/2607.00669v1-convolutional-symmetric-autoencoders-enhancing-latent-stability-via-differential-geometry)  
-   标签：评分：7.0/10、query:physics-ml
-   evidence：用于参数化偏微分方程降阶建模的自编码器
-7. [An Empirical Study of Downstream Adaptation for Agent Skills](/202607/09/2607.03238v1-an-empirical-study-of-downstream-adaptation-for-agent-skills)  
+   evidence：基于有限体积守恒定律的物理信息神经网络
+6. [STAPO: Selective Trajectory-Aware Policy Optimization for LLM Agent Training](/202607/13/2607.04963v1-stapo-selective-trajectory-aware-policy-optimization-for-llm-agent-training)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：智能体技能下游适应的实证研究
-8. [SelfMem: Self-Optimizing Memory for AI Agents](/202607/09/2607.03726v1-selfmem-self-optimizing-memory-for-ai-agents)  
+   evidence：针对轨迹忽视的LLM代理强化学习
+7. [Cortex: A Bidirectionally Aligned Embodied Agent Framework for Long-horizon Manipulation](/202607/13/2607.05377v1-cortex-a-bidirectionally-aligned-embodied-agent-framework-for-long-horizon-manipulation)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：面向AI智能体的自优化记忆框架
-9. [Transformers with Physics-Informed Encodings and Simulation-Based Inference for Robust Detection of Eccentric Binary Black Holes in Pulsar Timing Array Data](/202607/09/2607.03904v1-transformers-with-physics-informed-encodings-and-simulation-based-inference-for-robust-detection-of-eccentric-binary-black-holes-in-pulsar-timing-array-data)  
+   evidence：具身代理框架，使用规范技能原语处理长周期任务
+8. [Time-Invariant Neural Operators with Applications in Solving Time-Dependent PDEs](/202607/13/2607.06188v1-time-invariant-neural-operators-with-applications-in-solving-time-dependent-pdes)  
    标签：评分：7.0/10、query:physics-ml
-   evidence：变压器中的物理信息编码用于推理
-10. [AgentFlow: Building Agent Dependency Graphs for Static Analysis of Agent Programs](/202607/09/2607.01640v1-agentflow-building-agent-dependency-graphs-for-static-analysis-of-agent-programs)  
-   标签：评分：6.0/10、query:cfd-agent
-   evidence：智能体程序的静态分析以恢复依赖关系
-11. [Physics-Informed Graph Learning with Uncertainty Awareness for Open-Set Domain Generalization in Fault Diagnosis](/202607/09/2607.04188v1-physics-informed-graph-learning-with-uncertainty-awareness-for-open-set-domain-generalization-in-fault-diagnosis)  
+   evidence：时不变神经算子用于时变PDE求解
+9. [PhyRes-MDNF: Physics-Coupled Residual GNN Correction for Multilevel Discrete Neural Field Inversion](/202607/13/2607.06237v1-phyres-mdnf-physics-coupled-residual-gnn-correction-for-multilevel-discrete-neural-field-inversion)  
+   标签：评分：7.0/10、query:physics-ml
+   evidence：物理耦合神经场反演用于PDE逆问题
+10. [Learning Spatiotemporal Tubes for Full Class of Signal Temporal Logic Tasks for Control of Unknown Systems under Input Constraints](/202607/13/2607.07136v1-learning-spatiotemporal-tubes-for-full-class-of-signal-temporal-logic-tasks-for-control-of-unknown-systems-under-input-constraints)  
    标签：评分：6.0/10、query:physics-ml
-   evidence：物理信息图学习与不确定性感知用于故障诊断
-12. [Agent-driven Long-tail Simulation for Autonomous Driving](/202607/09/2607.04331v1-agent-driven-long-tail-simulation-for-autonomous-driving)  
+   evidence：PINN参数化时空管用于控制
+11. [SkillCenter: A Large-Scale Source-Grounded Skill Library for Autonomous AI Agents](/202607/13/2607.07676v1-skillcenter-a-large-scale-source-grounded-skill-library-for-autonomous-ai-agents)  
    标签：评分：6.0/10、query:cfd-agent
-   evidence：基于LLM控制代理的智能体驱动仿真，与代理技能进化和行为多样性相关
-13. [Learning Task-Sufficient World Models by Synergizing Agentic Exploration and Structured Modeling](/202607/09/2607.04409v1-learning-task-sufficient-world-models-by-synergizing-agentic-exploration-and-structured-modeling)  
+   evidence：大规模基于来源的自主智能体技能库
+12. [Collective Intelligence with Foundation Models](/202607/13/2607.07729v1-collective-intelligence-with-foundation-models)  
    标签：评分：6.0/10、query:cfd-agent
-   evidence：智能体学习任务充分的世界模型以提升决策能力
+   evidence：通过协作基础模型进行多代理系统技能学习与迁移
+13. [DeepSearch-World: Self-Distillation for Deep Search Agents in a Verifiable Environment](/202607/13/2607.07820v1-deepsearch-world-self-distillation-for-deep-search-agents-in-a-verifiable-environment)  
+   标签：评分：6.0/10、query:cfd-agent
+   evidence：可验证环境中智能体技能进化的自蒸馏框架
 
 
 <div class="dpr-home-promo-card">

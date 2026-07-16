@@ -1,0 +1,5928 @@
+Title: Near-Optimal Learning of Gaussian Sobolev Operators
+
+URL Source: https://arxiv.org/pdf/2607.11921v1
+
+Published Time: Wed, 15 Jul 2026 11:57:30 GMT
+
+Number of Pages: 53
+
+Markdown Content:
+# Near-Optimal Learning of Gaussian Sobolev Operators 
+
+Ben Adcock 1, Michael Griebel 2,3 , and Gregor Maier 2,3 1Department of Mathematics, Simon Fraser University, Burnaby BC, Canada 
+
+> 2
+
+Institute for Numerical Simulation, University of Bonn, Bonn, Germany 
+
+> 3
+
+Fraunhofer Institute for Algorithms and Scientific Computing (SCAI), Sankt Augustin, Germany 
+
+Abstract 
+
+A key question in operator learning is how to design surrogate operators with provable ap-proximation guarantees in reasonable computational time. Whereas smooth operators can be approximated efficiently, i.e., with at least algebraic convergence in the amount of training data, learning finitely regular operators is known to be less efficient. The reason is an intrinsic curse of sample complexity, which allows only subalgebraic sample complexity rates. This fact makes it all the more important to develop algorithms which provably achieve these rates. In this work, we present a fully data-driven algorithm, termed Hermite-PCA approximation, for learning Gaus-sian Sobolev operators with near-optimal sample complexity. It employs principal component analysis and weighted least-squares methods and is therefore computationally efficient. More-over, it is spectral, in the sense that it achieves faster (and near-optimal) convergence the higher the Sobolev regularity. We provide a full error analysis of this algorithm, taking into account all sources of error, along with numerical experiments that verify our theoretical results and empirically confirm the efficacy of Hermite-PCA approximation for learning Sobolev operators. 
+
+Keywords: operator learning, Gaussian Sobolev operators, sample complexity, principal compo-nent analysis, least-squares approximation, Christoffel sampling 
+
+Corresponding author: maier@ins.uni-bonn.de (Gregor Maier) 
+
+# 1 Introduction 
+
+Many natural phenomena, despite their diverse individual nature, can be commonly described on an abstract level as learning an operator 
+
+F : X → Y ,
+
+which maps between infinite-dimensional spaces X and Y. In computational science and engineering (CSE), for example, one is often interested in the solution operator of a continuum model which is governed by partial differential equations (PDEs) or variational inequalities. In this context, F
+
+typically maps inputs, such as parameters, boundary conditions, or coefficient functions, to outputs, such as states, fields, or observables. Prototypical examples with high and low operator regularity include holomorphic parameter-to-solution mappings in parametric PDEs and obstacle-to-solution 1arXiv:2607.11921v1 [math.NA] 8 Jul 2026 mappings in obstacle problems, respectively. The latter exhibit only finite Sobolev regularity with respect to Gaussian measures. While there are many results on the approximation of smooth opera-tors in the literature, comparatively few works are available for operators with only finite regularity which discuss both theoretical as well as practical approximation properties. To bridge this gap, we present in this work a practical, fully data-driven algorithm for learning Gaussian Sobolev operators from noisy, pointwise samples termed ‘Hermite-PCA approximation’. It combines empirical princi-pal component analysis (PCA) for dimension reduction with weighted least-squares approximation based on Hermite polynomials. Our main contribution is a full error analysis of Hermite-PCA ap-proximation – taking account of all sources of error in the problem – for the learning of operators with Gaussian Sobolev regularity. As we demonstrate, our algorithm is spectral – the smoother the operator, the faster the convergence – and, in the absence of discretization errors, its convergence rate is near-optimal . Moreover, we provide numerical experiments which empirically validate our theoretical results. 
+
+1.1 Motivations 
+
+A key question for practical applications is how to design suitable surrogate operators, i.e., approx-imations to F , that achieve high accuracy with feasible computational costs. In Operator Learning ,methods from machine learning, especially (deep) neural networks (NNs), are incorporated into the surrogate operator design in order to meet these demands. Many different designs, typically referred to as neural operators , along with theoretical error analyses have been proposed in recent years, often achieving impressive performances in numerical experiments. Among those are, for example, PCA-Net [13, 34], DeepONet [42, 35], FNO [39, 30], general neural operators [32], Poseidon [24], and variants thereof. We also refer to the reviews [31, 15, 62] and references therein. However, neural operators face two drawbacks which are critical for their reliable deployment in CSE applications. First, they lack interpretability. Second, it is generally unclear whether a neural operator with desired performance guarantees can be obtained from practical optimization routines. For this reason, it is important to compare neural operators to simpler NN-free operator surrogates that alleviate these shortcomings. In [12], the authors present a framework for learning operators based on the theory of operator-valued reproducing kernel Hilbert spaces and Gaussian processes along with convergence guarantees and rigorous a priori error bounds. They provide numerical experiments which show that their kernel method is competitive to neural operators across various benchmark problems. In [67], the authors empirically compare the performance of neural and polynomial operator surrogates in extensive numerical experiments. Their key conclusion is that there is no universally best surrogate model. Polynomial surrogates seemingly perform significantly better than neural operators for smooth inputs, whereas neural operators tend to be superior for rough input data. However, the former are typically much cheaper computationally to train, as they rely on simple procedures such as linear least-squares. These findings motivate to put more focus on the design of NN-free operator surrogates. This work contributes to this agenda, in that we provide a polynomial surrogate model based on general-ized Wiener-Hermite polynomial chaos expansions together with a non-intrusive training procedure via weighted-least squares approximation with carefully chosen pointwise training samples. 21.2 Contributions 
+
+We consider a Lipschitz continuous operator F : X → Y between real separable Hilbert spaces X , Y.We equip X with an unknown Gaussian measure μ and denote the (unknown) PCA eigenvalues of its covariance operator by λ1 ≥ λ2 ≥ · · · > 0. We assume pointwise access to F , with operator evaluations corrupted by additive noise with noise level σ ≥ 0. Our surrogate operator design has the standard encoder-decoder structure, ̂ F =̂ DY ◦̂ f ◦̂ EX , consisting of an encoder ̂ EX : X → RdX ,a decoder ̂ DY : RdY → Y , and a latent function ̂ f : RdX → RdY , see Figure 1. 
+
+X Y
+
+RdX RdY
+
+> F
+
+̂
+
+> EX
+
+̂
+
+> EY
+
+̂
+
+> f
+
+̂
+
+> F
+
+̂
+
+> DX
+
+̂
+
+> DY
+
+Figure 1: Encoder-decoder surrogate operator design, ̂ F := ̂ DY ◦̂ f ◦̂ EX ≈ F .We present an algorithm to construct ̂ F , which has two main parts. First, we learn the en-coder and decoder by empirical PCA based on NX and NY samples, respectively. Second, we construct a suitable s-dimensional approximation space of vector-valued linear combinations of Hermite polynomials, from which to select ̂ f . The Hermite coefficients of ̂ f are then learned by weighted least-squares approximation based on M labeled training samples. For this, we employ Christoffel sampling methods to identify an optimal distribution of the input training data. Note that the encoder induces a Gaussian measure ˆϱ := ̂ EX ♯μ on RdX . We can now state an informal version of our main result. 
+
+Main result (Hermite-PCA approximation for Sobolev operators; Theorem 4.1) . We provide ex-plicit lower bounds for the amount of data NX , N Y , M such that the following holds. If F is L-Lipschitz and F ∈ L2
+
+> μ
+
+(X ; Y), and its latent space representation ̂ EY ◦ F ◦̂ DX belongs to the Gaus-sian Sobolev space Hk 
+
+> ˆϱ
+
+(RdX ; RdY ), then, with high probability, the algorithm described above yields a surrogate operator ̂ F which satisfies the error bound 
+
+∥F −̂ F ∥L2  
+
+> μ(X;Y)
+
+≲ L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi +
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i + ( C + σ)
+
+[( dX
+
+N
+
+) 14
+
++
+
+( dY
+
+NY
+
+) 14
+
+]
+
++ C
+
+[( 32
+
+)k
+
+wks ∥̂ EY ◦ F ◦̂ DX ∥Hk    
+
+> ˆϱ(RdX;RdY)
+
++
+
+√ sM σ
+
+] (1.1) 
+
+with some constant C = C(∥F (0) ∥Y , L ). The numbers λF ♯μ i denote the PCA eigenvalues of the covariance operator of the pushforward measure F ♯μ , and ws denotes a weight decaying to zero as s → ∞ , depending on the decay of the λi. Note that s is determined via the amount of labeled training samples M through a log-linear relationship M ≳ s log( s). See (4.5) .
+
+In fact, the previous result follows from a more general error bound which holds for arbitrary Lipschitz operators and does not require any additional Sobolev regularity, see Theorem 6.1. We now summarize our main contributions. 3• Practicality: We present a fully data-driven algorithm to construct a polynomial surrogate operator for Lipschitz operators with Sobolev regularity from pointwise, noisy samples. The only assumption in the problem setup is that μ is a Gaussian measure, but its covariance structure is unknown and needs to be learned from data. Our algorithm employs linear least-squares fitting, and is therefore very computationally efficient. 
+
+• Weak assumptions: Our measure μ has unbounded support. This complicates the analysis but is the most adequate support condition under minimal assumptions on the input data distribution. This situation has, to best of our knowledge, not been adequately addressed in the literature so far, as existing results typically require bounded support assumptions. In addition, we also allow for arbitrary decay of the PCA eigenvalues λi, not just algebraic as typically considered in the literature. 
+
+• Full error analysis: The bound (1.1) takes into account all sources of errors originating from the model design and learning procedure. It bounds the overall approximation error by (empirical) PCA projection errors, an approximation error in latent space, and a noise error. It explicitly shows the effect of the (hyper-)parameters of the problem to each error term, thus enabling optimal design choices for practical applications. 
+
+• Optimal approximation rates: In the absence of the PCA error terms and noise, we show that the error bound (1.1) achieves optimal approximation rates. In fact, we argue that the approximation error admits a matching lower bound. We provide explicit examples how ws
+
+decays in s in the case of an infinite-dimensional input space, dim( X ) = ∞, and algebraically and exponentially decaying λi.
+
+• Spectral approximation property: The bound (1.1) reveals that the approximation error is determined by the weight wks in the case where the ̂ EY ◦ F ◦̂ DX is k-Sobolev regular. As the algorithm itself is independent of k, it thus automatically achieves faster convergence rates for higher regular Sobolev operators. In particular, for infinitely-smooth operators the error decays faster than wks as s → ∞ for any k.
+
+• Universality: Our algorithm chooses a certain polynomial space for Sobolev regular operators. However, it can be easily adapted to other regularity, e.g., mixed regularity, as well. In fact, our main theoretical contributions in their most general form consider arbitrary polynomial spaces and impose no regularity assumption on the operator. 
+
+• Numerical experiments: We provide empirical validation of our theoretical results by applying our algorithm to learn (i) the obstacle-to-solution operator of an obstacle problem and (ii) functionals of varying Sobolev regularity. 
+
+1.3 Related work 
+
+PCA methodologies for dimensionality reduction are prominent among classical reduced basis meth-ods [53]. In the context of operator learning, they are employed in [26, 66], though only for the decoder in the output space. The work [13] introduces PCA-Net, which applies empirical PCA for both the encoder and decoder in the input and output space, respectively, and is thus closest to the encoder-decoder scheme used in this work. Its theoretical properties are further analyzed in [34]. PCA-Net models the latent function ̂ f as a deep NN. In contrast, we use Hermite polynomials to 4obtain a fully NN-free approximation scheme. We mention in passing that there are other neural operator designs, which are not based on NN approximations, but instead, e.g., on the random feature model [51, 50, 36, 40], or polynomial chaos expansions [58]. A long list of recent works established that holomorphic (nonlinear) operators can be approx-imated efficiently, that is, with algebraic or even exponential convergence rates. This is both in terms of NN expression rate bounds [57, 56, 25] as well as sample complexity estimates [2, 5, 6, 7, 23, 11]. Such operators arise, e.g., as data-to-solution operators in parametric PDEs and in prob-lems of uncertainty quantification [3, Chpt. 4]. Algebraic convergence results are also available for approximating operators of special structure, such as linear operators [21, 48, 61], and pseudo-differential operators [17]. Complexity estimates for non-smooth operators, as we consider in this work, are given in [33, 37, 29, 8]. They reveal intrinsic curses of parametric or sample complexities for non-smooth operators on infinite-dimensional domains: no approximation algorithm can achieve an algebraically decaying worst-case error in terms of NN parameters or employed data samples. The experiments in the present work are, to the best of our knowledge, the first numerical evidence of this phenomenon, and ours is the first fully-data driven algorithm that achieves such rates, while also tackling practical issues such as noise and unknown μ. We also mention in passing the recent work [18], which establishes upper (subalgebraic) expression rate bounds with respect to a sub-gaussian input measure for the approximation of Fréchet differentiable operators with PCA-Net. A concise overview of current results in operator learning theory is given in [16]. The recovery of operators from finite noisy samples is studied in [41, 54, 10]. While the first two works only derive upper bounds with a focus on Lipschitz and holomorphic operators, respectively, the authors of [10] prove information-theoretic upper and matching (or near-matching) lower bounds for the minimax risk of Lipschitz and Hölder operators. Their findings again confirm in a minimax sense a curse of sample complexity for finitely regular operators. However, in contrast to our results, all these works require uniform boundedness assumptions for the objective operator. Moreover, they do not establish practical approximation algorithms nor provide any numerical results, as we do in this work. Weighted least-squares approximation and Christoffel sampling techniques, originally developed for scalar-valued approximations to achieve near-optimal sample complexities [19], have recently been generalized to the Hilbert-valued setting [3, 4, 1, 11]. An operator extension of Christoffel sampling is considered in [63]. But this work does not address the practical scenario where the measure μ is unknown, as we do in this work. It also does not consider algorithms that achieve concrete (and, as we establish, near-optimal) approximation rates for Sobolev operators, which is a major focus of this paper. The Gaussian setting in this paper is also adopted in [57] and [8, 29] to derive expression rate and sample complexity estimates for operator learning, respectively, and in [23] to study problems in uncertainty quantification with Gaussian random field inputs. However, these works are just theoretical studies and do not provide numerical evidence. In [44] the authors adopt the Gaussian setting to analyze approximation errors in derivative-informed operator learning strategies and also perform numerical experiments. However, in all the works listed above, the authors assume the Gaussian measure μ to be known. In contrast, we assume μ to be unknown and approximate it from data – a major asset of our Hermite-PCA method making it fully data-driven. 51.4 Outline 
+
+The rest of the paper is organized as follows. Section 2 introduces our setup and main problem in detail. In Section 3, we describe the surrogate operator construction and discuss the resulting Hermite-PCA algorithm. Section 4 contains our main result, Theorem 4.1, which is a detailed error analysis of the Hermite-PCA approximation for Gaussian Sobolev operators and which we empirically validate in numerical experiments in Section 5. In Section 6, we present a general error bound for the Hermite-PCA method, see Theorem 6.1. Together with an ℓ2-characterization of Gaussian Sobolev spaces in Section 7 we use this result to prove Theorem 4.1 in Section 8. We finally conclude in Section 9 with limitations and future work. The appendix provides a number of further definitions and results which are used in the main part of the paper. 
+
+# 2 Setup and main problem 
+
+We commence by presenting our setup in detail and state the main problem. 
+
+2.1 Setup 
+
+Let F : X → Y be an L-Lipschitz continuous operator between two separable Hilbert spaces for some L > 0, that is, 
+
+> ∥∥
+
+F (X) − F (X′)∥∥Y ≤ L∥∥X − X′∥∥X , ∀X, X ′ ∈ X .
+
+We assume that we can access F only through noisy, pointwise evaluation, 
+
+Y = F (X) + σE, 
+
+where the scalar σ ≥ 0 denotes the noise level, and E is a Y-valued random noise variable. 
+
+Assumption 2.1 (Input distribution) . The input data X is drawn from an unknown data dis-tribution, which we model as a centered, nondegenerate Gaussian measure μ on X . We write 
+
+Σ = Σ μ := EX∼μ[X ⊗ X] for the covariance operator of μ and assume, without loss of gener-ality, that tr(Σ) = 1 .
+
+Assumption 2.2 (Noise model) . We denote the distribution of E by ρ and assume that E is a centered subgaussian random variable with parameter Kρ = 1 (see below). 
+
+Recall that a random vector Z in a separable Hilbert space H is subgaussian with parameter 
+
+K > 0 if ∥Z∥H is subgaussian in the conventional sense, that is, 
+
+E[∥Z∥p
+
+> H
+
+]1/p ≤ K√p, ∀p ≥ 1. (2.1) We call the distribution of a subgaussian random variable with parameter K a subgaussian distri-bution with parameter K. As an example, the measure μ on X is subgaussian. Indeed, by [38, eq. (3.9)], we have 
+
+PX∼μ[∥X∥X > t ] = μ ({X ∈ X : ∥X∥X > t }) ≤ 4 exp 
+
+> (
+
+− t2
+
+8tr(Σ) 
+
+> )
+
+, ∀t ≥ 0. (2.2) A standard computation (see, e.g., the proof of [64, Prop. 2.6.1]) shows that this is equivalent to (2.1) for some parameter Kμ > 0, which differs from tr(Σ) only by an absolute constant. 6Remark 2.3 (Covariance operator of subgaussian distribution) . From (2.1) it follows, in partic-ular, that any subgaussian distribution on a separable Hilbert space H has finite second moment. This in turn implies that its covariance operator is a self-adjoint, positive semi-definite trace class operator. Consequently, by the spectral theorem, it has eigenvalues λ1 ≥ λ2 ≥ · · · ≥ 0, and the corresponding eigenvectors form an orthonormal basis of H.
+
+We write ν = ν(σ) for the distribution of Y = F (X) + σE , where X ∼ μ and E ∼ ρ are mutually independent. It follows directly from the moment condition (2.1) that ν is subgaussian with parameter Kν = ∥F (0) ∥Y +LK μ +σ. Notice that in the noiseless case, we have ν(σ = 0) = F ♯μ .
+
+2.2 Main problem 
+
+We now consider the approximation of F . We follow the standard operator learning approach and construct the surrogate operator ̂ F from three parts: (i) an encoder for the input space, ̂ EX : X → RdX ,(ii) a decoder for the output space, ̂ DY : Y → RdY ,(iii) and a latent space function ̂ f : RdX → RdY .Here, dX , d Y ∈ N, with dX ≤ dim( X ), dY ≤ dim( Y), denote the encoding and decoding dimension ,respectively. We then define the approximation ̂ F ≈ F as ̂
+
+F := ̂ DY ◦̂ f ◦̂ EX ,
+
+see Figure 1. In order to compute this approximation, we require three datasets. (a) To compute ̂ f , we generate M labeled data samples (Xi, Y i) ∈ X × Y with 
+
+Xi ∼i.i.d. μsamp , i = 1 , . . . , M (2.3) where μsamp is a custom sampling measure, which we will specify later on, and 
+
+Yi = F (Xi) + σE i, Ei ∼i.i.d. ρ, i = 1 , . . . , M, (2.4) are the corresponding noisy operator evaluations. We assume that the Ei and the Xj are mutually independent so that the Yi are independent and identically distributed. (b) To compute ̂ EX we require an additional amount of NX ≥ dX unlabeled data points ̂
+
+Xi ∼i.i.d. μ, i = 1 , . . . , N X .
+
+(c) To compute ̂ DY we require dY ≤ NY ≤ NX noisy labels ̂
+
+Yi = F (̂Xi) + σ̂ Ei,̂ Ei ∼i.i.d. ρ, i = 1 , . . . , N Y .
+
+Similarly as above, we assume that the ̂ Ei and the ̂ Xj are mutually independent so that the ̂
+
+Yi are i.i.d. with respect to ν.Throughout, we measure the accuracy of ̂ F using the L2
+
+> μ
+
+(X ; Y)-norm. We write L2
+
+> μ
+
+(X ; Y) for the Lebesgue-Bochner space of (equivalence classes of) strongly measurable operators F : X → Y with finite Bochner norm 
+
+∥F ∥L2  
+
+> μ(X;Y)
+
+:= 
+
+> (∫
+> X
+
+∥F (X)∥2 
+
+> Y
+
+dμ(X)
+
+> )1/2
+
+.
+
+Main problem. Assuming suitable (e.g., Sobolev) regularity of F , determine how large M , NX ,and NY should be in order to compute a surrogate ̂ F to a given accuracy in the L2
+
+> μ
+
+(X ; Y)-norm. 
+
+73 Construction of the approximation 
+
+We now describe the construction of ̂ F , which we divide into the three components (i), (ii), and (iii) from Section 2.2. 
+
+3.1 Encoder and decoder construction: PCA and empirical PCA 
+
+We compute ̂ EX and ̂ DY using empirical PCA, which we now describe. Recall that Σ = Σ μ is the covariance operator of μ. We write λμ 
+
+> 1
+
+≥ λμ 
+
+> 2
+
+≥ · · · > 0 for the corresponding PCA eigenvalues and 
+
+{ϕμi }dim( X ) 
+
+> i=1
+
+for the PCA eigenvectors, which form an orthonormal basis of X . To simplify notation, we write λμi = λi and ϕμi = ϕi if not specified otherwise. Given an encoding dimension dX , we define the true PCA encoder and decoder for X as, respectively, 
+
+EX (X) := ( ⟨X, ϕ 1⟩X , . . . , ⟨X, ϕ dX ⟩X ), ∀X ∈ X , and DX (x) := 
+
+> dX
+
+∑
+
+> i=1
+
+xiϕi, ∀x ∈ RdX . (3.1) The construction for the output space Y is based on the distribution ν of the random variable 
+
+Y = F (X) + E with X ∼ μ, E ∼ ρ. Its covariance operator is given by 
+
+Σν := E[( Y − E[Y ]) ⊗ (Y − E[Y ])] ,
+
+with eigenvalues λν 
+
+> 1
+
+≥ λν 
+
+> 2
+
+≥ · · · ≥ 0 and corresponding eigenvectors {ψi}dim( Y) 
+
+> i=1
+
+, which form an orthonormal basis of Y, see Remark 2.3. The associated true encoder and decoder mappings are given by, respectively, 
+
+EY (Y ) := ( ⟨Y, ψ 1⟩Y , . . . , 〈Y, ψ dY
+
+〉), ∀Y ∈ Y , and DY (y) := 
+
+> dY
+
+∑
+
+> i=1
+
+yiψi, ∀y ∈ RdY .
+
+Note, however, that EX and DY cannot be used for practical computations, as the measure μ is assumed to be unknown and hence, so are the basis functions ϕi and ψi. Instead, we use empirical PCA. Given N unlabeled data points ̂ Xi in (b) above, we first define the empirical measure and the associated empirical covariance operator by, respectively, 
+
+ˆμ := 1
+
+NX
+
+> NX
+
+∑
+
+> i=1
+
+δ̂ Xi and Σˆμ := 1
+
+NX
+
+> NX
+
+∑
+
+> i=1
+
+̂
+
+Xi ⊗̂ Xi.
+
+The latter operator has eigenvalues λˆμ 
+
+> 1
+
+≥ λˆμ 
+
+> 2
+
+≥ · · · ≥ 0 with λˆμi = 0 for all NX < i ≤ dim( X )
+
+and corresponding eigenvectors {̂ϕi}dim( X ) 
+
+> i=1
+
+, which form an orthonormal basis of X . If not specified otherwise, we write Σˆμ =̂ Σ and λˆμi = ˆλi in what follows. Given this, we define the empirical PCA encoder and decoder for X as, respectively, ̂
+
+EX (X) := ( ⟨X, ̂ ϕ1⟩X , . . . , ⟨X, ̂ ϕdX ⟩X ), ∀X ∈ X , and ̂ DX (x) := 
+
+> dX
+
+∑
+
+> i=1
+
+xî ϕi, ∀x ∈ RdX . (3.2) The construction for Y is analogous. Given NY data points ̂ Yi as in (c) above, we define the empirical covariance operator 
+
+Σˆν := 1
+
+NY
+
+> NY
+
+∑
+
+> i=1
+
+(̂ Yi − E[̂ Yi]) ⊗ (̂ Yi − E[̂ Yi]) ,
+
+8with eigenvalues λˆν 
+
+> 1
+
+≥ λˆν 
+
+> 2
+
+≥ · · · ≥ 0 with λˆνi = 0 for all NY < i ≤ dim( Y) and corresponding eigenvectors {̂ψi}dim( Y) 
+
+> i=1
+
+, which form an orthonormal basis of Y. The empirical PCA encoder and decoder for Y are defined as, respectively, ̂
+
+EY (Y ) := ( ⟨Y, ̂ ψ1⟩Y , . . . , ⟨Y, ̂ ψdY ⟩Y ), ∀Y ∈ Y , and ̂ DY (y) := 
+
+> dY
+
+∑
+
+> i=1
+
+yî ψi, ∀y ∈ RdY .
+
+3.2 Latent space approximation construction: Least-squares approximation with Hermite polynomials 
+
+Our latent space approximation ̂ f is constructed using certain orthogonal polynomials. We now describe this construction, along with the construction of the sampling measure μsamp . For n ∈ N0,we define the nth normalized (probabilist’s) Hermite polynomial on R by 
+
+Hn : R → R, Hn(x) := (−1) n
+
+√n! exp 
+
+( x2
+
+2
+
+) dn
+
+dx n exp 
+
+(
+
+− x2
+
+2
+
+)
+
+.
+
+The higher-dimensional Hermite polynomials are defined as products of the one-dimensional ones. Given d ∈ N, a sequence λ = ( λi)di=1 with λi > 0, and a multi-index γ = ( γi)di=1 ∈ Nd
+
+> 0
+
+, we define 
+
+Hγ,λ : Rd → R, Hγ,λ(x) := 
+
+> d
+
+∏
+
+> i=1
+
+Hγi
+
+( xi
+
+√λi
+
+)
+
+.
+
+Notice that the family {Hγ,λ}γ∈Nd 
+
+> 0
+
+forms an orthonormal basis of L2
+
+> ϱ
+
+(Rd), where ϱ = ϱλ := N (0 , λ)
+
+is the Gaussian measure with mean zero and diagonal covariance with ith diagonal entry λi.Let S ⊂ NdX 
+
+> 0
+
+be a set of size |S| = s. We will make a specific choice of S later. Then we consider a latent space approximation ̂ f as ̂
+
+f = ∑
+
+> γ∈S
+
+cγ Hγ,ˆλ,
+
+where ˆλ = ( ˆλi)dX 
+
+> i=1
+
+is the vector of empirical PCA eigenvalues and cγ ∈ RdY are vector-valued coefficients. We compute these via (weighted) least squares. With the above notation, let ˆϱ = ˆ ϱˆλ := 
+
+N (0 , ˆλ) and define the subspace 
+
+P = PRdY := 
+
+∑
+
+> γ∈S
+
+cγ Hγ,ˆλ : cγ ∈ RdY
+
+ ⊆ L2ˆϱ(RdX ; RdY ). (3.3) Now define the sampling measure on RdX
+
+dϱsamp := w−1 dˆ ϱ, where w(x) := 
+
+ 1
+
+s
+
+∑
+
+> γ∈S
+
+Hγ,ˆλ(x)2
+
+
+
+> −1
+
+, x ∈ RdX , (3.4) and the corresponding sampling measure on X
+
+μsamp := ̂ DX ♯ϱ samp .
+
+9Next, consider M labeled data samples (Xi, Y i) as in (a), and given by (2.3)-(2.4). Then we define ̂
+
+f as a minimizer of the weighted least-squares fit ̂
+
+f ∈ argmin 
+
+> p∈P
+
+1
+
+M
+
+> M
+
+∑
+
+> i=1
+
+w(̂EX (Xi)) ∥̂EY (Yi) − p(̂ EX (Xi)) ∥22. (3.5) 
+
+Remark 3.1 (Definition of μsamp ). The sampling measure ϱsamp is precisely the Christoffel sam-pling measure for the subspace P. Hence, drawing X1, . . . , X M ∼i.i.d. μsamp is a type of Christoffel sampling [1]. Christoffel sampling is a near-optimal random sampling strategy for least-squares ap-proximation in a given subspace. By doing so, we ensure that the weighted least-squares fit ̂ f is a quasi-best approximation from the subspace P whenever M scales log-linearly in s = |S|. Another key facet of this choice is that we can efficiently draw samples from μsamp , as it is a pushforward through the map ̂ DX of a measure ϱsamp that is an additive mixture of tensor-product probability measures. We discuss this further in Section 3.3. 
+
+In practice, (3.5) can be solved by solving a set of dY algebraic least-squares problems of size 
+
+M × s. Indeed, it is a short exercise to show that ̂
+
+f (x) = 
+
+ ∑
+
+> γ∈S
+
+ck 
+
+> γ
+
+Hγ,ˆλ(x)
+
+
+
+> dY
+> k=1
+
+, ck := ( ck 
+
+> γ
+
+)γ∈S ∈ argmin 
+
+> c∈Rs
+
+∥Ac − bk∥22, k = 1 , . . . , d Y , (3.6) where the weighted measurement matrix and vectors are given by 
+
+A =
+
+√
+
+w(xi)
+
+M Hγ,ˆλ(xi)
+
+ 
+
+> i∈[M],γ∈S
+
+∈ RM ×s, bk =
+
+√
+
+w(xi)
+
+M
+
+〈
+
+Yi,̂ ψi
+
+〉
+
+> Y
+
+ 
+
+> i∈[M]
+
+∈ RM , (3.7) and xi =̂ EX (Xi) for i ∈ [M ]. Here and elsewhere, we use the notation [d] = {1, . . . , d } and [∞] = N.It remains to specify the multi-index set S. This should be chosen to give as good an ap-proximation as possible from the resulting subspace P, which naturally depends on the regularity assumptions placed on F . In this work, we assume F has Sobolev regularity. As we shall show, in this case, a suitable choice of S is defined as follows. Suppose that ˆλdX > 0, introduce the sequence 
+
+ˆvγ := 
+
+1 + 
+
+> dX
+
+∑
+
+> i=1
+
+γi
+
+ˆλi
+
+
+
+> −1/2
+
+, γ ∈ NdX 
+
+> 0
+
+, (3.8) and let 
+
+ˆτ : N → NdX 
+
+> 0
+
+(3.9) be a bijection that gives a nonincreasing rearrangement, i.e., ˆvˆτ (1) ≥ ˆvˆτ (2) ≥ · · · > 0. Then we set 
+
+S = {ˆτ (1) , . . . , ˆτ (s)}. (3.10) This specific choice for S comes from the analysis of the approximation error. Later, in Section 4.3 we explain that it leads to an approximation error that decays with optimal rates in s under the stipulated regularity assumptions. 10 Algorithm 1 Hermite-PCA approximation 
+
+Input: 
+
+s ∈ N ▷ Approximation dimension 
+
+dX , d Y ∈ N ▷ Encoding and decoding dimension 
+
+M ∈ N ▷ Amount of labeled data samples 
+
+NX ∈ N, N X ≥ dX ▷ Amount of unlabeled data points 
+
+NY ∈ N, d Y ≤ NY ≤ NX ▷ Amount of additional labeled data samples 
+
+Output: Least-squares approximation ̂ F to F . 
+
+> 1:
+
+Draw NX points ̂ X1, . . . , ̂ XNX ∼i.i.d. μ. 
+
+> 2:
+
+Compute NY noisy operator evaluations ̂ Yi = F (̂Xi) + σ̂ Ei, i = 1 , . . . , N Y . 
+
+> 3:
+
+Compute ̂ EX ,̂ DX and ̂ DY ,̂ EY .This requires the computation of ˆλ1, . . . , ˆλdX > 0,̂ ϕ1, . . . , ̂ ϕdX , and ˆλν 
+
+> 1
+
+, . . . , ˆλνdY > 0,̂ ψ1, . . . , ̂ ψdY . 
+
+> 4:
+
+Compute the multi-index set S defined in (3.10) corresponding to the bijection ˆτ in (3.9).  
+
+> 5:
+
+Draw M points x1, . . . , xM ∼i.i.d. ϱsamp , where ϱsamp is as in (3.4), and set Xi = ˆDX (xi),
+
+i = 1 , . . . , M . 
+
+> 6:
+
+Compute M noisy operator evaluations Yi = F (Xi) + σE i, i = 1 , . . . , M . 
+
+> 7:
+
+Compute ̂ f via (3.6)-(3.7) and set ̂ F =̂ DY ◦̂ f ◦̂ EX .
+
+3.3 Algorithm and practical aspects 
+
+With all the pieces in place, we summarize the computation of ̂ F in Algorithm 1. A key facet of this algorithm is that the main steps can also be performed numerically. We now discuss these steps in more detail. 
+
+Step 1 assumes we are given N unlabeled samples from the unknown measure μ. This is a reasonable assumption in practice. In Step 2 we generate NY ≤ NX noisy evaluations of the target operator F . In Step 3 , we use the results of Steps 1 and 2 to compute the empirical encoders and decoders. This is done by first forming the empirical covariance operators Σˆμ and Σˆν and second computing, respectively, their first dX and dY eigenvalues and eigenvectors. These are operators on the Hilbert spaces X and Y, respectively. In practice, these spaces are normally discretized first using, for example, finite elements. In which case this computation involves computing the first dX
+
+and dY eigenvalues and eigenvectors of matrices of size DX × DX and DY × DY , respectively, where 
+
+DX , D Y are the sizes of the discretizations. 
+
+Step 4 requires the computation of the nonincreasing rearrangement ˆτ in (3.9). This can be done efficiently by using a Dijkstra-like algorithm on the weighted lattice NdX 
+
+> 0
+
+, where all edges in direction i ∈ [dX ] carry the weight 1/λ i, to iteratively select those nodes which can be reached from the origin with the smallest costs. 
+
+Step 5 involves sampling M points i.i.d. from ϱsamp . This measure can be expressed as an additive mixture (with weights 1/s ) of the probability measures 
+
+Hγ,ˆλ(x)2 dˆ ϱ(x) = 
+
+> dX⊗
+> i=1
+
+Hγi 
+
+> (
+
+xi
+
+> √
+
+ˆλi
+
+> )2
+
+1
+
+> √
+
+2πˆλi
+
+e−x2  
+
+> i/(2 ˆλi)
+
+dxi,
+
+which are tensor products of one-dimensional probability measures. Thus, to sample x ∼ ϱsamp ,one proceeds as follows. First, draw an index γ ∈ S uniformly at random from all possible |S| = s
+
+indices. Then, draw x ∼ Hγ,ˆλ(x)2 dˆ ϱ(x) by drawing its components xi independently from the 11 corresponding univariate measures. Note that this latter step can be efficiently carried out via, for example, inverse transform sampling [49]. Having done this, Step 6 just involves sampling F at the sample points X1, . . . , X M . Finally, in Step 7 we compute ̂ f by solving the algebraic least-squares problems (3.6)-(3.7). These can be solved efficiently via, e.g., conjugate gradients (notice that our theoretical results also guarantee that A is well-conditioned) in O(sM d Y ) flops. 
+
+# 4 Hermite-PCA approximation of Sobolev operators 
+
+We now state and discuss our main result on the approximation of Sobolev operators via the Hermite-PCA method, Algorithm 1. 
+
+4.1 Main result 
+
+To state this result, we need several further concepts. Let Γ := {γ ∈ NN 
+
+> 0
+
+: |supp( γ)| < ∞} , where 
+
+supp( γ) = {i ∈ N : γi̸ = 0 }, be the set of infinite multi-indices with only finitely-many nonzero entries. Define the weights 
+
+vγ := 
+
+1 +  
+
+> dim( X)
+
+∑
+
+> i=1
+
+γi
+
+λi
+
+
+
+> −1/2
+
+, γ ∈ Ndim( X )0 , (4.1) and let 
+
+τ : N → Ndim( X )0 (4.2) be a bijection that gives a nonincreasing rearrangement, i.e., vτ (1) ≥ vτ (2) ≥ · · · > 0. If dim( X ) = 
+
+∞, we replace Ndim( X )0 by Γ. As we see in a moment, this rearranged sequence determines the error due to approximating F in a finite-dimensional subspace of Hermite polynomials. 
+
+Theorem 4.1 (Error bound for Hermite-PCA approximation of Sobolev operators) . There exist constants c1, c 2, c 3 > 0 such that the following holds. Let s ≥ 3 and 0 < ϵ < 1 be fixed. Suppose that 
+
+NX ≥ c1 max 
+
+{
+
+dX , d 2 
+
+> X
+
+(λdX )−2, (λdX )−8(s log( s) + | log( NX )| + s| log( λdX )|)4}
+
+log(12 /ϵ ) (4.3) 
+
+NX ≥ NY ≥ c2dY log(12 /ϵ ) (4.4) 
+
+M ≥ c3s log(12 s/ϵ ) (4.5) 
+
+Let F ∈ L2
+
+> μ
+
+(X ; Y) be L-Lipschitz and suppose that ̂ EY ◦ F ◦̂ DX ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ) for some k ∈
+
+N. Then, with probability at least 1 − ϵ in the draw of ̂ X1, . . . , ̂ XNX ∼ μ,̂ Y1, . . . , ̂ YNY ∼ ν and 
+
+X1, . . . , X M ∼ μsamp , the approximation ̂ F defined by Algorithm 1 uniquely exists and satisfies 
+
+∥∥∥F −̂ F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≲ L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi +
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i
+
++ ( ∥F (0) ∥Y + L(1 + Kμ) + σ)
+
+( dX log(12 /ϵ )
+
+NX
+
+) 14
+
++
+
+( dY log(12 /ϵ )
+
+NY
+
+) 14
+
+
+
++ 1 + ∥F (0) ∥Y + L
+
+√ϵ
+
+[( 32
+
+)k
+
+vk 
+
+> τ(s+1)
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥Hk    
+
+> ˆϱ(RdX;RdY)
+
++
+
+√ sM σ
+
+]
+
+.
+
+12 4.2 Discussion of the error bound 
+
+Theorem 4.1 decomposes the error F − ˆF into four main terms 
+
+∥∥∥F −̂ F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≲ Err true-PCA + Err emp-PCA + Err approx + Err noise . (4.6) These are, respectively, a true PCA projection error 
+
+Err true-PCA := L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi +
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i , (4.7) an empirical PCA projection error 
+
+Err emp-PCA := ( ∥F (0) ∥Y + L(1 + Kμ) + σ)
+
+( dX log(12 /ϵ )
+
+NX
+
+) 14
+
++
+
+( dY log(12 /ϵ )
+
+NY
+
+) 14
+
+
+
+an approximation error 
+
+Err approx := 1 + ∥F (0) ∥Y + L
+
+√ϵ
+
+( 32
+
+)k
+
+vk 
+
+> τ(s+1)
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥Hk   
+
+> ˆϱ(RdX;RdY)
+
+and a noise error 
+
+Err noise := 1 + ∥F (0) ∥Y + L
+
+√ϵ
+
+√ sM σ. (4.8) 
+
+The term Err true-PCA . This is the error due to the truncation dX ≤ dim( X ) and dY ≤ dim( Y)
+
+incurred by considering finitely-many PCA terms. As expected from standard results [35], it behaves like the sum of the omitted PCA eigenvalues. Note that the eigenvalues λF ♯μ i might exhibit very slow decay. However, if we know that F maps to some function space of higher regularity (e.g., H1), then it can be shown that the PCA truncation error decays at least polynomially in dY , see [34, Prop. 15]. 
+
+The term Err emp-PCA . This term accounts for computing the PCA eigenvalues and eigenfunc-tions from samples and scales like (NX )−1/4 and (NY )−1/4, where NX is the amount of unlabeled samples ̂ Xi ∼ μ used to compute the PCA basis of X and NY is the amount of labeled samples ̂
+
+Yi = F (̂ Xi) + σ̂ Ei used to compute the PCA basis of Y. This scaling is expected from general bounds for empirical PCA, see [34]. Notice that NX and NY must also satisfy (4.3) and (4.4), respectively. The latter is quite reasonable, as it scales linearly in dY , the dimension of the PCA truncation. The former condition is more stringent. In particular, it suggests a scaling in s that is at least quartic. However, in practice (see Section 5) a log-linear scaling appears to suffice. We consequently believe this scaling is an artefact of our analysis. Improving it is a topic for future work. 13 The term Err approx . This term is controlled by the parameter s and the weight vτ (s+1) , the former being related log-linearly to M via (4.5). Put another way, with log-linear oversampling of 
+
+s in the amount of labeled samples, one achieves an approximation rate specified by the behaviour 
+
+vτ (s+1) as s → ∞ .The precise decay rate of vτ (s+1) is determined by the decay of the PCA eigenvalues λi. We elaborate more on this behavior in the next section. A key point is that the approximation error behaves like vτ (s+1) raised to the power k, where k denotes the Sobolev regularity. This holds for any 
+
+k, thereby demonstrating the spectral approximation properties of Hermite-PCA approximation. Notice, in particular, that Algorithm 1 is independent of k.The sequence vγ and rearrangement τ are closely related to the corresponding finite-dimensional quantities ˆvγ and ˆτ defined in (3.8) and (3.9) that are used to construct the approximation ˆF via (3.10). One can consider ˆvγ and ˆτ as approximations to the ‘true’ terms vγ and τ stemming from, firstly, the dimension truncation dX ≤ dim( X ) and, secondly, the approximate computation of the true PCA eigenvalues λi via the empirical PCA eigenvalues ˆλi. In particular, these quantities coincide when dX = dim( X ) and ˆλi = λi, ∀i. Crucially, Theorem 4.1 estimates the error in terms of the ‘true’ weight vτ (s+1) , with an additional additive term that accounts for the empirical PCA error. As a result, our method achieves near-optimal approximation rates for any level of empirical PCA error. We discuss the near-optimality of these rates further in Section 4.3 below. 
+
+The term Err noise . This term scales like the noise standard deviation σ multiplied by the factor √s/M . In particular, it tends to zero as M → ∞ for fixed s, thereby demonstrating the denoising properties of Hermite-PCA approximation in the setting of statistical noise considered in this work. For other works addressing statistical noise in operator learning, see [10, 54]. 
+
+4.3 Optimal approximation of Sobolev operators 
+
+As noted, in the absence of noise and empirical PCA error, the error F −̂ F is determined by the quantity vk 
+
+> τ(s+1)
+
+, which is itself controlled by the Sobolev regularity k and the true PCA eigenvalues 
+
+λi. It transpires that this quantity is fundamental: no algorithm that uses s linear measurements (which may or may not be pointwise evaluations) can achieve a faster rate of approximation in the 
+
+L2
+
+> μ
+
+-norm uniformly for all Sobolev operators. More specifically, vk  
+
+> τ(s+1)
+
+is a lower bound for the 
+
+(adaptive) s-width for the class of Sobolev operators Hkμ (X ; Y). We present this result in Appendix B. It follows from adapting arguments in [8], which considered the case k = 1 only. A key consequence is that Hermite-PCA approximation achieves the optimal worst-case rates for learning Sobolev operators from M samples, up to the log-linear oversampling amount (4.5). This also shows that pointwise samples, sampled randomly from an appropriate distribution, constitute 
+
+near-optimal information for this problem. Moreover, as noted above, Hermite-PCA achieves this in a spectral fashion: it attains these near-optimal rates for any k and without any knowledge of k.
+
+4.4 Concrete rates of approximation 
+
+In applications, e.g., in the context of (functional) PCA [55, 47], the PCA eigenvalues λi are typically assumed to exhibit algebraic or exponential decay. The following bounds (4.9), (4.10) follow from [8, Thm. 4.7] in the case of infinite-dimensional domains. By Lemma 7.4, they hold for 14 finite-dimensional domains as well. If λi = i−α for some α > 1, then for every ϵ > 0,
+
+vτ (s+1) ≲ log( s)− α 
+
+> 2+ϵ
+
+, s → ∞ . (4.9) If λi = e−αi β
+
+for some α, β > 0, then for every ϵ > 0,
+
+vτ (s+1) ≲ e− 12 α 1   
+
+> β+1 (β′log( s)) 1/β ′+ϵ
+
+, s → ∞ with β′ := 1 + 1
+
+β . (4.10) These bounds yield estimates for the approximation error in terms of the approximation dimen-sion s. More concretely, if λi = i−α, then 
+
+Err approx ≲F,k,ϵ log( s)− kα  
+
+> 2+ϵ
+
+, s → ∞ (4.11) subject to the log-linear scaling (4.5). The underlying logarithmic decay is imposed by the algebraic decay of the eigenvalues, while the decay rate α of the eigenvalues and Sobolev regularity k of the target operator determine the precise exponent: faster decay and/or higher Sobolev regularity ensure faster convergence. Similarly, if λi = e−αi β
+
+, then 
+
+Err approx ≲F,k,ϵ e− k     
+
+> 2α1
+> β+1 (β′log( s)) 1/β ′+ϵ
+
+, s → ∞ . (4.12) Note that in both cases, the decay is only subalgebraic in M . In fact, this phenomenon is inde-pendent of the decay of the λi and constitutes an intrinsic curse of sample complexity on infinite-dimensional domains: Regardless of the decay rate of the PCA eigenvalues λi, the quantity vτ (s+1) 
+
+can only decay subalgebraically as M → ∞ . For further details, we refer to [8]. 
+
+4.5 The regularity condition 
+
+Theorem 4.1 assumes the Sobolev regularity ̂ EY ◦ F ◦̂ DX ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ). This may be less than desirable, as it pertains to the latent space function ̂ EY ◦ F ◦̂ DX and the measure ˆϱ = N (0 , ˆλ) is defined in terms of the empirical PCA eigenfunctions ˆλi, as opposed to their true counterparts λi.Ideally, one would consider Sobolev regularity F ∈ Hkμ (X ; Y) on the underlying operator F with respect to the underlying Gaussian measure μ. However, this does not appear straightforward within this framework, where regularity of the encoded function appears critically important to address the errors stemming from the approximation of the true PCA eigenvalues and eigenfunctions. It is a short argument to show that F ∈ Hkμ (X ; Y)̸ ⇒̂ EY ◦ F ◦̂ DX ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ), in general. This raises the question of what kinds of regularity assumptions on F imply that ̂ EY ◦ F ◦̂
+
+DX ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ). Fortunately, assuming a small amount of additional regularity is sufficient. In Appendix C we show that the class Ckμ-adm (X ; Y) consisting of Ck-operators whose derivatives do not grow too fast automatically satisfy ̂ EY ◦ F ◦̂ DX ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ). As a special case, this includes the class Ck
+
+> Lip
+
+(X ; Y) of Ck-operators whose derivatives are Lipschitz continuous. On the other hand, it remains an open problem to determine whether Hkμ (X ; Y)-regularity is sufficient to achieve optimal approximation rates in the practical setting studied in this paper: namely, where μ is Gaussian but its covariance structure is unknown and therefore can only be estimated from samples. 15 4.6 Further discussion 
+
+Several other aspects of Theorem 4.1 warrant further discussion. First, notice that the result require 
+
+F to be L-Lipschitz. This is a standard assumption used in encoding-decoding approaches to opera-tor learning to bound errors stemming from approximate encoders and decoders. Second, Theorem 4.1 presents an error bound holding in high probability. One could also derive error bounds in ex-pectation using standard techniques from the analysis of least-squares approximation from random samples. See [1]. Third, notice that the approximation and noise error terms scale like 1/√ϵ in the failure probability ϵ. This stems from the application of Markov’s inequality in the analysis of the least-squares problem (3.5). While there are ways to mitigate this scaling [1], these generally require faster, algebraic and/or L∞-norm convergence of best approximations in P to the target operator. Neither generally holds in the case of Sobolev operators, as elaborated previously. Fourth, we men-tion that there are ways to reduce the log-linear s-scaling of M to a linear scaling [1]. Incorporating them into the Hermite-PCA method is left to future work. 
+
+# 5 Numerical experiments 
+
+We present two different experiments which illustrate the validity of the theoretical error bound in Theorem 4.1 in practice. In the first experiment, we consider an obstacle problem on the one-dimensional unit interval. More specifically, we approximate the obstacle-to-solution operator as-sociated to minimizing the Dirichlet energy of functions under a unilateral side constraint. We show how each of the error terms (4.7)–(4.8) directly influences the overall approximation error via (4.6), empirically validating our theoretical findings. In the second experiment, we demonstrate the spectral property of our algorithm by approximating Gaussian Sobolev functionals of varying regularity. In each experiment, we use M = s log( s) labeled training samples (Xi, Y i) ∈ X ×Y as in (2.3), (2.4) for the least-squares fit and 2000 unseen labeled test samples from μ ⊗ ν to obtain a Monte Carlo estimate for the relative test error ∥F −̂ F ∥L2 
+
+> μ(X;Y)
+
+/∥F ∥L2 
+
+> μ(X;Y)
+
+. We run each experiment 10 times with different random seeds, but same test set, and plot the mean approximation error along with its one-standard-deviation-band (as shaded region) on a log-log-scale. 
+
+5.1 Obstacle problem in 1D 
+
+We consider the problem of minimizing the Dirichlet energy functional I(u) := 12  
+
+> ∫10
+
+(u′(x)) 2 dx
+
+among all functions u which belong to the set A := {w ∈ H10 (0 , 1) : w ≥ v a.e. in (0 , 1) }, where 
+
+v ∈ H10 (0 , 1) is a given obstacle function. Equivalently, we seek the solution u ∈ A of the variational inequality ∫ 10
+
+u′(w′ − u′) d x ≥ 0, ∀w ∈ A .
+
+It is easy to see that such a solution exists and is unique. Hence, the obstacle-to-solution operator 
+
+F : H10 (0 , 1) → H10 (0 , 1) , v 7 → F (v) = u, 
+
+is well-defined. It is well-known from the regularity theory of obstacle problems that F is Lipschitz continuous, but has no higher global regularity, see [22, 46]. We can thus conclude that the latent space function ̂ EY ◦ F ◦̂ DX belongs to H1ˆϱ (RdX ; RdY ), see Appendix C, but can generally not expect higher Sobolev regularity. 16 Next, we describe our experimental setup. We parametrize the input and output functions by 
+
+10 sine basis functions in H10 (0 , 1) . We solve the obstacle problem computationally by applying the projected Gauss-Seidel method on a mesh with 257 nodes to solve the corresponding Hamilton-Jacobi equation. We take λi ≍ i−2 and normalize, such that ∑10  
+
+> i=1
+
+λi = 1 . We apply both true and empirical PCA to encode (decode) the input (output) functions. With true PCA, there is no empirical projection PCA error, i.e., Err emp-PCA = 0 , and we can individually study the influence of the remaining error terms Err true-PCA , Err approx , and Err noise on the overall Hermite-PCA approxi-mation error. In this case, the PCA basis functions in X (Y) are just given by the first dX (dY ) sine basis functions. In real-world applications, we of course have no full knowledge of the input and output functions and the true PCA basis functions. To model this situation, we apply empirical PCA and discretize the input and output functions via 128 piecewise linear finite element functions. See Figure 2 for evaluations of the learned obstacle-to-solution operator at a test obstacle. 
+
+0 0.2 0.4 0.6 0.8 1
+
+0
+
+0.1
+
+0.2
+
+x
+
+> y
+> obstacle true sol. approx. sol.
+
+(a) Noiseless case; σ = 0 , s = 1000 
+
+0 0.2 0.4 0.6 0.8 1
+
+0
+
+0.1
+
+0.2
+
+x
+
+> y
+> obstacle
+> true sol.
+> approx. sol.
+
+(b) Noisy case; σ = 0 .2, s = 1000 
+
+Figure 2: Obstacle problem. Evaluating the Hermite-PCA surrogate obstacle-to-solution opera-tor, learned from 1000 noiseless (left) and noisy (right) training samples, respectively, at an unseen test obstacle yields an approximated solution to the obstacle problem. The blue curve is the mean of the outputs of 10 surrogate operators trained with different random seeds. The blue shaded region indicates the one-standard-deviation-band (barely visible in the noiseless case). 
+
+True PCA: Approximation and noise error. We first set dX = dY = 10 . In this case, there is no PCA projection error, i.e., Err true-PCA = 0 , and the overall Hermite-PCA approximation error is controlled by Err approx + Err noise . In the noiseless case ( σ = 0 ) so that Err noise = 0 , we expect by (4.11) the error term Err approx to be of order O(log( s)−1). This is empirically confirmed by the results in Figure 3a. In the presence of noise ( σ > 0) our choice of M yields Err noise ≍ log( s)−1/2,see (4.8), thus dominating Err approx . This is confirmed by Figure 3b, where we set σ = 0 .2 and chose the noise distribution to be the standard normal distribution ρ = N (0 , I 10 ).
+
+True PCA: Projection errors. The true PCA projection error term Err true-PCA , as described in (4.7), is composed of a projection error in X , given by 
+
+√∑dim( X )  
+
+> i=dX+1
+
+λi, and a projection error in 
+
+Y, given by 
+
+√∑dim( Y)  
+
+> i=dY+1
+
+λF ♯μ i . To study both terms separately, we set dX = 5 , dY = 10 and dX = 10 ,
+
+dY = 5 , respectively. To avoid any noise errors, we set σ = 0 . As Err true-PCA is independent of s, it dominates the Hermite-PCA approximation error for sufficiently large s, which is reflected by the flattening of the error curves in Figure 4. 17 10 1 10 2 10 3
+
+10 −0.8
+
+10 −0.6
+
+10 −0.4
+
+s
+
+> Relative  L2
+> μ error
+
+Mean error 
+
+≍ log( s)−1
+
+(a) Approximation error 
+
+dX = dY = 10 , σ = 0 
+
+10 1 10 2 10 3
+
+10 0
+
+10 −0.2
+
+10 −0.4
+
+s
+
+> Relative  L2
+> μ error
+
+Mean error 
+
+≍ log( s)−1/2
+
+(b) Noise error 
+
+dX = dY = 10 , σ = 0 .2
+
+Figure 3: Approximation and noise error. In the absence of true and empirical PCA projection errors, the Hermite-PCA approximation converges in the noiseless case (left) at the rate predicted by the approximation error term Err approx . In the presence of noise (right), it converges at the rate predicted by the dominating noise error term Err noise .
+
+10 1 10 2 10 3
+
+10 −0.8
+
+10 −0.6
+
+10 −0.4
+
+sRelative  L2
+
+> μ error
+
+Mean error 
+
+≍ log( s)−1
+
+(a) True PCA projection error in X
+
+dX = 5 , dY = 10 , σ = 0 
+
+10 1 10 2 10 3
+
+10 −0.8
+
+10 −0.6
+
+10 −0.4
+
+s
+
+> Relative  L2
+> μ error
+
+Mean error 
+
+≍ log( s)−1
+
+(b) True PCA projection error in Y
+
+dX = 10 , dY = 5 , σ = 0 
+
+Figure 4: True PCA projection errors. In the absence of empirical PCA projection and noise errors, the Hermite-PCA approximation is dominated for sufficiently large s by the true PCA pro-jection error term Err true-PCA . Since the latter is independent of s, the Hermite-PCA approximation error flats out, as predicted, in the presence of projection errors in X (left) or in Y (right). 
+
+Empirical PCA. In order to study the empirical PCA projection error Err emp-PCA and avoid other error sources, we again set dX = dY = 10 and σ = 0 . We check the hypothesis formulated in Section 4.2 that the at least quartic s-scaling for NX in (4.3) is pessimistic in practice. To this end, we construct the empirical PCA encoder and decoder using NX = dX s log( s) samples from μ and 
+
+NY = dY log( s) corresponding labels from F ♯μ . The results in Figure 5 suggest that this log-linear 
+
+s-scaling of NX and logarithmic s-scaling of NY is sufficient in practice to obtain an empirical PCA projection error of order O(log( s)−1) – the same order as the approximation error term Err approx .In summary, the findings in this section illustrate the excellent match between the empiri-cally observed convergence of the Hermite-PCA approximation algorithm and our theoretical error bounds. In fact, the algorithm seemingly performs even better in practice – showing near-optimal scaling in all hyperparameters – than predicted by our theory. 18 10 1 10 2 10 3
+
+10 −0.8
+
+10 −0.6
+
+10 −0.4
+
+s
+
+> Relative  L2
+> μ error
+
+Mean error 
+
+≍ log( s)−1
+
+Empirical PCA projection error; dX = dY = 10 , σ = 0 
+
+Figure 5: Empirical PCA projection error. In the absence of true PCA projection and noise errors, the Hermite-PCA approximation error is bounded by the approximation error term Err approx 
+
+and the empirical PCA projection error term Err emp-PCA . A log-linear (logarithmic) s-scaling of the number of data points (and corresponding labels) which are necessary for empirical PCA seemingly suffices for Err emp-PCA to decay at least as fast in s as Err approx . Consequently, the Hermite-PCA approximation decays at the rate predicted by Err approx .
+
+5.2 Approximation of functionals 
+
+To empirically confirm the influence of the Sobolev order k on the approximation error, as predicted in (4.11), (4.12), we approximate parametric functionals whose parameter allows to control the Sobolev regularity. Let ϱ = ϱλ := ⊗dX 
+
+> i=1
+
+N (0 , λ i). For a ∈ ℓ2(N) and b > 0 define the functional 
+
+Fb : ℓ2(N) → R, Fb(x) = |⟨ a, x⟩ℓ2 |b ,
+
+as well as the input-truncated function fb(x) := | ∑dX 
+
+> i=1
+
+aixi|b for x ∈ RdX . The next result shows how the parameter b influences the Sobolev regularity of fb.
+
+Proposition 5.1. We have fb ∈ Hkϱ (RdX ) and fb̸ ∈ Hk+1  
+
+> ϱ
+
+(RdX ) if and only if k − 12 < b ≤ k + 12 .Proof. By Proposition A.4, it suffices to prove that fb is k-times differentiable almost everywhere and all derivatives up to order k are locally integrable if and only if k − 12 < b ≤ k + 12 . Let us set 
+
+h(x) := ∑dX 
+
+> i=1
+
+aixi, x ∈ RdX , and gb(t) := |t|b, t ∈ R, so that fb = gb ◦ h. The derivatives of g are given by 
+
+g(m) 
+
+> b
+
+(t) = ( b)j |t|b−j sign( t)j , ∀t̸ = 0 , j ∈ [k],
+
+where we denote by (b)j := b(b − 1) · · · (b − j + 1) the falling factorial. Moreover, 
+
+Dj fb(x)( z1, . . . , zj ) = g(j) 
+
+> b
+
+(h(x)) 
+
+> j
+
+∏
+
+> ℓ=1
+
+
+
+> dX
+
+∑
+
+> i=1
+
+aizℓ,i 
+
+ , z1, . . . , zj ∈ RdX ,
+
+for every x ∈ { x ∈ RdX : h(x) = 0 }. Note that the latter set is a ϱ-null set. This shows that f is 
+
+Ck-regular ϱ-a.e. for any k ∈ N. The Hilbert-Schmidt norm of the jth derivative is given by 
+
+∥∥∥Dj fb(x)
+
+∥∥∥2   
+
+> HS j(RdX)
+
+= ( b)2 
+
+> j
+
+|h(x)|2( b−j) ∥a∥2j 
+
+> 2
+
+.
+
+19 Integrating over RdX and changing coordinates yields 
+
+∫
+
+> RdX
+
+|h(x)|2( b−j) dϱ(x) = 
+
+∫
+
+> R
+
+|t|2( b−j) dN (0 ,
+
+> dX
+
+∑
+
+> i=1
+
+a2 
+
+> i
+
+λi)( t),
+
+which is finite if and only if b > j − 12 . This shows the claim. 
+
+10 1 10 2 10 3
+
+10 −0.6
+
+10 −1
+
+10 −1.4
+
+sRelative  L2
+
+> μ error
+
+Mean error 
+
+≍ e−√log( s)/2
+
+(a) Approximation of F1− 12 +0 .001 
+
+k = 1 , dX = 10 , σ = 0 
+
+10 1 10 2 10 3
+
+10 −0.6
+
+10 −1
+
+10 −1.4
+
+10 −1.8
+
+s
+
+> Relative  L2
+> μ error
+
+Mean error 
+
+≍ e−2√log( s)/2
+
+(b) Approximation of F2− 12 +0 .001 
+
+k = 2 , dX = 10 , σ = 0 
+
+10 1 10 2 10 3
+
+10 −0.6
+
+10 −1
+
+10 −1.4
+
+10 −1.8
+
+s
+
+> Relative  L2
+> μ error
+
+Mean error 
+
+≍ e−3√log( s)/2
+
+(c) Approximation of F3− 12 +0 .001 
+
+k = 3 , dX = 10 , σ = 0 
+
+Figure 6: Spectral approximation. In the absence of PCA projection and noise errors the Hermite-PCA approximation decays in a spectral fashion at the rate predicted by the approxi-mation error term Err approx – the smoother the objective mapping, the faster the convergence. More specifically, the Sobolev order k enters the decay rate linearly. In our experiments, we set ai = i−1, b = k − 12 + 0 .001 , and consider the cases k = 1 , 2, 3.We truncate the input sequences after 10 elements and use true PCA for the encoder in X with 
+
+dX = 10 . As dY = 1 , there is no decoding in Y. To avoid noise errors, we set σ = 0 . Consequently, the only non-vanishing error term is the approximation error Err approx . We take λi ≍ e−i and normalize such that ∑10  
+
+> i=1
+
+λi = 1 . By (4.10), we expect the approximation error to be of order 
+
+O(e−k√log( s)/2). This is reflected by the results in Figure 6. An interesting observation, most notable in Figures 6b, 6c, is the step-like decrease of the mean error curve. This is expected behavior, as the algorithm constructs the surrogate operator based on the index set S = {ˆτ (1) , . . . , ˆτ (s)} corresponding to the s largest weights vˆτ (i). This choice of S
+
+is asymptotically optimal in the sense that it yields the optimal error vk  
+
+> τ(s+1)
+
+as s → ∞ . Locally, 20 however, consecutive weights may have values close to each other. In this case, increasing s only leads to a slight decrease of the error and therefore to the formation of steps in the error curve. Overall, the findings in this section confirm a major facet of the Hermite-PCA approximation algorithm: its spectral approximation property. The algorithm itself is independent of the Sobolev order k, but it automatically yields faster convergence the smoother the objective operator is. The empirically observed decay rates match the rates predicted by our theory. 
+
+# 6 A general error bound for Hermite-PCA approximation 
+
+The next three sections of this paper are devoted to the proof of Theorem 4.1. First, in this section we establish a general error bound, Theorem 6.1, for the Hermite-PCA approximation defined in Algorithm 1, without making any regularity assumptions on F and also allowing for an arbitrary multi-index set S in the definition of the subspace P in (3.3). This derives the desired error bound, up to a best approximation error of the encoded function ̂ EY ◦ F ◦̂ DX in P. To analyze this term, we require an ℓ2-characterization of Gaussian Sobolev spaces in terms of Hermite polynomial coefficients, in tandem with several estimates for the decay of the weight sequences that arise in this characterization. This is the topic of Section 7. Finally, in Section 8 we combine these two pieces to establish Theorem 4.1. 
+
+Theorem 6.1 (General error bound for Hermite-PCA approximation) . Let Υ > 0 and 0 < δ, ϵ < 1
+
+be fixed and S ⊂ NdX 
+
+> 0
+
+be such that s := |S| ≥ 2 and m(S) := max γ∈S ∥γ∥1 ≥ 3. Suppose that 
+
+NX ≥ max 
+
+{
+
+C1dX log(12 /ϵ )Υ −4, C 22 log(6 /ϵ )κ−2(λdX )−2}
+
+(6.1) 
+
+with parameter κ > 0 satisfying 
+
+κ ≤ min 
+
+{
+
+1 − 121/d X
+
+, λ3
+
+> dX
+
+142 2
+
+(
+
+m(S) log( m(S)) + log( s) + |log(Υ) | +
+
+√
+
+|log(Υ) | + m(S) |log( λdX )|
+
+)−2}
+
+(6.2) 
+
+where C1 is the constant from Proposition 6.3 and C2 the constant from Theorem 6.8. Moreover, suppose that 
+
+NX ≥ NY ≥ C1dY log(12 /ϵ )Υ −4 (6.3) 
+
+and 
+
+M ≥ Cδs log(12 s/ϵ ), Cδ = ((1 + δ) log(1 + δ) − δ)) −1. (6.4) 
+
+Let F ∈ L2
+
+> μ
+
+(X ; Y) be L-Lipschitz and suppose that 
+
+˜Υ = 
+
+(
+
+1 + 
+
+√ 6sM ϵ 
+
+11 − δ
+
+)
+
+inf 
+
+> p∈P
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY ) + σ
+
+√ 12 sM ϵ 
+
+11 − δ
+
+where P is as in (3.3) with index set S. Then, with probability at least 1 − ϵ in the draw of ̂
+
+X1, . . . , ̂ XNX ∼ μ,̂ Y1, . . . , ̂ YNY ∼ ν, and X1, . . . , X M ∼ μsamp , the approximation ̂ F defined by Algorithm 1 uniquely exists and satisfies 
+
+∥∥∥F −̂ F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≤ L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi + LK μΥ + 
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i + ( ∥F (0) ∥Y + LK μ + σ)Υ + 4 ˜Υ + 5 CF Υ( ˜Υ + CF )
+
+where CF = ∥F (0) ∥Y + 2 L.
+
+21 6.1 Overview of the proof of Theorem 6.1 
+
+The remainder of this section is devoted to the proof of Theorem 6.1. By the triangle inequality, we can split the total error into three terms, 
+
+∥∥∥̂ F − F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≤
+
+∥∥∥̂ F −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX
+
+∥∥∥L2 
+
+> μ(X;Y)
+
++
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX −̂ DY ◦̂ EY ◦ F
+
+∥∥∥L2 
+
+> μ(X;Y)
+
++
+
+∥∥∥̂ DY ◦̂ EY ◦ F − F
+
+∥∥∥L2 
+
+> μ(X;Y)
+
+=: Err A + Err X + Err Y .
+
+(6.5) The right-hand side consists of the the approximation error Err A and empirical PCA projection errors Err X and Err Y on X and Y, respectively. Recall that F is L-Lipschitz and observe that the encoders and decoders are all 1-Lipschitz by construction. Therefore, we can simplify these error terms as follows: Err X ≤ L∥̂DX ◦̂ EX − I X ∥L2  
+
+> μ(X;X)
+
+, (6.6) Err Y =
+
+∥∥∥̂ DY ◦̂ EY − I Y
+
+∥∥∥L2
+
+> F ♯μ (Y;Y)
+
+, (6.7) Err A = ∥̂F −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2 
+
+> μ(X;Y)
+
+. (6.8) Here, IX , IY denote the identity operators on X and Y, respectively. Since ̂ EX is bounded and linear, ̂ EX ♯μ in (6.8) is a Gaussian measure on RdX .In the next three subsections, we estimate these terms separately. 
+
+6.2 True PCA projection errors 
+
+Since ̂ EX ,̂ DX are approximations to the true PCA encoders and decoders EX , DX , and likewise for ̂
+
+EY ,̂ DY , our first task is to study the true PCA projection errors. The former is straightforward. By [35, Thm. 3.8], we have 
+
+∥D X ◦ E X − I X ∥L2   
+
+> μ(X;X)
+
+=
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi. (6.9) Analogously, 
+
+∥D Y ◦ E Y − I Y ∥L2  
+
+> ν(Y;Y)
+
+=
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λνi , (6.10) where we recall from Section 2.1 that ν is the distribution of Y = F (X) + σE , where X ∼ μ and 
+
+E ∼ ρ are mutually independent. However, the decoding error (6.7) is given in terms of the measure 
+
+F ♯μ , which only coincides with ν in the noiseless case σ = 0 . To handle the noisy case, we require the following lemma. 22 Lemma 6.2 (True PCA projection error, noisy case) . The true PCA projection error satisfies 
+
+∥D Y ◦ E Y − I Y ∥L2 
+
+> F ♯μ (Y;Y)
+
+≤
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i + 2 σ. 
+
+Note that this bound is noise-consistent in the sense that if σ → 0+, then we recover the noiseless PCA projection error in Y, given by 
+
+√∑dim( Y)  
+
+> i=dY+1
+
+λF ♯μ i .
+
+Proof. We first observe that Z 7 → ∥D Y ◦ E Y (Z) − Z∥Y is a 1-Lipschitz mapping from Y to [0 , ∞).We can thus apply [65, Prop. 7.29] to deduce that 
+
+∥D Y ◦ E Y − I Y ∥L2 
+
+> F ♯μ (Y;Y)
+
+≤ ∥D Y ◦ E Y − I Y ∥L2  
+
+> ν(Y;Y)
+
++ W2(F ♯μ, ν ), (6.11) where W2(F ♯μ, ν ) denotes the 2-Wasserstein distance between F ♯μ and ν. It follows from the definition of the Wasserstein distance that 
+
+W2(F ♯μ, ν )2 ≤ E(F (X),F (X)+ σE )[∥F (X) − (F (X) + σE )∥2 
+
+> Y
+
+] = EE [∥σE ∥2 
+
+> Y
+
+] ≤ 2σ2, (6.12) where the last step holds by Assumption 2.2 and (2.1). We are thus left with bounding the term 
+
+∥D Y ◦ E Y − I Y ∥L2 
+
+> ν(Y;Y)
+
+. First, by (6.10), the triangle inequality, and the Hoffman-Wielandt inequal-ity (see, e.g., [45, Lemma 5.1]), we have 
+
+∥D Y ◦ E Y − I Y ∥2  
+
+> L2
+> ν(Y;Y)
+
+≤
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i +
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+∣∣∣λνi − λF ♯μ i
+
+∣∣∣ ≤
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i + ∥Σν − ΣF ♯μ ∥1. (6.13) Here, ∥·∥ 1 denotes the 1-Schatten norm (or trace norm), i.e., the sum of the singular values of a bounded linear operator. We further compute 
+
+Σν − ΣF ♯μ = EX,E [( F (X) + σE − E[F (X) + σE ]) ⊗ (F (X) + σE − E[F (X) + σE ])] 
+
+− E[F (X) ⊗ F (X)] = EX,E [σE ⊗ (F (X) − E[F (X)]) + ( F (X) − E[F (X)]) ⊗ σE ] + E[σE ⊗ σE ].
+
+In the last step, we used that E[E] = 0 and that E and X are independent, which implies that expectation of the cross-terms vanishes. Together with the readily checked property ∥Z1 ⊗ Z2∥1 =
+
+∥Z1∥Y ∥Z2∥Y for Z1, Z 2 ∈ Y , we conclude that 
+
+∥Σν − ΣF ♯μ ∥1 = ∥E[σE ⊗ σE ]∥1 ≤ E[∥σE ∥2 
+
+> Y
+
+] ≤ 2σ2. (6.14) Combining (6.7) and (6.11)–(6.14), we obtain the result. 
+
+6.3 Empirical PCA projection errors 
+
+We now estimate Err X and Err Y . For this we rely on the following result, which relates the empirical and true PCA projection errors. To state the result in suitable generality, let us consider a generic separable Hilbert space H equipped with a subgaussian measure ˜μ with parameter K. We define the true PCA encoders and decoders EH, DH analogously as in (3.1). Furthermore, we draw n
+
+samples Zi ∼i.i.d. ˜μ, and define the empirical PCA encoder and decoder ̂ EH,̂ DH with dimension dH
+
+analogously as in (3.2). 23 Proposition 6.3 (Empirical vs. true PCA projection error) . Let H be a separable Hilbert space and let ˜μ be a subgaussian probability measure on H with parameter K. Fix ϵ ∈ (0 , 1) . The projection error for empirical PCA with dimension dH, based on n ≥ log(2 /ϵ ) samples Z1, . . . , Z n ∼i.i.d. ˜μ,satisfies the bound 
+
+> ∥∥∥̂
+
+DH ◦̂ EH − I H 
+
+> ∥∥∥L2˜μ(H;H)
+
+≤ ∥D H ◦ E H − I H∥L2˜μ(H;H) + 
+
+> (
+
+C1K4dH log(2 /ϵ )
+
+n
+
+> )1/4
+
+with probability at least 1 − ϵ in the draw of Z1, . . . , Z n. Here, C1 ≥ 1 is an absolute constant. Proof. This is essentially Proposition 2 in [34]. Therein, the dependence of the constant Q = C1K4
+
+on K is not made explicit, but follows by inspection of the proof. We also note that therein the failure probability ϵ is restricted to (0 , 1/2) and C1 is just stated to be positive. The proof, however, also works for ϵ ∈ (0 , 1) , and by choosing C1 larger if necessary, we can take C1 ≥ 1.We can thus estimate the empirical PCA projection errors with high probability via the bounds for the true PCA projection error, which we derived in Section 6.2, and sampling error terms depending on the number of samples NX , NY and the encoding and decoding dimension dX , dY .We summarize this in the following result. 
+
+Theorem 6.4 (Empirical PCA projection errors) . Let ϵ ∈ (0 , 1) and consider the empirical PCA projection errors Err X and Err Y defined in (6.6) and (6.7) , respectively. Then 
+
+Err X ≤ L  
+
+> √√√√√
+> dim( X)
+> ∑
+> i=dX+1
+
+λi + LK μ 
+
+> (
+
+C1dX log(2 /ϵ )
+
+NX
+
+> )1/4
+
+with probability at least 1 − ϵ in the draw of the ̂ X1, . . . , ̂ XNX ∼i.i.d. μ and 
+
+Err Y ≤ 
+
+> √√√√√
+> dim( Y)
+> ∑
+> i=dY+1
+
+λF ♯μ i + ( ∥F (0) ∥Y + LK μ + σ) 
+
+> (
+
+C1dY log(2 /ϵ )
+
+NY
+
+> )1/4
+
++ 2 σ
+
+with probability at least 1 − ϵ in the draw of the ̂ Y1, . . . , ̂ YNY ∼i.i.d. ν.Proof. Recall from Section 2.1 that μ and ν are subgaussian with parameters Kμ and Kν =
+
+∥F (0) ∥Y + LK μ + σ, respectively. The first claim then follows from (6.6), Proposition 6.3, and (6.9). The second claim follows from (6.7), Proposition 6.3, and Lemma 6.2. 
+
+6.4 Error bounds for weighted least-squares approximation 
+
+We now consider the term Err A defined in (6.8). Since ̂ f is a solution of a weighted least-squares problem, in this subsection we develop some general results on weighted least-squares approxima-tions to operators. In particular, we show how to choose the sampling measure μsamp in such a way to obtain near-optimal sample complexity. It is based on the Christoffel function of a suitable chosen approximation space. The resulting Christoffel sampling method was originally developed in [19] for scalar-valued problems. See also [1] for extensions, variations and further topics. 24 Let ϖ be a probability measure on X . Fix s ∈ N and let P ⊂ L2
+
+> ϖ
+
+(X ) ∩ C(X ) be a vector space of dimension s with orthonormal basis {ξi}si=1 . Given a vector subspace Y′ ⊂ Y , the Y′-lift of P is defined as the vector space 
+
+PY′ := 
+
+{ s∑
+
+> i=1
+
+Yiξi : Yi ∈ Y ′
+
+}
+
+⊂ L2
+
+> ϖ
+
+(X ; Y) ∩ C(X ; Y).
+
+Next, let w : X → (0 , ∞) be a weight function, which we will specify later on, such that ∫ 
+
+> X
+
+1/w dϖ =1, and set 
+
+dϖsamp := w−1 dϖ. 
+
+Now draw X1, . . . , X M ∼i.i.d. ϖsamp and E1, . . . , E M ∼i.i.d. ρ, where ρ satisfies Assumption 2.2 and set Yi = F (Xi) + σE i, i = 1 , . . . , M . The weighted least-squares approximation of F in PY′ is now given by ̂
+
+F =̂ F (X1, . . . , X M ) ∈ argmin  
+
+> P∈P Y′
+
+1
+
+M
+
+> M
+
+∑
+
+> i=1
+
+w(Xi)∥P (Xi) − Yi∥2 
+
+> Y
+
+. (6.15) with Xi, Y i as in (2.3) and (2.4), respectively. The (reciprocal) Christoffel function of P is defined as 
+
+K(P) : X → R, K(P)( X) := sup 
+
+
+
+|p(X)|2
+
+∥p∥2  
+
+> L2
+> ϖ(X)
+
+: p ∈ P , p ̸ = 0 
+
+ ,
+
+and we set 
+
+κw(P) := ∥wK (P)∥L∞  
+
+> ϖ(X)
+
+.
+
+It can be readily checked that K(P) = ∑si=1 ξ2 
+
+> i
+
+for any orthonormal basis {ξi}si=1 of P.
+
+Theorem 6.5 (Least-squares error in probability, preparatory) . Let 0 < δ, ϵ < 1 and 
+
+M ≥ Cδκw(P) log(6 s/ϵ ), Cδ = ((1 + δ) log(1 + δ) − δ)) −1. (6.16) 
+
+Then, with probability at least 1 − ϵ in the draw of X1, . . . , X M ∼ ϖsamp and E1, . . . , E M ∼ ρ, the least-squares approximation ̂ F in (6.15) uniquely exists and satisfies 
+
+∥∥∥F −̂ F
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤
+
+1 + 
+
+√
+
+3κw(P)
+
+M ϵ 
+
+11 − δ
+
+ inf  
+
+> P∈P Y′
+
+∥F − P ∥L2   
+
+> ϖ(X;Y)
+
++ σ
+
+√
+
+6κw(P)
+
+M ϵ 
+
+11 − δ .
+
+Proof. This is a generalization of Corollary 5.9 in [1], where the noise term 
+
+∥∥∥̂ 0E
+
+∥∥∥L2  
+
+> ϖ(X;Y)
+
+, which we introduce below, is bounded differently, however. The lifting to the Hilbert-valued case is stan-dard and consists of choosing an orthonormal basis of Y and applying Parseval’s identity. For succinctness, we present details of the lifting argument only in the proof of the bound 
+
+∥∥∥̂ 0E
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤ σ
+
+√
+
+6κw(P)
+
+M ϵ 
+
+11 − δ . (6.17) Before we do this, we derive a suitable upper bound for 
+
+∥∥∥F −̂ F
+
+∥∥∥L2  
+
+> ϖ(X;Y)
+
+. To this end, let 
+
+P ∗ ∈ P Y′ be the unique element such that ∥F − P ∗∥L2   
+
+> ϖ(X;Y)
+
+= inf P ∈P Y′ ∥F − P ∥L2   
+
+> ϖ(X;Y)
+
+and write 
+
+G := F − P ∗. By following the proof in [1], we can split the error 
+
+∥∥∥F −̂ F
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤ ∥ G∥L2   
+
+> ϖ(X;Y)
+
++
+
+∥∥∥̂ G
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
++
+
+∥∥∥̂ 0E
+
+∥∥∥L2  
+
+> ϖ(X;Y)
+
+.
+
+25 Here, ̂ F ∈ P Y′ is the least-squares approximation to F from the noisy samples Yi = F (Xi) + σE i,see (6.15), ̂ G ∈ P Y′ is the least-squares approximation to G from the noiseless samples Yi = F (Xi),and ̂ 0E ∈ P Y′ is the least-squares approximation to the zero operator from the noisy samples 
+
+Yi = σE i. If (6.16) holds, then ̂ F ,̂ G, and ̂ 0E uniquely exist with probability at least 1 − ϵ/ 3 and 
+
+∥G∥L2   
+
+> ϖ(X;Y)
+
++
+
+∥∥∥̂ G
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤
+
+1 + 
+
+√
+
+3κw(P)
+
+M ϵ 
+
+11 − δ
+
+ inf  
+
+> P∈P Y′
+
+∥F − P ∥L2  
+
+> ϖ(X;Y)
+
+holds true with probability at least 1 − ϵ/ 3.We are left with proving that (6.17) holds with probability at least 1 − ϵ/ 3. Then the claim follows after an application of the union bound. For brevity, let us write ξj = ξˆτ (j) for j ∈ [s]. We define the weighted (normalized) measurement matrix and noise vector 
+
+A := 
+
+( √ w(Xi)
+
+√M ξj (Xi)
+
+)M,s i,j =1 
+
+∈ RM ×s, b = ( bi)Mi=1 := 
+
+( √ w(Xi)
+
+√M (σE i)
+
+)Mi=1 
+
+∈ Y M .
+
+Let {ψk}∞ 
+
+> k=1
+
+be an orthonormal basis of Y and introduce the components 
+
+b(k) 
+
+> i
+
+:= ⟨bi, ψ k⟩Y , e(k) 
+
+> i
+
+:= ⟨Ei, ψ k⟩Y ,̂ 0(k) 
+
+> E
+
+:= 
+
+〈̂ 
+
+0E , ψ k
+
+〉 
+
+> Y
+
+.
+
+Note that ̂ 0(k) 
+
+> E
+
+∈ P and therefore ̂ 0(k) 
+
+> E
+
+= ∑sj=1 c(k) 
+
+> j
+
+ξj for some coefficients c(k) = ( c(k) 
+
+> j
+
+)sj=1 ∈ Rs.Again following the argument in [1] (more specifically, eqs. (5.2) and (5.10) therein) and applying Parseval’s identity gives 
+
+∥∥∥̂ 0E
+
+∥∥∥2   
+
+> L2
+> ϖ(X;Y)
+
+≤ 11 − δ
+
+> M
+
+∑
+
+> i=1
+
+w(Xi)
+
+∥∥∥̂ 0E (Xi)
+
+∥∥∥2 
+
+> Y
+
+= 11 − δ
+
+> ∞
+
+∑
+
+> k=1
+> M
+
+∑
+
+> i=1
+
+w(Xi)
+
+∣∣∣̂ 0(k) 
+
+> E
+
+(Xi)
+
+∣∣∣2
+
+= 11 − δ
+
+> ∞
+
+∑
+
+> k=1
+
+∥∥∥Ac (k)∥∥∥22.
+
+It is easy to see that c(k) is a solution to the normal equations A⊤Ac (k) = A⊤b(k) with b(k) =(b(k) 
+
+> i
+
+)Mi=1 ∈ RM . Hence, 
+
+> ∞
+
+∑
+
+> k=1
+
+∥∥∥Ac (k)∥∥∥22 ≤
+
+> ∞
+
+∑
+
+> k=1
+
+∥∥∥c(k)∥∥∥2
+
+∥∥∥A⊤b(k)∥∥∥2 ≤
+
+( ∞∑
+
+> k=1
+
+∥∥∥c(k)∥∥∥22
+
+)1/2 ( ∞∑
+
+> k=1
+
+∥∥∥A⊤b(k)∥∥∥22
+
+)1/2
+
+=
+
+∥∥∥̂ 0E
+
+∥∥∥L2  
+
+> ϖ(X;Y)
+
+( ∞∑
+
+> k=1
+
+∥∥∥A⊤b(k)∥∥∥22
+
+)1/2
+
+,
+
+and consequently, ∥∥∥̂ 0E
+
+∥∥∥2   
+
+> L2
+> ϖ(X;Y)
+
+≤ 1(1 − δ)2
+
+> ∞
+
+∑
+
+> k=1
+
+∥∥∥A⊤b(k)∥∥∥22.
+
+We expand 
+
+∥∥∥A⊤b(k)∥∥∥22 =
+
+> s
+
+∑
+
+> j=1
+> M
+
+∑
+
+> i,ℓ =1
+
+σ2e(k) 
+
+> i
+
+e(k)
+
+> ℓ
+
+w(Xi)
+
+Mw(Xℓ)
+
+M ξj (Xi)ξj (Xℓ)
+
+26 and take the expectation respect to the Ei, which are centered and i.i.d., to deduce 
+
+EE
+
+[∥∥∥A⊤b(k)∥∥∥22
+
+]
+
+=
+
+> s
+
+∑
+
+> j=1
+> M
+
+∑
+
+> i=1
+
+σ2E[( e(k)1 )2] w(Xi)2
+
+M 2 ξj (Xi)2.
+
+Summing over k yields 
+
+EE
+
+[∥∥∥̂ 0E
+
+∥∥∥2  
+
+> L2
+> ϖ(X;Y)
+
+]
+
+≤ 1(1 − δ)2
+
+> s
+
+∑
+
+> j=1
+> M
+
+∑
+
+> i=1
+
+σ2E[∥E1∥2 
+
+> Y
+
+] w(Xi)2
+
+M 2 ξj (Xi)2 ≤ 1(1 − δ)2
+
+2σ2κw(P)
+
+M ,
+
+where the second step follows from Assumption 2.2 and (2.1) and the fact that K(P) = ∑sj=1 ξ2 
+
+> j
+
+.An application of Markov’s inequality finally concludes the proof. 
+
+6.5 Application to the Hermite-PCA approximation 
+
+We now use Theorem 6.5 to bound Err A. Let S ⊆ NdX 
+
+> 0
+
+be an arbitrary index set of size |S| = s.Then let 
+
+ϖ =̂ DX ♯ˆϱ, P = span 
+
+{
+
+Hγ,ˆλ ◦̂ EX : γ ∈ S
+
+}
+
+Y′ =̂ DY (RdY ), w =
+
+ 1
+
+s
+
+∑
+
+> γ∈S
+
+(Hγ,ˆλ ◦̂ EX )2
+
+
+
+> −1
+
+.
+
+We now consider the weighted least-squares approximation ̂
+
+F ∈ argmin  
+
+> P∈P Y′
+
+1
+
+M
+
+> M
+
+∑
+
+> i=1
+
+w(Xi)
+
+∥∥∥P (Xi) −̂ DY ◦̂ EY (Yi)
+
+∥∥∥2 
+
+> Y
+
+. (6.18) Notice that this formulation uses the projected samples ̂ DY ◦̂ EY (Yi). This is crucial, in that it allows us to relate ̂ F to the latent space approximation ̂ f .
+
+Lemma 6.6. A function ̂ f : RdX → RdY is a solution of (3.5) if and only if the function ̂ F =̂
+
+DY ◦̂ f ◦̂ EX : X → Y is a solution to (6.18) .Proof. Observe that we can write any P ∈ P Y′ as P =̂ DY ◦ p ◦̂ EX for p ∈ Q and vice versa, where 
+
+Q = span {Hγ,ˆλ : γ ∈ S}. Therefore 
+
+∥∥∥P (Xi) −̂ DY ◦̂ EY (Yi)
+
+∥∥∥Y =
+
+∥∥∥̂ DY ◦ p ◦̂ EX (Xi) −̂ DY ◦̂ EY (Yi)
+
+∥∥∥Y =
+
+∥∥∥p(̂ EX (Xi)) −̂ EY (Yi)
+
+∥∥∥2.
+
+Furthermore, by the change of variables x =̂ EX (X) and the fact that ̂ EX ◦̂ DX = IRdX is the identity on RdX , we have 
+
+dϖsamp (X) = w(X)−1 dϖ(X) = 
+
+ 1
+
+s
+
+∑
+
+> γ∈S
+
+Hγ,ˆλ(̂EX (X)) 2
+
+ d̂DX ♯ˆϱ(X)=
+
+ 1
+
+s
+
+∑
+
+> γ∈S
+
+Hγ,ˆλ(x)2
+
+ dˆ ϱ(x) = d ϱsamp (x),
+
+where ϱsamp is as in (3.4). The result now follows. 27 We now seek to apply Theorem 6.5. For this, we require two observations. First, notice that ̂
+
+DY ◦̂ EY (Yi) = ̂ DY ◦̂ EY ◦ F (Xi) + σ̂ DY ◦̂ EY (Ei)
+
+and the noise terms ̂ DY ◦̂ EY (Ei) are subgaussian with parameter K = 1 since the random variable 
+
+Ei are subgaussian with Kρ = 1 and the map ̂ DY ◦̂ EY is an orthogonal projection. Second, observe that the functions {Hγ,ˆλ ◦̂ EX }γ∈S are an orthonormal basis for P in L2
+
+> ϖ
+
+(X ), where we recall that 
+
+ϖ =̂ DX ♯ˆϱ. Indeed, using the fact that ̂ EX ◦̂ DX = IRdX once more, we have 
+
+∫
+
+> X
+
+Hγ,ˆλ ◦̂ EX (X)Hγ′,ˆλ ◦̂ EX (X) d ̂ DX ♯ˆϱ(X) = 
+
+∫
+
+> RdX
+
+Hγ,ˆλ(x)Hγ′,ˆλ(x) dˆ ϱ(x) = δγ,γ′ .
+
+Therefore w−1 is, up to the scalar multiple s, precisely the reciprocal Christoffel function of P. This implies that κw(P) = s and therefore Theorem 6.5 with F replaced by ̂ DY ◦̂ EY ◦ F gives that 
+
+∥∥∥̂ DY ◦̂ EY ◦ F −̂ F
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤
+
+(
+
+1 + 
+
+√ 3sM ϵ 
+
+11 − δ
+
+)
+
+inf  
+
+> P∈P Y′
+
+∥∥∥̂ DY ◦̂ EY ◦ F − P
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
++ σ
+
+√ 6sM ϵ 
+
+11 − δ ,
+
+with probability at least 1 − ϵ, provided M ≥ Cδs log(6 s/ϵ ). To relate this to the error Err A, we use the fact that ̂ EX ◦̂ DX = IRdX for a third time and write 
+
+∥∥∥̂ DY ◦̂ EY ◦ F −̂ F
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+=
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX −̂ F ◦̂ DX
+
+∥∥∥L2ˆϱ(RdX ;Y)
+
+=
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ◦̂ DX −̂ F ◦̂ DX
+
+∥∥∥L2ˆϱ(RdX ;Y)
+
+=
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX −̂ F
+
+∥∥∥L2  
+
+> ϖ(X;Y)
+
+Thus we get 
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX −̂ F
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤
+
+(
+
+1 + 
+
+√ 3sM ϵ 
+
+11 − δ
+
+)
+
+inf  
+
+> P∈P Y′
+
+∥∥∥̂ DY ◦̂ EY ◦ F − P
+
+∥∥∥L2  
+
+> ϖ(X;Y)
+
++ σ
+
+√ 6sM ϵ 
+
+11 − δ ,
+
+(6.19) with probability at least 1 − ϵ, provided M ≥ Cδs log(6 s/ϵ ). However, there remains an issue. The left-hand side is close to the approximation error Err A defined in (6.8), but the measure is 
+
+ϖ =̂ DX ♯ˆϱ as opposed to μ. In the next subsection, we perform the necessary switch of measure. 
+
+6.6 Bounding the L2
+
+> μ
+
+(X ; Y)-norm error in terms of the L2
+
+> ϖ
+
+(X ; Y)-norm error 
+
+We now show how a change of measure from μ to ϖ affects the overall error bound. The following lemma assumes closeness of the true PCA eigenvalues λi and their approximate counterparts ˆλi.Later, we quantify the error between the two, which leads to the main result of this subsection, Theorem 6.12. In the following and throughout, ∥·∥ ∞ denotes the operator norm and Γ( s, x ) = ∫ ∞ 
+
+> x
+
+ts−1e−t dt is the upper incomplete Gamma function. 28 Lemma 6.7. Let κ = ∥Σ −̂ Σ∥∞/λ dX and suppose that κ ≤ 1/2. Let F ∈ L2
+
+> μ
+
+(X ; Y) and P =̂
+
+DY ◦ p ◦̂ EX for some p ∈ P RdY , where PRdY is given by (3.3) . Then, for every R > 0, we have 
+
+∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2 
+
+> μ(X;Y)
+
+≤
+
+( 11 − κ
+
+)dX
+
+exp 
+
+( R2
+
+2λdX
+
+κ
+
+(1 − κ)(1 − 2κ)
+
+)
+
+¯Υ + √8CF e−R2/16 
+
++ 2 
+
+√
+
+sm (S)e1/16 
+
+( 144 
+
+λdX
+
+)m(S)/2 √
+
+Γ( m(S), λ dX R/ 16)( ¯Υ + CF ).
+
+where m(S) = max γ∈S ∥γ∥1, CF = ∥F (0) ∥Y + 2 L and 
+
+¯Υ := ∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2   
+
+> ϖ(X;Y)
+
+= ∥p −̂ EY ◦ F ◦̂ DX ∥L2ˆϱ(RdX ;RdY ).
+
+Proof. We first note that 
+
+∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2  
+
+> μ(X;Y)
+
+= ∥p −̂ EY ◦ F ◦̂ DX ∥L2˜ϱ(RdX ;RdY ),
+
+where 
+
+˜ϱ := ̂ EX ♯μ. 
+
+We will argue below that ˜ϱ is a non-degenerate Gaussian measure on RdX , as is ˆϱ. Hence, the two measures are equivalent and by the Radon-Nikodym theorem, the Radon-Nikodym derivative 
+
+d˜ ϱ/ dˆ ϱ exists and is a ˆϱ-integrable function. The main idea of the proof is to split the overall error in an error term localized on some ball of finite radius and remainder error terms in the complement domain. In the ball, we can then uniformly bound the Radon-Nikodym derivative d˜ ϱ/ dˆ ϱ, and the remainder terms can be suitably controlled by the Gaussian tail bound (2.2) and pointwise bounds for Hermite polynomials. Next, consider the centered ball BR := {x ∈ RdX : ∥x∥2 ≤ R} in RdX of radius R > 0 and the corresponding truncation of p, given by pR := p1BR . We split the error accordingly, 
+
+∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2 
+
+> μ(X;Y)
+
+≤
+
+∥∥∥̂ EY ◦ F ◦̂ DX − pR
+
+∥∥∥L2˜ϱ(RdX ;RdY ) + ∥pR − p∥L2˜ϱ(RdX ;RdY )
+
+≤
+
+(∫ 
+
+> BR
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥22
+
+d˜ ϱ
+
+dˆ ϱ dˆ ϱ
+
+)1/2
+
++
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2˜ϱ(RdX \BR;RdY )
+
++ ∥pR − p∥L2˜ϱ(RdX ;RdY )
+
+≤
+
+∥∥∥∥
+
+d˜ ϱ
+
+dˆ ϱ
+
+∥∥∥∥L∞(BR)
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY ) +
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2˜ϱ(RdX \BR;RdY )
+
++ ∥pR − p∥L2˜ϱ(RdX ;RdY ).
+
+We deduce 
+
+∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2 
+
+> μ(X;Y)
+
+≤
+
+∥∥∥∥
+
+d˜ ϱ
+
+dˆ ϱ
+
+∥∥∥∥L∞(BR)
+
+¯Υ + 
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2˜ϱ(RdX \BR;RdY ) + ∥pR − p∥L2˜ϱ(RdX ;RdY ).
+
+29 In the remainder of the proof, we estimate the three terms on the right-hand side of the previous inequality. 
+
+Step 1: Bound 
+
+∥∥∥ d˜ ϱ
+
+> dˆ ϱ
+
+∥∥∥L∞(BR). We commence by defining 
+
+∆ := Σ −̂ Σ, so that κ = ∥∆∥∞
+
+λdX
+
+. (6.20) Note that ∆ and hence κ depend on the number N of (unlabeled) data points, which we assume to be fixed for now and do not explicitly track in our notation. Suppose that κ ≤ 1/2. By Weyl’s inequality, we have 
+
+sup  
+
+> i=1 ,..., dim( X)
+
+|λi − ˆλi| ≤ ∥ ∆∥∞, (6.21) See, e.g., [60, Cor. 4.10], which is formulated for Hermitian matrices but can be readily generalized to compact self-adjoint operators on a separable Hilbert space. We deduce that 
+
+ˆλdX ≥ λdX − ∥ ∆∥∞ = (1 − κ)λdX > 0. (6.22) This implies that ˆϱ is a nondegenerate Gaussian measure on RdX .Next, we establish a relation between the two measures ˜ϱ and ˆϱ. To this end, let us represent the covariance operators Σ˜ϱ and Σˆϱ as matrices with respect to the standard basis of RdX . By abuse of notation, we denote the matrix representations again by Σ˜ϱ and Σˆϱ, and find 
+
+(Σ ˜ϱ)ij =
+
+〈̂ 
+
+ϕj , Σ̂ϕi
+
+〉 
+
+> X
+
+and (Σ ˆϱ)ij =
+
+〈̂ 
+
+ϕj ,̂ Σ̂ ϕi
+
+〉 
+
+> X
+
+= ˆλiδij , i, j = 1 , . . . , d X . (6.23) The Radon-Nikodym derivative of ˜ϱ, ˆϱ is given by the quotient of their corresponding Gaussian density functions, 
+
+d˜ ϱ
+
+dˆ ϱ (x) = 
+
+( det Σ ˜ϱ
+
+det Σ ˆϱ
+
+)1/2
+
+exp 
+
+(
+
+− 12
+
+〈
+
+x, (Σ −1˜ϱ − Σ−1ˆϱ )x
+
+〉
+
+> 2
+
+)
+
+, ∀x ∈ RdX . (6.24) We bound the exponential and the quotient of determinants in (6.24) separately, starting with the former. By the Cauchy-Schwarz inequality, 
+
+∣∣∣⟨x, (Σ −1˜ϱ − Σ−1ˆϱ )x⟩2
+
+∣∣∣ ≤
+
+∥∥∥Σ−1˜ϱ − Σ−1ˆϱ
+
+∥∥∥∞∥x∥22, ∀x ∈ RdX .
+
+Using the identity Σ−1˜ϱ − Σ−1ˆϱ = Σ −1˜ϱ (Σ ˆϱ − Σ˜ϱ)Σ −1ˆϱ , we can bound 
+
+∥Σ−1˜ϱ − Σ−1ˆϱ ∥∞ ≤ ∥ Σ−1˜ϱ ∥∞∥Σ˜ϱ − Σˆϱ∥∞∥Σ−1ˆϱ ∥∞. (6.25) We know that ∥Σ−1ˆϱ ∥∞ = ˆλ−1 
+
+> dX
+
+and it readily follows from (6.23) that ∥(Σ ˆϱ − Σ˜ϱ)∥∞ ≤ ∥ ∆∥∞. The term ∥Σ−1˜ϱ ∥∞ can be bounded by a suitable Neumann series representation. For this, let IdX denote the identity matrix in RdX ×dX . Writing IdX − Σ−1ˆϱ Σ˜ϱ = Σ −1ˆϱ (Σ ˆϱ − Σ˜ϱ) yields 
+
+∥∥∥IdX − Σ−1ˆϱ Σ˜ϱ
+
+∥∥∥∞ ≤
+
+∥∥∥Σ−1ˆϱ
+
+∥∥∥∞∥(Σ ˆϱ − Σ˜ϱ)∥∞ ≤ ∥∆∥∞
+
+ˆλdX
+
+.
+
+30 By (6.22) and κ ≤ 1/2, the right hand-side is less than 1, which yields the convergent Neumann series representation 
+
+ΣˆϱΣ−1˜ϱ = (Σ ˜ϱΣ−1ˆϱ )−1 =
+
+> ∞
+
+∑
+
+> k=0
+
+(IdX − Σ˜ϱΣ−1ˆϱ )k,
+
+and consequently, 
+
+∥Σ−1˜ϱ ∥∞ ≤ ∥ Σ−1ˆϱ ∥∞∥ΣˆϱΣ−1˜ϱ ∥∞ ≤
+
+ˆλ−1
+
+> dX
+
+1 − ∥ IdX − Σ˜ϱΣ−1ˆϱ ∥∞
+
+≤ 1ˆλdX − ∥ ∆∥∞
+
+. (6.26) Combining (6.25), (6.26) and invoking (6.22), we conclude 
+
+∥Σ−1˜ϱ − Σ−1ˆϱ ∥∞ ≤ ∥∆∥∞
+
+ˆλdX
+
+(ˆλdX − ∥ ∆∥∞
+
+) ≤ ∥∆∥∞
+
+(λdX − ∥ ∆∥∞) ( λdX − 2∥∆∥∞) . (6.27) Next, we bound the quotient of determinants in (6.24). From [27, Cor. 2.14] it follows that 
+
+∣∣∣∣∣
+
+det(Σ ˆϱ)det(Σ ˜ϱ) − 1
+
+∣∣∣∣∣ ≤
+
+( ∥Σˆϱ − Σ˜ϱ∥∞
+
+ˆλdX
+
++ 1 
+
+)dX
+
+− 1.
+
+Again using the inequalities ∥Σˆϱ − Σ˜ϱ∥∞ ≤ ∥ ∆∥∞ as well as ˆλdX ≥ λdX − ∥ ∆∥∞, we find 
+
+∣∣∣∣∣
+
+det(Σ ˆϱ)det(Σ ˜ϱ)
+
+∣∣∣∣∣ ≤
+
+( ∥∆∥∞
+
+λdX − ∥ ∆∥∞
+
++ 1 
+
+)dX
+
+.
+
+Combining this with (6.27) finally yields 
+
+∥∥∥∥
+
+d˜ ϱ
+
+dˆ ϱ
+
+∥∥∥∥L∞(BR)
+
+≤
+
+( ∥∆∥∞
+
+λdX − ∥ ∆∥∞
+
++ 1 
+
+)dX
+
+exp 
+
+( R2
+
+2
+
+∥∆∥∞
+
+(λdX − ∥ ∆∥∞)( λdX − 2∥∆∥∞)
+
+)
+
+=
+
+( 11 − κ
+
+)dX
+
+exp 
+
+( R2
+
+2λdX
+
+κ
+
+(1 − κ)(1 − 2κ)
+
+)
+
+.
+
+Step 2: Bound ∥̂EY ◦ F ◦̂ DX ∥L2˜ϱ(RdX \BR;RdY ). Since ̂ EY ◦ F is L-Lipschitz, we have 
+
+∥∥∥̂ EY ◦ F (X)
+
+∥∥∥2 ≤ ∥ F (0) ∥Y + L∥X∥X , ∀X ∈ X .
+
+Recalling that ˜ϱ =̂ EX ♯μ and writing AR := ( ̂EX )−1(RdX \ BR), we find 
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2˜ϱ(RdX \BR;RdY ) =
+
+(∫ 
+
+> AR
+
+∥∥∥̂ EY ◦ F ◦̂ DX ◦̂ EX (X)
+
+∥∥∥22 dμ(X)
+
+)1/2
+
+≤ ∥ F (0) ∥Y
+
+√
+
+μ(AR) + L
+
+(∫ 
+
+> AR
+
+∥X∥2 
+
+> X
+
+dμ(X)
+
+)1/2
+
+,
+
+where we used in the last step that ̂ DX ◦̂ EX is a projection in X . Denote by BX 
+
+> R
+
+:= {X ∈ X :
+
+∥X∥X ≤ R} the centered R-ball in X and observe that 
+
+AR =
+
+X ∈ X :
+
+> dX
+
+∑
+
+> i=1
+
+⟨X, ̂ ϕi⟩2 
+
+> X
+
+> R 2
+
+ ⊂ { X ∈ X : ∥X∥X > R } = X \ BX 
+
+> R
+
+.
+
+31 Using the Gaussian tail bound (2.2), we find μ(AR) ≤ 4e−R2/8 as well as 
+
+∫
+
+> AR
+
+∥X∥2 
+
+> X
+
+dμ(X) ≤
+
+∫
+
+> X \ BX
+> R
+
+∥X∥2 
+
+> X
+
+dμ(X) = 2 
+
+∫ ∞
+
+> R
+
+tμ (∥X∥X > t ) d t ≤ 2
+
+∫ ∞
+
+> R
+
+4te −t2/8 dt = 32 e−R2/8.
+
+In conclusion, ∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2˜ϱ(RdX \BR;RdY ) ≤ √8CF e−R2/16 .
+
+Step 3: Bound ∥pR − p∥L2˜ϱ(RdX ;RdY ). Write p = ∑ 
+
+> γ∈S
+
+cγ Hγ,ˆλ with coefficients cγ ∈ RdY . By the Cauchy-Schwarz inequality and Parseval’s identity, 
+
+∥pR − p∥L2˜ϱ(RdX ;RdY ) =
+
+∥∥∥∥∥∥∑
+
+> γ∈S
+
+cγ Hγ,ˆλ
+
+∥∥∥∥∥∥L2˜ϱ(RdX \BR;RdY )
+
+≤ s1/2
+
+ ∑
+
+> γ∈S
+
+∥cγ ∥22
+
+
+
+> 1/2
+
+max 
+
+> γ∈S
+
+∥∥∥Hγ,ˆλ
+
+∥∥∥L2˜ϱ(RdX \BR)
+
+= s1/2∥p∥L2ˆϱ(RdX ;RdY ) max 
+
+> γ∈S
+
+∥∥∥Hγ,ˆλ
+
+∥∥∥L2˜ϱ(RdX \BR).
+
+Consider the second term on the right-hand side. By the triangle inequality, we have 
+
+∥p∥L2ˆϱ(RdX ;RdY ) ≤
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY ) +
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2ˆϱ(RdX ;RdY ). (6.28) By Lipschitz continuity, 
+
+∥∥∥̂ EY ◦ F ◦̂ DX (x)
+
+∥∥∥2 ≤
+
+∥∥∥̂ EY ◦ F ◦̂ DX (0)
+
+∥∥∥2 + [ ̂ EY ◦ F ◦̂ DX ]Lip ∥x∥2, ∀x ∈ RdX .
+
+Observe that [̂ EY ◦ F ◦̂ DX ]Lip ≤ L, since ̂ DX and ̂ EY are 1-Lipschitz and F is L-Lipschitz. Also, since ̂ DX (0) = 0 , we have 
+
+∥∥∥̂ EY ◦ F ◦̂ DX (0)
+
+∥∥∥2 ≤ ∥ F (0) ∥Y . Moreover, since ˆϱ = N (0 , ˆλ), we also have ∫ 
+
+> RdY
+
+∥x∥22 dˆ ϱ(x) = ∑dX 
+
+> i=1
+
+ˆλi. Therefore 
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥L2ˆϱ(RdX ;RdY ) ≤ ∥ F (0) ∥Y + L
+
+√√√√ dX∑
+
+> i=1
+
+ˆλi. (6.29) Next, we derive pointwise bounds for the Hermite polynomials Hγ,ˆλ, γ ∈ S, based on the upper bound |Hn(x)| ≤ (3 max {1, |x|} )n for every x ∈ R, n ∈ N0, see eq. (2.8) in [57]. For x ∈ RdX , we compute 
+
+∣∣∣Hγ,ˆλ(x)
+
+∣∣∣2
+
+=
+
+> dX
+
+∏
+
+> i=1
+
+∣∣∣∣∣∣Hγi
+
+( xi
+
+√
+
+ˆλi
+
+)∣∣∣∣∣∣
+
+> 2
+
+≤
+
+> dX
+
+∏
+
+> i=1
+
+(
+
+32 max {1, (ˆλi)−1/2|xi|} 2)γi
+
+≤ 9∥γ∥1
+
+ 1
+
+∥γ∥1
+
+> dX
+
+∑
+
+> i=1
+
+γi max {1, (ˆλi)−1|xi|2}
+
+
+
+> ∥γ∥1
+
+,
+
+32 where the last step follows from the weighted geometric-arithmetic mean inequality. Next, use the bounds γi ≤ ∥ γ∥1, max {1, ˆλ−1 
+
+> i
+
+|xi|2} ≤ 1 + ˆλ−1 
+
+> i
+
+|xi|2, as well as ˆλ−1 
+
+> i
+
+≤ ˆλ−1 
+
+> dX
+
+≤ (1 − κ)−1λ−1 
+
+> dX
+
+to further estimate ∣∣∣Hγ,ˆλ(x)
+
+∣∣∣2
+
+≤ 9∥γ∥1
+
+(
+
+dX + (1 − κ)−1λ−1 
+
+> dX
+
+∥x∥22
+
+)∥γ∥1
+
+.
+
+By definition, ∥γ∥1 ≤ m(S) for γ ∈ S. Write K := (1 −κ)λdX . Recall from Step 2 that (̂EX )−1(RdX \
+
+BR) ⊂ X \ BX 
+
+> R
+
+. Together with the layer cake formula, we then find 
+
+∫ 
+
+> RdX\BR
+
+|Hγ,ˆλ(x)|2 d˜ ϱ(x) ≤
+
+∫
+
+> X \ BX
+> R
+
+9m(S) (
+
+dX + K−1∥X∥2
+
+> X
+
+)m(S)
+
+dμ(X)
+
+≤ 9m(S) × m(S) ×
+
+∫ ∞
+
+> R
+
+tm(S)−1μ
+
+({ 
+
+X ∈ X : dX + K−1∥X∥2 
+
+> X
+
+> t 
+
+}) 
+
+dt
+
+≤ 9m(S) × m(S) × 4
+
+∫ ∞
+
+> R
+
+tm(S)−1e−(t−dX )K/ 8 dt, 
+
+where we used (2.2) in the last step. A change of variables eventually yields 
+
+max 
+
+> γ∈S
+
+∥∥∥Hγ,ˆλ
+
+∥∥∥L2˜ϱ(RdX \BR) ≤ 2eKd X /16 √
+
+m(S)
+
+( 72 
+
+K
+
+)m(S)/2 √
+
+Γ( m(S), KR/ 8) 
+
+From the assumption ∑dim( X ) 
+
+> i=1
+
+λi = 1 it follows that λdX ≤ 1/d X . Together with κ ≤ 1/2, we deduce 
+
+λdX /2 ≤ K ≤ 1/d X . Consequently, 
+
+max 
+
+> γ∈S
+
+∥∥∥Hγ,ˆλ
+
+∥∥∥L2˜ϱ(RdX \BR) ≤ 2e1/16 √
+
+m(S)
+
+( 144 
+
+λdX
+
+)m(S)/2 √
+
+Γ( m(S), λ dX R/ 16) .
+
+Combining this with the previous estimates (6.28) and (6.29), we deduce that 
+
+∥pR − p∥L2˜ϱ(RdX ;RdY ) ≤ 2
+
+√
+
+sm (S)e1/16 
+
+( 144 
+
+λdX
+
+)m(S)/2 √
+
+Γ( m(S), λ dX R/ 16) 
+
+×
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY ) + ∥F (0) ∥Y + L
+
+√√√√ dX∑
+
+> i=1
+
+ˆλi
+
+ .
+
+Observe that the first term in brackets is precisely ¯Υ. For the third term, we notice that Weyl’s inequality implies that ˆλi ≤ ∥ ∆∥∞ + λi ≤ (1 + κ)λi for every i = 1 , . . . , d X . Therefore ∑dX 
+
+> i=1
+
+ˆλi ≤
+
+(1 + κ) ∑dX 
+
+> i=1
+
+λi ≤ 1 + κ < 2. We conclude that 
+
+∥pR − p∥L2˜ϱ(RdX ;RdY ) ≤ 2
+
+√
+
+sm (S)e1/16 
+
+( 144 
+
+λdX
+
+)m(S)/2 √
+
+Γ( m(S), λ dX R/ 16)( ¯Υ + CF ).
+
+This finally completes the proof. Lemma 6.7 yields a bound for switching between the measure μ and the measure ϖ, assuming sufficient closeness of the true and approximate PCA eigenvalues, as quantified by the uniform norm of the term ∆ = Σ −̂ Σ. We now estimate this quantity, which leads to a more explicit bound. For this, we require the following theorem. 33 Theorem 6.8 ([28, Thm. 2]) . There exists a constant C2 ≥ 1 such that for every t ≥ 1 with probability at least 1 − e−t in the draw of ̂ X1, . . . , ̂ XNX ∼ μ, we have 
+
+∥∆∥∞ ≤ C2∥Σ∥∞ max 
+
+√
+
+r(Σ) 
+
+NX
+
+, r(Σ) 
+
+NX
+
+,
+
+√
+
+tNX
+
+, tNX
+
+ ,
+
+where r(Σ) := tr(Σ) /∥Σ∥∞ is called the effective rank of Σ.
+
+Corollary 6.9 (Bound for ∥∆∥∞ in probability) . There exists a constant C2 > 0 such that for every ϵ ∈ (0 , 1/3] with probability at least 1 − ϵ in the draw of ̂ X1, . . . , ̂ XN ∼ μ, we have 
+
+∥∆∥∞ ≤ C2
+
+√
+
+log(1 /ϵ )( NX )−1/2,
+
+provided that NX ≥ max {λ−11 , log(1 /ϵ )}, where C2 is the constant in Theorem 6.8. 
+
+Next, we notice that Lemma 6.7 introduces two parameters κ and R. The final step in this subsection is to optimize these parameters. For this we require the following two lemmas. 
+
+Lemma 6.10 (Optimal choice of κ). If 
+
+κ ≤ min 
+
+{
+
+1 − 121/d X
+
+, λdX
+
+R2
+
+}
+
+,
+
+and R ≥ 142 , then 
+
+( 11 − κ
+
+)dX
+
+exp 
+
+( R2
+
+2λdX
+
+κ
+
+(1 − κ)(1 − 2κ)
+
+)
+
+≤ 4, ∀dX ∈ N.
+
+Proof. Observe that if κ ≤ 1 − 1/21/d X , then (1 /(1 − κ)) dX ≤ 2. Since λdX ≤ 1, the condition 
+
+R ≥ 142 implies κ ≤ 1/142 2 and therefore 
+
+R2
+
+2λdX
+
+κ
+
+(1 − κ)(1 − 2κ) ≤ 12(1 − 1142 2 )(1 − 2142 2 ) ,
+
+which implies the claim. 
+
+Lemma 6.11 (Optimal choice of R). Let Υ > 0 and S ⊂ NdX 
+
+> 0
+
+be such that s := |S| ≥ 2 and 
+
+m(S) := max γ∈S ∥γ∥1 ≥ 3. If 
+
+R ≥ 142 
+
+λdX
+
+(
+
+m(S) log( m(S)) + log( s) + |log(Υ) | +
+
+√
+
+|log(Υ) | + m(S) |log( λdX )|
+
+)
+
+then 
+
+e−R2/16 ≤ Υ and 
+
+√
+
+sm (S)
+
+( 144 
+
+λdX
+
+)m(S)/2 √
+
+Γ( m(S), λ dX R/ 16) ≤ Υ.
+
+34 Proof. First note e−R2/16 ≤ Υ if and only if 
+
+R ≥ 4
+
+√
+
+|log(Υ) |. (6.30) We are left with showing that 
+
+√
+
+sm (S)
+
+( 144 
+
+λdX
+
+)m(S)/2 √
+
+Γ( m(S), λ dX R/ 16) ≤ Υ. (6.31) To this end, let us write r := λdX R/ 16 . We use the following upper bound from [52, Prop 2.7] for the upper incomplete Gamma function: 
+
+Γ( m(S), x ) ≤ xm(S)−1e−x
+
+1 − m(S)−1
+
+> x
+
+, provided that x > m (S) − 1.
+
+We henceforth assume that r ≥ 2( m(S) − 1) , or equivalently, 
+
+R ≥ 32 
+
+λdX
+
+(m(S) − 1) , (6.32) Consequently, Γ( m(S), r ) ≤ 2rm(S)−1e−r and (6.31) holds true if 
+
+rm(S)−1e−r ≤ 12 Υ2(sm (S)) −1
+
+( 144 
+
+λdX
+
+)−m(S)
+
+=: a. (6.33) We now consider two cases: 
+
+Case 1: a ≥ (( m(S) − 1) /e )m(S)−1. Then (6.33) holds if rm(S)−1e−m(S) ≤ (( m(S) − 1) /e )m(S)−1,or, equivalently, ye y ≥ − 1/e with y = −r/ (m(S) − 1) . Solving for y gives y ≤ W−1(−1/e ) = −1,where W−1 denotes the secondary branch of the Lambert W function. This is equivalent to R ≥
+
+16( m(S) − 1) /λ dX , which is already satisfied by (6.32). 
+
+Case 2: a < (( m(S) − 1) /e )s−1. In this case, −a1/(m(S)−1) /(m(S) − 1) ∈ (−1/e, 0) . Rear-ranging terms similarly as in Case 1, we find that (6.33) holds if and only if r ≥ − (m(S) −
+
+1) W−1(−a1/(m(S)−1) /(m(S) − 1)) . It is an easy exercise to check the lower bound 
+
+W−1(x) ≥ log( −x) − log( − log( −x)) − 12 , ∀x ∈ [−1/e, 0) .
+
+Hence, (6.33) holds true if 
+
+r ≥ (m(S) − 1) 
+
+(∣ ∣∣∣∣log 
+
+( a1/(m(S)−1) 
+
+m(S) − 1
+
+)∣ ∣∣∣∣ + log 
+
+(∣ ∣∣∣∣log 
+
+( a1/(m(S)−1) 
+
+m(S) − 1
+
+)∣ ∣∣∣∣)
+
++ 12
+
+)
+
+. (6.34) We use the inequality log(log( x)) ≤ e−1 log( x) for x > 0 and multiple applications of the triangle inequality to deduce that (6.34) is satisfied if 
+
+r ≥ (1 + e−1)
+
+[
+
+(m(S) − 1) log( m(S) − 1) + log(144) m(S) + log( sm (S)) + 2 | log(Υ) |
+
++ m(S)| log( λdX )| + log(2) 
+
+]
+
++ m(S) − 12 .
+
+35 Since s ≥ 2 and log( m) > 1 for m ≥ 3, this in turn holds true if 
+
+R ≥ 142 
+
+λdX
+
+(
+
+m(S) log( m(S)) + log( s) + |log(Υ) | +
+
+√
+
+|log(Υ) | + m(S) |log( λdX )|
+
+)
+
+.
+
+To conclude, we note that this bound also implies (6.30) and (6.32). With this in hand, we can now present the main result of this subsection. 
+
+Theorem 6.12. Let ϵ ∈ (0 , 1/3] , Υ > 0 and S ⊂ NdX 
+
+> 0
+
+be such that s := |S| ≥ 2 and m(S) := max γ∈S ∥γ∥1 ≥ 3. Suppose that 
+
+NX ≥ C22 log(1 /ϵ )κ−2(λdX )−2
+
+with parameter κ > 0 satisfying 
+
+κ ≤ min 
+
+{
+
+1 − 121/d X
+
+, λ3
+
+> dX
+
+142 2
+
+(
+
+m(S) log( m(S)) + log( s) + |log(Υ) | +
+
+√
+
+|log(Υ) | + m(S) |log( λdX )|
+
+)−2}
+
+,
+
+where C2 is the constant from Theorem 6.8. Then the following holds with probability at least 1 − ϵ
+
+in the draw of ̂ X1, . . . , ̂ XNX ∼ μ. Let F ∈ L2
+
+> μ
+
+(X ; Y) and P =̂ DY ◦ p ◦̂ EX for some p ∈ P RdY , where 
+
+PRdY is given by (3.3) , and suppose that 
+
+¯Υ := ∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2   
+
+> ϖ(X;Y)
+
+= ∥p −̂ EY ◦ F ◦̂ DX ∥L2ˆϱ(RdX ;RdY ).
+
+Then 
+
+∥P −̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX ∥L2  
+
+> μ(X;Y)
+
+≤ 4 ¯Υ + 5 CF Υ( ¯Υ + CF )
+
+where CF = ∥F (0) ∥Y + 2 L.Proof. Corollary 6.9 and the condition on NX give that ∥∆∥∞/λ dX ≤ κ with probability at least 
+
+1 − ϵ. We now choose κ and R according to Lemma 6.10 and Lemma 6.11, respectively. Note that this implies in particular R ≥ 142 and κ ≤ 1/2. We now apply Lemma 6.7 with these values of R
+
+and κ. The result follows. 
+
+6.7 Final arguments 
+
+We are now, finally, ready to finish the proof of Theorem 6.1. This involves combining Theorem 6.4, which bounds the empirical PCA projection errors (6.6) and (6.7), with Theorem 6.12, which bounds the approximation error (6.8). 
+
+Proof of Theorem 6.1. We now split the error according to (6.5). Theorem 6.4 with ϵ replaced by 
+
+ϵ/ 6 and the facts that 
+
+NX ≥ C1dX log(12 /ϵ )Υ −4 and NY ≥ C1dY log(12 /ϵ )Υ −4
+
+by assumption give that 
+
+Err X ≤ L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi + LK μΥ
+
+36 with probability 1 − ϵ/ 6 in the draw of ̂ X1, . . . , ̂ XNX and 
+
+Err Y ≤
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i + ( ∥F (0) ∥Y + LK μ + σ)Υ + 2 σ
+
+with probability 1−ϵ/ 6 in the draw of ̂ Y1, . . . , ̂ YNX . We now consider Err A. Since M ≥ Cδs log(12 s/ϵ )
+
+by assumption, (6.19), a simple change of variables and Bessel’s inequality gives that 
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX −̂ F
+
+∥∥∥L2   
+
+> ϖ(X;Y)
+
+≤ ˜Υ
+
+with probability at least 1 − ϵ/ 2 in the draw of X1, . . . , X M . Then Theorem 6.12 with P =̂ F ,
+
+ϵ replaced by ϵ/ 6, and the fact that NX ≥ C22 log(6 /ϵ )κ−2(λdX )−2 and κ satisfies (6.2) gives that 
+
+Err A =
+
+∥∥∥̂ DY ◦̂ EY ◦ F ◦̂ DX ◦̂ EX −̂ F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≤ 4 ˜Υ + 5 CF Υ( ˜Υ + CF ).
+
+The result now follows from the union bound. 
+
+# 7 ℓ2-characterization of Gaussian Sobolev spaces 
+
+In this and the next section, we aim to use Theorem 6.1 to prove the main result, Theorem 4.1. The key step is the analysis of the best approximation error 
+
+inf 
+
+> p∈P
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY )
+
+and, in tandem, the derivation of the choice (3.10) for the index set S. This analysis relies cru-cially on, firstly, the ℓ2-characterization of the Sobolev spaces Hkϱ (Rd; Rd′
+
+) in terms of the Hermite polynomial coefficients and, secondly, analysis of the decay of the associated weight sequences that arise in the former characterization. We tackle these aspects of the analysis in this section, before completing the proof of Theorem 4.1 in the next. We fix dimensions d, d ′ ∈ N. Recall the notation [d] = {1, . . . , d } and [∞] = N, and, as before, let λ = ( λi)di=1 and ϱ = ϱλ := N (0 , λ) be a centered, nondegenerate Gaussian measure on Rd with diagonal covariance matrix with diagonal entries λi.
+
+7.1 ℓ2-characterization of Hkϱ (Rd; Rd′
+
+)
+
+We first require some further notation. For i ∈ N and γ ∈ Nd
+
+> 0
+
+, we set γ(i) = 0 if γi = 0 . If γi > 0,we set 
+
+γ(i) 
+
+> k
+
+=
+
+{ γk − 1 if k = i, γk otherwise .
+
+Recursively, we define γ(i,j ) := (γ(i))(j). For α1, . . . , α n ∈ N, we set γ(α1,...,α j−1) := γ if j = 1 .Note that we can extend this definition to d = ∞ by replacing Nd 
+
+> 0
+
+with Γ.37 Proposition 7.1 (Partial derivatives) . Let f ∈ Cnb (Rd; Rd′
+
+). For α1, . . . , α n ∈ [d], we have 
+
+∂αn · · · ∂α1 f = ∑
+
+> γ∈Nd
+> 0
+
+
+
+> n
+
+∏
+
+> j=1
+
+γ(α1,...,α j−1)
+
+> αj
+
+λij
+
+
+
+> 1/2
+
+×
+
+∫
+
+> X
+
+f H γ,λ dϱ × Hγ(α1,...,α j−1),λ. (7.1) 
+
+In particular, 
+
+∥∂αn · · · ∂α1 f ∥2  
+
+> L2
+> ϱ(Rd;Rd′)
+
+= ∑
+
+> γ∈Nd
+> 0
+
+
+
+> n
+
+∏
+
+> j=1
+
+γ(α1,...,α j−1)
+
+> αj
+
+λij
+
+∥∥∥∥∫
+
+> X
+
+f H γ,λ dϱ
+
+∥∥∥∥
+
+> 22
+
+. (7.2) 
+
+Proof. It suffices to prove (7.1), as (7.2) then follows by Parseval’s identity. For the former, it is enough to show that 
+
+∫
+
+> X
+
+(∂αn · · · ∂α1 f )Hγ(α1,...,αn ),λ dϱ =
+
+
+
+> n
+
+∏
+
+> j=1
+
+γ(α1,...,α j−1)
+
+> αj
+
+λαj
+
+
+
+> 1/2
+
+×
+
+∫
+
+> X
+
+f H γ,λ dϱ, ∀γ ∈ Nd
+
+> 0
+
+.
+
+For d′ = n = 1 , this holds by [20, Lem. 10.14], whose proof also provides the argument for the induction step to prove the claim for general n ∈ N. It is formulated for d = ∞ but holds verbatim in the case d ∈ N as well. The case d′ > 1 follows by considering the components of f ∈ Cnb (Rd; Rd′
+
+)
+
+and applying the arguments in the scalar-valued case. Next, fix a multiindex α ∈ Nn. By (7.2), the weight ∏nj=1 γ(α1,...,α j−1) 
+
+> αj
+
+/λ αj corresponds to the derivative Dαf . In view of the definition of the Hkϱ -norm in Appendix A, we define the weights 
+
+vγ,(k),d := 
+
+1 + 
+
+> k
+
+∑
+
+> j=1
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+
+
+> −1/2
+
+(7.3) for k ∈ N and γ ∈ Nd
+
+> 0
+
+. We extend this definition to d = ∞ in which case we replace Nd 
+
+> 0
+
+by Γ.
+
+Proposition 7.2 (ℓ2-characterization of Hkϱ ). Let f ∈ Hkϱ (Rd; Rd′
+
+). Then, for α1, . . . , α n ∈ N, we have 
+
+∂αn · · · ∂α1 f = ∑
+
+> γ∈Nd
+> 0
+
+
+
+> n
+
+∏
+
+> j=1
+
+γ(α1,...,α j−1)
+
+> αj
+
+λαj
+
+
+
+> 1/2
+
+×
+
+∫
+
+> Rd
+
+f H γ,λ dϱ × Hγ(α1,...,α j−1),λ
+
+and 
+
+∥f ∥2   
+
+> Hkϱ(Rd;Rd′)
+
+= ∑
+
+> γ∈Nd
+> 0
+
+v−2
+
+> γ,(k),d
+
+∥∥∥∥∫
+
+> Rd
+
+f H γ,λ dϱ
+
+∥∥∥∥
+
+> 22
+
+.
+
+Conversely, if for a family of vectors (yγ )γ∈Nd 
+
+> 0
+
+⊂ Rd′
+
+there holds 
+
+∑
+
+> γ∈Nd
+> 0
+
+v−2
+
+> γ,(k),d
+
+∥yγ ∥22 < ∞,
+
+then 
+
+f := ∑
+
+> γ∈Nd
+> 0
+
+yγ Hγ,λ ∈ Hkϱ (Rd; Rd′
+
+).
+
+Proof. This a straight-forward inductive generalization of Proposition C.7 in [8]. It is formulated for d = ∞, but holds verbatim in the case d ∈ N as well. 38 7.2 Weight formula 
+
+Next, we derive an equivalent expression for the weights vγ,(k),d , which we will need later to derive upper bounds in Proposition 7.6, but which might be of independent interest as well. To this end, let Π( n) denote the set of partitions of [n], n ∈ N, and set Π(0) := ∅.
+
+Proposition 7.3 (Weight formula) . Let d ∈ N and γ ∈ Nd
+
+> 0
+
+. For any j ∈ N, we have 
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+= ∑
+
+> σ∈Π( j)
+
+(−1) j−| σ|
+
+( ∏
+
+> B∈σ
+
+(|B| − 1)! 
+
+) ( ∏
+
+> B∈σ
+
+A|B|(γ)
+
+)
+
+(7.4) 
+
+with 
+
+Ar(γ) := 
+
+> d
+
+∑
+
+> i=1
+
+γi
+
+λri
+
+, r ∈ N. (7.5) 
+
+Consequently, 
+
+v−2 
+
+> γ,(k),d
+
+= 1 + 
+
+> k
+
+∑
+
+> j=1
+
+∑
+
+> σ∈Π( j)
+
+(−1) j−| σ|
+
+( ∏
+
+> B∈σ
+
+(|B| − 1)! 
+
+) ( ∏
+
+> B∈σ
+
+A|B|(γ)
+
+)
+
+, ∀k ∈ N. (7.6) 
+
+Proof. We commence by recalling the falling factorial. For x ≥ 0 and n ∈ N we set (x)n := 
+
+x(x − 1) · · · (x − n + 1) if n ≤ x, (x)n := 0 if n > x , and (x)0 := 1 . We also recall the identity [59, eq. (3.38)] 
+
+(x)n = ∑
+
+> σ∈Π( n)
+
+Möb (ˆ 0n, σ )x|σ|, ∀n ∈ N. (7.7) Here ˆ0n = {{ 1}, . . . , {n}} denotes the finest partition of [n] and Möb (·, ·) is the Möbius function on Π( n). It is well-known [59, Ex. 3.10.4] that Möb (ˆ 0n, σ ) = ( −1) n−| σ| ∏
+
+> B∈σ
+
+(|B| − 1)! . (7.8) Next, fix j ∈ N, γ ∈ Nd
+
+> 0
+
+, and α ∈ [d]j . Note that for every i ∈ [j],
+
+γ(α1,...,α i−1) 
+
+> αi
+
+= γαi − |{ k ∈ [i − 1] : αk = αi}| ,
+
+that is, the entry γαj is reduced by the number of times that αi appears among α1, . . . , α i−1.Defining ri(α) := |{ k ∈ [j] : αk = i}| as the number of times that i appears among α1, . . . , α j , we thus readily see that j∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+=
+
+> d
+
+∏
+
+> i=1
+
+(γi)ri(α)
+
+λri(α)
+
+> i
+
+.
+
+Invoking (7.7), it follows 
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+= ∑
+
+> α∈[d]j
+> d
+
+∏
+
+> i=1
+
+ ∑
+
+> σ∈Π( ri(α))
+
+Möb (ˆ 0ri(α), σ ) γ|σ|
+
+> i
+
+λri(α)
+
+> i
+
+
+
+= ∑
+
+> α∈[d]j
+
+∑
+
+> (σi)di=1 ∈
+
+×di=1 Π( ri(α)) 
+
+( d∏
+
+> i=1
+
+Möb (ˆ 0ri(α), σ i)
+
+) ( d∏
+
+> i=1
+
+γ|σi|
+
+> i
+
+λri(α)
+
+> i
+
+)
+
+.
+
+(7.9) 39 We now reinterpret each pair (α, (σi)di=1 ) as a partition of σ ∈ Π( j) together with a sequence of block labels (iB )B∈σ ∈ [d]σ. More specifically, given α ∈ [d]j and a sequence of partitions 
+
+σi ∈ Π( ri(α)) for i ∈ [d], we make the following construction: We define the sets 
+
+Ri(α) := {k ∈ [j] : αk = i}, i ∈ [d],
+
+so that |Ri(α)| = ri(α). Arranging the elements in Ri(α) in increasing order and relabeling by 
+
+1, . . . , r i(α), we may interpret σi as a partition of Ri(α) whose blocks carry the label i. Note that the Ri(α) are pairwise disjoint and their union over i ∈ [d] equals [j]. Hence, if we take the union of all partitions σi, we obtain a partition of [j], i.e., σ := ∪i∈[d]σi ∈ Π( j). Each of the blocks B ∈ σ
+
+lies in a unique set Ri(α) and thus carries a unique label iB = i. This yields a sequence of labels 
+
+(iB )B∈σ ∈ [d]σ. This construction gives a mapping P : ( α, (σi)di=1 ) 7 → (σ, (iB )B∈σ).Conversely, let a partition σ ∈ Π( j) together with a sequence of labels (iB )B∈σ ∈ [d]σ be given. We define α ∈ [d]j by setting αk = iB if k ∈ B. As each k ∈ [j] lies in a unique block of σ, this is well-defined. We further define Ri(α) := {k ∈ B : iB = i} as the union of all blocks with label 
+
+iB = i and set σi := {B ∈ σ : iB = i}. This gives a partition of Ri(α) for each i ∈ [d]. This construction results in a mapping Q : ( σ, (iB )B∈σ) 7 → (α, (σi)di=1 ).It is an easy exercise to check that Q = P −1. Consequently, we can switch from summing over pairs (α, (σi)di=1 ) to summing over pairs (σ, (iB )B∈σ). We next examine how the terms in (7.9) change. By (7.8) we have 
+
+> d
+
+∏
+
+> i=1
+
+Möb (ˆ 0ri(α), σ i) = 
+
+> d
+
+∏
+
+> i=1
+
+(−1) ri(α)−| σi| ∏
+
+> B∈σi
+
+(|B| − 1)! 
+
+ = ( −1) j−| σ| ∏
+
+> B∈σ
+
+(|B| − 1)! ,
+
+where in the last step we used that ∑di=1 ri(α) = j and ∑di=1 |σi| = |σ|. Moreover, since iB = i for every B ∈ σi and ∑ 
+
+> B∈σi
+
+|B| = ri(α), we have 
+
+> d
+
+∏
+
+> i=1
+
+γ|σi|
+
+> i
+
+λri(α)
+
+> i
+
+=
+
+> d
+
+∏
+
+> i=1
+
+∏
+
+> B∈σi
+
+γiB
+
+λ|B|
+
+> iB
+
+= ∏
+
+> B∈σ
+
+γiB
+
+λ|B|
+
+> iB
+
+.
+
+Altogether, we find 
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+= ∑
+
+> σ∈Π( j)
+
+∑  
+
+> (iB)B∈σ∈[d]σ
+
+(−1) j−| σ| ∏
+
+> B∈σ
+
+(|B| − 1)! ∏
+
+> B∈σ
+
+γiB
+
+λ|B|
+
+> iB
+
+
+
+= ∑
+
+> σ∈Π( j)
+
+(
+
+(−1) j−| σ| ∏
+
+> B∈σ
+
+(|B| − 1)! 
+
+) ∏
+
+> B∈σd
+
+∑
+
+> i=1
+
+γi
+
+λ|B|
+
+> i
+
+.
+
+The claim follows. 
+
+7.3 Upper bounds for the weights 
+
+We now derive an upper bound for the decay of the weights vγ,(k),d in (7.3). We denote by τ(k),d : N →
+
+Nd 
+
+> 0
+
+a bijection that gives a nonincreasing rearrangement of the weights vγ,(k),d , i.e., vτ(k),d (1) ,(k),d ≥
+
+vτ(k),d (2) ,(k),d ≥ · · · . This mapping is unique up to permutations of weights of the same value. To avoid notational redundancy, we write vτ(k),d (i),(k),d = vτ(k),d (i). For brevity, we further introduce 40 the following notational conventions. If d = dim( X ), we usually write vγ,(k),dim( X ) = vγ,(k) and 
+
+τ(k),dim( X ) = τ(k). If k = 1 , we usually write vγ,(1) ,d = vγ,d and τ(1) ,d = τd. In particular, we usually write τ(1) ,dim( X ) = τ . If d = ∞, the same notation applies with Nd 
+
+> 0
+
+replaced by Γ. Note that this notation is consistent with (4.1), (4.2). If the λi are replaced by their empirical versions ˆλi, we define the weights ˆvγ,(k),d together with a nonincreasing rearrangement ˆτ(k),d analogously. The only difference is that we write ˆvγ,(k),d X = ˆ vγ,(k) and ˆτ(k),d X = ˆ τ(k). That is, we drop the dimension d in the index if d = dX instead of d = dim( X ) as before. Note that this is consistent with the notation in (3.8), (3.9). We proceed with two lemmas that we will later need in Proposition 8.1 to bound the best approximation error in terms of the weight vk 
+
+> τ(s+1)
+
+.
+
+Lemma 7.4 (Weight compatibility across dimensions) . Let d′, d ∈ N ∪ {∞} with d′ ≤ d. For any nonincreasing sequence λ1 ≥ λ2 ≥ · · · > 0, we have vτd′ (i) ≤ vτd(i) for every i ∈ N.Proof. It suffices to consider the case d < ∞. The argument in the infinite-dimensional case is analogous. Let γ denote the extension of γ ∈ Nd′ 
+
+> 0
+
+by zeros to an element of Nd
+
+> 0
+
+. Then vγ′,d ′ = vγ′,d for every γ′ ∈ Nd′ 
+
+> 0
+
+. Hence, every weight vγ′,d ′ , γ′ ∈ Nd′ 
+
+> 0
+
+, appears among the weights vγ,d , γ ∈ Nd
+
+> 0
+
+. Using the notation {·} b to denote a multiset, we deduce A := {vγ,d ′ : γ′ ∈ Nd′ 
+
+> 0
+
+}b ⊂ { vγ,d : γ ∈ Nd
+
+> 0
+
+}b =: B. 
+
+Next, fix some i ∈ N. By definition of τd′ , we have vτd′ (1) , . . . , v τd′ (i) ≥ vτd′ (i). As all weights on the left-hand side belong to A and therefore to B, the latter has at least i elements whose values are at least vτd′ (i). In particular, this holds for its ith largest element, i.e., vτd(i) ≥ vτd′ (i). As i was arbitrary, the claim follows. 
+
+Lemma 7.5 (Weight order invariance under rearrangements) . Let a = ( ai)i∈I , b = ( bi)i∈I be two sequences with countable index set I. Suppose that there exist bijections τ, π : N → I that are nonincreasing rearrangements of a and b, respectively. If a ≤ b, then aτ (i) ≤ bπ(i) for every i ∈ N.Proof. Fix some i ∈ N and set t := aτ (i). By definition of τ , we have aτ (1) , . . . , a τ (i) ≥ t. This implies 
+
+bτ (1) , . . . , b τ (i) ≥ t. Consequently, there exist at least i indices j1, . . . , j i ∈ I such that bjn ≥ t for every n ∈ [i]. In particular, this must also hold for the ith largest element, i.e., bπ(i) ≥ t. As i was arbitrary, the claim follows. Finally, we conclude this section by showing that in finite dimensions the weights to Sobolev order k are bounded by the kth power of corresponding weights to Sobolev order one. Crucially, this holds for the rearranged sequences subject to the nonincreasing rearrangement τ(1) ,d corresponding to the order-one Sobolev weights. This is a key step in establishing the spectral convergence prop-erties of the Hermite-PCA approximation, as it facilitates the choice (3.10) of the index set S that is independent of the Sobolev order k.
+
+Proposition 7.6 (Weight compatibility across Sobolev orders) . Let d ∈ N, λ1 ≥ λ2 ≥ · · · > 0, and 
+
+k ∈ N. There exists ¯s = ¯ s(k, d ) ∈ N such that 
+
+( (k − 1)! 
+
+λk−1
+
+> d
+
+)k−1
+
+|Π( k)| ≤ 12 v−2
+
+> τ(1) ,d (¯ s)
+
+. (7.10) 
+
+and for every s ≥ ¯s there holds 
+
+vτ(1) ,d (s),(k),d ≤ √2vk
+
+> τ(1) ,d (s)
+
+.
+
+41 Proof. Let γ ∈ Nd 
+
+> 0
+
+with γ̸ = 0. By (7.6), we have 
+
+v−2 
+
+> γ,(k),d
+
+≥ ∑
+
+> σ∈Π( k)
+
+(−1) k−| σ|
+
+( ∏
+
+> B∈σ
+
+(|B| − 1)! 
+
+) ( ∏
+
+> B∈σ
+
+A|B|(γ)
+
+)
+
+≥ A1(γ)k − ∑
+
+> σ∈Π( k)
+> |σ|<k
+
+( ∏
+
+> B∈σ
+
+(|B| − 1)! 
+
+) ( ∏
+
+> B∈σ
+
+A|B|(γ)
+
+)
+
+,
+
+where Ar(γ) is as in (7.5). The term A1(γ)k corresponds to the partition σ = {{ 1}, . . . , {k}} . The first inequality above holds by (7.4), by which all omitted terms for j < k are positive. Since the 
+
+λi are non-increasing and bounded by 1, we can further estimate for each B ∈ σ,
+
+A|B|(γ) = 
+
+> d
+
+∑
+
+> i=1
+
+γi
+
+λ|B|
+
+> i
+
+≤ 1
+
+λ|B|− 1
+
+> d
+
+A1(γ).
+
+Since |B| ≤ k for every B ∈ σ and A1(γ) ≥ 1, we further get 
+
+v−2 
+
+> γ,(k),d
+
+≥ A1(γ)k − ∑
+
+> σ∈Π( k)
+> |σ|<k
+
+( ∏
+
+> B∈σ
+
+(|B| − 1)! 
+
+λ|B|− 1
+
+> d
+
+A1(γ)
+
+)
+
+≥ A1(γ)k − A1(γ)k−1
+
+( (k − 1)! 
+
+λk−1
+
+> d
+
+)k−1
+
+|Π( k)| .
+
+Now set γ = τ(1) ,d (s). By definition, A1(τ(1) ,d (s)) = v−2 
+
+> τ(1) ,d (s)
+
+is increasing in s and converges to 
+
+∞ as s → ∞ . Hence, we there exists ¯s = ¯ s(k, d ) such that (7.10) holds and for every s ≥ ¯s, we deduce 
+
+v−2 
+
+> τ(1) ,d (s),(k),d
+
+≥ 12 A1(τ(1) ,d (s))k = 12 v−2k
+
+> τ(1) ,d (s)
+
+.
+
+The claim follows. 
+
+# 8 Proof of Theorem 4.1 
+
+In this section, we prove the main result of the paper, Theorem 4.1. 
+
+8.1 Analysis of the best approximation error 
+
+With the results of the previous section in hand, we first bound the best approximation error 
+
+inf 
+
+> p∈P
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY )
+
+where P = PRdY := 
+
+{∑ 
+
+> γ∈S
+
+cγ Hγ,ˆλ : cγ ∈ RdY
+
+}
+
+⊆ L2ˆϱ(RdX ; RdY ) and S = ˆ τ ([ s]) are as in (3.3) and (3.10), respectively, and ˆτ is as in (3.9). Crucially, this lemma bounds the error in terms of the true weights vγ .
+
+Proposition 8.1. Let k ∈ N. There exists ¯s = ¯ s(k, d X ) ∈ N which satisfies 
+
+( (k − 1)! 
+
+λk−1
+
+> dX
+
+)k−1
+
+|Π( k)| ≤ 12 v−2 
+
+> τdX(¯ s)
+
+, (8.1) 42 and for every s ≥ ¯s there holds 
+
+inf 
+
+> p∈P
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥L2ˆϱ(RdX ;RdY ) ≤ √2(1 + κ)k/ 2vk 
+
+> τ(s+1)
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥Hk   
+
+> ˆϱ(RdX;RdY)
+
+,
+
+where κ is the parameter as in (6.20) .Proof. We define p∗ := ∑  
+
+> γ∈ˆτ(1) ,d X([ s])
+
+cγ Hγ,ˆλ with cγ = ∫ 
+
+> RdX
+
+(̂ EY ◦ F ◦̂ DX )Hγ,ˆλ dˆ ϱ. Then, together with Parseval’s identity 
+
+inf 
+
+> p∈P
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p
+
+∥∥∥2   
+
+> L2ˆϱ(RdX;RdY)
+
+≤
+
+∥∥∥̂ EY ◦ F ◦̂ DX − p∗∥∥∥2   
+
+> L2ˆϱ(RdX;RdY)
+
+=
+
+> ∞
+
+∑
+
+> i=s+1
+
+∥cˆτ(1) ,d X (i)∥22
+
+≤ ˆv2k 
+
+> ˆτ(1) ,d X(s+1)
+> ∞
+
+∑
+
+> i=s+1
+
+ˆv−2k 
+
+> ˆτ(1) ,d X(i)
+
+∥cˆτ(1) ,d X (i)∥22.
+
+By Proposition 7.6 applied with d replaced by dX and ϱ replaced by ˆϱ, there exists ¯s = ¯ s(k, d X ) ∈ N
+
+such that (8.1) is satisfied and for every s ≥ ¯s we have 
+
+> ∞
+
+∑
+
+> i=s+1
+
+ˆv−2k 
+
+> ˆτ(1) ,d X(i)
+
+∥cˆτ(1) ,d X (i)∥22 ≤
+
+> ∞
+
+∑
+
+> i=1
+
+ˆv−2  
+
+> ˆτ(1) ,d X(i),(k),d X
+
+∥cˆτ(1) ,d X (i)∥22.
+
+By changing the order of summation and applying Proposition 7.2 again with d replaced by dX
+
+and ϱ replaced by ˆϱ, we see that the right-hand side is equal to 
+
+> ∞
+
+∑
+
+> i=1
+
+ˆv−2  
+
+> ˆτ(k),d X(i),(k),d X
+
+∥cˆτ(k),d X (i)∥22 = ∥̂EY ◦ F ◦̂ DX ∥2   
+
+> Hk
+> ˆϱ(RdX;RdY)
+
+.
+
+We are thus left with bounding the weight v2k 
+
+> ˆτ(1) ,d X(s+1)
+
+. To this end, we first note that Weyl’s inequality (6.21) implies ˆλi ≤ ∥ ∆∥∞ + λi ≤ (1 + κ)λi for every i = 1 , . . . , d X . Consequently, 
+
+ˆvγ,d X =
+
+1 + 
+
+> dX
+
+∑
+
+> i=1
+
+γi
+
+ˆλi
+
+
+
+> −1/2
+
+≤ (1 + κ)1/2
+
+1 + 
+
+> dX
+
+∑
+
+> i=1
+
+γi
+
+λi
+
+
+
+> −1/2
+
+= (1 + κ)1/2vγ,d X , ∀γ ∈ NdX 
+
+> 0
+
+.
+
+Together with Lemma 7.5 it follows that ˆvˆτ(1) ,d X (i) ≤ (1 + κ)1/2vτ(1) ,d X (i) for every i ∈ N. By Lemma 7.4 we further have vτ(1) ,d X (i) ≤ vτ(1) (i). Combining all estimates finally yields the claim. 
+
+8.2 Final arguments 
+
+Proof of Theorem 4.1. We shall apply Theorem 6.1 with δ = 1 /2 (this value is arbitrary), 
+
+Υ = 
+
+( C1dX log(12 /ϵ )
+
+NX
+
+) 14
+
++
+
+( C1dY log(12 /ϵ )
+
+NY
+
+) 14
+
+.
+
+and κ chosen as large as possible so that (6.2) holds. Recall that in this case we choose the set S as in (3.10). It is a short argument to show that m(S) ≤ s − 1 ≤ s for this set. Indeed, suppose that 
+
+∥γ∗∥1 = t ≥ s. Notice that 
+
+ˆvγ∗ =
+
+1 + 
+
+> dX
+
+∑
+
+> i=1
+
+γ∗
+
+> i
+
+ˆλi
+
+
+
+> −1
+
+≤
+
+(
+
+1 + ∥γ∗∥1
+
+ˆλ1
+
+)−1
+
+<
+
+(
+
+1 + i
+
+ˆλ1
+
+)−1
+
+= ˆ vie1 , i = 0 , . . . , s − 1.
+
+43 Therefore, there are at least s multi-indices for which the corresponding values ˆvγ exceed ˆvγ∗ . It follows that γ∗ /∈ S, as required. In order to apply Theorem 6.1, we need to verify that (6.1), (6.3) and (6.4) hold. The latter two follow immediately from (4.4) and (4.5) and the choices for δ and Υ. We now consider (6.1). First notice that the choice of κ means this is implied by the condition 
+
+NX ≥ max {I1, I 2, I 3}
+
+where, after recalling that m(S) ≤ s, we have 
+
+I1 = C1dX log(12 /ϵ )Υ −4,I2 = C22 log(6 /ϵ )( λdX )−2
+
+(
+
+1 − 121/d X
+
+)−2
+
+,I3 = 142 4C22 log(6 /ϵ )( λdX )−8
+
+(
+
+2s log( s) + | log(Υ) | +
+
+√
+
+| log(Υ) | + s| log( λdX )|
+
+)4
+
+.
+
+We now verify that NX ≥ Ii, i = 1 , 2, 3, separately. The case i = 1 follows immediately from (4.3) and the definition of Υ. For i = 2 , we use the inequality 1 − 2−1/z ≥ 1/(2 z) to observe that 
+
+I2 ≤ 4C22 log(6 /ϵ )( λdX )−2d2 
+
+> X
+
+.
+
+Hence, using (4.3) we see that NX ≥ I2 provided c1 is sufficiently large. For i = 3 , we first observe that Υ < 1 due to (4.3) and (4.4), for sufficiently large c1, c 2. Therefore 
+
+| log(Υ) | = log(1 /Υ) ≤ 14 log( NX ) − 14 log(log(12)) ≤ log( NX ).
+
+Hence I3 ≤ NX , due to (4.3) and for sufficiently large c1.Having verified the required conditions, we now apply Theorem 6.1 to deduce that 
+
+∥∥∥F −̂ F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≲ L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi +
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i + ( ∥F (0) ∥Y + L(1 + Kμ) + σ)Υ +
+
+(
+
+1 + ( ∥F (0) ∥Y + L)Υ 
+
+) ˜Υ.
+
+Applying the definition of Υ and the fact that Υ < 1, we get 
+
+∥∥∥F −̂ F
+
+∥∥∥L2  
+
+> μ(X;Y)
+
+≲ L
+
+√√√√√ 
+
+> dim( X)
+
+∑ 
+
+> i=dX+1
+
+λi +
+
+√√√√√
+
+> dim( Y)
+
+∑ 
+
+> i=dY+1
+
+λF ♯μ i
+
++ ( ∥F (0) ∥Y + L(1 + Kμ) + σ)
+
+( dX log(12 /ϵ )
+
+NX
+
+) 14
+
++
+
+( dY log(12 /ϵ )
+
+NY
+
+) 14
+
+
+
++
+
+(
+
+1 + ∥F (0) ∥Y + L
+
+) ˜Υ.
+
+We now estimate the term ˜Υ. Applying Proposition 8.1 and recalling that κ ≤ 1/2 and M ≥ s by construction, we see that 
+
+˜Υ ≲ 1
+
+√ϵ
+
+( 32
+
+)k/ 2
+
+vk 
+
+> τ(s+1)
+
+∥∥∥̂ EY ◦ F ◦̂ DX
+
+∥∥∥Hk    
+
+> ˆϱ(RdX;RdY)
+
++ σ
+
+√ sM ϵ .
+
+Substituting this into the previous bound now completes the proof. 44 9 Conclusions 
+
+In this article, we presented a fully data-driven algorithm, termed Hermite-PCA approximation , for the recovery of Sobolev operators from pointwise, noisy samples. It is based on PCA for dimension reduction and employs weighted linear least-squares fitting, making it computationally efficient. It has several important properties. First, it achieves near-optimal sample complexity under weak assumptions – we only assume the input measure μ to be Gaussian. Second, it does so in a spectral fashion, achieving faster convergence rates the smoother the objective operator is. Third, it can be adapted to any other regularity, e.g., mixed regularity, while maintaining its properties. We present a full error analysis of our algorithm, thus allowing for optimal choices of all hyperparameters. Alongside, we provide numerical results which closely match our theoretical findings. In particular, to the best of our knowledge, our experiments numerically illustrate for the first time the curse of sample complexity which is inherent to the approximation of finitely regular operators. There are several future research directions. First, our algorithm requires a custom sampling distribution μsamp of the input training data. It is based on the Christoffel function of the learning problem and is thus intrinsic to using Hermite polynomials [3]. In practice, Monte Carlo sampling from the underlying Gaussian input distribution μ would be more favorable. It is an open question whether our error bounds also hold in the case of i.i.d. samples from μ.Second, the bound (4.3) indicates an at least quartic s-scaling of the number NX of unlabeled data samples used in the empirical PCA encoding step. We believe that this is an artifact of our analysis. In fact, our empirical results suggest that it can be significantly improved to an at least log-linear scaling. This is topic of future work. Third, in Appendix C, we identify conditions for the operator F which imply its latent space representation to be Sobolev regular. It can be shown that Hkμ (X ; Y)-regularity of F itself is not sufficient for the analysis of the algorithm presented in this work. It is an open question whether the Hermite-PCA algorithm can attain optimal rates for all Hkμ (X ; Y)-operators based on only finitely many samples from μ, or if different algorithmic approaches are required. We mention [9] for recent results in finite dimensions. Finally, as noted above, our algorithm can be readily adapted to other types of regularity, such as anisotropic or mixed smoothness or otherwise. An in-depth study of operator learning under other smoothness types is an interesting topic for future work. 
+
+# Acknowledgments 
+
+BA acknowledges support from the Natural Sciences and Engineering Research Council of Canada (NSERC) through grants RGPIN/2026-04531. MG and GM acknowledge support from the Haus-dorff Center for Mathematics (HCM) in Bonn, funded by the Deutsche Forschungsgemeinschaft (DFG, German Research Foundation) under Germany’s Excellence Strategy – EXC-2047/2 – 390685813. 
+
+# References    
+
+> [1] B. Adcock. Optimal sampling for least-squares approximation. Foundations of Computational Mathe-matics 25.6 (2025), pp. 1975–2034.
+
+45 [2] B. Adcock, S. Brugiapaglia, N. Dexter, and S. Moraga. On Efficient Algorithms for Computing Near-Best Polynomial Approximations to High-Dimensional, Hilbert-Valued Functions from Limited Sam-ples . 1st ed. Vol. 13. Memoirs of the European Mathematical Society. EMS Press, 2024. [3] B. Adcock, S. Brugiapaglia, and C. Webster. Sparse Polynomial Approximation of High-Dimensional Functions . Philadelphia, PA: Society for Industrial and Applied Mathematics, 2022. [4] B. Adcock, J. Cardenas, N. Dexter, and S. Moraga. Towards Optimal Sampling for Learning Sparse Approximations in High Dimensions. High-Dimensional Optimization and Probability: With a View Towards Data Science . Cham: Springer International Publishing, 2022, pp. 9–77. [5] B. Adcock, N. Dexter, and S. Moraga. Optimal approximation of infinite-dimensional holomorphic functions. Calcolo 61.1 (2024), p. 12. [6] B. Adcock, N. Dexter, and S. Moraga. Optimal approximation of infinite-dimensional holomorphic functions II: Recovery from i.i.d. pointwise samples. Journal of Complexity 89 (2025), p. 101933. [7] B. Adcock, N. Dexter, and S. Moraga. Optimal deep learning of holomorphic operators between Banach spaces. Advances in Neural Information Processing Systems . Vol. 37. Curran Associates, Inc., 2024, pp. 27725–27789. [8] B. Adcock, M. Griebel, and G. Maier. The sample complexity of learning Lipschitz operators with respect to Gaussian measures (2025). arXiv: 2410.23440 .[9] B. Adcock and A. Gupta. Universal, sample-optimal algorithms for recovery of anisotropic functions from i.i.d. samples (2026). arXiv: 2604.07660 .[10] B. Adcock, G. Maier, and R. Parhi. Towards sharp minimax risk bounds for operator learning (2026). arXiv: 2512.17805 .[11] F. Bartel and D. D˜ ung. Sampling recovery in Bochner spaces and applications to parametric PDEs (2026). arXiv: 2409.05050 .[12] P. Batlle, M. Darcy, B. Hosseini, and H. Owhadi. Kernel methods are competitive for operator learning. 
+
+Journal of Computational Physics 496 (2024), p. 112549. [13] K. Bhattacharya, B. Hosseini, N. B. Kovachki, and A. M. Stuart. Model reduction and neural networks for parametric PDEs. The SMAI Journal of Computational Mathematics 7 (2021), pp. 121–157. [14] V. Bogachev. Gaussian measures . Mathematical surveys and monographs Volume 62. Providence, RI: American Mathematical Society, 1998. [15] N. Boullé and A. Townsend. A Mathematical Guide to Operator Learning. Handbook of Numerical Analysis . Vol. 25. Elsevier, 2024, pp. 83–125. [16] S. Brugiapaglia, N. Franco, and N. Nelsen. A short tour of operator learning theory: Convergence rates, statistical limits, and open questions (2026). arXiv: 2603.00819 .[17] J. Chen and D. Sanz-Alonso. Convergence rates for learning pseudo-differential operators (2026). arXiv: 2601.04473 .[18] K. Cheng, J. Fan, L. Song, and D.-X. Zhou. Learning Fréchet differentiable operators via prespecified neural operators. Applied and Computational Harmonic Analysis 84 (2026), p. 101878. [19] A. Cohen and G. Migliorati. Optimal weighted least-squares methods. The SMAI Journal of Compu-tational Mathematics 3 (2017), pp. 181–203. [20] G. Da Prato. An Introduction to Infinite-Dimensional Analysis . 1st ed. Universitext. Springer Berlin, Heidelberg, 2006. [21] M. De Hoop, N. Kovachki, N. Nelsen, and A. Stuart. Convergence rates for learning linear operators from noisy data. SIAM/ASA Journal on Uncertainty Quantification 11.2 (2023), pp. 480–513. [22] P. Doktor and M. Kučera. Perturbations of variational inequalities and rate of convergence of solutions. 
+
+Czechoslovak Mathematical Journal 30.3 (1980), pp. 426–437. 
+
+46 [23] D. D˜ ung, V. K. Nguyen, C. Schwab, and J. Zech. Analyticity and Sparsity in Uncertainty Quantification for PDEs with Gaussian Random Field Inputs . Vol. 2334. Lecture Notes in Mathematics. Cham: Springer International Publishing, 2023. [24] M. Herde, B. Raonić, T. Rohner, R. Käppeli, R. Molinaro, E. Bézenac, and S. Mishra. Poseidon: efficient foundation models for PDEs. Advances in Neural Information Processing Systems . Vol. 37. Curran Associates, Inc., 2024, pp. 72525–72624. [25] L. Herrmann, C. Schwab, and J. Zech. Neural and spectral operator surrogates: Unified construction and expression rate bounds. Advances in Computational Mathematics 50.4 (2024), p. 72. [26] J. Hesthaven and S. Ubbiali. Non-intrusive reduced order modeling of nonlinear problems using neural networks. Journal of Computational Physics 363 (2018), pp. 55–78. [27] I. Ipsen and R. Rehman. Perturbation bounds for determinants and characteristic polynomials. SIAM Journal on Matrix Analysis and Applications 30.2 (2008), pp. 762–776. [28] V. Koltchinskii and K. Lounici. Asymptotics and concentration bounds for bilinear forms of spectral projectors of sample covariance. Annales de l’Institut Henri Poincaré, Probabilités et Statistiques 52.4 (2016). [29] N. Kovachki, S. Lanthaler, and H. Mhaskar. Data complexity estimates for operator learning (2024). arXiv: 2405.15992 .[30] N. Kovachki, S. Lanthaler, and S. Mishra. On universal approximation and error bounds for Fourier neural operators. Journal of Machine Learning Research 22.290 (2021), pp. 1–76. [31] N. Kovachki, S. Lanthaler, and A. Stuart. Operator Learning: Algorithms and Analysis. Handbook of Numerical Analysis . Vol. 25. Elsevier, 2024, pp. 419–467. [32] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anandkumar. Neu-ral operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research 24.89 (2023), pp. 1–97. [33] S. Lanthaler. Operator learning of Lipschitz operators: An information-theoretic perspective (2024). arXiv: 2406.18794 .[34] S. Lanthaler. Operator learning with PCA-Net: Upper and lower complexity bounds. Journal of Ma-chine Learning Research 24.1 (2023). [35] S. Lanthaler, S. Mishra, and G. Karniadakis. Error estimates for DeepONets: A deep learning frame-work in infinite dimensions. Transactions of Mathematics and Its Applications 6.1 (2022), tnac001. [36] S. Lanthaler and N. H. Nelsen. Error bounds for learning with vector-valued random features. Advances in Neural Information Processing Systems . Vol. 36. Curran Associates, Inc., 2023, pp. 71834–71861. [37] S. Lanthaler and A. Stuart. The parametric complexity of operator learning. IMA Journal of Numerical Analysis 46.2 (2026), pp. 647–712. [38] M. Ledoux and M. Talagrand. Probability in Banach Spaces . Berlin, Heidelberg: Springer, 1991. [39] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. Fourier neural operator for parametric partial differential equations. 9th International Conference on Learning Representations, ICLR 2021 . 2021. [40] C. Liao, D. Needell, and H. Schaeffer. Cauchy random features for operator learning in Sobolev space (2025). arXiv: 2503.00300 .[41] H. Liu, H. Yang, M. Chen, T. Zhao, and W. Liao. Deep nonparametric estimation of operators between infinite dimensional spaces. Journal of Machine Learning Research 25.24 (2024), pp. 1–67. [42] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence 3.3 (2021), pp. 218–229. 
+
+47 [43] A. Lunardi, M. Miranda, and D. Pallara. Infinite dimensional analysis. 2015–2016. url : https://www. mathematik.tu-darmstadt.de/media/analysis/lehrmaterial_anapde/hallerd/Lectures.pdf .[44] D. Luo, T. O’Leary-Roseberry, P. Chen, and O. Ghattas. Dimension reduction for derivative-informed operator learning: An analysis of approximation errors (2025). arXiv: 2504.08730 .[45] A. Markus. The eigen- and singular values of the sum and product of linear operators. Russian Math-ematical Surveys 19.4 (1964), pp. 91–120. [46] F. Mignot. Contrôle dans les inéquations variationelles elliptiques. Journal of Functional Analysis 22.2 (1976), pp. 130–185. [47] C. Milbradt and M. Wahl. High-probability bounds for the reconstruction error of PCA. Statistics & Probability Letters 161 (2020), p. 108741. [48] M. Mollenhauer, N. Mücke, and T. Sullivan. Learning linear operators: Infinite-dimensional regression as a well-behaved non-compact inverse problem (2024). arXiv: 2211.08875 .[49] A. Narayan. Computation of induced orthogonal polynomial distributions. ETNA - Electronic Trans-actions on Numerical Analysis 50 (2018), pp. 71–97. [50] N. Nelsen and A. Stuart. Operator learning using random features: A tool for scientific computing. 
+
+SIAM Review 66.3 (2024), pp. 535–571. [51] N. Nelsen and A. Stuart. The random feature model for input-output maps between Banach spaces. 
+
+SIAM Journal on Scientific Computing 43.5 (2021), A3212–A3243. [52] I. Pinelis. Exact lower and upper bounds on the incomplete Gamma function. Mathematical Inequalities & Applications 4 (2020), pp. 1261–1278. [53] A. Quarteroni, A. Manzoni, and F. Negri. Reduced Basis Methods for Partial Differential Equations .Vol. 92. Unitext. Cham: Springer International Publishing, 2016. [54] N. Reinhardt, S. Wang, and J. Zech. Statistical learning theory for neural operators (2024). arXiv: 
+
+2412.17582 .[55] M. Reiß and M. Wahl. Nonasymptotic upper bounds for the reconstruction error of PCA. The Annals of Statistics 48.2 (2020), pp. 1098–1123. [56] C. Schwab, A. Stein, and J. Zech. Deep operator network approximation rates for Lipschitz operators. 
+
+Analysis and Applications 24.01 (2026), pp. 199–239. [57] C. Schwab and J. Zech. Deep learning in high dimension: Neural network expression rates for analytic functions in L2(Rd, γ d). SIAM/ASA Journal on Uncertainty Quantification 11.1 (2023), pp. 199–234. [58] H. Sharma, L. Novák, and M. Shields. Polynomial chaos expansion for operator learning (2025). arXiv: 
+
+2508.20886 .[59] R. Stanley. Enumerative Combinatorics: Volume 1 . Cambridge, NY: Cambridge University Press, 2012. [60] G. Stewart and J. Sun. Matrix Perturbation Theory . Boston: Academic Press, 1990. [61] U. Subedi, V. Raman, and A. Tewari. Online infinite-dimensional regression: Learning linear operators. 
+
+Proceedings of The 35th International Conference on Algorithmic Learning Theory . Vol. 237. PMLR, 2024, pp. 1113–1133. [62] U. Subedi and A. Tewari. Operator learning: A statistical perspective (2025). arXiv: 2504.03503 .[63] J. Turnage, M. Lowery, J. Jakeman, Z. Morrow, A. Narayan, and V. Shankar. An optimal weighted least-squares method for operator learning (2025). arXiv: 2512.11168 .[64] R. Vershynin. High-Dimensional Probability: An Introduction with Applications in Data Science . Cam-bridge Series in Statistical and Probabilistic Mathematics. Cambridge University Press, 2025. 
+
+48 [65] C. Villani. Optimal Transport . Vol. 338. Grundlehren der mathematischen Wissenschaften. Berlin, Heidelberg: Springer, 2009. [66] Q. Wang, J. Hesthaven, and D. Ray. Non-intrusive reduced order modeling of unsteady flows using artificial neural networks with application to a combustion problem. Journal of Computational Physics 
+
+384 (2019), pp. 289–307. [67] J. Westermann, B. Huber, T. O’Leary-Roseberry, and J. Zech. Performance of neural and polynomial operator surrogates (2026). arXiv: 2604.00689 .
+
+# A Definition of Hkμ (X ; Y)
+
+In this appendix, we present a formal definition of the Sobolev spaces Hkμ (X ; Y) along with several results needed in the main text. We commence with some preliminary notions. 
+
+Definition A.1 (Cylindrical functionals and operators) . A functional φ : X → R is called a 
+
+cylindrical functional if there exist n ∈ N, ℓ1, . . . , ℓ n ∈ X ∗, and a function ω : Rn → R such that 
+
+φ(X) = ω(ℓ1(X), . . . , ℓ n(X)) , ∀X ∈ X .
+
+We call φ a k times boundedly Fréchet differentiable cylindrical functional with k ∈ N∪{∞} if, with the above notation, ω ∈ Ckb (Rn). The space of all such functionals is denoted by FCkb (X ). Moreover, we define the set of all k times boundedly Fréchet differentiable cylindrical Y-valued operators by 
+
+FCkb (X ; Y) := span 
+
+{
+
+X ∋ X 7 → φ(X)Y ∈ Y : φ ∈ F Ckb (X ), Y ∈ Y 
+
+}
+
+.
+
+Recall that HS k(X ; Y) denotes the set of all k-linear operators F : X k → Y with finite Hilbert-Schmidt norm 
+
+∥F ∥HS k (X ;Y) =
+
+
+
+> ∞
+
+∑ 
+
+> i1,...,i k=1
+
+∥F (ei1 , . . . , eik )∥22
+
+
+
+> 1/2
+
+,
+
+where ei denotes the ith standard unit vector in Ndim( X )0 if dim( X ) < ∞ and in Γ if dim( X ) = ∞.
+
+Definition A.2 (The space Hkμ (X ; Y)). The space Hkμ (X ; Y) is defined as the completion of the space FCkb (X ; Y) under the Sobolev norm 
+
+∥F ∥Hkμ (X ;Y) := 
+
+∥F ∥2  
+
+> L2
+> μ(X;Y)
+
++
+
+> k
+
+∑
+
+> j=1
+
+∥∥∥Dj F
+
+∥∥∥2   
+
+> L2
+> μ(X;HS j(X;Y))
+
+
+
+> 1/2
+
+,
+
+which can be equivalently written as 
+
+∥F ∥Hkμ (X ;Y) =
+
+∫
+
+> X
+
+∥F ∥2 
+
+> Y
+
+dμ +
+
+> k
+
+∑
+
+> j=1
+
+∫
+
+> X∞
+
+∑ 
+
+> i1,...,i j=1
+
+∥∥∥∂ij · · · ∂i1 F
+
+∥∥∥2 
+
+> Y
+
+dμ
+
+
+
+> 1/2
+
+.
+
+The weak Gaussian derivatives Dj F of F ∈ Hkμ (X ; Y) are well-defined for 1 ≤ j ≤ k in the sense that if two sequences {φi}i, { ˜φi}i from FCkb (X ; Y) are Cauchy in Hkμ (X ; Y) and converge to F in L2
+
+> μ
+
+(X ; Y), then the sequences {Dj φi}i, {Dj ˜φi}i have equal limits (denoted by Dj F ) in 49 L2
+
+> μ
+
+(X ; HS j (X ; Y)) . We refer to [14, Sec. 5.2] for details. We remark that our definition of Hkμ (X ; Y)
+
+deviates from the one therein in that we consider the Fréchet derivative along the full space X
+
+whereas Bogachev considers the derivative along the Cameron-Martin space H(μ) of μ. The proof for well-definedness of the weak derivatives, however, is analogous for both cases. If dim( X ) < ∞,then both spaces coincide, as in this case H(μ) = X .
+
+Remark A.3. An equivalent definition of Hkμ (X ; Y) can be given via closability of Fréchet differ-ential operators up to order k. We refer to [43, 8, 20] for details. 
+
+In finite dimensions, Gaussian Sobolev functions can be characterized by classical Sobolev functions. To this end, as in the main text, write λ = ( λi)di=1 , d ∈ N, with λi > 0, and let 
+
+ϱ = ϱλ := N (0 , λ) denote a centered, nondegenerate Gaussian measure on Rd with diagonal covari-ance matrix with diagonal entries λi.
+
+Proposition A.4 (Classical vs. Gaussian weak derivatives) . The Sobolev space Hkϱ (Rd; Rd′
+
+) consists of all functions f ∈ Hk
+
+> loc
+
+(Rd; Rd′
+
+) such that f ∈ L2
+
+> ϱ
+
+(Rd; Rd′
+
+) and Dℓf ∈ L2
+
+> ϱ
+
+(Rd; HS ℓ(Rd; Rd′
+
+)) for 
+
+ℓ ∈ [k]. The corresponding classical and Gaussian weak derivatives coincide. Proof. This is [14, Prop. 1.5.2], which considers the isotropic, scalar-valued case with λ1 = · · · =
+
+λd = 1 and d′ = 1 . The proof, however, holds for the anisotropic case as well, and the vector-valued case follows by applying the scalar-valued result to each component function. 
+
+# B Optimal approximation of Gaussian Sobolev operators 
+
+We show that the worst-case approximation error for Hkμ (X ; Y)-operators based on s potentially adaptively chosen linear samples is bounded from below by the quantity vk 
+
+> τ(s+1)
+
+. To this end, we first recall the notion of the adaptive s-width and then adapt arguments from [8]. 
+
+Definition B.1 (Adaptive s-width) . Let (V, ∥·∥ V ) be a normed vector subspace of L2
+
+> μ
+
+(X ; Y) and let K ⊂ V be a subset. The adaptive s-width of K in V is given by 
+
+Θs(K; V, L 2
+
+> μ
+
+(X ; Y)) := inf 
+
+> {
+
+sup  
+
+> F∈K
+
+∥F − T (L(F )) ∥L2  
+
+> μ(X;Y)
+
+: L : V → Y s adaptive , T : Ys → L2
+
+> μ
+
+(X ; Y)
+
+> }
+
+,
+
+where the infimum is taken over all adaptive sampling operators L and all (arbitrary) reconstruction operators T . A mapping L = ( Li)si=1 : V → Y s is called an adaptive (Hilbert-valued) sampling operator if L1 : V → Y is a bounded linear functional and Li : V × Y i−1 → Y is bounded and linear in the first component for i = 2 , . . . , m . There is also a technical compatibility condition between the Hilbert- and the scalar-valued case which we omit in the interest of length. Details can be found in [8, Sec 5.1]. The adaptive s-width of a set K describes the smallest worst-case error that can be achieved when we reconstruct all operators in K by a reconstruction mapping T from s samples that have been generated by an adaptive Hilbert-valued sampling operator L. We are interested in a specific choice for K, namely the k-Sobolev unit ball 
+
+Bkμ(X ; Y) := 
+
+> {
+
+F ∈ Hkμ (X ; Y) : ∥F ∥Hkμ (X ;Y) ≤ 1
+
+> }
+
+.
+
+50 We write Γd = Nd
+
+> 0
+
+, [d] = {1, . . . , d } for d ∈ N and Γ∞ = Γ , [∞] = N. Recall from (7.3) the weights 
+
+vγ,(k),d := 
+
+1 + 
+
+> k
+
+∑
+
+> j=1
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+
+
+> −1/2
+
+, k ∈ N, d ∈ N ∪ {∞} , γ ∈ Γd.
+
+together with a nonincreasing rearrangement τ(k),d : N → Γd. Also recall the notational conventions introduced in the beginning of Section 7.3. 
+
+Theorem B.2 (Lower bound for the adaptive s-width) . For every s ∈ N, we have 
+
+Θs(Bkμ(X ; Y); V, L 2
+
+> μ
+
+(X ; Y)) ≥ vτ(k)(s+1) .
+
+For k = 1 and dim( X ) = ∞, this result follows from Theorem 5.4 in [8]. The proof holds verbatim in the case dim( X ) < ∞ as well. It is based on defining a suitable operator in the 1-Sobolev unit ball which allows one to reduce the continuous approximation problem over H1
+
+> μ
+
+-operators to a discrete approximation problem over finite weighted ℓ2-sequences. The error in the latter can then be analyzed explicitly via the Kolmogorov width. The generalization of the argument to arbitrary Sobolev orders k ∈ N is essentially the same. See also [9, Lem. 4.3] for a proof in the general case for scalar-valued functions. For these reasons, we omit the proof of Theorem B.2. The next result relates the weight vτ(k),d (s) to the weight vτ(1) ,d (s). For k ∈ N, d ∈ N ∪ {∞} ,and T > 0, we define the set 
+
+Sk,d (T ) := 
+
+{
+
+γ ∈ Γd : v−2 
+
+> γ,(k),d
+
+≤ 1 + T
+
+}
+
+=
+
+γ ∈ Γd :
+
+> k
+
+∑
+
+> j=1
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+≤ T
+
+ .
+
+Proposition B.3 (Lower weight bound) . For every k ∈ N, d ∈ N ∪ {∞} , we have 
+
+vτ(k),d (s) ≥ (2 k)− 12 vk
+
+> τ(1) ,d (s)
+
+, ∀s ∈ N.
+
+Proof. For γ ∈ Γd, we compute 
+
+v−2 
+
+> γ,(k),d
+
+= 1 + 
+
+> k
+
+∑
+
+> j=1
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γ(α1,...,α i−1)
+
+> αi
+
+λαi
+
+≤ 1 + 
+
+> k
+
+∑
+
+> j=1
+
+∑
+
+> α∈[d]j
+> j
+
+∏
+
+> i=1
+
+γαi
+
+λαi
+
+= 1 + 
+
+> k
+
+∑
+
+> j=1
+
+( d∑
+
+> i=1
+
+γi
+
+λi
+
+)j
+
+≤ 1 + k
+
+( d∑
+
+> i=1
+
+γi
+
+λi
+
+)k
+
+.
+
+This implies Sk,d (T ) ⊃ S1,d (( T /k )1/k ). Next, set T∗ := ( v−2 
+
+> τ(1) ,d (s)
+
+− 1) kk so that (T∗/k )1/k + 1 = 
+
+v−2
+
+> τ(1) ,d (s)
+
+. Note that Sk,d (T ) = τ(k),d ([ |Sk,d (T )|]) for any k. Hence, |S1,d (T∗/k )1/k )| ≥ s and therefore 
+
+|Sk,d (T∗)| ≥ s. This in turn implies τ(k),d (s) ∈ Sk,d (T∗) and consequently, 
+
+v−2 
+
+> τ(k),d (s)
+
+≤ 1 + T∗ = 1 + ( v−2 
+
+> τ(1) ,d (s)
+
+− 1) kk ≤ 2kv −2k
+
+> τ(1) ,d (s)
+
+.
+
+The claim follows. In summary, Theorem B.2 and Proposition B.3 constitute a lower bound for the best approxi-mation error which matches the upper bound in Theorem 4.1 up to constants. 51 C Ck-operators with admissible growth at infinity 
+
+We introduce a set of operators F , for which the latent space function ̂ f := ̂ EY ◦ F ◦̂ DX belongs to 
+
+Hk 
+
+> ˆϱ
+
+(RdX ; RdY ) and the norm can be bounded independently of the empirical PCA eigenvalues ˆλi.This can be achieved if one has control over the behavior of F which prevents if from growing too fast at infinity. We then discuss relevant subsets of such operators, most importantly the set of 
+
+Ck-operators whose derivatives are Lipschitz continuous. 
+
+C.1 Definitions and properties 
+
+Definition C.1 (Admissible growth function) . We call a measurable function ω : [0 , ∞) → [0 , ∞)
+
+a function of μ-admissible growth at infinity (or just μ-admissible ) if ω is monotonically increasing and ∫ 
+
+> X
+
+ω(∥X∥X )2 dμ(X) < ∞.
+
+Example C.2. By the Fernique theorem, monomials ω(t) = tp, p ≥ 0, and linear combinations thereof with nonnegative coefficients are admissible. The function of fastest admissible growth at infinity is given by ω(t) = exp( αt 2) with α < inf i∈[dim( X )] 1/(4 λi), see [43, Prop. 4.2.6]. 
+
+Definition C.3 (Ck-operators with admissible growth) . We define the space of (local) Ck-operators with μ-admissible growth at infinity by 
+
+Ckμ-adm (X ; Y) := 
+
+{
+
+F ∈ Ck(X ; Y) μ-a.e. : ∃ω μ -admissible ∀0 ≤ j ≤ k :
+
+∥Dj F (X)∥HS j (X ;Y) ≤ ω(∥X∥X ) for μ-a.e. X ∈ X 
+
+}
+
+.
+
+Let F ∈ Ckμ-adm (X ; Y) with corresponding μ-admissible growth function ω. Repeated application of the chain rule yields 
+
+Dk̂ f (x)( z1, . . . , zk) = ̂ EY
+
+(
+
+DkF (̂DX (x))( ̂ DX (z1), . . . , ̂ DX (zk)
+
+)
+
+, z1, . . . , zk ∈ RdX
+
+for all points x ∈ RdX where this derivative exists. Note that the set of these points is a ̂ EX ♯μ -null set in RdX . Since ̂ EY and ̂ DX are contractions and ω is monotone, we may compute for j ∈ [k]
+
+> dX
+
+∑ 
+
+> i1,...,i j=1
+
+∥∥∥Dj f (x)( ei1 , . . . , eij )
+
+∥∥∥22 =
+
+> dX
+
+∑ 
+
+> i1,...,i j=1
+
+∥∥∥̂ EY
+
+(
+
+Dj F (̂DX (x))( ̂DX (ei1 ), . . . , ̂ DX (eij )) 
+
+)∥ ∥∥22
+
+≤
+
+> dX
+
+∑ 
+
+> i1,...,i j=1
+
+∥∥∥Dj F (̂DX (x))( ̂ ϕi1 , . . . , ̂ ϕij )
+
+∥∥∥2 
+
+> Y
+
+≤ ω(∥̂DX (x)∥X )2 ≤ ω(∥x∥2)2.
+
+This shows that ̂ f ∈ Ck̂ 
+
+> EX♯μ -adm
+
+(RdX ; RdY ), provided that ω is ̂ EX ♯μ -admissible. In this case it follows from Proposition A.4 that ̂ f ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ) and the corresponding strong and weak Gaussian derivatives coincide almost everywhere. Collecting all derivatives and integrating over RdX gives 
+
+∥̂f ∥2    
+
+> Hk
+> ˆϱ(RdX;RdY)
+
+≤ (k + 1) 
+
+∫
+
+> RdX
+
+ω(∥x∥2)2 dˆ ϱ(x).
+
+In conclusion, we can bound ∥̂f ∥Hk
+
+> ˆϱ
+
+independently of the ˆλi if we can do so for ∫ 
+
+> X
+
+ω(∥x∥2)2 dˆ ϱ(x).We discuss three cases for which this is possible. 52 (i) No growth. If ω ≡ a, a > 0, is constant, then trivially, 
+
+(∫ 
+
+> X
+
+ω(∥x∥2)2 dˆ ϱ(x)
+
+)1/2
+
+= a. 
+
+(ii) Affine linear growth. Suppose that ω(t) = a + bt with a, b > 0. Suppose that the true and empirical PCA eigenvalues are sufficiently close, say max i∈[dX ] |λi − ˆλi| ≤ λdX . Then 
+
+(∫ 
+
+> X
+
+ω(∥x∥2)2 dˆ ϱ(x)
+
+)1/2
+
+≤ a + b
+
+√√√√ dX∑
+
+> i=1
+
+ˆλi ≤ a + b
+
+√√√√2
+
+> dX
+
+∑
+
+> i=1
+
+λi ≤ a + b√2,
+
+where we used the assumption ∑dim( X ) 
+
+> i=1
+
+λi = 1 . Note that closeness of the λi and ˆλi can be guaranteed with high probability via Weyl’s inequality (6.21) if one draws sufficiently many (unlabeled) empirical PCA data samples, see Theorem 6.8. (iii) Exponential growth. Suppose that ω(t) = a exp( bt ) with a, b > 0. Then, under the same assumptions as in (ii), 
+
+(∫ 
+
+> X
+
+ω(∥x∥2)2 dˆ ϱ(x)
+
+)1/2
+
+≤ a
+
+
+
+> dX
+
+∏
+
+> i=1
+
+EX∼N (0 ,ˆλi)[exp( bX )] 
+
+
+
+> 1/2
+
+= a exp 
+
+ b2
+
+4
+
+> dX
+
+∑
+
+> i=1
+
+ˆλi
+
+ ≤ a exp( b2/2) .
+
+Hence, we can have very fast growth and still maintain control over ∥̂f ∥Hk
+
+> ˆϱ
+
+independently of the ˆλi.
+
+C.2 Examples 
+
+We discuss two examples of important subsets of admissible operators. First, consider the set of all boundedly differentiable Ck-operators. If F ∈ Ckb (X ; Y), then F ∈ Ckμ-adm (X ; Y) with constant admissible growth function ω ≡ ∥ F ∥Ckb (X ;Y) and by (i) above, we have 
+
+∥̂ f ∥Hk    
+
+> ˆϱ(RdX;RdY)
+
+≤ √k + 1 ∥F ∥Ckb (X ;Y).
+
+For the second example we introduce the following notation. 
+
+Definition C.4 (Ck-operators with Lipschitz derivatives) . Let k ∈ N0. We define the space of all 
+
+Ck-operators with Lipschitz derivatives by 
+
+Ck
+
+> Lip
+
+(X ; Y) := {F ∈ Ck(X ; Y) : Dj F (X) ∈ Lip( X ; HS j (X ; Y)) for all 0 ≤ j ≤ k}
+
+For F ∈ Ck
+
+> Lip
+
+(X ; Y), we denote the maximum of all Lipschitz constants of the derivatives Dj F ,
+
+0 ≤ j ≤ k, by [F ]Ck 
+
+> Lip (X;Y)
+
+. We further set [F ]0 := max {∥∥Dj F (0) ∥∥HS j (X ;Y) : 0 ≤ j ≤ k}. We equip 
+
+Ck
+
+> Lip
+
+(X ; Y) with the norm ∥F ∥Ck  
+
+> Lip (X;Y)
+
+:= [ F ]0 + [ F ]Ck 
+
+> Lip (X;Y)
+
+.
+
+If F ∈ Ck
+
+> Lip
+
+(X ; Y), then F ∈ Ckμ-adm (X ; Y) with admissible growth function 
+
+ω(t) := [ F ]0 + [ F ]Ck 
+
+> Lip (X;Y)
+
+t, t ≥ 0.
+
+It follows that ̂ f ∈ Hk 
+
+> ˆϱ
+
+(RdX ; RdY ), and in the setting of (ii) above, we have 
+
+∥̂ f ∥Hk    
+
+> ˆϱ(RdX;RdY)
+
+≤ √k + 1 
+
+(
+
+[F ]0 + √2[ F ]Ck 
+
+> Lip (X;Y)
+
+)
+
+≤
+
+√
+
+2( k + 1) ∥F ∥Ck 
+
+> Lip (X;Y)
+
+.
+
+53

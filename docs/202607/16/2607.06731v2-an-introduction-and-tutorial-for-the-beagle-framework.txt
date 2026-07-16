@@ -1,0 +1,313 @@
+Title: An Introduction and Tutorial for the Beagle Framework
+
+URL Source: https://arxiv.org/pdf/2607.06731v2
+
+Published Time: Mon, 13 Jul 2026 00:07:25 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# An Introduction and Tutorial for the Beagle Framework 
+
+Ilya Basin 2 and Nathan Haut 1,2 
+
+> 1
+
+Michigan State University, East Lansing MI 48824, USA  
+
+> 2
+
+Noblis, Reston VA , USA, Ilya.Basin@noblis.org 
+
+Abstract. The Beagle framework is a GPU-based genetic programming framework that enables highly efficient genetic programming search using large population sizes by leveraging NVIDIA GPUs. This technical guide provides an introduction to the Beagle framework and provides detailed instructions for using the framework for symbolic regression problems. 
+
+Keywords: GPU Computing · Genetic Programming · Population size. 
+
+# 1 Introduction 
+
+Beagle is an open-source symbolic regression framework designed with NVIDIA GPU acceleration as a primary objective. Beagle was created by Ilya Basin as an internally funded R&D project at Noblis, a non-profit science and technology organization headquartered in the Washington, D.C. metro area. Beagle was specifically designed to optimize scaling to large population sizes by taking advantage of heterogeneous computing environments to efficiently ex-plore large/complicated search spaces [5]. A benchmarking study demonstrated that the Beagle GPU-accelerated genetic programming framework achieves sub-stantially superior performance compared to existing CPU-based frameworks when evaluated on the Feynman100 benchmark suite, a widely adopted stan-dard for assessing symbolic regression capabilities in the field [3]. The Beagle source code can be accessed here: https://github.com/Noblis/beagle-v1.x The goal of this technical tutorial is to first discuss and introduce an overview of the framework (Section 2) and then to describe key technical details of us-ing Beagle with step-by-step guides to install and get started using the Beagle framework (Section 3). 
+
+# 2 Framework Overview 
+
+In this section, we discuss the key framework details and design choices that make Beagle a highly efficient GPU Genetic Programming framework. arXiv:2607.06731v2 [cs.NE] 9 Jul 2026 2 Ilya Basin and Nathan Haut 
+
+2.1 Software Environment 
+
+Beagle utilizes the ILGPU open-source C# library. ILGPU allows low-level GPU programming rather than relying on high-level GPU libraries. This allowed for the design of a completely custom CUDA kernel to best utilize the hardware. Beagle’s development stack is .Net 10, which is cross-platform, ensuring robust performance on both Linux and Windows operating systems. Since Mac’s do not natively host NVIDIA GPUs, GPU acceleration in Beagle on a Mac is currently not possible. Apple’s custom GPUs and the Metal framework are becoming quite powerful, so depending on the future use-cases of Beagle, it may be worthwhile to explore that extension. 
+
+2.2 Hardware Optimized 
+
+Beagle is designed to automatically distribute work to as many GPUs and CPUs as are available, thus making it increasingly powerful as hardware access scales. For users with access to HPC systems, Beagle could be used to effectively explore massive search spaces. On the other end, Beagle is also optimized to work on modest hardware with smaller GPU compute and memory capacity. In this case, Beagle manages populations in batches to ensure the GPU memory is never exceeded. It is also possible to run Beagle entirely on CPU (using ILGPU GPU emulation feature), although running only on a CPU is much slower and should be reserved for debugging purposes only. 
+
+2.3 Beagle Taxonomy 
+
+While it is now realized that the Beagle framework is essentially a Genetic Pro-gramming system, it was developed independent of the field of Genetic Pro-gramming and relied only on biological inspiration of evolution. As a result, the naming conventions used in the Beagle software/API are different than what is used in the general field of Genetic Programming. For the concepts that have a functional equivalent in the field of Genetic Programming, we’ve provided Table 1 which matches the internal Beagle framework terms to those commonly used in GP. In this guide, we try to adhere to GP conventional terminology where possible, but for those interested in looking at the source code, this table will be useful. 
+
+2.4 Dividing Tasks Between CPU and GPU 
+
+In Beagle’s architecture, the GPU manages model and fitness function evalua-tions, while the CPU handles the genetic operations (mutation, initialization, etc.). The current implementation does not employ crossover. To reduce the overhead from data transfer between GPU and CPU, which can be substantial, Beagle evaluates multiple fitness cases per individual within a single generation. This avoids sending individuals back and forth between the CPU and GPU since Beagle Tutorial 3        
+
+> Table 1. Comparison of GP conventional terms versus Noblis-originated Beagle ter-minology. GP Standard Term Beagle Term Individual Organism Population Colony Evolutionary Run Experiment Parsimony Pressure Tax on Length Fitness Evaluation Scoring Fitness Accuracy
+
+the individual is sent to the GPU once and the aggregated fitness value is re-turned for the full batch of fitness cases. While the batch size is configurable, Beagle typically uses batch sizes of 512 or 1024 to best align with the hardware. Within a single generation with a population size of 1 million individuals and a batch size of 512 this means Beagle would conduct 512 million total fitness case evaluations. Within a single generation and if the GPU memory is large enough, all genomes in the population are transmitted to the GPU simultane-ously, with each genome evaluating a batch of fitness cases. Upon completion, the aggregated fitness results for all individuals are returned to the CPU. Since NVIDA GPUs have a limit of maximum 1024 threads per block, we cap the number of fitness cases at 1024 per generation to ensure one model is only ever present in one block. While it would technically be possible to distribute models over multiple blocks, this could slow down fitness aggregation since aggregating through global memory would be much slower than aggregating over block shared memory. As well, it would increase the memory footprint which for large populations or small GPU memory sizes could force batching which would also slow down performance. 
+
+2.5 Avoiding Thread Divergence 
+
+While for the most part, thread divergence on parallel CPU threads is of little concern, thread divergence on GPUs can be disastrous if it regularly occurs within within the same warps. This is because CUDA threads within a warp run in lockstep, so if one thread goes down one branch and the other thread down the other branch, both threads must execute the code for both branches, thus approximately doubling the runtime. To mitigate this, during GPU kernel execution, each CUDA block corre-sponds to a single individual (meaning the number of blocks equals the popula-tion size), and each CUDA thread within a block processes a single fitness case for that individual. Since only one model is ever operating within a single warp, occurrences of thread divergence should be much less common than if we had mixed models within the same warp. For some search spaces, thread divergence is even eliminated entirely using this setup. 4 Ilya Basin and Nathan Haut 
+
+2.6 CPU Optimizations 
+
+On the CPU side, Beagle’s implementation carefully manages memory and nearly eliminates garbage collection, memory fragmentation, and memory allocation/ deallocation overhead, which can otherwise consume substantial computational resources in evolutionary algorithms. Typically, evolutionary algorithms must continuously allocate and deallocate memory as individuals are born or die, causing excessive garbage collection activity and memory fragmentation that can significantly degrade performance. To address this issue, Beagle never deallocates memory for individuals. Instead, memory from deceased individuals is placed into a "dead pool" and reused when memory is required for new individuals. Generally, Beagle avoids deallocating memory except for C# strings, thereby minimizing garbage collection and memory defragmentation overheads 
+
+2.7 Representation 
+
+Beagle employs a custom-developed Genome Computer Language (GCL), which is a Linear Genetic Programming (LGP) language built on Reverse Polish Nota-tion (RPN). Using LGP instead of the conventional tree-based approach makes GCL more compatible with garbage collection and GPU operations. The require-ment that GPU memory be allocated statically (e.g., no heap and no stack) was one of the reasons that necessitated the choice of LGP architecture, since tree-based data structures commonly employed in GP did not lend themselves well to the GPU programming model. 
+
+2.8 Always Viable Mutations 
+
+While most mutations produce a viable genome (individual runs without throw-ing errors), in the event an invalid genome is produced, a random correction mechanism is applied to ensure the offspring is functional. This helps ensure that model evaluation compute time is spent evaluating only functional individ-uals. 
+
+2.9 Fitness Functions 
+
+Beagle, by default, uses a correlation fitness function [1, 4] since it has been shown to provide performance benefits, even when used in GPU environments [3]. However, Beagle can support any user-defined fitness function that performs a point-to-point comparison between the model output vector and the target data vector. The core of the correlation fitness function is shown in Equation 1, 
+
+r =
+
+∑Ni=1 (yi − ¯y) (ˆ yi − ¯ˆy)
+
+√∑Ni=1 (yi − ¯y)2 ∑Ni=1 (ˆ yi − ¯ˆy)2
+
+(1) Beagle Tutorial 5
+
+where N represents the number of data points i, yi denotes the target output, and ˆyi represents the model’s output. The r value is then squared. When a model produces invalid numbers (NaN, Inf, etc.) or a dataset contains them, Beagle does not remove these values but instead handles those point pairs separately by rewarding models that have invalid values in the same locations as the target dataset. Therefore, the r value only reflects point pairs where both the model and target output contain valid numbers. After obtaining r2, we then calculate the total score using Equation 2, score = M r 4 (N − (c1 + c2)) − M (c1 − c2) (2) where N is the total number of fitness cases, M is a maximum score parameter configured within Beagle, c1 is the count of valid/invalid pairs, and c2 is the count of invalid/invalid pairs. 
+
+2.10 Monte-Carlo Ranking 
+
+Since GPU accelerations allows Beagle to scale to populations sizes in the mil-lions, sorting the whole population for a rank-based selection becomes com-putationally very expensive. Rather than ranking the whole population each generation, Beagle takes a random sample of 100 individuals and uses those 100 individuals to estimate the population percentiles. Through one pass of the pop-ulation then, individuals are assigned to their specific percentile and are given rank proportional breeding rights. Specifically, the assigned breeding rights per group result in individuals from each group having an average number of off-spring as is outlined in Table 2.                      
+
+> Table 2. Expected Number of Children by Percentile Percentile Expected number of children
+> ≥90 4
+> ≥80 2.5
+> ≥70 1.5
+> ≥60 1
+> ≥50 0.5
+> ≥40 0.25
+> ≥30 0.15
+> ≥20 0.06
+> ≥10 0.03
+> ≥00.01
+
+2.11 Population Size Dynamics 
+
+The target population size in any generation is not a hard value, rather it is the average population size that will occur over the length of evolution. Due to the 6 Ilya Basin and Nathan Haut 
+
+way that the offspring are produced, the population size tends to vary within +/- 20% of the target population size in any generation. Beagle can support a static target population size where the goal population size across all generations is the same. Beagle can also support dynamic target population sizes where the target population size changes as a function of the generation number. Often, we have found there to be benefits to start with a large population size and over generations shrink the population size [2]. This promotes exploration early and then transitions to exploitation once promising regions of the search space are identified. 
+
+# 3 Using the Beagle Framework 
+
+This section provides a comprehensive guide to the Beagle framework. We present the installation procedure (Section 3.1), describe the Genome Computer Lan-guage (GCL) employed by Beagle for genetic programming operations (Section 3.2), provide guidance for interpreting Beagle output (Section 3.3) and inter-acting with Beagle during a run (Section 3.4), list the available command-line options (Section 3.5), describe the configuration parameters for custom machine learning experiments (Sections 3.6-3.10), and describe useful command-line util-ities (Section 3.11). Taken together, Section 3 serves as a technical reference for using the Beagle framework. 
+
+3.1 Installation 
+
+Beagle requires a computer system equipped with at least one NVIDIA GPU. Any CUDA-compatible NVIDIA GPU is sufficient, although higher performance is achieved with GPUs possessing greater memory capacity and more recent ar-chitectures. The Beagle framework automatically detects and supports multi-GPU configurations, enabling scalable deployment across diverse hardware envi-ronments ranging from high-performance computing servers with multiple GPUs to individual workstations or laptops with a single GPU. The Beagle framework is implemented in C#/.NET 10 utilizing the open-source ILGPU library, which provides CUDA-like functionality within the C# ecosystem. This architecture ensures cross-platform compatibility across Win-dows and Linux operating systems. macOS is currently unsupported due to the absence of NVIDIA GPU hardware in Apple systems. Although the .NET framework can be executed via command-line tools provided with the .NET SDK, development and code modification may be facilitated through .NET-compatible integrated development environments (IDEs), such as Visual Studio, Visual Studio Code, or JetBrains Rider. While the screenshots presented in this paper were captured using Visual Studio 2026, other compatible IDEs provide equivalent functionality. In addition to .NET 10, Beagle requires installing the CUDA Toolkit. The CUDA Toolkit typically includes the necessary NVIDIA driver, eliminating the Beagle Tutorial 7
+
+need for a separate driver installation. The toolkit is available for free download at https://developer.nvidia.com/cuda-downloads .Note, at the time of writing, there is a known compatibility issue between CUDA 13.3 and ILGPU. Specifically, the nvvm64_40_0.dll file has been moved into the directory "Program Files/NVIDIA GPU Computing Toolkit/CUDA/ v13.3/nvvm/bin/x64" but is expected one level up in the "bin" folder. If you en-counter a missing dll error ( Unhandled exception. System.NotSupportedExc-eption: Could not find NVVM DLL in ’C:\Program Files\NVIDIA GPU C-omputing Toolkit\CUDA\v13.3\nvvm\bin’ ), just copy the file one directory up into the "bin" to fix the issue. Beagle is an open-source framework distributed under Apache License 2.0. The source code repository is publicly available at https://github.com/Noblis /beagle-v1.x . 
+
+> Fig. 1. Visual Studio 2026 with Beagle solution loaded
+
+Select the Run project in Beagle solution as a startup project and run it. The output should look like Figure 2. 
+
+3.2 Genome Computer Langauge (GCL) 
+
+Beagle employs a bespoke Linear Genetic Programming (LGP) language called Genome Computer Language (GCL), which utilizes Reverse Polish Notation (RPN). RPN employs a stack-based architecture for operand management (Fig-ure 3). Unary operations (e.g., squaring) operate on the top stack element and replace it with the computational result. Binary operations (e.g., adding) operate on the top two stack elements and replace both with the resulting value. 8 Ilya Basin and Nathan Haut 
+
+Fig. 2. An example of a Beagle machine learning run 
+
+Fig. 3. A Mathematical expression in traditional form, RPN form, and represented as GCL. Beagle Tutorial 9
+
+A key advantage of RPN is the elimination of parentheses in mathematical expressions (Figure 4).  
+
+> Fig. 4. A Mathematical expression with parentheses in traditional form, RPN form, and represented as GCL.
+
+While RPN theoretically supports an unbounded stack size, allowing arbi-trary operand accumulation prior to operation execution, Beagle’s implemen-tation restricts the stack to 32 elements. This parameter can be modified by adjusting the StackSize constant in the BConfig.cs file within the BeagleLib project. The Figure 5 below shows an example of using more than two operands in the stack at a time.  
+
+> Fig. 5. Utilization of the RPN stack for storing multiple operands simultaneously.
+
+Table 3 presents the complete set of GCL operations. Note that during ma-chine learning experiments, individual operations can be selectively disabled, constraining Beagle to generate solutions using only a specified subset of the GCL instruction set. See section 3.7 for instructions on how to exclude certain GCL commands from a given machine learning run. Table 3: GCL commands GCL Command Operation Example 10 Ilya Basin and Nathan Haut 
+
+Table 3: GCL commands GCL Command Operation Example CONST Loads a floating-point number onto the stack. The example loads π onto the stack. CONST 3.14 LOAD Loads a floating-point input parameter onto a stack. The example loads input parameter a, which also happens to be the first input pa-rameter onto a stack. Beagle input parameters are zero-base indexed. LOAD a:0 DUP Pushes a duplicate value from the top of the stack onto the stack. After the operation is completed, the two top-most stack parameters will be identical. DUP SWAP Swaps two top-most elements on the stack. SWAP DEL Deletes the top-most stack element, effectively POPing the stack. DEL ADD Adds two top-most stack elements, removes them both from the stack and pushes the re-sult onto the stack. ADD SUB Subtracts top-most stack element from the second-top-most stack element, removes them both from the stack, and pushes the result onto the stack. SUB MUL Multiplies two top-most stack elements, re-moves them both from the stack, and pushes the result onto the stack. MUL DIV Divides second-top-most stack element by the top-most stack element, removes them both from the stack, and pushes the result onto the stack. DIV POW Raises the second-top-most stack element to the power of the top-most stack element, re-moves them both from the stack, and pushes the result onto the stack. POW SIGN Changes the sign of the top-most stack ele-ment. SIGN SQUARE Squares the top-most element on the stack. SQUARE CUBE Cubes the top-most element on the stack. CUBE SQRT Takes a square root of the top-most element on the stack. SQRT CBRT Takes a cubic root of the top-most element on the stack. CBRT LN Takes a natural logarithm of the top-most el-ement on the stack. LN Beagle Tutorial 11 
+
+Table 3: GCL commands GCL Command Operation Example SIN Takes a sine of the top-most element on the stack. SIN COS Takes a cosine of the top-most element on the stack. COS TAN Takes a tangent of the top-most element on the stack. TAN ARCSIN Takes an arcsine of the top-most element on the stack. ARCSIN ARCCOS Takes an arccosine of the top-most element on the stack. ARCCOS ARCTAN Takes an arctan of the top-most element on the stack. ARCTAN TANH Takes a hyperbolic tangent of the top-most element on the stack. TANH EXP Takes an exponential function (ex) of the top-most element on the stack. EXP COPY, PASTE The COPY and PASTE operations consti-tute GCL’s variable implementation mecha-nism. These operations function as a paired command structure: in valid GCL programs, they must occur in corresponding pairs. The numeric identifier (e.g., @1, @2, @3) serves as the variable reference, with @2 representing such an identifier in the given example. Note that each Copy operation corresponds to ex-actly one Paste operation, establishing a one-to-one mapping. The COPY operation copies the top-most value from the stack onto the variable. Note that this operation does not make any changes to the stack. The PASTE operation takes the value from the variable and pushes it onto the stack. After the operation is completed, the variable is destroyed. COPY @2 ... ... PASTE @2 
+
+3.3 Understanding Beagle Output 
+
+Figure 6 represents a sample console output of a Beagle run. Note that, in addition to being displayed on the console, Beagle output is also stored in a .txt file AppOutput directory, which is a subdirectory in the working folder of the executable. For a Windows machine, this would be the file path: beagle-v1.x/ Beagle/Run/bin/Release/net10.0/AppOutput .12 Ilya Basin and Nathan Haut  
+
+> Fig. 6. Sample console output of a Beagle run.
+
+Lets review the output for Generation 2,717. Line 1 ( 00:17:57.2953328: Generation 2,717 took 00:00:00.2965692/00:00:00.3759904 ) displays the elapsed time since the start of the run, followed by the generation number and the computational time required for that specific generation. The numerator rep-resents the time spent exclusively in GPU kernel execution, while the denom-inator indicates the total generation time encompassing both CPU and GPU operations. Line 2 ( Colony size: 262,418: (target: 250,000). Total births: 867,239,307 ) displays the current population size, the target population size, and the cumulative number of births since the start of the run. Line 3 ( Most accurate ever genome: ASR = 1.00000 (5,120,000/ 5,120,000), length = 24 from 00:12:38.2894784 at 618,659,449 total births ) presents information regarding the most accurate genome identified during the run, quantified by the Average Score Ratio (ASR). The ASR is defined as the ratio of cumulative rewards obtained across all evolutionary runs for a given genome to the theoretical maximum achievable rewards. An ASR value of 1.0 indicates a perfect solution. Additional metrics include the raw reward values versus raw maximum possible rewards, genome length (i.e., the number of GCL commands), and temporal metadata indicating both elapsed time and the cumulative birth count at the time of the genomes creation. Line 4 ( CONST -0; CONST -9.280686; CONST 8.983309; ADD; DEL; LOAD b:1; ADD; DUP; MUL; LOAD a:0; DUP; ADD; DUP; ADD; LOAD c:2; MUL; SUB; SQRT; LOAD b:1; SUB; LOAD a:0; DIV; CONST 0.5; MUL; ) displays the ac-tual GCL code for the most accurate ever genome. Line 5 ( Last colony reset at 2,381th generation ) warrants additional explanation. Beagle implements a mechanism to mitigate prolonged conver-gence on suboptimal local minima. The MLSetup configuration (detailed in Sec-Beagle Tutorial 13 
+
+tion 3.7) includes the parameter TotalBirthsToResetColonyIfNoProgress ,which defines the threshold number of births without improvement needed to trigger a population reset. When this threshold is reached, the population is reinitialized while maintaining a record of the globally optimal genome, which is excluded from the new population’s genetic pool to promote exploration of alternative solution spaces. Line 6 ( Most accurate genome since last colony reset: ASR = 1.000 00 (5,120,000/5,120,000), length = 25 at 825,909,268 total births )displays the information on the most accurate genome since the last population reset. Line 7 ( LOAD c:2; LOAD a:0; MUL; CONST -2; MUL; DUP; ADD; CONST 3; CONST 4; SUB; CONST 2.7182817; SUB; DUP; DIV; DEL; LOAD b:1; SQUARE; ADD; SQRT; LOAD b:1; SUB; LOAD a:0; DIV; CONST 0.5; MUL; ) displays the actual GCL code for the most accurate genome since the population was reset. Line 8 ( Shortest satisfactory (ASR >= 1.00000) solution found so far. ASR = 1.00000 (5,120,000/5,120,000), Length = 24 ) displays infor-mation on the shortest genome that meets the minimum acceptable performance threshold. While Line 4 presents the most accurate solution, the MLSetup config-uration (detailed in Section 3.7) allows a user to specify a minimum acceptable ASR through the SolutionFoundASRThreshold parameter, which may be set below 1.0. The genome reported on Line 8 represents the most compact solu-tion satisfying this minimum ASR criterion. In the example shown, the solution achieves optimal performance. Line 9 ( CONST -0; CONST -9.280686; CONST 8.983309; ADD; DEL; LOAD b:1; ADD; DUP; MUL; LOAD a:0; DUP; ADD; DUP; ADD; LOAD c:2; MUL; SUB; SQRT; LOAD b:1; SUB; LOAD a:0; DIV; CONST 0.5; MUL; ) displays the actual GCL code for the shortest satisfactory solution. 
+
+3.4 Interacting with Beagle During a Run 
+
+At any time during a run, a user can press Esc to pause the evolution and display options that allow them to interact with the population (see Figure 7). 
+
+3.5 Command-Line Parameters 
+
+Beagle supports execution via optional command-line parameters. Table 5 presents the available command-line parameters, which are case-insensitive, should be separated with spaces, are not all required to be present, and may be specified in any order. These command-line parameters are typically used for executing multiple runs in batch files. The command-line parameters can be useful for running the Feynman100 benchmark [6]. The code to run the benchmark is integrated into Beagle, such that symbolic regression for each of the 100 formulas make up the Feynman100 benchmark can be invoked using the RunFeynman={1-100} command-line parameter described below in Table 5. 14 Ilya Basin and Nathan Haut  
+
+> Fig. 7. Menu for interacting with Beagle during a run
+
+For instance, the parameter configuration StopAfterMin=30 RunFeyn-man=11 NoEscMenu initiates a 30-minute symbolic regression execution on Feynman100 formula 11 under the non-interactive mode. Command-line commenting is supported via the # delimiter, which causes all subsequent text to be treated as a comment. As an example, StopAfter-Min=30 RunFeynman=11 #NoEscMenu performs the same 30-minute execution of Feynman100 formula 11 while maintaining interactive mode, as the 
+
+NoEscMenu parameter is effectively commented out. 
+
+3.6 Configuration Parameters for Custom Machine Learning Experiments: Subclassing MLSetup - mandatory overrides 
+
+To set up a brand-new ML run, users must subclass the MLSetup base class and override several methods and properties. While the MLSetup subclass can be placed anywhere within the Run project, by convention, it is placed in the MLSetups directory under the Run project. The following two methods are de-clared abstract in the base class and therefore must be overridden: 
+
+public abstract string[] GetInputLabels(); public abstract (float[], float) GetNextInputsAndCorrectOutput(float[] inputsToFill); 
+
+The GetInputLabels method must return an array of strings represent-ing labels for input variables (e.g., ["x," "y"] or ["a," "b," "c"]). The number of elements returned must match the number of inputs provided by the GetNex-tInputsAndCorrectOutput method. Beagle Tutorial 15                  
+
+> Table 4. Beagle interactive commands Command Effect QQuits the run MResumes the run SSaves the current population in a file RLoads a population from a file, replacing the current population CLoads a population from a file, adding to the current population IAdds one or more genomes to the popula-tion by copying and pasting the genome’s GCL DOpens https://arachnoid.com/ and dis-plays the most accurate ever genome as a mathematical formula VRuns the most accurate ever genome against a brand-new testing data set (1/4 of the size of a normal batch set, defined by
+> ExperimentsPerGeneration in Section 3.7 below). A genome is classified as pro-viding a perfect solution when the discrep-ancy between predicted and actual values for each individual test case does not ex-ceed 0.1%.
+
+The GetNextInputsAndCorrectOutput must return a tuple consisting of a single training set datapoint: an array of inputs and a corresponding out-put. These could be synthesized or read from a file, depending on the users needs. Note that the array of inputs should not be allocated inside GetNextIn-putsAndCorrectOutput . Instead, inputsToFill array passed as a parameter should be reused. This is done to reduce memory fragmentation and garbage collection overheads. 
+
+3.7 Configuration Parameters for Custom Machine Learning Experiments: Subclassing MLSetup optional overrides 
+
+Additional methods may be optionally overridden to refine and optimize machine learning performance: 
+
+public virtual double SolutionFoundASRThreshold => 1.0; 
+
+Overriding the SolutionFoundASRThreshold property enables the user to define the level of accuracy that constitutes an acceptable solution. The de-fault value of 1.0 corresponds to a perfect solution, while values below 1.0 de-fine tolerance thresholds for approximate solutions (e.g., SolutionFoundAS-RThreshold = 0.9999 represents a relatively high-accuracy approximation). 16 Ilya Basin and Nathan Haut       
+
+> Table 5. Beagle command-line parameters Command-Line Parameter Effect NoEscMenu Disables user interactivity (see Section 3.4) by directing Beagle to suspend keyboard monitoring. This parameter is essential for automated scheduled executions operat-ing in non-interactive environments. When this option is not specified, attempts to ac-cess keyboard input may result in applica-tion termination. StopAfterMin={minutes} Directs Beagle to terminate execution after a specified number of minutes. Upon reach-ing this time limit, validation and display of the most accurate ever genome is per-formed (analogously to the V and D com-mands described in Table 2 ?? )RunFeynman={1-100} Directs Beagle to execute symbolic regres-sion on a specific formula from the Feyn-man100 benchmark suite (index range: 1-100).
+
+public virtual int TargetColonySize(int generation) 
+
+Overriding the TargetColonySize method enables the user to dynamically control the target population size as a function of the generation number. The default implementation (shown below) employs a periodic adaptive strategy: at initialization and at every 1,500 generations, the target colony size follows a staged reduction sequence5 million for 5 generations, 3 million for 5 genera-tions, 1 million for 5 generations, 500,000 for 5 generationsbefore returning to the baseline target of 250,000 individuals. Note that the generation counter is reset upon colony reinitialization, as determined by the TotalBirthsToReset-ColonyIfNoProgress property (described later in this section). 
+
+public virtual int TargetColonySize(int generation) {var remainder = generation % 1500; if (remainder < 5) return 5_000_000; if (remainder < 10) return 3_000_000; if (remainder < 15) return 1_000_000; if (remainder < 20) return 500_000; return 250_000; }public virtual OpEnum[] GetAllowedOperations() Beagle Tutorial 17 
+
+Overriding the GetAllowedOperations method enables the user to restrict the operator set available for symbolic regression. For example, the implemen-tation below excludes the sine and cosine functions from the search space: 
+
+public override OpEnum[] GetAllowedOperations() => base.GetAllowedOperations().Where(x => x != OpEnum.Sin && x != OpEnum.Cos).ToArray(); 
+
+Note that excluding the Copy and Paste pair is possible but is more involved and is not discussed in this document. 
+
+public virtual uint ExperimentsPerGeneration => 512; 
+
+Overriding the ExperimentsPerGeneration property modifies the number of experiments (i.e., evolutionary runs) executed per generation per organism. Since this parameter defines the thread count per GPU kernel block, optimal performance requires values divisible by 32 (i.e., CUDA warp size). Hardware constraints impose an upper limit of 1,024 threads per block. For point-to-point fitness evaluation, values of up to 1,024 are permissible; however, when employ-ing correlation-based fitness functions, a maximum of 512 is recommended for computational efficiency. The default value of 512 provides optimal performance across most experimental scenarios. 
+
+public virtual long TotalBirthsToResetColonyIfNoProgress => 25_000_000_000; 
+
+Beagle implements a stagnation mitigation mechanism to escape local op-tima. When no fitness improvement is observed for a specified number of gener-ations, the population undergoes complete reinitialization while preserving the most accurate ever solution discovered up to that point in the current run. Overriding the TotalBirthsToResetColonyIfNoProgress property modifies the generation threshold that triggers a population reset under stagnation con-ditions. This property can be set to -1 to prevent population resets. 
+
+public virtual bool KeepOptimizingAfterSolutionFound => false; 
+
+The KeepOptimizingAfterSolutionFound property determines whether the evolutionary search continues after identifying an acceptable solution (as defined by the SolutionFoundASRThreshold property). Continued optimization may yield shorter (i.e., more parsimonious) and/or more accurate solutions. 
+
+protected virtual int ScriptLengthTaxRateInternal => BConfig.MaxScore * (int)ExperimentsPerGeneration / 85; 
+
+The ScriptLengthTaxRateInternal property controls the magnitude of parsimony pressure applied during evolution. This parameter is conventionally expressed as a ratio of the maximum achievable fitness and the number of exper-iments per generation. In the default implementation above, a solution of length 85 achieving perfect accuracy incurs a 100% fitness penalty due to its length. 18 Ilya Basin and Nathan Haut 
+
+3.8 Configuration Parameters for Custom Machine Learning Experiments: Configuration and Execution of ML Training in Beagle 
+
+The execution of machine learning training within the Beagle framework re-quires the specification of two primary components: (1) a subclass derived from 
+
+MLSetup , and (2) a fitness function implemented as a struct implementing the 
+
+IFitFunc interface. The fitness function must be defined as a struct rather than a class to satisfy the constraint of GPU kernel parameter passing, as reference types cannot be directly transferred to GPU computation units. The Beagle framework provides flexibility in fitness function selection, ac-commodating any user-defined fitness function that performs point-by-point comparisons between model-evaluated values and target values present in the training dataset. Beyond these custom implementations, Beagle incorporates a correlation-based fitness function, which has been previously demonstrated to enhance symbolic regression performance [3]; this type of fitness function ex-tended the methodologies established in prior research [1]. Training execution can be initiated through the following code in the Pro-gram.cs file of the Run project: 
+
+using var mlEngine = new MLEngine<QuadraticEq, CorrelationFitFunc>(forceCPUAccelerator: false); 
+
+This instantiation configures the ML engine to utilize the QuadraticEq MLSetup with CorrelationFitFunc as the fitness evaluation function. The 
+
+forceCPUAccelerator argument represents a boolean flag intended for kernel debugging purposes 
+
+3.9 Configuration Parameters for Custom Machine Learning Experiments: Fitness Functions 
+
+The framework provides several pre-implemented fitness functions available for immediate use. The CorrelationFitFunc operates as a correlation-based met-ric (illustrated in Equations 3 and 4), while four standard point-to-point fitness functions are available: StdFitFunc , StdSquareFitFunc , StdCubeFitFunc ,and StdHyperFitFunc . These standard functions share fundamentally similar computational logic (as illustrated in Equation 5 for StdFitFunc ), with the lat-ter three variants applying exponential transformations to the base StdFitFunc 
+
+resultspecifically raising the output to powers of 2, 3, and 8, respectively. These power transformations serve to amplify fitness discrimination, thereby reducing the ASR for solutions that approach, but do not fully achieve, optimal fitness. 
+
+r =
+
+∑Ni=1 (yi − ¯y) (ˆ yi − ¯ˆy)
+
+√∑Ni=1 (yi − ¯y)2 ∑Ni=1 (ˆ yi − ¯ˆy)2
+
+(3) score = M r 4 (N − (c1 + c2)) − M (c1 − c2) (4) Beagle Tutorial 19 
+
+Where N is the number of data points, M is the max reward/punishment; 
+
+yi and ˆyi are target output and output from the model, respectively; c1 is the number of valid/invalid pairs; and c2 is the number of invalid/invalid pairs Fitness ( ˆ yi, y i) = 
+
+
+
+M, max( | ˆyi|, |yi|) = 0 ,
+
+round 
+
+(
+
+M · min( | ˆyi|,|yi|)max( | ˆyi|,|yi|) − M
+
+> 11
+
+)
+
+, ˆyiyi < 0,
+
+round 
+
+(
+
+M · min( | ˆyi|,|yi|)max( | ˆyi|,|yi|)
+
+)
+
+, ˆyiyi ≥ 0.
+
+(5) Where N is the number of data points, M is the max reward/punishment; 
+
+yi and ˆyi are target output and output from the model, respectively. 
+
+3.10 Configuration Parameters for Custom Machine Learning Experiments: Creating Custom Fit Functions 
+
+As stated in Section 3.8, a fitness function must be a struct implementing the 
+
+IFitFunc interface. The interface definition is below: 
+
+public interface IFitFunc {bool UseCorrelationFit { get; } int FitFunction(float output, float correctOutput); int FitFunctionIfInvalid(bool isOutputValid, bool isCorrectOutputValid); }
+
+The UseCorrelationFit property is a boolean flag that dictates whether the fitness function should employ correlation-based evaluation logic that is hard-coded within the GPU kernel. When UseCorrelationFit is set to true, the remaining three methods defined in the IFitFunc interface are ignored during execution, and their implementations are not invoked by the training pipeline. 
+
+int FitFunction(float output, float correctOutput); 
+
+The FitFunction method performs the principal fitness evaluation operation by comparing the model-generated output (i.e., output argument) against the target value (i.e., correctOutput argument) and computing an integer reward or penalty metric. This method is invoked exclusively under the condition that both output and correctOutput arguments constitute valid numerical values. 
+
+int FitFunctionIfInvalid(bool isOutputValid, bool isCorrectOutputValid); 20 Ilya Basin and Nathan Haut 
+
+In circumstances where either or both of the output values is/are not valid numbers, the FitFunctionIfInvalid method is invoked to determine the ap-propriate reward or penalty assignment for the model. This method accepts two boolean arguments that indicate the validity status of the model output and tar-get output, respectively. By providing a dedicated pathway for handling invalid numerical states (such as NaN, infinity, or other undefined values), this method ensures robust and comprehensive fitness evaluation across all possible compu-tational scenarios, including edge cases that arise during symbolic regression operations. 
+
+3.11 Configuration Parameters for Custom Machine Learning Experiments: Useful Utilities 
+
+The Utils directory under the Beagle directory in the BeagleLib project contains three useful command-line utilities: 1. ExecuteGenome allows user to execute a genome with some input data; 2. Genome2Latex allows user to convert a genome to a LaTeX formula; 3. MLSetup2File allows user to generate a CSV or JSON file with synthetic data based on a specific MLSetup. 
+
+# 4 Conclusion 
+
+This paper discusses Beagle, an open-source symbolic regression framework de-veloped by Noblis, a non-profit science and technology organization based in the Washington, D.C. metropolitan area. A distinguishing characteristic of Beagle is its capacity to run populations comprising millions of individuals within compu-tationally feasible timeframes. This performance enhancement relative to prior state of the art was realized by leveraging GPU computational capabilities and the optimization of CPU-based components, including eliminating garbage col-lection overhead and maximizing concurrent execution across all available CPU cores. Consequently, Beagle demonstrated substantial performance advantages over traditional CPU-based genetic programming frameworks [3]. Beagle was conceived and developed independently of the broader evolution-ary computing research community. During the frameworks development, we encountered and addressed numerous technical challenges through approaches that, in some cases (e.g., Linear Genetic Programming) converged upon existing methodologies through independent derivation, while in other cases (e.g., Monte Carlo Ranking selection) resulted in novel contributions to the field. In the interest of benefiting the genetic programming community, Noblis has released Beagle as fully open-source software under the Apache 2.0 license, en-abling researchers to examine and modify the source code. We believe that, in the future, GPUs may achieve an impact on evolutionary computing com-parable to the impact they had on neural networks over the last decade. We anticipate that the genetic programming community will adopt this framework both for addressing practical symbolic regression problems and as a platform Beagle Tutorial 21 
+
+for future research, potentially yielding new insights, theoretical developments, and methodological advancements in genetic programming. We welcome col-laborative engagement and community contributions to the codebase through pull requests. Inquiries and discussions regarding Beagle may be directed to Ilya Basin (ilya.basin@noblis.org) or Nathan Haut (nathaniel.haut@noblis.org).  
+
+> Acknowledgments. The team acknowledges Noblis, Inc. for supporting the develop-ment of the Beagle framework. This work was supported in part by Michigan State Uni-versity through computational resources provided by the Institute for Cyber-Enabled Research.
+
+22 Ilya Basin and Nathan Haut 
+
+# References 
+
+1. N. Haut, W. Banzhaf, and B. Punch. Correlation Versus RMSE Loss Functions in Symbolic Regression Tasks , pages 31–55. Springer Nature Singapore, Singapore, 2023. 2. N. Haut, I. Basin, R. Gupta, M. Kianinejad, Z. Perrico, E. Smith, and W. Banzhaf. The effects of population size on the performance of beagle gpu-based genetic pro-gramming runs. arXiv preprint arXiv:2604.24968 , 2026. 3. N. Haut, I. Basin, M. Kianinejad, R. Gupta, E. Smith, Z. Perrico, and W. Banzhaf. Gpu-accelerated genetic programming for symbolic regression with beagle frame-work. arXiv preprint arXiv:2603.12292 , 2026. 4. M. Keijzer. Scaled symbolic regression. Genetic Programming and Evolvable Ma-chines , 5(3):259–269, 2004. 5. Noblis. Beagle. https://github.com/Noblis/beagle-v1.x, 2026. 6. M. Tegmark. Welcome to the Feynman Symbolic Regression Database!

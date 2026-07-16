@@ -1,0 +1,776 @@
+Title: Learning to Discretize: Diffusion-Based Adaptive Mesh with Spectral Guidance
+
+URL Source: https://arxiv.org/pdf/2607.11974v1
+
+Published Time: Wed, 15 Jul 2026 11:58:28 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Learning to Discretize: Diffusion-Based Adaptive Mesh with Spectral Guidance 
+
+## Zixuan Shen 1, Bingchuan Wang 1, Zhi Wang 2, Yong Wang 1
+
+> 1
+
+Central South University, Changsha, Hunan 410083, China 
+
+> 2
+
+Nanjing University, Nanjing, Jiangsu 210093, China 
+
+Abstract 
+
+Most neural partial differential equation (PDE) surrogates learn how fields evolve after a grid has already been cho-sen. However, before any operator is applied, the grid has al-ready determined how modeling capacity is allocated across space, resolution, and spectral bandwidth. We argue that this hidden design choice should itself be learnable, leading to a question different from standard operator learning: can a surrogate learn where resolution should exist before predict-ing field evolution? We formulate adaptive discretization as a physics-constrained conditional generation problem over valid mesh displacements. Similar to PDE field prediction, mesh generation requires producing structured outputs that satisfy physical and geometric constraints. The success of dif-fusion models in PDE field prediction suggests their potential for learning adaptive discretizations under similar structured constraints. This leads to a two-stage diffusion framework: Stage 1 learns an r-adaptive displacement mesh conditioned on the observed dynamics, while Stage 2 predicts the solution evolution from the mesh-informed representation. The mesh generator is regularized by physics-aware proxy channels, ge-ometric validity constraints, and local spectral concentration so that adaptation remains physically interpretable and nu-merically legal. Across five PDE regimes, the results show that diffusion-based learned discretization is competitive with adaptive-mesh and reduced-order baselines, with particularly strong gains in regimes where fixed or handcrafted allocation is insufficient. The main conclusion is not that there exists a universal optimal mesh rule, but that discretization should be learned in a regime-dependent manner : different spatial and spectral structures favor different allocation behaviors. This reframes adaptive meshing for neural PDE solvers from a solver-specific heuristic into a generative representation-learning problem. 
+
+## Introduction 
+
+Partial differential equations (PDEs) are a central tool for modeling spatiotemporal phenomena, but modern neural sur-rogates still inherit one common assumption from classical pipelines: first choose the discretization, then learn the opera-tor (Kovachki et al. 2023). That assumption is convenient, yet it hides a representational bottleneck. Discretization serves as the first representation layer, yet it is typically prede-fined and remains agnostic to the evolving solution state in most neural PDE solvers. The grid determines where degrees of freedom are spent, which structures are resolved, Adaptive Mesh  
+
+> VS
+> Diffusion -based Adaptive Mesh
+> Couples geometry, physics and spectrum
+> More mesh nodes in HF regions, fewer in LF regions
+> Geometry
+> Constraint
+> Physics
+> Constraint
+> Spectrum
+> Concentration
+> High
+> freq.
+> (HF)
+> Low
+> freq.
+> (LF)
+> Uneven mesh quality
+> Lower frequency awareness
+
+Figure 1: Comparison between classical adaptive mesh and diffusion-based adaptive mesh (DAM). The proposed DAM formulates mesh generation as a conditional diffusion process that couples physics, geometry, and spectral information to generate frequency-aware displacement fields. This enables adaptive node allocation, concentrating resolution in high-frequency (HF) regions while preserving efficiency in low-frequency (LF) regions. and which frequencies survive before any learned operator is applied. This leads to a prior scientific question before op-erator design: can the representation itself be learned from the observed PDE state? We therefore view mesh displace-ment as a learnable representation policy: given the observed PDE history and a fixed node budget, the model should learn a valid coordinate deformation that reallocates degrees of freedom toward prediction-relevant structures. This policy is itself a structured prediction problem: like PDE field predic-tion, mesh generation must produce a coherent field under physical and geometric constraints. These similarities sug-gest that diffusion models, which have recently shown strong performance in PDE field prediction, may also be well-suited for mesh generation, where valid displacement fields are in-ferred from observed dynamics before solution prediction. Recent years have brought notable progress in neural sur-arXiv:2607.11974v1 [cs.LG] 13 Jul 2026 rogates, including operator learning, spectral neural architec-tures, and adaptive discretization, but existing neural PDE frameworks still suffer from several important limitations. Operator methods such as DeepONet (Lu et al. 2021) pro-vide resolution-agnostic mappings between function spaces; however, these frameworks often rely on a fixed discretization at training or inference time, which constrains their ability to concentrate resources. Spectral approaches like the Fourier Neural Operator (Li et al. 2020) exploit global Fourier struc-ture effectively, yet they typically assume regular lattices and may underperform when localized high-frequency struc-tures dominate. Classical adaptive-meshing theory (Babu-vška and Rheinboldt 1978; Berger and Oliger 1984; Oden and Prudhomme 2001) supplies principled error estimators and moving-mesh techniques, but applying those tools in learned surrogates is nontrivial because estimator design and mesh updates are traditionally solver-specific. These lines of work leave a gap than that accuracy alone suggests. Classical adaptivity often depends on solver-specific monitor functions or error estimators, while learned mesh baselines typically use graph message passing, sizing-field prediction, handcrafted refinement proxies, or single-pass coordinate regression. These mechanisms are useful, but they do not model mesh placement as a state-conditioned evolution process jointly coupled to the solution dynamics. What remains missing is a neural PDE formulation in which discretization is a first-class representation variable, opti-mized jointly with the operator. In that sense, operator learn-ing has largely asked: how should fields evolve on a grid? 
+
+We ask the prior question: What grid should the model choose before predicting the solution, given physical and geometric constraints? 
+
+The effectiveness of the diffusion model for mesh gener-ation is reflected in how it answers the preceding question: what grid should the model choose before evolution is pre-dicted? In our formulation, this choice is not learned from geometry alone. The evolution process is coupled with geo-metric validity, physics-aware conditioning, spectral concen-tration, and downstream forecasting loss, so mesh placement is optimized as part of the predictive pipeline. Additionally, using diffusion models for both mesh generation and solu-tion prediction further places the entire framework within a unified denoising paradigm, where both displacement and so-lution fields are modeled through iterative refinement under these constraints. The resulting mesh is therefore a struc-tured displacement evolution from a reference lattice, not an unconstrained set of node perturbations. Figure 1 presents a comparison between adaptive discretization and DAM to illustrate the formulation: through this coupled objective, the model learns how resolution should move across spatial structures and frequency bands, improving multi-scale recov-ery by reallocating capacity between smooth low-frequency regions and localized high-frequency details before the solu-tion model acts. Motivated by this gap, the proposed DAM is an end-to-end two-stage framework that jointly learns adaptive discretiza-tion and PDE field prediction. In Stage 1, a conditional dif-fusion model acts as a mesh-adaptation operator, generating 
+
+r-adaptive displacements from physics-aware context while proxy conditioning and geometric projection keep the mesh informative and valid. Learning in displacement space ties the generated mesh to a reference lattice, which makes iden-tity initialization, bounded sampling, and validity projection natural. The mesh branch is trained through the forecasting objective that operates on the generated mesh, so a discretiza-tion is rewarded not merely for appearing adaptive, but for improving predictive performance. In Stage 2, the irregular mesh is bridged back to a regular tensor and coupled with a solution-evolution diffusion denoiser. A local spectral con-centration objective links mesh allocation to the frequency structure of the observed field. To the best of our knowledge, this is the first attempt to formulate discretization as a con-ditional generative task. Our experiments demonstrate why this perspective matters: effective discretizations are strongly regime-dependent, varying with the spatial and spectral char-acteristics of the underlying PDE dynamics. Our contributions are summarized as follows. 
+
+• Coupled mesh adaptation and solution evolution: We formulate PDE field prediction as a coupled learning problem in which a mesh-adaptation diffusion model first chooses where resolution should exist and a solution-evolution diffusion model then predicts the next field un-der that learned discretization. 
+
+• Diffusion-based r-adaptive discretization: Instead of relying on graph-style message passing or a fixed sizing heuristic, we instantiate mesh adaptation as conditional denoising over displacement fields, with local spectral guidance and geometric projection keeping the generated meshes informative and legal. 
+
+• Physics-aware conditioning for mesh generation: We compute causal proxy channels from the latest observed frame and concatenate them with the history tensor, so Stage 1 receives physically informed conditioning while the final discretization remains trained end-to-end through forecasting and spectral objectives. 
+
+• Evidence for a new design principle: We empirically find that PDEs with different spatial and spectral char-acteristics favor different useful allocation patterns and mechanism choices, indicating that future neural PDE solvers should treat discretization as a regime-dependent learned representation rather than inherit one fixed rule. 
+
+## Related Work 
+
+Neural operators and frequency-aware learning. Neural operators form a practical route to resolution-agnostic sur-rogate models. DeepONet (Lu et al. 2021) and the broader neural operator program (Kovachki et al. 2023) show how mappings between function spaces can be learned. Fourier-based approaches such as the Fourier Neural Operator (Li et al. 2020) and F-FNO (Lehmann et al. 2024) place fre-quency structure at the core of the architecture, which im-proves recovery of oscillatory modes but often assumes a reg-ular lattice. More recent variants broaden that design space in different ways: DRIFT-Net (Li and Salim 2025) introduces spectral coupling, LoGlo-FNO (Kalimuthu, Holzmüller, and Niepert 2025) combines local and global features, and Tran-solver++ (Luo et al. 2025) targets scalable PDE solving on Input ：History     
+
+> Window
+> {𝒖 𝒕 }𝒕 +𝟏
+> w
+> PDE Proxy Maps 𝚽
+> Gradient Vorticity
+> Concatenate
+> Conditioning Tensor for Mesh
+> 𝐶 𝑚𝑒𝑠ℎ =[Χℎ𝑖𝑠𝑡 ||Φ]
+
+Stage 1: Diffusion -Based Adaptive Mesh Learning                                
+
+> Initial Mesh T Regularize
+> Vertex 𝑉 𝑟𝑒𝑔
+> Initial Displacement
+> 𝐷 0=0
+> Denoiser (Mesh)
+> t0t1tt𝑇 −1t𝑇
+> Forward Diffusion
+> 𝐷 𝑡 =𝐷 0+𝜎 (𝑡 )∙𝜂
+> 𝐷 𝑡
+> t∙𝐶 mesh ,𝑡
+> ො𝜂 Preconditioned
+> Diffusio nLoss
+> ℒ𝑑𝑖𝑓𝑓 =𝐶 −1
+> 2(ො𝜂 𝜃 −𝜂 )2
+> 2
+> Predicted Displacement
+> 𝐷 𝑛𝑜𝑑𝑒𝑠
+> Sample 𝒖 𝒏𝒐𝒓𝒎
+> on 𝑽 𝒇𝒊𝒏𝒂𝒍
+> Spectral
+> Energy
+> Concentration
+> Score
+> 𝜌 =σ𝛼 ∈𝑇𝑜𝑝𝐾 𝐸 𝛼
+> σ𝛼 𝐸 𝛼 +𝜖
+> Projection to valid mesh
+> Denoiser (Solution)
+
+Spectral Guidance and Bridge   
+
+> Irregular Mesh 𝑉 𝑓𝑖𝑛𝑎𝑙
+> with Solution 𝑢 𝑛𝑜𝑑𝑒𝑠
+> Interpolate to
+> Regular Grid
+
+Stage 2: Diffusion -Based Field Prediction                 
+
+> Targeted Solution
+> 𝑢 𝑡 +𝑤
+> t∙
+> 𝑥 𝑠𝑡𝑎𝑔𝑒2 ,𝑇
+> 𝑢 𝑇
+> ො𝑢 0Preconditioned
+> Solution Loss
+> ℒ𝑝𝑟𝑒𝑑 =𝐶 −1
+> 2(ො𝑢 0−𝑢 ∗)
+> 2
+> 𝜏 0𝜏 1𝜏 𝜏 𝑇 −1𝜏
+> Forward Diffusion
+> 𝑢 𝑇 =𝑢 ∗+𝜎 2(𝜏 )∙𝜉
+
+Overall Learning Objective             
+
+> ℒ=ℒ𝑝𝑟𝑒𝑑 +𝜆 𝑐𝑦𝑐𝑙𝑒 ℒ𝑐𝑦𝑐𝑙𝑒 +𝜆 𝑠𝑚𝑜𝑜𝑡ℎ ℒ𝑠𝑚𝑜𝑜𝑡ℎ +𝜆 𝑖𝑛𝑣 ℒ𝑖𝑛𝑣 +𝜆 𝑑𝑖𝑓𝑓 ℒ𝑑𝑖𝑓𝑓 −𝜆 spec 𝜌
+
+Legend     
+
+> Regular Grid Irregular Mesh Denoiser Backbone GRF Noise Data Flow
+
+Auxiliary Objectives                        
+
+> Diffusion Loss
+> ℒ𝑑𝑖𝑓𝑓 =𝐶 −1
+> 2(ො𝜂 𝜃 −𝜂 )2
+> 2
+> Cycle Consistency Loss
+> ℒ𝑐𝑦𝑐𝑙𝑒 =𝑀𝑆𝐸 (𝑢 𝑡
+> 𝑏𝑎𝑐𝑘 ,𝑢 𝑡 )
+> Smoothness Loss
+> ℒ𝑠𝑚𝑜𝑜𝑡ℎ =1
+> 𝜀 ෍
+> (𝑖 ,𝑗 )∈𝜀
+> 𝑣 𝑖 −𝑣 𝑗 2
+> 2
+> Inverse Penalty
+> ℒ𝑖𝑛𝑣 =1
+> Τ෍
+> 𝜏 ∈Τ
+> max (0,𝜀 −𝐴 𝜏 )
+
+PDE -aware  Proxy Figure 2: Architecture overview of DAM, the proposed two-stage diffusion-based adaptive mesh framework for PDE field prediction. Stage 1 generates adaptive meshes through conditional diffusion in displacement space, conditioned on physical proxy maps and guided by local spectral concentration. The generated irregular mesh is bridged back to a tensor-compatible regular grid. Stage 2 performs solution-space diffusion for next-step PDE forecasting on the mesh-informed conditioning tensor, with CNN-based denoising used in both diffusion stages. large geometries. These designs advance accuracy; however, they rarely make mesh placement an explicit, learnable de-gree of freedom tied to the operator’s loss. In short, operator advances give powerful inductive biases, yet they stop short of solving adaptive discretization jointly with prediction. 
+
+Classical adaptive meshing and learning-based dis-cretization. Adaptive meshing offers one of the most princi-pled approaches to allocating resolution where it is needed most. Error estimators, moving-mesh methods, and goal-oriented adaptivity were established by works such as (Babu-vška and Rheinboldt 1978; Berger and Oliger 1984; Oden and Prudhomme 2001) and later practicalized in a posteriori techniques (Ainsworth and Oden 1997; Huang and Russell 2010). These methods deliver provable error control in many settings, but they typically require solver-specific estimators and handcrafted refinement rules. More recently, data-driven mesh strategies have reframed mesh design as a learning problem: neural r-adaptive finite element method (FEM) and refinement predictors (Aballay et al. 2025; Freymuth et al. 2025) learn parametric deformations, reinforcement-learning approaches (Thacher, Pan, and Persson 2025) search for mesh policies, and learned mesh-movement techniques (Song et al. 2022) adapt nodes based on observed dynam-ics. Work on graph- and point-based operators (Pfaff et al. 2020; Qi et al. 2017; Li et al. 2023) shows that operator archi-tectures can accommodate irregular domains, but integrating spectral objectives with mesh learning remains an open ques-tion. Thus, the mesh literature supplies strong tools, while learned methods offer flexibility, suggesting a natural oppor-tunity to combine the strengths of both. 
+
+Diffusion models for structured data generation. Dif-fusion and score-based models have matured into versatile generators for structured data. Foundational formulations (Song and Ermon 2019; Ho, Jain, and Abbeel 2020; Song et al. 2020) and developments in conditional guidance and latent diffusion (Ho and Salimans 2022; Hu et al. 2024; Cai et al. 2026) made controlled synthesis practical. Reduced-order PDE generators such as Text2PDE (Zhou et al. 2024), Latent-FM (Li, Zhou, and Farimani 2025), AROMA (Ser-rano et al. 2024), and LoLA (Rozet et al. 2026) show that generative modeling can be effective for compact PDE sim-ulation. These methods mainly learn latent state evolution or reduced representations after discretization has been cho-sen. In contrast, our use of diffusion targets the discretization layer itself: the denoising process generates adaptive mesh displacements before the solution-evolution model predicts the future field. 
+
+## Method 
+
+Overview 
+
+We study next-step PDE field prediction with learned dis-cretization. Each sample provides a normalized history ten-sor and a target future state on the same physical domain. The proposed DAM couples two conditional diffusion pro-cesses. The first generates an r-adaptive mesh by denoising a displacement field, while a differentiable bridge maps the resulting irregular representation back to tensor form. The second predicts the next PDE state by denoising a solution field conditioned on this mesh-informed representation. This structure separates two distinct generative questions that are often entangled in conventional predictors: where representational capacity should be allocated and what fu-ture state should be predicted under that representation. The former is addressed through mesh generation, while the lat-ter is addressed through solution prediction. It is important because mesh ambiguity and solution uncertainty arise in different spaces and benefit from different inductive biases. Thus, diffusion is used not only to generate solution fields, but also to generate the discretization used for prediction. Spectral guidance rewards informative resolution allocation, and geometric projection preserves mesh validity. Figure 2 summarizes the framework. This formulation keeps the prob-lem close to standard forecasting while changing the objec-tive being learned: before prediction begins, the model has already generated a resolution layout that determines which spatial and spectral information is represented. It also pro-vides a natural mechanism for incorporating physical infor-mation, since physics-derived proxy channels can shape the generated mesh before solution prediction takes place. 
+
+Diffusion-based Adaptive Mesh Learning 
+
+We parameterize mesh generation in displacement space rather than absolute coordinates, so the diffusion model learns a deformation of a reference lattice. This keeps the sampling target bounded, preserves a natural identity ini-tialization, and allows projection to enforce valid element orientation. Let D0 ∈ RD×Hm×Wm be the displacement field from a reference mesh, where Hm and Wm are mesh resolutions, and the two channels are horizontal/vertical dis-placement. With diffusion time t ∈ [0 , 1] , noise scale σ(t),and Gaussian noise η, Stage 1 corrupts the displacement as: 
+
+Dt = D0 + σ(t)η, η ∼ N (0, I), (1) where I is the identity covariance. A denoiser fθ predicts the injected noise from the noisy displacement, time, and mesh condition Cmesh :
+
+ˆηθ = fθ (Dt, t, Cmesh ). (2) The displacement prior is a Gaussian random field (GRF) with spectrum λ(k) = ( α + ∥k∥2)−s, where k denotes the frequency index, and α and s control scale/smoothness. With 
+
+C−1/2 denoting the corresponding whitening operator, the diffusion loss is: 
+
+Ldiff = C−1/2(ˆ ηθ − η) 22
+
+. (3) After denoising, the sampled node displacement Dnodes is added to reference nodes Vreg and projected by Π onto the valid-mesh set: 
+
+V = Π( Vreg + Dnodes ), (4) so learned deformation remains expressive while inversion is prevented in practice. 
+
+Physics-Data Integrated Mesh Condition 
+
+The mesh generator is conditioned on the reshaped history tensor Xhist and a causal PDE-aware proxy Φ extracted only from the latest observed frame: 
+
+Cmesh = [ Xhist ; Φ] , (5) where [·; ·] denotes channel concatenation. Here Φ is a stack of PDE-aware proxy maps, such as gradient magnitude and vorticity magnitude. This causal conditioning tells Stage 1 where the current field is steep, rotating, compressive, or oth-erwise physically distinctive without exposing future targets. As an example, for 2D fields with components (u, v ), the shared proxy channels physcially summarize local gradient magnitude and vorticity magnitude: 
+
+ϕgrad =
+
+q
+
+(∂xu)2 + ( ∂y u)2 + ( ∂xv)2 + ( ∂y v)2 + ε, (6) 
+
+ϕvort = |∂xv − ∂y u|. (7) Here ϕgrad is the gradient-magnitude channel, ϕvort is the vorticity-magnitude channel, ∂x and ∂y are finite-difference derivatives, and ε prevents numerical degeneracy. We do not require the same channel to dominate every dataset. The proxy stack instead gives Stage 1 a physically meaningful basis from which the diffusion sampler can learn dataset-specific corrections through the forecasting objective. 
+
+Spectral Guidance and Bridge 
+
+Purely spatial heuristics do not show whether capacity is al-located to operator-relevant frequencies. We compute a local spectral concentration score from the generated mesh and latest field. Let Ea denote the local spectral energy at anchor 
+
+a, and let TopK( E, k ) be the set of the k anchors with largest energy. We define: 
+
+ρ =
+
+P 
+
+> a∈TopK( E,k )
+
+Ea
+
+P 
+
+> a
+
+Ea + ε , (8) where ε stabilizes the ratio. Maximizing ρ rewards concen-tration on informative anchors without changing field scale, and the same module can append a local spectral map to Stage 2. The downstream stage does not operate directly on irreg-ular nodes. The bridge reconstructs a regular tensor from the adaptive mesh and augments it with interpolation confidence, density, and local spectral cues, yielding the tensor xstage2 .The bridge is important because it lets the model exploit ir-regular sampling without abandoning tensorized prediction. It also carries discretization information beyond the recon-structed field, exposing density and local spectral cues to the downstream predictor. 
+
+Diffusion-Based Field Prediction 
+
+Given the tensor xstage2 , Stage 2 diffuses the normalized target solution u∗ at diffusion time τ with noise scale σ2(τ )
+
+and predicts the clean field: 
+
+uτ = u∗ + σ2(τ )ξ, ˆu0 = gψ (uτ , τ, xstage2 ). (9) Here ξ ∼ N (0, I), gψ is the prediction denoiser, and ˆu0 is the predicted clean next field. Stage 2 therefore receives both a state estimate and compact cues describing how that estimate was produced. This is the point at which learned discretiza-tion becomes visible to the solution model; the mesh is not discarded after interpolation, but leaves density, confidence, and spectral traces in the conditioning tensor. For the PDE field prediction, supervision is imposed in the clean-solution space through a preconditioned metric: 
+
+Lpred = C−1/2 
+
+> u
+
+(ˆ u0 − u∗) 22
+
+(10) where C−1/2 
+
+> u
+
+is the solution-space GRF preconditioner. 
+
+Overall Learning Objective 
+
+In summary, the overall learning objective is: 
+
+L = Lpred + λcycle Lcycle + λsmooth Lsmooth 
+
++ λinv Linv + λdiff Ldiff − λspec ρ. (11) Here Lcycle measures the bridge reconstruction consis-tency, Lsmooth penalizes the neighboring-node displacement roughness, Linv discourages the signed-area collapse, and 
+
+Ldiff is exactly the Stage 1 diffusion loss defined above. The auxiliary terms tie the learned discretization to geomet-ric validity, mesh-diffusion guidance, and informative local spectra; exact formulations and implementation details are provided in the appendix. Notably, the objective is coupled: the mesh branch is optimized through the downstream fore-casting task, so a discretization is rewarded only when it is both geometrically valid and beneficial for prediction. Additionally, because Stage 1 predicts displacements rather than arbitrary coordinates, the reference mesh sup-plies stable topology, and projection acts on deformation magnitude rather than repairing connectivity after the fact. Smoothness suppresses oscillatory neighboring-node mo-tion, while inversion loss discourages signed-area collapse during training. The diffusion model can therefore express nontrivial adaptive motion, but the learned mesh remains bridge-compatible. 
+
+Training and Inference Path 
+
+During training, the normalized history and active PDE-aware proxies form the Stage 1 condition. The mesh denoiser receives a noisy displacement field together with this context, while the clean displacement supervises the mesh diffusion branch. After projection, generated nodes pass through the bridge to form the Stage 2 conditioning tensor. Thus, the pre-dictor sees mesh statistics induced by the current generator, not a frozen preprocessing artifact. At inference time, the learned mesh is sampled before the next-step field is generated. The resulting control flow is intentionally causal: 
+
+U1: w → Cmesh → V → xstage2 → ˆut+w.
+
+In this path, U1: w is the observed history window, Cmesh is the Stage 1 conditioning tensor, V is the generated adaptive mesh, xstage2 is the bridged regular-grid tensor, and ˆut+w
+
+is the next-state prediction. The arrow sequence also speci-fies the causal dependency at test time: the mesh is sampled before the solution denoiser runs, and the denoiser only re-ceives the bridged representation induced by that sampled mesh. Only the observed history is used to decide the dis-cretization. This design prevents the adaptive mesh from becoming an implicit oracle. Proxy features are computed solely from observed states, and teacher displacements are used only as training supervision rather than inference-time inputs. Consequently, any performance gain must arise from learning a useful discretization policy from available dynam-ics, rather than from access to future residuals, gradients, or target information. 
+
+## Experiments 
+
+Experimental Setup 
+
+We evaluate on PDE benchmarks that exhibit distinct spa-tial and spectral structures, including transport-dominated dynamics, shear-driven instabilities, chaotic evolution, buoyancy-driven convection, and compressible transonic flows. These benchmarks are useful not only because they test prediction accuracy, but because they let us ask whether the same discretization behavior is suitable across dis-tinct regimes. Table 1 first compares adaptive-discretization baselines adapted to our forecasting protocol, including ATS (Fayyaz et al. 2022), AMR-MGNN (Perera and Agrawal 2024), AMBER (Freymuth et al. 2025), and wLMR (Özgen-Xian et al. 2020), because they directly test alternative ways of allocating resolution before prediction. We also include Text2PDE (Zhou et al. 2024) as a reduced-order generative baseline: although it is not an adaptive-mesh method, it is rel-evant because both approaches reduce the effective complex-ity faced by generative PDE field prediction by changing the representation, with Text2PDE using latent compression and DAM using mesh-based allocation before diffusion-based solution prediction. All methods use the same input history and prediction horizon. In all mesh experiments, the dis-placement field uses two coordinate channels; equivalently, 
+
+D = 2 in D0 ∈ RD×Hm×Wm . The denoising network in both stages of DAM is implemented as a convolutional neu-ral network (CNN). We report field and spectral errors in Table 1, and use the remaining analyses to isolate what is learned by the discretization module rather than treating raw prediction score as the sole target. 
+
+Predictive Validity of Learned Discretization 
+
+Our first question is a fundamental one: can discretization become learnable without making the surrogate unusable as a predictor? Table 1 answers this question from two perspectives. Against external adaptive-discretization meth-ods, DAM achieves the lowest field errors on Kuramoto-Sivashinsky (KS) and Transonic equations, remains compet-itive on Burgers and Rayleigh-Bénard, and is most clearly challenged by Periodic shear, where the field is smooth and nearly separable enough for AMBER and wLMR to ex-ploit simple sizing rules. This is consistent with our claim: learned discretization is not a universal replacement for every grid heuristic, but a regime-dependent representation policy whose value appears when allocation cannot be captured by a single handcrafted rule. Dataset Metric Reduced Adaptive discretization DAM-family Text2PDE ATS AMR-MGNN AMBER wLMR Diff-only Classic+ Diff Diff+ CNN Diff+ FNO DAM Burgers Rel L2 0.0564 0.0088 0.0150 0.0371 0.0294 0.2032 0.0156 0.0132 0.0075 0.0083 ± 0.0041 
+
+RMSE 0.0163 0.0027 0.0046 0.0108 0.0087 0.0612 0.0045 0.0039 0.0022 0.0024 ± 0.0012 
+
+Spec L2 0.0465 0.0136 0.0164 0.0245 0.0305 0.0338 0.0192 0.0069 0.0027 0.0072 ± 0.0056 
+
+Shear Rel L2 0.0801 0.0032 0.0047 0.0013 0.0017 0.0553 0.0099 0.0024 0.0030 0.0026 ± 0.0005 
+
+RMSE 0.0400 0.0016 0.0024 0.0007 0.0008 0.0277 0.0050 0.0012 0.0015 0.0013 ± 0.0002 
+
+Spec L2 0.0286 0.0033 0.0034 0.0009 0.0010 0.0332 0.0138 0.0002 0.0052 0.0006 ± 0.0003 
+
+KS Rel L2 0.0553 0.0418 0.0295 0.0260 0.0200 0.1322 0.0198 0.0126 0.0229 0.0092 ± 0.0009 
+
+RMSE 0.0181 0.0095 0.0066 0.0056 0.0045 0.0300 0.0040 0.0028 0.0047 0.0020 ± 0.0002 
+
+Spec L2 0.0718 0.0119 0.0228 0.0135 0.0123 0.0413 0.0283 0.0039 0.0099 0.0070 ± 0.0033 
+
+Rayleigh Rel L2 0.0831 0.0112 0.0154 0.0072 0.0117 0.3780 0.0380 0.0065 0.0060 0.0062 ± 0.0011 
+
+-Bénard RMSE 0.0109 0.0015 0.0021 0.0009 0.0016 0.0620 0.0052 0.0009 0.0008 0.0008 ± 0.0001 
+
+Spec L2 0.0207 0.0062 0.0072 0.0024 0.0040 0.4617 0.0199 0.0060 0.0025 0.0036 ± 0.0013 
+
+Transonic Rel L2 0.1164 0.0252 0.0254 0.0480 0.0376 0.1910 0.0202 0.0205 0.0259 0.0191 ± 0.0009 
+
+RMSE 0.0602 0.0132 0.0132 0.0253 0.0197 0.0996 0.0105 0.0107 0.0135 0.0099 ± 0.0005 
+
+Spec L2 0.0257 0.0062 0.0147 0.0110 0.0081 0.0047 0.0023 0.0047 0.0020 0.0025 ± 0.0019 
+
+Table 1: Main prediction performance (lower is better), ordered roughly from easier to harder regimes. Text2PDE is listed as a reduced-order generative baseline; ATS, AMR-MGNN, AMBER, and wLMR are adaptive discretization methods. The DAM-family variants isolate discretization and predictor choices: Diff-only removes mesh conditioning, Classic+Diff uses a classical adaptive mesh with the same CNN-based prediction denoiser, Diff+CNN uses the DAM mesh with a pure CNN predictor, and Diff+FNO uses the DAM mesh with a pure FNO predictor. Here Diff denotes the CNN-based prediction denoiser. DAM reports the two-stage diffusion model with CNN denoisers in both mesh and prediction stage. The DAM-family variants then separate mesh quality from predictor capacity. DAM improves over Classic+Diff on KS, Rayleigh-Bénard, and Transonic, indicating that the learned displacement policy contributes beyond a handcrafted adap-tive rule. Diff+CNN and Diff+FNO remain competitive in several regimes, showing that the learned mesh is not tied to one particular prediction backend, but the full two-stage diffusion path is usually stronger. Diff-only performs poorly in harder regimes, ruling out the interpretation that the gains come only from the prediction denoiser. These comparisons establish the empirical role of learned discretization; the fol-lowing analyses ask what spatial and spectral allocation the mesh learns. 
+
+Spectral and Regime Analysis 
+
+Table 1 quantifies the predictive gains of learned adapta-tion, while Figure 10 in the Appendix illustrates how those gains manifest in the predicted fields across different regimes. The visual comparison shows that the benefit is not sim-ply a uniform increase in spatial resolution: in smooth or low-dimensional systems the learned mesh mostly preserves the dominant structure, while in convection- and shock-sensitive regimes it must allocate capacity to localized pat-terns. Text2PDE captures coarse field layout but tends to smooth localized structures; AMR-style baselines often re-cover the global field but differ in local sharpness; our dif-fusion mesh is the most useful when structure must be pre-served without relying on a single hand-designed refinement indicator. This motivates the targeted spectral and mesh-quality audits below rather than a claim of one universal refinement rule. Mode reconstruction error Error Efficiency score Predicting error        
+
+> 050
+> Mode index
+> 95 100
+> Retained energy (%)
+> 10 20 30
+> Cutoff
+> Rel L2 RMSE
+> Shear
+> Rayleigh
+> -Bénard
+> Transonic
+> Fixed Classic DAM (Ours)
+
+Figure 3: Spectral representation under fixed-grid, classical adaptive, and DAM (Ours) discretization: Fourier-mode er-ror, retained-energy error, efficiency score, and predicting error at resolution of N = 64 .
+
+Ablation on Discretization Learning Mechanisms 
+
+Because different components affect different stages of the pipeline, we use targeted diagnostics rather than a single aggregate ablation. We focus on the 2D benchmarks, where spatial and spectral allocation patterns are clearer than the simpler 1D cases, providing a cleaner test of mesh diffusion, spectral guidance, and proxy conditioning. 
+
+Effect of Diffusion-Based Mesh Learning We first com-pare fixed, classical adaptive, and learned discretization to test whether diffusion-based mesh generation changes the representation rather than merely adding model capacity. Figure 3 summarizes the results on the three 2D regimes. In Periodic Shear, all methods achieve similar spectral recon-structions, but DAM provides a better efficiency-accuracy trade-off and lower forecasting error. In Rayleigh-Bénard, GT high-freq ATS AMR-MGNN AMBER wLMR DAM 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> GT high-freq
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Per-method normalized overlap
+> High-frequency overlap pattern
+
+Figure 4: Transonic spectral allocation. DAM covers the wake and high-frequency structures more comprehensively than ATS and AMR-MGNN, while allocating density in a more targeted manner than AMBER and wLMR. Shear Rayleigh    
+
+> -Bénard
+> Transonic 0
+> 20
+> 40
+> 60
+> Drop (%)
+> Rel L2 drop
+> Shear Rayleigh
+> -Bénard
+> Transonic
+> Rel L2
+> Shear Rayleigh
+> -Bénard
+> Transonic
+> HF error
+> w/o spectral Full
+
+Figure 5: Spectral-concentration ablation on 2D regimes. Positive drop indicates Rel L2 improvement from enabling 
+
+λspec .DAM consistently reduces retained-energy, reconstruction, and forecasting errors, indicating a more informative allo-cation of resolution. In Transonic flow, the spectral metrics are closer across methods, yet DAM still achieves the lowest prediction error, suggesting that the learned mesh better pre-serves localized flow structures. These results indicate that the mesh diffusion branch does more than refine the grid: by generating state-dependent displacement fields, it changes how spatial and spectral information is allocated. Although initialized from a classical adaptive teacher during training, the learned policy is further shaped by forecasting and spec-tral objectives, leading to discretizations that are tailored to the downstream task. 
+
+Effect of Spectral Concentration Objective Building on the previous spectral analysis, we use Transonic to inspect where sampling density is placed because its low- and high-frequency structures are visually separable. Figure 4 shows that ATS and AMR-MGNN concentrate sampling narrowly around a few vertical bands, while DAM covers the body wake and surrounding high-frequency struc-tures more completely. Compared with AMBER and wLMR, DAM achieves similar spatial coverage while allocating res-olution in a more targeted manner around high-frequency regions, which is consistent with the lower Transonic error in Table 1. This supports the need for spectral guidance: the learned mesh is not only denser, but better aligned with the frequency structures that matter for prediction. Figure 5 compares the full model with an otherwise identi-cal run using λspec = 0 . The positive drop reports the Rel L2 improvement from enabling spectral concentration. The ob-jective substantially lowers high-frequency error on Periodic shear and Rayleigh-Bénard, while Transonic shows a smaller but prediction-relevant trade-off. Overall, the spectral term changes what the mesh is rewarded to preserve, supporting Shear Rayleigh    
+
+> -Bénard
+> Transonic 0
+> 50
+> Drop
+> HF error drop
+> Shear Rayleigh
+> -Bénard
+> Transonic
+> HF error
+> Shear Rayleigh
+> -Bénard
+> Transonic
+> Density-error alignment
+> w/o proxy Full
+
+Figure 6: PDE-aware proxy ablation on 2D regimes: high-frequency (HF) error drop, high-frequency error comparison, and density-error hotspot alignment. the interpretation that DAM learns a frequency-aware allo-cation policy rather than only imitating a spatial adaptive prior. 
+
+Effect of PDE-aware Proxy Conditioning PDE-aware proxy conditioning is used only as a Stage 1 mesh input. It is computed from the latest observed frame and therefore cannot leak target information into the mesh policy. The ab-lation asks whether explicit physical cues change the learned allocation beyond what prediction loss and geometric regu-larization already provide. Figure 6 shows that enabling the proxy reduces the high-frequency error diagnostic across the three 2D regimes. The alignment panel is interpreted more carefully: the effect is strongest when localized structure is meaningful, especially in Transonic flow, while smoother globally organized regimes show weaker correlation shifts. The proxy is therefore not presented as a universal raw-error trick; its role is to provide causal and physically interpretable conditioning for regime-dependent learned discretization. 
+
+## Conclusion 
+
+We introduced DAM, a two-stage diffusion framework for jointly learning adaptive discretization and PDE field predic-tion. Instead of using a prescribed mesh, DAM denoises a dis-placement field to generate a state-dependent mesh, then pre-dicts on the learned discretization. Across five PDE bench-marks, DAM improves prediction accuracy while main-taining geometrically valid meshes. The learned discretiza-tion also generalizes across nearby resolutions and benefits from geometry-, physics-, and frequency-aware condition-ing, showing that it captures structures beyond handcrafted refinement heuristics. More broadly, these results suggest that adaptive discretization should be treated as a learnable representation, not fixed preprocessing, offering a new path toward joint mesh generation and neural PDE learning. References 
+
+Aballay, D.; Fuentes, F.; Iligaray, V.; Omella, Á. J.; Pardo, D.; Sánchez, M. A.; Tapia, I.; and Uriarte, C. 2025. An r-adaptive finite element method using neural networks for parametric self-adjoint elliptic problems. Journal of Com-putational Physics , 114447. Ainsworth, M.; and Oden, J. T. 1997. A posteriori error estimation in finite element analysis. Computer Methods in Applied Mechanics and Engineering , 142(1-2): 1–88. Babuvška, I.; and Rheinboldt, W. C. 1978. Error estimates for adaptive finite element computations. SIAM Journal on Numerical Analysis , 15(4): 736–754. Berger, M. J.; and Oliger, J. 1984. Adaptive mesh refine-ment for hyperbolic partial differential equations. Journal of Computational Physics , 53(3): 484–512. Burns, K. J.; Vasil, G. M.; Oishi, J. S.; Lecoanet, D.; and Brown, B. P. 2020. Dedalus: A flexible framework for nu-merical simulations with spectral methods. Physical Review Research , 2(2): 023068. Cai, Z.; Wang, Y.; Liu, Y.; and Zhang, X. 2026. Stabilizing self-consuming diffusion models with latent space filtering. In Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 40, 19844–19852. Fayyaz, M.; Koohpayegani, S. A.; Jafari, F. R.; Sengupta, S.; Joze, H. R. V.; Sommerlade, E.; Pirsiavash, H.; and Gall, J. 2022. Adaptive Token Sampling for Efficient Vision Trans-formers. In European Conference on Computer Vision , 396– 414. Springer. Freymuth, N.; Würth, T.; Schreiber, N.; Gyenes, B.; Boltres, A.; Mitsch, J.; Taranovic, A.; Hoang, T.; Dahlinger, P.; Becker, P.; et al. 2025. AMBER: Adaptive Mesh Genera-tion by Iterative Mesh Resolution Prediction. arXiv preprint arXiv:2505.23663 .Ho, J.; Jain, A.; and Abbeel, P. 2020. Denoising diffusion probabilistic models. Advances in Neural Information Pro-cessing Systems , 33: 6840–6851. Ho, J.; and Salimans, T. 2022. Classifier-free diffusion guid-ance. arXiv preprint arXiv:2207.12598 .Hu, T.; Zhang, J.; Yi, R.; Du, Y.; Chen, X.; Liu, L.; Wang, Y.; and Wang, C. 2024. Anomalydiffusion: Few-shot anomaly image generation with diffusion model. In Proceedings of the AAAI conference on artificial intelligence , volume 38, 8526–8534. Huang, W.; and Russell, R. D. 2010. Adaptive moving mesh methods , volume 174. Springer Science & Business Media. Kalimuthu, M.; Holzmüller, D.; and Niepert, M. 2025. Loglo-fno: efficient learning of local and global features in fourier neural operators. arXiv preprint arXiv:2504.04260 .Kohl, G.; Chen, L.-W.; and Thuerey, N. 2026. Benchmark-ing autoregressive conditional diffusion models for turbulent flow simulation. Neural Networks , 108641. Kossaifi, J.; Kovachki, N.; Li, Z.; Pitt, D.; Liu-Schiaffini, M.; George, R. J.; Bonev, B.; Azizzadenesheli, K.; Berner, J.; Duruisseaux, V.; and Anandkumar, A. 2025. A Li-brary for Learning Neural Operators. arXiv preprint arXiv:2412.10354 .Kovachki, N.; Li, Z.; Liu, B.; Azizzadenesheli, K.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2023. Neural operator: Learning maps between function spaces with ap-plications to PDEs. Journal of Machine Learning Research ,24(89): 1–97. Lehmann, F.; Gatti, F.; Bertin, M.; and Clouteau, D. 2024. 3D elastic wave propagation with a factorized Fourier neural operator (F-FNO). Computer Methods in Applied Mechanics and Engineering , 420: 116718. Li, J.; and Salim, F. D. 2025. DRIFT-Net: A Spectral– Coupled Neural Operator for PDEs Learning. arXiv preprint arXiv:2509.24868 .Li, Z.; Huang, D. Z.; Liu, B.; and Anandkumar, A. 2023. Fourier neural operator with learned deformations for PDEs on general geometries. Journal of Machine Learning Re-search , 24(388): 1–26. Li, Z.; Kovachki, N.; Azizzadenesheli, K.; Liu, B.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2020. Fourier neural operator for parametric partial differential equations. 
+
+arXiv preprint arXiv:2010.08895 .Li, Z.; Zhou, A.; and Farimani, A. B. 2025. Generative latent neural PDE solver using flow matching. arXiv preprint arXiv:2503.22600 .Lu, L.; Jin, P.; Pang, G.; Zhang, Z.; and Karniadakis, G. E. 2021. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3): 218–229. Luo, H.; Wu, H.; Zhou, H.; Xing, L.; Di, Y.; Wang, J.; and Long, M. 2025. Transolver++: An accurate neural solver for PDEs on million-scale geometries. arXiv preprint arXiv:2502.02414 .Oden, J. T.; and Prudhomme, S. 2001. Goal-oriented er-ror estimation and adaptivity for the finite element method. 
+
+Computers & Mathematics with Applications , 41(5-6): 735– 756. Özgen-Xian, I.; Kesserwani, G.; Caviedes-Voullième, D.; Molins, S.; Xu, Z.; Dwivedi, D.; Moulton, J. D.; and Steefel, C. I. 2020. Wavelet-based local mesh refinement for rainfall– runoff simulations. Journal of Hydroinformatics , 22(5): 1059–1080. Perera, R.; and Agrawal, V. 2024. Multiscale graph neu-ral networks with adaptive mesh refinement for accelerating mesh-based simulations. Computer Methods in Applied Me-chanics and Engineering , 429: 117152. Pfaff, T.; Fortunato, M.; Sanchez-Gonzalez, A.; and Battaglia, P. W. 2020. Learning mesh-based simulation with graph networks. arXiv preprint arXiv:2010.03409 .Qi, C. R.; Su, H.; Mo, K.; and Guibas, L. J. 2017. Pointnet: Deep learning on point sets for 3d classification and segmen-tation. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , 652–660. Rozet, F.; Ohana, R.; McCabe, M.; Louppe, G.; Lanusse, F.; and Ho, S. 2026. Lost in latent space: An empiri-cal study of latent diffusion models for physics emulation. 
+
+Advances in Neural Information Processing Systems , 38: 134612–134657. Serrano, L.; Wang, T. X.; Le Naour, E.; Vittaut, J.-N.; and Gallinari, P. 2024. Aroma: Preserving spatial structure for latent pde modeling with local neural fields. Advances in Neural Information Processing Systems , 37: 13489–13521. Shysheya, A.; Diaconu, C.; Bergamin, F.; Perdikaris, P.; Hernández-Lobato, J. M.; Turner, R. E.; and Mathieu, E. 2024. On conditional diffusion models for PDE simula-tions. Advances in Neural Information Processing Systems ,37: 23246–23300. Song, W.; Zhang, M.; Wallwork, J. G.; Gao, J.; Tian, Z.; Sun, F.; Piggott, M.; Chen, J.; Shi, Z.; Chen, X.; et al. 2022. M2N: Mesh movement networks for PDE solvers. Advances in Neural Information Processing Systems , 35: 7199–7210. Song, Y.; and Ermon, S. 2019. Generative modeling by estimating gradients of the data distribution. Advances in Neural Information Processing Systems , 32. Song, Y.; Sohl-Dickstein, J.; Kingma, D. P.; Kumar, A.; Er-mon, S.; and Poole, B. 2020. Score-based generative model-ing through stochastic differential equations. arXiv preprint arXiv:2011.13456 .Thacher, W.; Pan, Y.; and Persson, P.-O. 2025. Optimization of a Triangular Delaunay Mesh Generator using Reinforce-ment Learning. Computer-Aided Design , 103964. Zhou, A.; Li, Z.; Schneier, M.; Buchanan Jr, J. R.; and Farimani, A. B. 2024. Text2pde: Latent diffusion mod-els for accessible physics simulation. arXiv preprint arXiv:2410.01153 .Appendix 
+
+Notation 
+
+Symbol Meaning 
+
+H, W Spatial resolution of the regular PDE grid 
+
+Hm, W m Resolution of the reference mesh used in Stage 1 
+
+w Length of the observed history window 
+
+ut = ( u, v ) Two-channel PDE state at time t
+
+u∗ Normalized next-step target 
+
+Unorm 1: w Normalized history sequence used as model input 
+
+Xhist History sequence reshaped into 2w conditioning channels 
+
+Φ PDE-aware proxy tensor built from the latest observed frame only 
+
+ϕgrad , ϕ vort , ϕ lap Shared proxy channels for gradient magnitude, vorticity magnitude, and Laplacian magnitude 
+
+Cmesh Stage 1 conditioning tensor [Xhist ; Φ] 
+
+D0, Dt Clean and noisy mesh-displacement fields in Stage 1 diffusion 
+
+η, σ (t) Stage 1 Gaussian noise and noise scale at diffusion time t
+
+Vreg , V Reference mesh nodes and projected adaptive mesh nodes 
+
+Π Geometry projection operator enforcing valid mesh deformation 
+
+A, a Local spectral anchor set and an individual anchor 
+
+ωn,a Soft assignment weight from mesh node n to anchor aca,m , E a Local Fourier coefficient and anchor energy for spectral mode mk, M Number of selected top-energy anchors and number of retained local Fourier modes 
+
+ρ Local spectral concentration score 
+
+xstage2 Bridged regular-grid conditioning tensor for Stage 2 
+
+uτ , ξ, σ 2(τ ) Noisy Stage 2 solution, Gaussian noise, and Stage 2 noise scale at diffusion time τC−1/2, C −1/2 
+
+> u
+
+GRF-derived frequency preconditioners for mesh and prediction diffusion losses 
+
+λ(k), α, s GRF spectral density and its scale/smoothness hyperparameters 
+
+E, T Mesh edge set and triangle set 
+
+Aτ Signed area of triangle τλcycle , λ smooth , λ inv Scalar weights of the cycle, smoothness, and inversion terms 
+
+λdiff , λ spec Scalar weights of the mesh diffusion and spectral-concentration terms 
+
+Lpred , Lcycle , Lsmooth Prediction, reconstruction-cycle, and mesh-smoothness losses 
+
+Linv , Ldiff Inversion and mesh diffusion losses 
+
+max _disp _ratio Maximum Displacement Ratio Table 2: Notation used throughout the paper. 
+
+Theoretical Notes 
+
+Geometry preservation. The learned mesh is parameterized as a displacement of a valid reference grid rather than as unconstrained coordinates. Before use, the raw displacement is clipped by max _disp _ratio and passed through a bisection-based projection that repeatedly rescales the deformation until every triangle area remains above a positive threshold. Because the reference triangulation is valid and the projection accepts only deformations with positive signed area, the returned mesh is inversion-free by construction up to numerical tolerance. The empirical minimum-Jacobian and inversion-rate results in the paper verify that the implementation follows this guarantee in practice. 
+
+Why GRF preconditioning is appropriate. Let a displacement field follow a GRF prior with spectral density λ(k) = (α + ∥k∥2)−s. Whitening the denoising residual by C−1/2 yields the norm: 
+
+∥C−1/2e∥22 = X
+
+> k
+
+(α + ∥k∥2)s|ˆe(k)|2, (12) which penalizes high-frequency deformation errors more strongly than low-frequency drift. This matches the modeling role of a mesh displacement: large-scale motion can be useful, whereas spurious high-frequency oscillation rapidly damages element quality. Detailed Method and Implementation Notes 
+
+PDE-aware proxy construction. The implementation builds proxy channels from the latest normalized frame only, avoiding future leakage. Periodic finite differences provide 
+
+ϕgrad =
+
+q
+
+(∂xu)2 + ( ∂y u)2 + ( ∂xv)2 + ( ∂y v)2 + ε, (13) 
+
+ϕvort = |∂xv − ∂y u|, (14) and, when enabled, ϕlap = |∆u| + |∆v|. The current five-dataset configuration uses the same causal proxy principle across datasets: proxy channels are computed only from the observed history, then concatenated into the Stage 1 mesh-conditioning tensor. In the main configuration, ϕlap is disabled, so Φ remains a compact stack of local derivative-based cues rather than a target-dependent signal. 
+
+Local spectral concentration. Given anchor locations A, node-to-anchor weights are defined by a softmax over squared Euclidean distances, 
+
+ωn,a = softmax a
+
+
+
+− ∥vn − a∥22
+
+σ2
+
+
+
+. (15) The implementation projects the latest field onto a compact Fourier basis, forms anchor energies Ea = M −1 P 
+
+> m
+
+|ca,m |2, and computes 
+
+ρ =
+
+P 
+
+> a∈TopK( E,k )
+
+Ea
+
+P 
+
+> a
+
+Ea + ε . (16) The ratio is bounded in [0 , 1] . Maximizing ρ therefore cannot increase total spectral energy arbitrarily; it only changes how energy is concentrated across anchors. The objective encourages the mesh to allocate resolution toward the most informative local spectral regions while remaining agnostic to the absolute field scale. 
+
+Bridge and geometry projection. The bridge constructs a regularized grid tensor from mesh nodes through differentiable interpolation and concatenates confidence, density, and optional spectral channels. For stability, sampled displacement fields are first clamped by max _disp _ratio relative to the reference spacing and then passed through the projection operator Π, which repeatedly rescales the deformation until all signed triangle areas are positive. This mirrors the implementation used before every learned-mesh forward pass. 
+
+Exact auxiliary losses. For mesh nodes vi and graph edges E,
+
+Lsmooth = 1
+
+|E| 
+
+X
+
+> (i,j )∈E
+
+∥vi − vj ∥22, (17) while for signed triangle areas Aτ ,
+
+Linv = 1
+
+|T | 
+
+X 
+
+> τ∈T
+
+max (0 , ϵ − Aτ ) , ϵ = 10 −10 . (18) The implementation also uses the cycle term between bridged reconstruction and latest context frame plus a mesh diffusion term for Stage 1 displacement supervision. The objective written in the main text therefore matches the code path used for the reported learned-mesh runs. 
+
+Dataset Epochs Steps/epoch Batch Train mesh Test mesh Key weights Burgers 200 100 8 64 64 λspec = 0 .05 , λcycle = 0 .20 , max_disp _ratio = 0 .25 
+
+Shear 300 100 8 64 64 λspec = 0 .05 , λcycle = 0 .1
+
+KS 200 100 8 64 64 λspec = 0 .05 , λcycle = 0 .1
+
+Rayleigh-Bénard 300 100 8 64 64 λspec = 0 .05 , λcycle = 0 .1
+
+Transonic 300 100 8 64 64 λspec = 0 .05 , λcycle = 0 .1
+
+Table 3: Dataset-wise training parameters for DAM (Ours). Main Table 1 uses seeds {1, 2, 42 }. Shared parameters are history window w = 8 , horizon = 1 , learning rates 2 × 10 −4 for both mesh and solution branches, batch size 8, and λinv = 1 .0. Unless otherwise noted, λsmooth = 10 −4, mesh diffusion loss weight = 0 .2, and max _disp _ratio = 0 .45 ; Burgers uses the optimized setting λsmooth = 2 × 10 −4 and mesh diffusion loss weight = 0 .15 .Training Details 
+
+The mesh branch and downstream predictor are trained jointly, so the reported results reflect end-to-end optimization rather than a separately tuned mesh generator. The complete dataset-specific training configurations, including optimization hyperparameters and loss weights are summarized in Table 3. 
+
+Hardware and Software Environment 
+
+All experiments reported in this paper were executed on a single NVIDIA GeForce RTX 4070 Laptop GPU with 8 GB memory (8188 MiB reported by the driver; driver version 581.83). The active training environment used PyTorch 2.5.1 with CUDA 12.1. All runtime numbers in the paper were measured on this hardware rather than copied from vendor specifications. This disclosure is included to make the efficiency results interpretable, especially because diffusion-based mesh sampling adds non-negligible latency relative to a fixed-grid path. 
+
+Runtime Cost of Learned Discretization 
+
+Table 4 reports the measured total inference time of DAM at resolution of N = 64 . We report the total solution-generation path rather than separating solver and mesh-generation entries in this table; the mesh-generation component is analyzed separately in the Pareto figure below. Dataset DAM total time ms Burgers 315.1 Shear 145.6 KS 126.1 Rayleigh-Bénard 231.2 Transonic 790.1 Table 4: Total inference time of DAM (Ours) at resolution of N = 64 in milliseconds per sample. The reported time corresponds to the full solution-generation path used during evaluation. DAM currently generates mesh displacements through an iterative denoising process, so the mesh-generation module itself leaves room for acceleration. To test whether this part of the framework can be replaced by a faster generative mechanism, we evaluate a Burgers case in which the Stage 1 diffusion mesh generator is replaced by a flow-matching mesh generator, while Stage 2 remains the same diffusion field predictor. Table 5 reports the resulting accuracy–runtime trade-off. Flow matching method reduces the total inference time from 315.1 ms to 169.5 ms, but also increases the prediction error, indicating that faster mesh generation is feasible but currently trades speed for accuracy. Reducing this trade-off remains an important direction for future work. More advanced flow-matching or consistency-model parameterizations may further reduce sampling cost without sacrificing discretization quality. Dataset Mesh generator Rel L2 Spec L2 Total time ms Burgers Diffusion 0.0083 0.0072 315.1 Burgers Flow matching 0.0180 0.0133 169.5 Table 5: Accuracy and runtime comparison between the default Stage 1 diffusion mesh generator and a flow-matching mesh generator on Burgers at N = 64 . Stage 2 is kept as the same diffusion field predictor. 
+
+Mesh-Generation Pareto Analysis 
+
+Figure 7 compares fixed, classical adaptive, and DAM discretization policies using mesh-generation time as the horizontal axis and Rel L2 as the error axis. This isolates the cost of producing the discretization itself, while Table 4 reports DAM’s total inference time. The plot shows that the benefit of paying for learned mesh generation is regime-dependent. On KS and Periodic shear, DAM moves toward lower error without increasing mesh-generation cost relative to the classical policy. On Rayleigh-Bénard and Transonic, DAM obtains the best error but spends more mesh-generation time, so it should be read as an accuracy-capacity trade-off. Burgers is the boundary case: the fixed grid already aligns well with the 1D transport structure, so extra learned mesh generation does not dominate the fixed control. This supports the paper’s narrower claim that discretization should be learned when the regime benefits from adaptive allocation, not that learned meshes are universally cheaper. 0 20 40        
+
+> Meshgen ms
+> 0.005
+> 0.010
+> 0.015
+> Rel L2
+> Fixed
+> Classic
+> DAM
+> Burgers
+> 020
+> Meshgen ms
+> 0.005
+> 0.010
+> Fixed
+> Classic
+> DAM
+> Shear
+> 020
+> Meshgen ms
+> 0.01
+> 0.02
+> Fixed
+> Classic
+> DAM
+> KS
+> 020
+> Meshgen ms
+> 0.000
+> 0.025 Fixed
+> Classic
+> DAM
+> Rayleigh
+> -Bénard
+> 050 100
+> Meshgen ms
+> 0.019
+> 0.020
+> 0.021 Fixed Classic
+> DAM
+> Transonic
+> Mesh-generation time vs. prediction error at N=64
+
+Figure 7: Mesh-generation Pareto plot. Rel L2 is compared against mesh-generation time at resolution of N = 64 .
+
+Baseline Models 
+
+All adaptive baselines are evaluated as discretization policies attached to the same FNO forecasting solver and the same train/validation/test splits. This is an adaptation of their mesh or sampling mechanisms rather than a claim that every original paper used an identical solver stack. We use this protocol deliberately: it isolates whether the adaptive allocation policy helps under a common forecasting backend, instead of confounding mesh adaptation with different PDE solvers, FEM implementations, or task-specific simulators. 
+
+• Text2PDE (Zhou et al. 2024): a latent diffusion framework built around mesh-aware autoencoding and conditional generation. We use it as the reduced-order generative baseline because it changes the state representation while keeping the online discretization policy separate from our learned mesh sampler. 
+
+• ATS (Fayyaz et al. 2022): Adaptive Token Sampling was originally proposed for efficient vision transformers. We adapt its selection principle as a density-conditioned sampling baseline: informative locations receive higher sampling density before being passed to the same forecasting protocol. It is therefore a sampling-adaptation baseline rather than a classical mesh generator. 
+
+• AMR-MGNN (Perera and Agrawal 2024): a multiscale graph neural network coupled with adaptive mesh refinement for mesh-based simulations. We adapt its multiscale graph/message-passing idea into our forecasting setup as an AMR-style adaptive-discretization baseline. 
+
+• AMBER (Freymuth et al. 2025): an iterative sizing-field method for adaptive mesh generation from expert demonstrations. In our comparison, AMBER supplies a learned sizing field that drives node-density allocation, followed by the shared prediction protocol. 
+
+• wLMR (Özgen-Xian et al. 2020): a wavelet-based local mesh-refinement method originally designed for rainfall-runoff simulations. We adapt its wavelet slope/curvature indicator as a lightweight local refinement baseline. 
+
+Dataset Information 
+
+• Burgers (Kossaifi et al. 2025): a nonlinear advection-diffusion benchmark generated with the neural operator data utilities, used as the easiest low-dimensional transport regime. 
+
+• Periodic shear (Burns et al. 2020): a periodic shear-flow benchmark generated with Dedalus, emphasizing smooth coherent shear structures and testing whether adaptive discretization avoids unnecessary distortion. 
+
+• KS (Shysheya et al. 2024): the chaotic Kuramoto-Sivashinsky benchmark, characterized by broadband oscillations and sensitivity to high-frequency structure. 
+
+• Rayleigh-Bénard (Burns et al. 2020): a convection-style benchmark generated with Dedalus, used to test allocation around cellular transport patterns. 
+
+• Transonic (Kohl, Chen, and Thuerey 2026): a compressible-flow benchmark with shock-like discontinuities and sharp geometric transitions. All datasets are converted to the same split-based HDF5 interface used by the implementation. The train split is used to fit the model and compute normalization statistics, the validation split is used for model selection in baseline training, and the test split is reserved for final Rel L2, RMSE, spectral error, mesh-quality, and cross-resolution metrics. In all experiments, the model receives a short history of consecutive fields and predicts the next field at the next time step. The benchmark suite is ordered roughly from easier to harder regimes in Table 1, so the comparison tests whether learned discretization remains useful beyond a single PDE family. 
+
+Full Mesh-Quality Audit 
+
+Prediction accuracy alone is insufficient for evaluating adaptive discretization: a low forecasting error is of limited value if the generated mesh exhibits element inversion, poor conditioning, or large reconstruction artifacts. Table 6 complements the prediction results with a geometric audit. Across all datasets, DAM consistently maintains positive minimum Jacobians, minimum angles near 45 ◦, and aspect ratios close to 2, indicating an orientation-preserving and well-conditioned mesh. In contrast, several adaptive baselines produce meshes with negative minimum Jacobians, extremely small minimum angles, or highly elongated elements, even when their reconstruction or prediction errors remain competitive. This gap should be interpreted in light of the evaluation protocol: these baselines originate as simulation/adaptation mechanisms and are converted here into moving triangular-mesh policies under a common neural forecasting interface. Poor element quality therefore mainly limits their engineering usability rather than automatically invalidating their field prediction numbers; a small Cycle Rel L2 can still preserve tensor reconstruction well enough for the downstream predictor. This is precisely why the geometric audit is useful: it separates predictive accuracy from mesh validity and shows that DAM obtains competitive prediction while retaining the validity constraints needed for a deployable adaptive discretization. Dataset Method Cycle Rel L2 ↓ Min angle ↑ Aspect ↓ Min J ↑
+
+Burgers ATS 0.272 ± 0.023 0.46 131 .19 −3.82 ×10 −1
+
+AMR-MGNN 0.303 ± 0.031 0.36 177 .84 −4.18 ×10 −1
+
+AMBER 0.376 ± 0.031 1.65 124 .53 −1.89 
+
+wLMR 0.538 ± 0.061 0.08 779 .32 −5.07 
+
+DAM (Ours) 0.266 ± 0.026 44 .81 2.00 2.40 ×10 −3
+
+Shear ATS 0.129 ± 0.004 0.79 72 .24 −3.47 ×10 −1
+
+AMR-MGNN 0.131 ± 0.005 0.79 73 .02 −3.49 ×10 −1
+
+AMBER 0.135 ± 0.005 0.56 103 .56 −5.66 ×10 −1
+
+wLMR 0.139 ± 0.006 0.46 125 .74 −7.93 ×10 −1
+
+DAM (Ours) 0.128 ± 0.005 44 .82 2.00 2.40 ×10 −3
+
+KS ATS 0.146 ± 0.012 0.65 89 .77 −3.61 ×10 −1
+
+AMR-MGNN 0.148 ± 0.011 0.61 97 .44 −3.64 ×10 −1
+
+AMBER 0.219 ± 0.016 0.17 336 .98 −2.51 
+
+wLMR 0.213 ± 0.023 0.12 490 .45 −2.77 
+
+DAM (Ours) 0.144 ± 0.009 44 .78 2.01 2.40 ×10 −3
+
+Rayleigh ATS 0.260 ± 0.021 0.72 79 .86 −4.05 ×10 −1
+
+-Bénard AMR-MGNN 0.261 ± 0.018 0.75 76 .90 −4.00 ×10 −1
+
+AMBER 0.260 ± 0.022 0.62 108 .09 −8.43 ×10 −1
+
+wLMR 0.271 ± 0.023 0.57 145 .84 −9.04 ×10 −1
+
+DAM (Ours) 0.261 ± 0.024 44 .82 2.00 2.40 ×10 −3
+
+Transonic ATS 0.182 ± 0.006 0.71 81 .67 −3.63 ×10 −1
+
+AMR-MGNN 0.187 ± 0.006 0.57 100 .12 −4.15 ×10 −1
+
+AMBER 0.441 ± 0.022 1.80 33 .79 2.46 ×10 −4
+
+wLMR 0.287 ± 0.013 0.62 94 .39 6.44 ×10 −5
+
+DAM (Ours) 0.179 ± 0.005 44 .65 2.00 2.39 ×10 −3
+
+Table 6: Mesh-quality comparison at resolution of N = 64 across adaptive-discretization methods, recomputed using the same held-out sampling protocol. Cycle Rel L2 measures interpolation/reconstruction error when moving between adaptive and regular representations, Min angle and aspect ratio measure element conditioning, and Min J is the minimum signed element area/Jacobian proxy. Positive Min J together with large minimum angles and aspect ratios near two indicates an orientation-preserving, well-conditioned moving mesh; small angles and large aspect ratios indicate sliver elements even when the signed area is nonnegative. 
+
+Future Work 
+
+Several limitations of the current framework point to concrete extensions. The iterative denoiser used by the mesh branch is a direct source of additional inference cost. Since DAM currently generates mesh displacements through diffusion denoising, future work may replace this mesh generator with faster continuous generative parameterizations, such as flow matching, rectified flow, consistency models, or other low-step transport-based generators. The experiment in Table 5 suggests that such replacements can reduce runtime, but preserving the accuracy and mesh quality of the diffusion-based discretization remains an open challenge. Another direction is uncertainty analysis for generative discretization. Although Gaussian noise is injected during the diffusion process, the supervised forecasting objective and geometric regularization drive the mesh generator toward a stable task-specific mesh, so the observed stochastic variation in generated meshes is often small. This behavior means that mesh samples from the current model should not be interpreted as calibrated posterior uncertainty. The current paper therefore does not address uncertainty quantification. Future work could study whether explicitly uncertainty-aware objectives, ensembles, or noise-conditioned evaluation protocols can make stochastic mesh variation more informative under distribution shift, noisy observations, or multi-modal solution regimes. Dataset Error hotspot |∇ u| Vorticity Cond. proxy Burgers −0.017 ± 0.171 0.114 ± 0.130 0.155 ± 0.164 0.130 ± 0.150 
+
+Shear −0.079 ± 0.061 0.020 ± 0.099 −0.002 ± 0.083 0.013 ± 0.092 
+
+KS 0.073 ± 0.103 0.085 ± 0.135 −0.104 ± 0.103 −0.036 ± 0.124 
+
+Rayleigh-Bénard 0.138 ± 0.067 0.249 ± 0.068 −0.008 ± 0.077 0.097 ± 0.065 
+
+Transonic 0.179 ± 0.044 0.178 ± 0.059 0.071 ± 0.051 0.159 ± 0.053 
+
+Table 7: Spearman correlation between learned node density and interpretable structure maps across 24 held-out test draws. The strongest positive alignment appears in Transonic and Rayleigh-Bénard regimes, while Periodic shear remains weakly aligned because the field is already well represented by simple structure. Burgers Shear KS Rayleigh  
+
+> -Bénard
+> Transonic
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> Spearman correlation
+> Error hotspot
+> |u|
+> Vorticity
+> Cond. proxy
+
+Figure 8: Semantic-correlation audit. Bars report mean Spearman correlation with one-standard-deviation error bars. 
+
+What the Mesh Learns 
+
+Beyond prediction error, we ask whether the learned mesh responds to an interpretable field structure. Table 7 and Figure 8 report a semantic-correlation audit between learned node density and error hotspots, gradient magnitude, vorticity, and the conditioning proxy. This matters because an adaptive mesh can move nodes without placing them near structures that govern forecasting error. We therefore treat node density as an observable consequence of the learned discretization policy and test whether it is rank-correlated with interpretable maps computed from held-out trajectories. The result is useful precisely because it is not uniform. Transonic and Rayleigh-Bénard show the clearest positive alignment with localized spatial structure, where shocks, boundary-layer-like features, or coherent convection patterns make extra resolution meaningful. Periodic shear remains close to zero because its dominant pattern is simple and globally organized; in that case, strong local density correlation is neither expected nor necessary. Burgers shows moderate alignment with gradient and vortical proxies, and KS remains mixed, consistent with broadband dynamics where local monotone cues are weaker. The point is not that the same proxy explains every dataset, but that the learned mesh reveals different allocation behavior across regimes. This complements the error tables: Table 1 establishes forecasting competitiveness, Figures 3-5 show spectral consequences, and the semantic audit asks whether allocation can be read in physical space. Together, these results support the narrower claim that diffusion-based discretization is a regime-dependent representation, not a fixed refinement template. They also clarify why diffusion is a natural parameterization: the mesh is generated as a structured object under validity and spectral constraints, rather than selected from a single handcrafted rule. 
+
+Parameter Generalization Audit 
+
+To test whether the learned discretization remains usable under parameter shifts, we evaluate the trained DAM checkpoints without retraining on harder Periodic-shear, Rayleigh-Bénard, and Transonic test cases. The in-distribution Periodic-shear training data use the default Re ≈ 500 setting, and the audit raises it to Re ∈ { 2000 , 5000 , 10000 }. The Rayleigh-Bénard training data use the default Ra ≈ 1.6 × 10 5 setting, and the audit evaluates stronger convection at Ra ∈ { 1.6 × 10 6, 4 × 10 6, 8 × 10 6}.The Transonic training set covers Mach numbers between 0.7 and 0.9, and the audit evaluates higher-Mach test cases M ∈{1.0, 1.1, 1.2}. Even under these shifts, Table 8 shows smooth degradation rather than catastrophic failure; the largest sensitivity appears in the Transonic tests, where both field and spectral errors increase monotonically with Mach number. Regime Parameter Rel L2 ↓ RMSE ↓ Spec L2 ↓
+
+Shear Re=2000 0.0031 0.0015 0.0012 Re=5000 0.0031 0.0015 0.0013 Re=10000 0.0031 0.0016 0.0013 Rayleigh-Bénard Ra= 1.6 × 10 6 0.0164 0.0022 0.0151 Ra= 4 × 10 6 0.0094 0.0014 0.0051 Ra= 8 × 10 6 0.0160 0.0025 0.0222 Transonic M=1.0 0.0242 0.0147 0.0043 M=1.1 0.0300 0.0201 0.0105 M=1.2 0.0373 0.0273 0.0206 Table 8: Parameter generalization audit for DAM (Ours) at the resolution of N = 64 without retraining. Periodic-shear and Rayleigh-Bénard rows are generated by harder physical parameters. Transonic rows report cross-Mach-number evaluation beyond the estimated training range. The parameter-shift audit separates three behaviors. Periodic shear remains almost unchanged even up to Re = 10000 ,consistent with its globally organized shear structure. Rayleigh-Bénard is less monotone: the intermediate convection setting is easiest, while both weaker and stronger convection increase spectral error. Transonic shows the clearest extrapolation trend: increasing Mach number steadily raises Rel L2, RMSE, and spectral error, indicating that the learned discretization remains usable while the solution branch becomes more sensitive to compressive structures beyond the training range. 
+
+Cross-Resolution Quantitative Audit 
+
+The learned mesh policy is trained at N = 64 and evaluated without retraining at N ∈ { 16 , 32 , 48 , 64 , 96 , 128 , 256 }. Table 9 complements Figure 11 with Rel L2 metrics across resolutions. Dataset N = 16 N = 32 N = 48 N = 64 N = 96 N = 128 N = 256 
+
+Burgers 0.0554 0.0081 0.0092 0.0082 0.0084 0.0089 0.0087 Shear 0.0045 0.0030 0.0030 0.0030 0.0031 0.0032 0.0032 KS 0.0363 0.0196 0.0103 0.0102 0.0111 0.0113 0.0109 Rayleigh-Benard 0.0846 0.0070 0.0083 0.0070 0.0079 0.0100 0.0086 Transonic 0.1035 0.0256 0.0198 0.0188 0.0191 0.0190 0.0192 Table 9: Cross-resolution Rel L2 of DAM (Ours) when evaluated at different mesh sizes without retraining. Each entry reports the mean Rel L2 over held-out evaluation batches. The quantitative trend is consistent with the visual audit. The model is trained at N = 64 , yet Burgers, Periodic shear, KS, Rayleigh-Bénard, and Transonic all remain close to their N = 64 error once the evaluation mesh reaches moderate resolution. The main degradation appears at N = 16 , especially for Rayleigh-Bénard and Transonic, where localized convection or shock-sensitive structure requires enough nodes before the learned allocation can be useful. This supports the interpretation that DAM learns a resolution-aware discretization policy rather than memorizing a single grid size; the policy is not resolution-free, but it remains stable over a broad range around the training mesh. 
+
+Supplementary Mesh-Size Visualization 
+
+This final appendix section collects the field-level qualitative visualizations and cross-mesh-size visualizations used to audit prediction structure and resolution robustness. Figure 9: Parameter-shift fields. Columns increase the physical parameter within each regime. KS 
+
+Grouth Truth Text2PDE ATS AMR-MGNN AMBER wLMR DAM (Ours) 
+
+> Burgers
+> Rayleigh
+> -Bénard
+> Shear Transonic
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Field Magnitude (row-scaled)
+
+Figure 10: Prediction heatmaps. Field-level predictions are compared across five datasets and methods. KS 
+
+Grouth Truth mesh16 mesh32 mesh48 mesh64 mesh96 mesh128 mesh256 
+
+> Burgers
+> Rayleigh
+> -Bénard
+> Shear Transonic
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Field Magnitude (panel-scaled)
+
+Figure 11: Cross-resolution heatmaps. DAM is trained at N = 64 and evaluated without retraining across multiple mesh sizes.

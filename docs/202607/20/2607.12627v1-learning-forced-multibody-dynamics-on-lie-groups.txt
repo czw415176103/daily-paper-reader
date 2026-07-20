@@ -1,0 +1,2853 @@
+Title: Learning Forced Multibody Dynamics on Lie Groups
+
+URL Source: https://arxiv.org/pdf/2607.12627v1
+
+Published Time: Wed, 15 Jul 2026 11:56:25 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Learning Forced Multibody Dynamics on Lie Groups 
+
+M. D. Hansen ∗† M. Ghirardelli †, E. Celledoni †, D. M. de Diego #, B. Owren †∗ Department of Mathematics and Cybernetics, SINTEF Digital Forskningsveien 1, 0373 Oslo, Norway martine.dyring.hansen@sintef.no  
+
+> †
+
+Department of Mathematical Sciences Norwegian University of Science and Technology (NTNU) Alfred Getz’ vei 1, 7034 Trondheim, Norway [marta.ghirardelli, elena.celledoni, brynjulf.owren]@ntnu.no  
+
+> #
+
+Instituto de Ciencias Matematicas (CSIC) Calle Nicolás Cabrera 13-15, Cantoblanco, 28048 Madrid, Spain david.martin@icmat.es 
+
+ABSTRACT 
+
+We propose an architecture for learning the dynamics of mechanical systems based on discrete forced Euler-Lagrange equations on Lie groups using only position data. By formulating the dynamics directly on manifold-valued configuration spaces, the method naturally respects the geometric structure of the sys-tems and preserves geometric invariants and conservation laws. The reliance on position measurements alone makes the framework applicable in settings where velocity data are unavailable or noisy. The ap-proach extends naturally to multibody systems, accommodates external control inputs, and demonstrates strong performance on both synthetic and real-world datasets. 
+
+1 INTRODUCTION Motivation Many problems in learning dynamical systems from observational data involve states evolv-ing on nonlinear configuration spaces. In particular, rotations and rigid body motions are naturally repre-sented by Lie groups such as SO (3) , SE (3) or product manifolds thereof [2, 6, 17, 21, 22, 27, 32, 38]. These representations are fundamental in a wide range of applications, including the attitude dynamics of spacecraft and drones, the pose of mobile robots, the motion of cameras and objects in computer vision, and the articulated motion of multibody systems [3, 26, 44]. In these settings, the available data typically consist of discrete observations that inherently satisfy geometric constraints, such as orthogonality and unit determinant. Incorporating this geometric structure into the learning process offers the opportunity to ob-tain models that better respect the underlying configuration manifold of the system and are more consistent with the observed data. As an example, rigid body orientations are in practice often parameterized by Euler angles. However, Euler angles provide only a local coordinate chart on SO (3) : the mapping between angles and rotations is invertible only on a restricted domain and breaks down at coordinate singularities such as gimbal lock [16]. As a result, smooth rotational motions can appear discontinuous in Euler-angle coordi-nates, with abrupt jumps whenever the trajectory crosses a singularity. In contrast, matrix representations in SO (3) remain globally well-defined and vary smoothly along any smooth trajectory on the group. 
+
+Related works Many existing approaches for learning dynamical systems from data assume that the state evolves in a Euclidean space. Even when modeling systems whose natural configuration manifold is a Lie group—such as rigid bodies or pendula on S1—it is common to work in Euclidean embeddings, for example using angles, generalized coordinates, or Euclidean position-velocity representations, rather than treating SO (3) and SE (3) as configuration manifolds [11, 14, 25, 39]. These approaches typically enforce physical consistency through Hamiltonian or Lagrangian formalisms, often prioritizing the preservation of symplecticity while neglecting the intrinsic geometry of the configuration manifold. In many applications, however, sensor data are already group-valued (e.g. rotation matrices or poses estimated by SLAM/visual arXiv:2607.12627v1 [cs.LG] 14 Jul 2026 odometry) [7, 13, 31]. Forcing these observations into Euclidean parametrizations can introduce coordi-nate singularities, discontinuities, and representation ambiguities [44]. While often effective in practice, the Euclidean assumption can be restrictive when applied to group-valued data: it can lead to violations of geometric constraints—such as loss of orthogonality or drift off the manifold—and typically requires additional projection steps or specialized parameterizations to maintain consistency with the true config-uration space [2, 18, 28, 41, 44]. Our work is aligned with the broader effort in geometric deep learning to incorporate group and manifold structure into learning algorithms [4, 5, 9, 34], but focuses specifically on mechanical systems represented by the discrete variational formulations on Lie groups, as in [12], with the flexibility to incorporate and learn external forces or controls. Our approach extends previous results on the rototranslation group [12] to more general mechanical systems, including those with external forces, multibody dynamics, and dynamics learned from real-world data. 
+
+Our contribution In this work, we explicitly account for both the geometric and physical structure of mechanical systems. Building on the frameworks introduced in [15, 33], we develop a method for learning dynamics from data via discrete forced Euler-Lagrange equations on Lie groups [21, 23, 29]. We param-eterize the discrete Lagrangian and external forces to ensure the resulting model preserves the variational structure by construction. Inspired by [33], we use the discrete Lagrangian formulation to remove the ex-plicit dependence on velocities and recover the underlying physical structure from positions measurements only, thereby avoiding numerical differentiation of position data, which often introduces noise and com-plexity [24]. This stands in contrast to most Hamiltonian- and Lagrangian-based learning approaches in Euclidean spaces [11, 14, 25]. The resulting model operates directly on group-valued observations and rep-resents evolution via discrete group increments, thereby avoiding Euclidean embeddings and ensuring that trajectories remain on the configuration manifold (e.g. SO (n) and SE (n)) [2, 27]. We demonstrate the proposed approach on a (controlled) rigid body evolving on SO (3) and SE (3) , and real-world datasets (multibody system). Exploiting the Lie group structure guarantees that the learned states remain on the manifold, thereby eliminating the need for ad hoc projections or renormalization steps (e.g. re-orthogonalization of rotation matrices), and provides a natural representation of motion through group operations (e.g. composition of rigid motions) [32, 38]. This enables the model to encode symmetries and invariances inherent in mechanical systems [6, 27], which improves physical consistency, generalization and long-term predictive accuracy—particularly for trajectories involving large rotations, where Euclidean-based representations (e.g. Euler angles) suffer from singularities and/or discontinuities [44]. Because the architecture relies on position measurements only, it is applicable in settings where velocity data are un-available or unreliable. Furthermore, our framework is modular: while it can identify the full dynamics (La-grangian and forces) jointly, it also allows for the isolation and identification of specific components—such as unknown control laws—in settings where the mechanical properties of the system are already known. This is particularly relevant in robotics, for example, when learning mass matrices and friction forces from real data [24]. The paper is structured as follows. Section 2 derives the discrete forced Euler-Lagrange equations on Lie groups, which are then specialized to SO (3) , SE (3) and their product manifolds in Section 3. Section 4 details the model architecture, including the loss function and regularization strategies. Finally, Section 5 presents a series of experiments validating the proposed approach. 
+
+2 DISCRETE FORCED EULER-LAGRANGE EQUATIONS ON LIE GROUPS 
+
+In this section, we first recall the continuous forced Euler-Lagrange equations on Lie groups. We then intro-duce discrete approximations of both the Lagrangian and the external forces and derive the corresponding discrete forced Euler-Lagrange equations on Lie groups (see [1, 17, 27]). Importantly, the resulting dis-cretization is expressed entirely in terms of Lie group elements (positions), and does not require explicit velocities in the Lie algebra. 2.1 Trivialized forced Euler-Lagrange equations on Lie groups 
+
+Let Q be a differentiable manifold with dim Q = n with local coordinates (qi) and (qi, ˙qi) the correspond-ing induced coordinates on its tangent bundle T Q with canonical projection τQ : T Q → Q. Denote also by 
+
+T ∗Q its cotangent bundle with induced coordinates (qi, p i) and canonical projection πQ : T ∗Q → Q.Given a Lagrangian function L : T Q → R, and an external force F : T Q → T ∗Q (a fibered map over Q,that is, πQ ◦ F = τQ). The Euler-Lagrange equations for the system (L, F ) are 
+
+ddt 
+
+ ∂L ∂ ˙q
+
+
+
+− ∂L ∂q = F. (1) In this paper, we are interested in the case when Q = G is a Lie group. In this case, we can alternatively represent the Euler-Lagrange equations using left or right trivialization, T G ∼= G × g where g = TeG is the Lie algebra of G. Let g, e ∈ G, e being the identity element. We denote Lg : G → G the left multiplication by g, TeLg : g → Tg G its tangent lift at the identity, and L∗ 
+
+> g
+
+: T ∗ 
+
+> g
+
+G → g∗ its cotangent lift. We can then rewrite L : T G → R and F : T G → T ∗G, using left-trivialization as ¯L : G × g → R and ¯F : G × g → g∗
+
+by ¯L(g, ξ ) = L(g, gξ ), ¯F (g, ξ ) = L∗
+
+> g
+
+ F (g, gξ ),
+
+where ˙g = TeLg ξ = gξ and ⟨L ∗
+
+> g
+
+ F (g, gξ ), η ⟩ = ⟨F (g, gξ ), T eLg (η)⟩ for η ∈ g.The left-trivialized Euler-Lagrange equations for ( ¯L, ¯F ) are 
+
+ddt 
+
+ ∂ ¯L∂ξ 
+
+
+
+− ad ∗
+
+> ξ
+
+ ∂ ¯L∂ξ 
+
+
+
+− L ∗
+
+> g
+
+ ∂ ¯L∂g 
+
+
+
+= ¯F , (2) which, together with the reconstruction equation ˙g = gξ , are equivalent to Eq. (1). Here ad ∗ 
+
+> ξ
+
+: g∗ → g∗
+
+denotes the dual map of the adjoint operator ad ξ (η) = [ ξ, η ], where [ , ] is the Lie bracket of the Lie algebra 
+
+g.An interesting case is when the Lagrangian ¯L only depends on elements of g (it is left-invariant), that is, 
+
+¯L(g, ξ ) = l(ξ) for all g ∈ G and ξ ∈ g. In this case, Equations (2) are known as the forced Euler-Poincaré equations :
+
+ddt 
+
+ ∂l ∂ξ 
+
+
+
+− ad ∗
+
+> ξ
+
+ ∂l ∂ξ 
+
+
+
+= ¯F . (3) 
+
+2.2 Discrete forced Euler-Lagrange equations on Lie groups 
+
+Since we aim at using only positions, we replace the velocity phase space T Q by Q × Q [29]. Consider a discrete Lagrangian Ld : Q × Q → R and two families of discrete external forces F ± 
+
+> k
+
+: Q × Q → T ∗Q
+
+satisfying 
+
+F − 
+
+> k
+
+(qk, q k+1 ) ∈ T ∗ 
+
+> qk
+
+Q, F + 
+
+> k
+
+(qk, q k+1 ) ∈ T ∗ 
+
+> qk+1
+
+Q. 
+
+Then the discrete forced Euler-Lagrange equations are 
+
+D1Ld(qk, q k+1 ) + D2Ld(qk−1, q k) + F − 
+
+> k
+
+(qk, q k+1 ) + F +
+
+> k−1
+
+(qk−1, q k) = 0 . (4) Given two initial points (q0, q 1), Eq. (4) determines iteratively qk+1 from the two previous points (qk−1, q k)
+
+for k ≥ 1 under suitable regularity conditions [29]. In the particular case when Q is a Lie group G, in a similar way to the continuous case, we can consider trivialized expressions. That is, instead of working with pairs (gk, g k+1 ) of consecutive points in a trajectory, we work with pairs of the form source-arrow (gk, W k) pointing towards a target gkWk = gk+1 . Hence 
+
+Wk = g−1 
+
+> k
+
+gk+1 . We define the “trivialized” discrete Lagrangian and forces as follows 
+
+¯Ld(g, W ) = Ld(g, gW ), ¯F − 
+
+> k
+
+(g, W ) = L∗ 
+
+> g
+
+F − 
+
+> k
+
+(g, gW ), ¯F + 
+
+> k
+
+(g, W ) = L∗ 
+
+> gW
+
+F + 
+
+> k
+
+(g, gW ).Observe that ¯F − 
+
+> k
+
+(g, W ) and ¯F + 
+
+> k
+
+(g, W ) are elements of g∗, that is, ¯F ± 
+
+> k
+
+: G × G → g∗.The discrete Euler-Lagrange equations are now rewritten as 
+
+L∗
+
+> gk
+
+∂ ¯Ld
+
+∂g (gk, W k) − R ∗
+
+> Wk
+
+∂ ¯Ld
+
+∂W (gk, W k) + L∗
+
+> Wk−1
+
+∂ ¯Ld
+
+∂W (gk−1, W k−1)+ ¯F − 
+
+> k
+
+(gk, W k) + ¯F +
+
+> k−1
+
+(gk−1, W k−1) = 0 , (5) with the reconstruction equation gk+1 = gkWk. Here, T Lg and T Rg are the tangent lifts at the identity of the left and right multiplication by g in G, and L∗ 
+
+> g
+
+and R∗ 
+
+> g
+
+denote the corresponding dual maps. 
+
+3 DISCRETE FORCED EULER-LAGRANGE EQUATIONS ON SO (3) AND SE (3) 
+
+In this section, we derive the previous discrete forced Euler-Lagrange equations on two specific Lie groups, 
+
+SO (3) and SE (3) , and use rigid body dynamics in both spaces as concrete examples. We then show how the approach generalizes to multibody systems and how control inputs can be incorporated. In all cases, the discrete approximations of the Lagrangian and the external forces are obtained using a mid-point approximation scheme. 
+
+3.1 Discrete forced Euler-Lagrange equations on SO (3) .
+
+Consider the 3D rotation group SO (3) = {R ∈ R3×3 : R⊤R = RR ⊤ = I, det( R) = 1 }. Its Lie algebra 
+
+so (3) = {Ω ∈ R3×3 : Ω ⊤ = −Ω} can be identified with R3 via the hat map 
+
+ˆ: R3 → so (3) , \(a, b, c ) = 
+
+
+
+0 −c bc 0 −a
+
+−b a 0
+
+ ,
+
+and we let vex : so (3) → R3 be its inverse. Consider a Lagrangian ¯L : SO (3) × so (3) → R, ¯L = ¯L(R, ω ).The reconstruction equation is ˙R = Rˆω for ω ∈ R3, hence ˆω = R−1 ˙R and we consider the approximation (see Moser and Veselov [30]) 
+
+ˆωk = R−1 
+
+> k
+
+˙Rk = R⊤ 
+
+> k
+
+˙Rk ≈ R⊤
+
+> k
+
+ Rk+1 − Rk
+
+h
+
+
+
+= R⊤ 
+
+> k
+
+Rk+1 − Ih = Wk − Ih ,
+
+with Wk = R−1 
+
+> k
+
+Rk+1 = R⊤ 
+
+> k
+
+Rk+1 ∈ SO (3) and stepsize h > 0. Consider the discrete Lagrangian 
+
+¯Ld : SO (3) × SO (3) → R:
+
+¯Ld,k = ¯Ld(Rk, W k) = h ¯L
+
+
+
+Rk, Wk − Ih
+
+
+
+.
+
+Observe that in the definition of ¯Ldk we are assuming that the Lagrangian ¯L is defined for any 3 × 3-matrix, not only on so (3) . Let τext : SO (3) × so (3) → R3 ≡ so ∗(3) be an external torque, a discretization is (see remark A.1) 
+
+τext ± 
+
+> d,k
+
+= h
+
+2 τext 
+
+
+
+Rk, skew 
+
+ Wk − Ih
+
+ 
+
+= h
+
+2 τext 
+
+
+
+Rk, Wk − W ⊤
+
+> k
+
+2h
+
+
+
+.
+
+The discrete forced Euler-Lagrange equations (5) rewrite (see appendix B.1 and [30]) 
+
+A − A⊤ = 0 (6) where 
+
+A := R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂R k
+
+− ∂ ¯Ld,k 
+
+∂W k
+
+Wk + Wk−1
+
+∂ ¯Ld,k 
+
+∂W k−1
+
++ 12 ( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+).
+
+Given Rk and Wk−1, solving (6) gives Wk. Then Rk+1 = RkWk.The above formulation is rather general. (Some of) the derivatives in (6) may be replaced by the actual derivatives if one imposes more structure on the Lagrangian, as shown in the following example. This would result in a reduction of computational cost and time, as automatic differentiation would not be needed, and in a simplification of the learning process. Example 3.1 (Rigid body) . Let us consider the Lagrangian of a rigid body 
+
+¯L(R, ω ) = T (ω) − V (R) = 12 ω⊤Jω − V (R)
+
+where J is the inertia matrix for vector representation. Then 
+
+¯Ld,k = ¯Ld(Rk, W k) = 1
+
+h (trace( Jd) − trace( WkJd)) − hV (Rk),
+
+where Jd is the inertia matrix for matrix representation satisfying J = trace( Jd)I − Jd, as noted in [19]. Equation (6) then rewrites 
+
+−h R⊤
+
+> k
+
+∂V k
+
+∂R k
+
+− ∂V k
+
+∂R k
+
+> ⊤
+
+Rk
+
+!
+
++ 1
+
+h
+
+ JdW ⊤ 
+
+> k
+
++ JdWk−1
+
+− 1
+
+h
+
+ WkJd + W ⊤
+
+> k−1
+
+Jd
+
++( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+) = 0 
+
+(7) 
+
+3.2 Discrete forced Euler-Lagrange equations on SE (3) .
+
+Consider the group of rigid transformations SE (3) ≃ SO (3) × R3 and its Lie algebra se (3) ≃ R3 × R3.For g ∈ SE (3) and ξ ∈ se (3) we have 
+
+g =
+
+R p
+
+0 1
+
+
+
+, ξ =
+
+ˆω v
+
+0 0
+
+
+
+, R ∈ SO (3) , ˆω ∈ se (3) , p, v ∈ R3.
+
+Consider a Lagrangian ¯L : SE (3) × se (3) → R, ¯L = ¯L(R, p, ω, v ). The reconstruction equation is ˙g = gξ ,hence ξ = g−1 ˙g = ( R⊤ ˙R, R ⊤ ˙p) and we consider the approximations 
+
+ˆωk = R⊤ 
+
+> k
+
+˙Rk ≈ R⊤
+
+> k
+
+Rk+1 − Rk
+
+h = Wk − Ihvk = R⊤ 
+
+> k
+
+˙pk ≈ R⊤
+
+> k
+
+pk+1 − pk
+
+h = zk
+
+h
+
+with Wk := R−1 
+
+> k
+
+Rk+1 = R⊤ 
+
+> k
+
+Rk+1 ∈ SO (3) , zk := R⊤ 
+
+> k
+
+(pk+1 − pk) ∈ R3 and stepsize h > 0. The discrete Lagrangian ¯Ld : SE (3) × SE (3) → R is then 
+
+¯Ld,k = ¯Ld(Rk, p k, W k, z k) = h ¯L
+
+
+
+Rk, p k, Wk − Ih , zk
+
+h
+
+
+
+Let F : SE (3) × se (3) → R6 ≡ se ∗(3) be an external force, and let us split F into external torque and external translational force, F = [ τext , f ext ] ∈ R3 × R3. For its discretization (τext ± 
+
+> d
+
+, f ext ± 
+
+> d
+
+), we consider the following approximation of the logarithmic map (see remark A.1) 
+
+(˜ ωk, ˜vk) = 
+
+
+
+vex 
+
+
+
+skew 
+
+ Wk − Ih
+
+ 
+
+,
+
+
+
+I − 12 h˜ωk
+
+
+
+zk
+
+
+
+≈ log( Wk, z k)
+
+h ,
+
+so that 
+
+τext ±
+
+> d,k
+
+, f ext ±
+
+> d,k
+
+
+
+= h
+
+2 (τext (Rk, p k, ˜ωk, ˜vk) , f ext (Rk, p k, ˜ωk, ˜vk)) .
+
+The discrete forced Euler-Lagrange equation (5) rewrites (see appendix B.2) 
+
+A − A⊤ = 0 (8) 
+
+b = 0 (9) where 
+
+A := R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂R k
+
+− ∂ ¯Ld,k 
+
+∂W k
+
+W ⊤ 
+
+> k
+
++ 12
+
+ ∂ ¯Ld,k 
+
+∂z k
+
+× zk
+
+∧
+
++ W ⊤
+
+> k−1
+
+∂ ¯Ld,k −1
+
+∂W k−1
+
++ 12 ( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+),b := R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂p k
+
+− ∂ ¯Ld,k 
+
+∂z k
+
++ W ⊤
+
+> k−1
+
+∂ ¯Ld,k −1
+
+∂z k−1
+
++ ( fext − 
+
+> d,k
+
++ fext +
+
+> d,k −1
+
+).
+
+Given Rk, pk, Wk−1 and zk−1, solving (8)-(9) gives Wk and zk. Then Rk+1 = RkWk and pk+1 =
+
+pk + Rkzk.As in the SO (3) -case, imposing more structure on the Lagrangian may allow to replace (some of) the derivatives in (8)-(9) (see the rigid body example B.1). 3.3 Generalization to multibody systems 
+
+The previous framework extends naturally to the product Lie group consisting of finitely many copies of 
+
+SE (3) and SO (3) ,
+
+G = SE (3) × · · · × SE (3) 
+
+| {z }
+
+> m
+
+× SO (3) × · · · × SO (3) 
+
+| {z }
+
+> n
+
+, m, n ≥ 0,
+
+which provides an appropriate configuration space for a multibody system. An element gk = ( g1,k , . . . , g m+n,k ) ∈
+
+G encodes the states of each body at timestep k, while ξk = ( ξ1,k , . . . , ξ m+n,k ) ∈ g encodes their corre-sponding velocities. The Lagrangian ¯L : G × g → R is given by 
+
+¯L(g, ξ ) = 
+
+> m+n
+
+X
+
+> i
+
+¯Li(gi, ξ i) − Vint (g, ξ )
+
+where ¯Li(gi, ξ i) : SE (3) × se (3) → R for i = 1 , . . . , m , ¯Li(gi, ξ i) : SO (3) × so (3) → R for i =
+
+m + 1 , . . . , m + n are the individual Lagrangians for each body, and Vint : G × g → R is the interaction potential (e.g. a spring-damper connection, a gravitational attraction between the bodies, a penalty function representing a joint). The discrete Lagrangian ¯Ld : G × G → R can be constructed as in the previous sections, along with the associated reconstruction equations and the inclusion of external forces. The dis-crete forced Euler-Lagrange equation (5) becomes a system of 2m equations of type (8)-(9) and n equations of type (6). Each body satisfies its own discrete Euler-Lagrange equation, but the equations are coupled through the partial derivatives of the interaction potential (see appendix B.3). 
+
+3.4 Generalization to controlled systems 
+
+The external forces described in the previous sections can also be incorporated into mechanical systems ac-tuated by control forces or control inputs (see, for instance, [6, 12, 19, 21] and references therein). Typically, these forces are described by a map 
+
+Fc : T Q × U → T ∗Q, 
+
+where U denotes the set of admissible controls. Their discretization gives rise to the discrete control forces 
+
+F ± 
+
+> k
+
+: Q × Q × U → T ∗Q. 
+
+In the Lie group setting, after left trivialization, we obtain 
+
+¯F ± 
+
+> k
+
+: G × G × U → g∗.
+
+The discrete controlled Euler-Lagrange equations then become 
+
+L∗
+
+> gk
+
+∂ ¯Ld
+
+∂g (gk, W k) − R ∗
+
+> Wk
+
+∂ ¯Ld
+
+∂W (gk, W k) + L∗
+
+> Wk−1
+
+∂ ¯Ld
+
+∂W (gk−1, W k−1)+ ¯F − 
+
+> k
+
+(gk, W k, u k) + ¯F +
+
+> k−1
+
+(gk−1, W k−1, u k−1) = 0 , (10) where uk−1, u k ∈ U are the discrete control inputs. 
+
+Example 3.2 (Controlled system in SO (3) ). Let us consider the rigid body system in Example 3.1, with a control torque of the type ¯τc : SO (3) × SO (3) × U → R3 ≡ so (3) ∗, U ⊂ Rm, given by 
+
+¯τc(R, W, u ) = ¯ τc(u) = Cu 
+
+where C ∈ R3×m. Then a simple discretization of this force is given by 
+
+¯τ − 
+
+> k
+
+(uk) = Cu k , ¯τ + 
+
+> k
+
+(uk) = 0 
+
+and equation (10) rewrites 
+
+−h R⊤
+
+> k
+
+∂V k
+
+∂R k
+
+− ∂V k
+
+∂R k
+
+> ⊤
+
+Rk
+
+!
+
++ 1
+
+h
+
+ JdW ⊤ 
+
+> k
+
++ JdWk−1
+
+ − 1
+
+h
+
+ WkJd + W ⊤
+
+> k−1
+
+Jd
+
+ − h dCu k = 0 (11) with Rk+1 = RkWk.4 LIE GROUP DISCRETE FORCED EULER-LAGRANGE NEURAL NETWORK (LieDFLNN) 
+
+The proposed method LieDFLNN learns the dynamics of an observed system by approximating the discrete Lagrangian and the discrete forces with neural networks 
+
+Lθ ≈ ¯Ld Lθ : G × G → R, F θ ≈ ¯F ± F θ : G × G → T ∗G
+
+where Lθ and F θ are parametrized by learnable parameters θ.
+
+4.1 Loss function and regularization Loss function. During training, we minimize 
+
+loss = ωDEL 
+
+|T | (N − 1) 
+
+X
+
+> T
+> N
+
+X
+
+> n=1
+
+loss DEL (Lθ , F θ )( gn−1, g n, g n+1 ) + ωreg 
+
+NRNRX
+
+> r=1
+
+loss reg (Lθ )( gr , g r+1 ), (12) where, loss DEL is the residual of the discrete forced Euler-Lagrange equations (5), and loss reg enforces regularity of Lθ . The two terms are weighted by hyperparameters ωDEL and ωreg , respectively. We consider a set T of |T | trajectories, each with N points, and use NR pairs (gn, g n+1 ) for regularization. One may choose NR = N and regularize over the entire dataset, but in practice we find that NR < N is sufficient to obtain a regular Lagrangian. The proposed framework thus learns a discrete Lagrangian and forces directly from observed trajectories by minimizing the residual of the discrete forced Euler-Lagrange equations. However, minimizing the residual alone may lead to trivial or degenerate solutions—for instance, a nearly constant Lagrangian whose derivatives vanish. The regularization term loss reg is therefore crucial to ensure that the learned Lagrangian remains regular and avoid such pathological cases. 
+
+Regularity of L. A continuous Lagrangian L : G × g → R is regular if its Hessian with respect to the left-trivialized velocity variables is non-singular at every point [19, 35]. In local coordinates, L is regular if 
+
+ ∂2L∂ξ i∂ξ j (g, ξ )
+
+mi,j =1 
+
+is invertible for all (g, ξ ) ∈ T G , where m is the dimension of the Lie group G.In our setting, L is replaced by a position-only discrete Lagrangian ¯Ld : G × G → R. In local coordinates, regularity of ¯Ld is defined analogously, and is equivalent to the non-singularity of the Hessian 
+
+H( ¯Ld)( g, f ) = 
+
+ ∂2 ¯Ld
+
+∂g i∂f j (g, f )
+
+mi,j =1 
+
+at each (g, f ) ∈ G×G [29], where f denotes the second configuration argument (e.g. the next configuration in time). A matrix is non-singular precisely when its determinant is nonzero, i.e. det( H(Lθ )( f, g )) ̸ = 0 .To encourage regularity during learning, we penalize Hessians that are close to singular by enforcing that 
+
+| det( H(Lθ )( f, g )) | stays above a positive threshold eϵ. Two possible choices of the regularizing term are: 
+
+loss reg1 (Lθ )( g, f ) = ReLU  eϵ − det  H(Lθ )( f, g )  ,
+
+or a smooth (gaussian-type) penalty: 
+
+loss reg2 (Lθ )( g, f ) = 1
+
+eϵ√2π exp 
+
+
+
+− (| det( H(Lθ )( f, g )) | − eϵ)2
+
+2e2ϵ
+
+
+
+,
+
+where ϵ is a hyperparameter, and eϵ sets the desired threshold away from singularity. A concrete example with detailed calculations, including a simplification for computing det( H), is provided in Appendix C. 4.2 Example (rigid body on SE (3) )
+
+Let us consider the discrete Lagrangian of a rigid body evolving on SE (3) ¯Ld(R, p, W, z ) = 1
+
+h (trace( Jd)−trace( W J d))+ 12h m(z+( W −I)ρCOM )⊤(z+( W −I)ρCOM )−hV (R, p ),
+
+where Jd is the (symmetric positive definite) inertia matrix for matrix representation, m > 0 the mass and 
+
+ρCOM ∈ R3 the center of mass vector in the body frame (see Example B.1). Assume a linear external damping force, F (ω, v ) = −D  ω z⊤ where D ∈ R6×6 is a symmetric positive semidefinite matrix. Our objective is to learn the discrete Lagrangian and the external forces through the components Jd, D,
+
+ρCOM and V . We parameterize each quantity by a set of trainable parameters θ, yielding 
+
+Jθd ∈ R3×3, Dθ ∈ R6×6, ρθCOM ∈ R3, V θ (Rk, p k, ρ θCOM ) : R3×3 × R3 × R3 → R.
+
+To ensure Jθd is symmetric positive definite (SPD), we learn vectors rθ ∈ R3 and iθ = ( aθ , b θ , c θ ) ∈ R3,and define 
+
+Rθ = exp( brθ ), Iθ =
+
+
+
+eaθ + ebθ 0 00 eaθ + ecθ 00 0 ebθ + ecθ
+
+ .
+
+Setting Jθ = Rθ Iθ Rθ ⊤ and Jθd = 12 trace( Jθ )I − Jθ guarantees that Jθd is SPD. To promote Dθ being SPSD, we learn a lower triangular matrix Lθ ∈ R3×3 and a vector Λθ = ( xθ , y θ , z θ ) ∈
+
+R3 and set 
+
+Dθ = Lθ Lθ ⊤ + diag( xθ 2, y θ 2, z θ 2)
+
+The learning task is to identify Jθd , Dθ , ρθCOM and V θ such that the discrete forced Euler-Lagrange residual specified in Eq. (7) is minimized, together with the regularity penalty described above. 
+
+Rigid body in SO (3) . For a rigid body in SO (3) , the discrete Lagrangian reduces to that in Example 3.1 The quantities we parametrize with trainable parameters are 
+
+Jθd ∈ R3×3, Dθ ∈ R3×3, V θ (Rk) : R3×3 → R,
+
+and we impose on Jθd and Dθ the same structure as in the SE (3) case, ensuring that they are SPD and SPSD, respectively. 
+
+Multibody systems. In a multibody system with m bodies evolving on SE (3) and n bodies on SO (3) ,we write a discrete Lagrangian for each body (see Section 3.3) and learn all the components as if they were single rigid bodies in SE (3) or SO (3) . To capture interactions between bodies, we additionally parameterize an interaction potential V θ 
+
+> int
+
+as a function of the configurations of all bodies. 
+
+Nonlinear external forces. The dissipative load consider above assumes dissipation linearly proportional to the velocity, with a constant damping matrix. A more general formulation—still with linear dependence on velocity—allows the damping matrix to vary with the configuration 
+
+F θ (R, p, ω, v ) = −Dθ (R, p )
+
+ωv
+
+
+
+,
+
+where Dθ (R, p ) ∈ R6×6. Factorizing Dθ (R, p ) = Lθ (R, p ) Lθ (R, p )⊤, with Lθ : SE (3) → R6×6, guar-antees that Dθ (R, p ) is SPSD for all configurations. This allows damping intensity and principal directions to vary with body pose, while preserving the dissipative structure. For fully general external forces, one may use an unconstrained neural network 
+
+F θ (R, p, ω, v ) = NN θ (R, p, ω, v ) ∈ R6,
+
+which can represent any arbitrary nonlinear, non-dissipative, or energy-injecting forces (e.g. Coulomb fric-tion, velocity-dependent inputs). The gain in expressiveness comes at the cost of the dissipative guarantee provided by the structured parameterizations above. 4.3 Inference method 
+
+After training, we perform forward prediction by integrating the learned discrete system with the discrete forced Euler-Lagrange equations. Rather than reconstructing a continuous-time model, we evolve the sys-tem directly in discrete time using the learned discrete Lagrangian and forces. In the SE (3) case, for ex-ample, given (Rk−1, R k, p k−1, p k) we solve the discrete forced Euler-Lagrange equations at each step for the group increments (Wk, z k) (e.g. via a root-finding method), and then update (Rk+1 , p k+1 ) accordingly. Repeating this recursion yields the predicted trajectory. 
+
+5 EXPERIMENTS 
+
+The purpose of the experiments is to evaluate the importance of (i) representing the data using a Lie group and (ii) adopting a model formulation that preserves the underlying Lie group structure such that the learned dynamics remain on the appropriate configuration manifold. We concentrate on systems evolving on SO (3) 
+
+and SE (3) . We investigate each component of the proposed method one at a time, comparing it with a number of different baselines. We consider four experimental settings, each isolating one aspect of the proposed method. First, we inves-tigate the choice of coordinates by comparing the proposed Lie group-based method with an analogous Eu-clidean model using Euler angles. Second, we evaluate the discrete Lie group formulation against baselines derived from the continuous forced Euler-Lagrange equations, assessing whether the discrete variational structure matters when only discrete observations are available. Third, we compare our geometry-aware approach with models that operate on matrix entries of the group elements but do not constrain predictions to the manifold, showing that the data representation alone is insufficient. Finally, we apply the proposed model to a multibody human-motion dataset on the product manifold SE (3) × SO (3) B−1, focusing on a cartwheel sequence with large rotations and coordinated multibody interactions. The code will be released upon acceptance. Architecture and training hyperparameters for every experiment are reported in Appendix D.1 (Tables 2 and 3). 
+
+5.1 Experiment 1: Euler angles vs. matrix representation on SO (3) 
+
+Euler angles provide a compact three-dimensional parameterization of rotations but constitute only a local coordinate representation of SO (3) : the map between Euler angles and rotation matrices is not globally invertible. In particular, Euler angles suffer from angle wrapping and from kinematic singularities such as gimbal lock, where one degree of freedom is lost and the remaining angles exhibit discontinuous jumps. As a result, a smooth trajectory on SO (3) may appear discontinuous when expressed in Euler angles, as illustrated in Figure 1. This forces a model trained on Euler angles to fit artificial coordinate discontinuities that are not present in the physical motion.              
+
+> (a) (b)
+> Figure 1 . Discontinuity of Euler angles vs. continuity of rotation matrices. A smooth rotation trajec-tory (pitch βsweeping from 0◦to 180 ◦) is parametrized by ZY X Euler angles a and rotation matrix entries b. The Euler-angle representation exhibits a discontinuity at the gimbal-lock point (β= 90 ◦),leading to abrupt jumps in αand γ. In contrast, the rotation matrix entries remain smooth throughout.
+
+This experiment isolates the effect of the configuration-space representation. We compare the proposed LieDFLNN, which operates directly on rotation matrices R ∈ SO (3) , against a discrete Euler-Lagrange baseline that uses Euler angles as generalized coordinates. To stress-test both representation, we system-atically vary the magnitude of angular displacements, ranging from small rotations where Euler angles remain well-behaved to large rotations where singularities and wrapping artifacts are expected to degrade the baseline. 
+
+Setup and data generation. We consider a single rigid body evolving on SO (3) subject to an external gravitational field and a frictional damping torque (see example 3.1 and D.2). The governing equations are 
+
+˙ω = J−1 (−ω × (Jω ) + τ ) , (13) 
+
+˙R = Rˆω, (14) where J ∈ R3×3 is the symmetric positive definite inertia matrix for vector representation, and τ = τcons +
+
+τext is the sum of the conservative gravitational torque and the external Rayleigh dissipation torque. Training data are generated by integrating Eq. (13)-(14) for 256 distinct initial conditions ( R0, ω0), each over 100 timesteps with stepsize h = 0 .05 , using the explicit Runge-Kutta RK45 solver from 
+
+scipy.integrate.solve_ivp . The rigid body has mass m = 0 .5 and center of mass offset ρcom =(0 , 0.5, 1.0) ⊤, and diagonal inertia tensor J = diag(1 .521 , 1.362 , 1.211) , under gravitational acceleration 
+
+g = 9 .81 . The system includes linear dissipation with diagonal damping matrices Dωω = 0 .1 I. The generated trajectories are split into a training set ( 90% ) and a test set ( 10% ). To probe the effect of rotation magnitude in a controlled manner, all trajectories are initialized at the identity 
+
+R0 = I, and three datasets are produced by scaling the initial angular velocity ω0 by factors of 0.1, 0.5 and 
+
+0.5. This yields motions ranging from near-identity rotations to large-angle motions that traverse regions of 
+
+SO (3) where Euler-angle singularities are encountered. The same underlying physical trajectories are represented in two ways: 
+
+Rk ∈ SO (3) 
+
+for the proposed model, and 
+
+qk = ( ϕk, θ k, ψ k) ∈ R3
+
+for the baseline, where (ϕk, θ k, ψ k) are ZYX Euler angles extracted from the same rotation matrices. The lie group model is trained directly on sequences {Rk}, while the Euler-angle baseline is trained on the corresponding angle sequences. 
+
+Results and discussion. Figure 2 summarizes the performance comparison. Qualitatively (Figure 2a), both models track the ground truth closely at the smallest scale (0 .1×). However, as rotation magnitude increases, the Euler-angle baseline produces visibly inaccurate paths, while the LieDFLNN remains coinci-dent with the ground-truth curves. Quantitatively, Figure 2b reports the relative rotation error across scales. To ensure a fair comparison, Euler-angle predictions are converted back to SO (3) before evaluation. At small magnitudes, the performance is comparable. However, at scale (0 .1×), where trajectories pass through or near singular regions, the Euler-angle baseline degrades substantially due to the coordinate discontinuities shown in Figure 1a. In contrast, the LieDFLNN maintains consistently low error across all scales, as rotation matrices remain smooth and non-singular everywhere on the manifold. 
+
+5.2 Experiment 2: Discrete vs. continuous Euler-Lagrange equations on SO (3) 
+
+While a continuous-time forced Euler-Lagrange framework can be formulated on SO (3) , its implementa-tion faces two practical challenges. First, integrating a learned continuous vector field with generic solvers does not guarantee that the trajectory remains on the Lie group, leading to geometric drift. Second, because 0.1 0.5 1.0       
+
+> Initial Angular Velocity scaling factor
+> (a)
+> (b)
+> Figure 2 . Effect of the configuration-space representation under increasing rotation magnitude ( 0.1×,
+> 0.5×,1.0×initial angular velocity). 2a: Predicted rollouts on the unit sphere (ground truth: black). 2b: Relative rotation errors, with Euler-angle predictions converted to SO (3) before evaluation to ensure a fair comparison. At small scales both methods track the true trajectory closely. As the rotation magnitude increases, the Euler-angle baseline degrades as trajectories approach singular regions, while the LieDFLNN maintains low and stable error across all scales.
+
+training data consist of discrete observations, continuous models require recovering velocities through finite differences, introducing approximation errors before training even begins. This experiment compares our discrete Lie group formulation against continuous-time Euler-Lagrange base-lines that share the same SO (3) structure but differ in their integration schemes. By varying the training trajectory length, we investigate whether the discrete formulation offers superior accuracy and robustness when learning from limited temporal context. 
+
+Setup and data generation. We train and evaluate on a single rigid body evolving on SO (3) subject to an external torque τ . The governing equations are (13)-(14) as in Experiment 1, but here τ has no gravitational component and consists only of the external torque (see Appendix D.2). The training dataset consists of 128 trajectories, each generated from a random initial configuration (R0, ω 0)
+
+and integrated for 100 timesteps with stepsize h = 0 .1, using the explicit Runge-Kutta RK45 solver from 
+
+scipy.integrate.solve_ivp . The rigid body has mass m = 0 .5 and center of mass offset ρcom =(1 .2, 0.5, 1.0) ⊤, and diagonal inertia tensor J = diag(1 .521 , 1.362 , 1.211) in the absence of gravitational acceleration ( g = 0 ). The system includes linear dissipation acting only on the angular velocity, with 
+
+Dωω = 0 .05 I and vanishing velocity and cross-damping terms Dvv = Dvω = Dωv = 0 . The generated trajectories are split into a training set ( 90% ) and a test set ( 10% ). To examine how sensitive each model is to the length of the trajectory, we train on four nested subsets of this dataset, using only the first 10 , 40 , 70 ,and 100 timesteps of each trajectory respectively. We compare the LieDFLNN against three baselines based on Geometric Lagrangian Neural Networks GLNN [42], which differ in their integration schemes: 
+
+GLNN w/RK4. The continuous equations are integrated with the adaptive RK4(5) solver provided by 
+
+torchdiffeq [10]. A generic solver of this kind does not respect the geometry of SO (3) and may accumulate drift away from the rotation manifold over long trajectories. 
+
+GLNN w/Lie-Midpoint. To preserve the SO (3) structure, we consider a second order implicit Lie group integrator. Let us denote the map in (13) with ˙ω =: A(ω). Given (Rk, ω k), the next angular velocity ωk+1 is found by solving the implicit equation 
+
+ωk+1 = ωk + h A 
+
+ ωk + ωk+1 
+
+2
+
+
+
+,
+
+and then the rotation is updated by 
+
+Rk+1 = Rk exp h \ωk + ωk+1 
+
+2
+
+!! 
+
+.
+
+GLNN w/Lie-Heun. As an explicit alternative to the Lie-Midpoint, we use the Lie-Heun method, a second-order Runge-Kutta scheme adapted to Lie groups. Given (Rk, ω k), the update proceeds as 
+
+ωk+1 = ωk + h
+
+2 (A(ωk) + A(ω⋆)) ,Rk+1 = Rk exp h \ ωk + ω⋆
+
+2
+
+!
+
+,
+
+where ω⋆ = ωk + h A (ωk).The three baselines differ in how the learned dynamics are unrolled during training. For GLNN w/RK4 
+
+and GLNN w/Lie-Heun , the model is integrated along the full trajectory and the predicted sequence is compared to the ground truth before backpropagation. For GLNN w/Lie-Midpoint , which is implicit and therefore expensive to unroll, we instead perform a single two-step update per training iteration. This matches the local context available to the proposed model, which likewise uses only three consecutive poses (Rk−1, R k, R k+1 ) at a time. For all methods, the initial angular velocity is recovered from the first two observed rotations ˆω0 = 1 
+
+> h
+
+log( R⊤ 
+
+> 0
+
+R1).
+
+Results and discussion. At test time, all models are evaluated by integrating 10 unseen trajectories over 
+
+500 timesteps—five times longer than the longest training sequence.    
+
+> (a) (b)
+> Figure 3 . Discrete vs. continuous Euler-Lagrange formulations on SO (3) . 3a: Qualitative 500-step test rollout (ground truth: black). 3b: Mean test error relative to training trajectory length. The proposed discrete formulation (blue) achieves high accuracy even with the shortest training windows (10 steps). Continuous baselines (RK4, Lie-Heun) require longer trajectories to improve, yet remain less accurate than the proposed method. The failure of the Lie-Midpoint baseline highlights the necessity of the discrete variational structure for learning from discrete pose triplets.
+
+Figure 3a provides a qualitative illustration of a single test trajectory integrated over 500 timesteps. Fig-ure 3b shows the test error (average over the 10 trajectories) for all models as a function of training trajectory length. The proposed LieDFLNN performs consistently well across all lengths; its error is nearly invariant to the number of training timesteps. This suggests that the discrete variational structure allows the model to extract maximal dynamical information from just three successive poses, making long training rollouts unnecessary. Among the baselines, GLNN w/Lie-Midpoint performs significantly worse. When restricted to a local train-ing window, the continuous-time formulation lacks the necessary structure to map discrete pose triplets to accurate dynamics. That our proposed model succeeds under the identical "local" supervision confirms that the discrete variational formulation is the key to learning effectively from discrete observations. The RK4 and Lie-Heun baselines improve as the training window increases, benefiting from the richer sig-nal provided by long-term unrolling. However, even with the maximum training context (100 steps), they remain less accurate than our proposed model trained on only 10 steps. This demonstrates that the geo-metric consistency of the discrete Euler-Lagrange equations provides a fundamental advantage in both data efficiency and long-term predictive accuracy. 
+
+5.3 Experiment 3: Constraining the model to remain on the data manifold 
+
+Experiment 1 demonstrated the benefits of globally valid parameterizations; we now investigate whether explicitly enforcing the manifold constraint is necessary for long-term stability. Without such constraints, a model may treat rotation matrix entries as independent coordinates. While potentially accurate on the train-ing distribution, such models can accumulate errors that violate the orthogonality constraint R⊤R = I. Cru-cially, these off-manifold predictions lie entirely outside the training distribution, leading to unpredictable behavior as the model operates on inputs it has never encountered. This experiment isolates that effect by comparing models that share the same data representation but differ in whether the manifold structure is enforced by construction. 
+
+Setup and data generation. We consider a single rigid body evolving on SE (3) subject to an external gravitational field and a frictional damping torque (see example B.1 and D.3). The governing equations are 
+
+˙ω = J−1 τ − ω ×  Jω + ρCOM × P  − v × P − ρCOM ×  f − ω × P  (15) 
+
+˙v = 1
+
+m
+
+ f − ω × P  − ˙ω × ρCOM (16) 
+
+˙R = Rˆω (17) 
+
+˙p = Rv (18) where P := m v + ω × ρCOM 
+
+, J ∈ R3×3 is the symmetric positive definite inertia matrix for vector representation, m > 0 is the mass, ρCOM ∈ R3 is the center of mass vector in the body frame, τ =
+
+τcons + τext is the sum of the conservative gravitational torque and the external Rayleigh dissipation torque, and f = fcons +fext is the sum of the conservative gravitational translational force and the external Rayleigh dissipation translational force. Training data are generated by integrating Eq. (15)-(18) for 512 distinct initial conditions ( R0, p0, ω0,
+
+v0), each over 32 timesteps with stepsize h = 0 .05 , using the explicit Runge-Kutta RK45 solver from 
+
+scipy.integrate.solve_ivp . The rigid body has mass m = 0 .5 and center of mass offset ρcom =(0 , 0.5, 1.0) ⊤, and diagonal inertia tensor J = diag(1 .521 , 1.362 , 1.211) , under gravitational acceleration 
+
+g = 9 .81 . The system includes linear dissipation with diagonal damping matrices Dωω = 0 .1 I. The generated trajectories are split into a training set ( 90% ) and a test set ( 10% ). We evaluate the proposed LieDFLNN against two baselines trained on the same data. 
+
+Neural ODE [10]: models a generic unconstrained vector field in R12 , with no geometric structure im-posed on either the configuration or the velocity. 
+
+Euclidean DFLNN: uses the discrete Euler-Lagrange formulation, but treats the twelve entries of g =(R, p ) as free generalized, ignoring the SO (3) constraints. (a) (b)          
+
+> Figure 4 . Comparison of the LieDFLNN against Neural ODE and Euclidean DFLNN baselines over a 200-step rollout. 4a: Qualitative rotation trajectories (ground truth: black): only the LieDFLNN remains on the unit sphere. 4b: Relative prediction error (top) and manifold violation measured by determinant drift |det( R)−1|(bottom left) and orthogonality drift ∥R⊤R−I∥F(bottom right). The proposed model maintains geometric consistency by construction, whereas baselines drift into non-physical state spaces.
+
+Results and discussion. Figure 4 compares the performance of the three models over a 200-step test rollout. Qualitatively, the LieDFLNN tracks the ground-truth trajectory on the sphere, while both baselines progressively drift off the manifold, leading to physically implausible configurations (Figure 4a). Quantitatively, the relative prediction error for both baselines grows steadily as they diverge from SE (3) 
+
+(Figure 4b, top). The bottom panel in Figure 4b shows the manifold violation of the predicted rollout, measured by the determinant drift | det( R) − 1| and the orthogonality drift ∥R⊤R − I∥F . By construction, the LieDFLNN predictions remain on SO (3) to machine precision throughout the rollout, whereas both baselines accumulate manifold violation over time. Notably, the Euclidean DFLNN drifts at a rate comparable to the Neural ODE, despite possessing the same underlying discrete variational structure as our proposed model. This confirms that a variational structure alone is insufficient for geometric consistency; it must be coupled with an explicit Lie group formulation to maintain stability and physical validity. 
+
+5.4 Experiment 4: Multibody real human motion capture 
+
+Having validated the method on synthetic single-body systems, we now consider real-world observations of a multibody articulated system with unknown dynamics. We model human cartwheel motions as a kinematic chain where the root joint evolves on SE (3) , and the remaining B − 1 joints evolve on SO (3) , resulting in the product configuration space SE (3) × SO (3) B−1. These motions are particularly challenging due to simultaneous 360 ◦ rotations across multiple coupled joints. 
+
+What can be expected from a shared force. The learned pair (Lθ , F θ ) defines a single autonomous 
+
+discrete dynamical system. Consequently, two observed sequences can only be reproduced exactly if they are solutions to the same state-feedback law. Human motion, however, is internally driven by time-varying muscle actuation rather than a pure function of mechanical state. Since two repetitions of the same move-ment involve different actuation histories, a shared F θ must necessarily compromise where the sequences diverge (Figure 5). The learned force should therefore be viewed as an effective state-feedback approxima-tion of the actuated dynamics. Accordingly, our objective is not exact reproduction, but rather to assess: (i) if the model faithfully captures the global skeletal movement, and (ii) if the per-sequence reproduction error remains below the inherent discrepancy between the two ground-truth recordings. This inter-sequence variability provides the natural benchmark for evaluating the model’s performance. (a) Root joint in SE(3). (b) Selection of body joints in SO(3).  
+
+> (c) Skeleton renderings.
+> Figure 5 .An overlay of Sequence 1 (green) and Sequence 2 (red) illustrates the natural variability in execution for the same subject. These visible differences in global paths and local joint rotations establish the baseline scale for evaluating reproduction errors.
+
+Setup and data curation. We use human motion capture recordings of cartwheel movements from the Carnegie Mellon University Motion Capture Database (CMU MoCap) [8], a publicly available collection of human motion sequences recorded at 120 Hz using a marker-based optical capture system. The skeleton consists of B = 23 segments: a root joint in SE (3) (global pose) and 22 body joints in SO (3) , namely the left and right hip, femur, tibia, foot, clavicle, humerus, radius and wrist, lower and upper back, lower and upper neck, thorax and head. We select Trials 6 and 7 from Subject 49 (Figure 5), converting the original Euler angles into rotation matrices. Prior to training, the raw motion capture data undergoes preprocessing to remove noise and edge effects. Each joint trajectory is smoothed along the time dimension using a Savitzky–Golay [37] filter with a window size of 50 frames and polynomial order 6.A single model (Lθ , F θ ) is trained jointly on both sequences, and each sequence is then reproduced by rolling the learned dynamics forward from its true initial configuration pair. Training on only two se-quences intentionally tests the model’s ability to capture complex, high-dimensional coupled dynamics from extremely sparse data. We model the external force as a sum of two components, F θ = F θ 
+
+> NL
+
++ F θ
+
+> NN
+
+.The first, F θ
+
+> NL
+
+, is a nonlinear Rayleigh dissipation term in which the damping matrix Dθ (R, p ) varies with configuration. The second, F θ
+
+> NN
+
+, is an unconstrained neural network that imposes no structural constraints and can represent arbitrary nonlinear, non-dissipative, or energy-injecting effects from the human. 
+
+> Table 1 . Reproduction errors for cartwheel sequences, with discrepancy between the two ground-truth recordings as reference scale. Rotation and position errors are reported as mean geodesic distances (rad) and mean Euclidean translation errors, respectively, averaged over the rollout.
+
+Root rot. [rad] Mean joint rot. [rad] Root pos. Sequence 1 (prediction error) 0.193 0.186 0.887 Sequence 2 (prediction error) 0.188 0.233 1.409 Ground truth discrepancy 0.373 0.416 6.624 
+
+Results and Discussion. Table 1 and Figure 6 report the quantitative reproduction errors. Across all met-rics, per-sequence errors remain consistently below the inter-sequence ground-truth discrepancy. This con-firms that the model captures the specific characteristics of each motion individually rather than a "blurred" average. As expected, the error peaks align with phases where the two demonstrations diverge most, mark-ing the regions where the shared state-feedback force must mediate between the two actuation histories. Qualitative results in Figure 7 show that the predicted and ground-truth skeletons remain nearly coincident throughout the 360 ◦ rotation. The reconstructed joint trajectories on the unit sphere closely follow the recorded paths, with both sequences reproduced with comparable fidelity. These results demonstrate that the LieDFLNN generalizes to real-world multibody systems without mod-(a) (b)    
+
+> Figure 6 .Per-timestep reproduction errors of cartwheel sequences. The gray baseline indicates the discrepancy between the two ground truth recordings. Reproduction errors remain consistently below the ground-truth variability. Error peaks align with phases of high recording divergence, where the shared state-feedback force must mediate between the two reference trajectories.
+
+ifications to the model architecture. The discrete Lagrangian formulation naturally handles the product manifold SE (3) × SO (3) B−1, treating each joint group element independently while capturing coupled skeletal dynamics through a shared interaction potential. By operating directly on Lie groups, the model avoids the singularities and wrapping artifacts of Euler angles identified in Experiment 1. The close qual-itative agreement of the predictions despite the very limited training data suggests that the inductive bias introduced by the discrete Lagrangian formulation together with the product Lie group structure serves as an effective regularizer, compensating for the small amount of training data. 
+
+5.5 Experiment 5: Learning an unknown control on SO (3) with known Lagrangian 
+
+The preceding experiments learned the discrete Lagrangian and the external forces jointly. In this exper-iment, we consider the complementary identification problem: the Lagrangian of the system is assumed known, and only the control input is learned. This scenario is relevant in practice when the mechanical properties of a system (inertia, potential) are available from design specifications, but the system is driven by an unknown or unmodeled feedback controller whose behavior one wishes to identify from observed motion. This setting also validates the framework’s ability to isolate and recover individual dynamical components when others are fixed. 
+
+Setup and data generation. We consider a single rigid body evolving on SO (3) in a gravitational field, using the Lagrangian from Example 3.1, governing equations as in Experiment 1, and known parameters J,
+
+Jd and V . The body is driven by a PD attitude controller [20] (see also D.5) 
+
+τPD (R, ω ) = −KR eR(R, R f ) − Kω ω, eR(R, R f ) = 12 vex  R⊤ 
+
+> f
+
+R − R⊤Rf
+
+ , (19) which drives the attitude toward a fixed target Rf ∈ SO (3) . We set KR = kr I and Kω = kω I, scaling the gains by a scalar representative inertia ¯J = 1
+
+> N
+
+P 
+
+> i,j
+
+Jij (the mean of the entries of J), with kr = 5 .0 ¯J
+
+and kω = 1 .0 ¯J. The training data consist of a single trajectory of N = 500 timesteps with stepsize 
+
+h = 0 .05 , generated by integrating Eq. (13)–(14) with τ = τcons + τPD from an initial condition (R0, ω 0)
+
+using the RK45 solver from scipy.integrate.solve_ivp . The rigid body has mass m = 0 .5 and center of mass offset ρcom = (0 , 0.5, 1.0) ⊤, and diagonal inertia tensor J = diag(1 .521 , 1.362 , 1.211) ,under gravitational acceleration g = 9 .81 . We retain only the rotation sequence {Rk}Nk=0 , neither angular velocities nor applied control inputs are observed. We emphasize that learning from a single trajectory is a deliberately restricted setting. A state-feedback control can only be identified on the region of the state space visited by the observed motion. Accordingly, as in Experiment 4, the objective is faithful reproduction of the observed dynamics and recovery of the control along the trajectory, rather than generalization to unseen initial conditions. (a) Sequence 1 (Trial 6).      
+
+> (b) Sequence 2 (Trial 7).
+> Figure 7 . Qualitative comparison for cartwheel sequences. 7a-7b Top: skeletal renderings at uniform intervals (ground truth: green/red, prediction: blue), showing nearly coincident poses throughout the
+> 360 ◦rotation. 7a-7b Bottom: reconstructed root trajectories in SE (3) (left) and trajectories of selected joint rotation axes on the unit sphere, illustrating the high-fidelity reconstruction of SO (3) dynamics (right).
+
+Control parameterization and learning problem. Following the structure of Eq. (11), we parameterize the unknown control as 
+
+τ θ (R, ω ) = Cθ uθ (R, ω ), (20) where Cθ ∈ R3×m is a learnable input matrix and uθ : SO (3) × R3 → Rm is a fully connected neural network taking the (flattened) rotation matrix and the angular velocity as inputs. The control is discretized in the same way as the external forces in Section B.1, 
+
+τ θ, ± 
+
+> d,k
+
+= h
+
+2 τ θ
+
+
+
+Rk, vex( Wk − W ⊤ 
+
+> k
+
+)2h
+
+
+
+,
+
+where the angular velocity argument is recovered from the observed increment Wk = R⊤ 
+
+> k
+
+Rk+1 , so that the model remains a function of positions only. Since the discrete Lagrangian is fixed, the loss (12) reduces to the residual of the discrete controlled Euler-Lagrange equations (10) alone, evaluated on the observed triplets (Rk−1, R k, R k+1 ). No regularization is required, as the regularity of the Lagrangian is guaranteed by construction. 
+
+Remark 5.1 (Identifiability of the factorization) . The factorization τ θ = Cθ uθ is not unique; for any invertible S ∈ Rm×m, the pair (Cθ S, S −1uθ ) yields the same torque. Unlike settings where the control input u is observed [43], here only the product τ θ is identifiable. We therefore evaluate the accuracy of the total torque τ θ rather than its individual factors. To remove the scale ambiguity during training, we normalize the columns of Cθ to have unit norm. 
+
+Results and discussion. After training, the learned system is rolled out from the true initial pair (R0, R 1)
+
+by solving the discrete controlled Euler-Lagrange equations (10) forward in time with the known Lagrangian and the learned control τ θ , as described in the inference procedure. Figure 8 summarizes the results. (a)          
+
+> (b)
+> (c) (d)
+> Figure 8 . Identifying a PD controller on SO (3) with a known Lagrangian. Results are obtained from a single 600-step trajectory. (8a, 8c): the learned torque τθ(solid) accurately recovers the true PD control signal (dashed) along the observed trajectory. (8b, 8d): rollout of the identified system showing faithful reproduction of the stabilizing motion toward the target Rf, with errors remaining stable over the long-term horizon.
+
+The learned control τ θ matches the true PD control signal closely (Figure 8a), capturing both the large transient torques at the start of the motion and the decay as the error eR vanishes. The relative control error (Figure 8c) remains low throughout the sequence, peaking slightly during the rapid initial transient. The resulting rollout (Figure 8b) follows the ground-truth stabilizing trajectory on the sphere, maintaining a low relative rotation error over the full 600-step horizon (Figure 8d). Two aspects of this experiment are worth emphasizing. First, the discrete variational structure successfully disentangles the unknown control from the known conservative dynamics using only position data. The ability to recover the control signal without observing torques or velocities confirms the strength of the LieDFLNN as a tool for system identification in closed-loop settings. Second, in line with Remark 5.1, we evaluate the identifiable product Cθ uθ rather than its factors. The factorization (20) nevertheless provides the interface through which a known actuation structure could be imposed by fixing C, which we regard as a natural extension toward underactuated systems. 
+
+6 CONCLUSIONS 
+
+In this work we have introduced a framework for learning mechanical systems using discrete forced Euler-Lagrange equations on Lie groups. By embedding the geometric structure of SO (3) and SE (3) directly into the variational integrator, we eliminate the coordinate singularities and geometric drift common in Euclidean baselines. Our experiments demonstrate that the LieDFLNN maintains high-fidelity predictions across large-angle rotations and long-term rollouts. The model recovers complex dynamics from position data alone and scales to high-dimensional multibody systems like human motion. Furthermore, the framework is modular, capable of identifying full dynamics or isolating specific components—such as unknown control laws—when the Lagrangian is known. 
+
+7 ACKNOWLEDGMENTS 
+
+The authors would like to express gratitude to Benjamin Kwanen Tapley and Jacob Goodman for their valuable discussions during the preparation of this paper. This research was supported by EU through MSCA-SE: REMODEL (Project ID: 101131557), and by the Research Council of Norway through PhysML (No. 338779). DMdD acknowledges financial support from the Spanish Ministry of Science and Innovation under grants PID2022-137909NB-C21, PCI2024-155047-2 and from the Severo Ochoa Programme for Centres of Excellence in R&D (CEX2023-001347-S). The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217. REFERENCES 
+
+[1] Abraham, R.; Marsden, J.E.: Foundations of mechanics. Reading, MA: Benjamin/Cummings Pub-lishing Co., Inc., 2nd Ed., 1978. [2] Barfoot, T.D.: State estimation for robotics. Cambridge: Cambridge University Press, 2024. [3] Barrau, A.; Bonnabel, S.: The invariant extended Kalman filter as a stable observer. IEEE Transac-tions on Automatic Control, Vol. 62, No. 4, pp. 1797–1812, 2016. [4] Bonnabel, S.: Stochastic gradient descent on Riemannian manifolds. IEEE Transactions on Auto-matic Control, Vol. 58, No. 9, pp. 2217–2229, 2013. [5] Bronstein, M.M.; Bruna, J.; Cohen, T.; Veliˇ ckovi´ c, P.: Geometric deep learning: grids, groups, graphs, geodesics, and gauges. arXiv preprint arXiv:2104.13478, 2021. [6] Bullo, F.; Lewis, A.D.: Geometric control of mechanical systems: modeling, analysis, and design for simple mechanical control systems. New York: Springer, Vol. 49, 2005. [7] Cadena, C.; Carlone, L.; Carrillo, H.; Latif, Y.; Scaramuzza, D.; Neira, J.; Reid, I.; Leonard, J.J.: Past, present, and future of simultaneous localization and mapping. IEEE Transactions on Robotics, Vol. 32, No. 6, pp. 1309–1332, 2017. [8] Carnegie Mellon University: CMU graphics lab motion capture database. Data obtained from https://mocap.cs.cmu.edu. [9] Celledoni, E.; Ehrhardt, M.J.; Etmann, C.; McLachlan, R.I.; Owren, B.; Schonlieb, C.-B.; Sherry, F.: Structure-preserving deep learning. European Journal of Applied Mathematics, Vol. 32, No. 5, pp. 888–936, 2021. [10] Chen, R.T.Q.; Rubanova, Y.; Bettencourt, J.; Duvenaud, D.: Neural ordinary differential equations. Advances in Neural Information Processing Systems, 2018. [11] Cranmer, M.; Greydanus, S.; Hoyer, S.; Battaglia, P.; Spergel, D.; Ho, S.: Lagrangian neural net-works. arXiv preprint arXiv:2003.04630, 2020. [12] Duruisseaux, V.; Duong, T.P.; Leok, M.; Atanasov, N.: Lie group forced variational integrator net-works for learning and control of robot systems. Proc. 5th Annual Learning for Dynamics and Control Conf., PMLR, Vol. 211, pp. 731–744, 2023. [13] Engel, J.; Koltun, V.; Cremers, D.: Direct sparse odometry. IEEE Trans. on Pattern Analysis and Machine Intelligence, Vol. 40, No. 3, pp. 611–625, 2017. [14] Greydanus, S.; Dzamba, M.; Yosinski, J.: Hamiltonian neural networks. Advances in Neural Infor-mation Processing Systems, Vol. 32, 2019. [15] Hansen, M.D.; Celledoni, E.; Tapley, B.K.: Learning mechanical systems from real-world data using discrete forced Lagrangian dynamics. arXiv preprint arXiv:2505.20370, 2025. [16] Hemingway, E.G.; O’Reilly, O.M.: Perspectives on Euler angle singularities, gimbal lock, and the orthogonality of applied forces and applied moments. Multibody System Dynamics, Vol. 44, No. 1, pp. 31–56, 2018. [17] Holm, D.D.; Schmah, T.; Stoica, C.: Geometric mechanics and symmetry. Oxford: Oxford Univer-sity Press, Vol. 12, 2009. [18] Kuffner, J.J.: Effective sampling and distance metrics for 3D rigid body path planning. Proc. IEEE Int. Conf. on Robotics and Automation (ICRA), Vol. 4, pp. 3993–3998, 2004. [19] Lee, T.; McClamroch, N.H.; Leok, M.: A Lie group variational integrator for the attitude dynamics of a rigid body with applications to the 3D pendulum. Proc. 2005 IEEE Conf. on Control Applica-tions (CCA), pp. 962–967, 2005. [20] Lee, T.: Robust adaptive attitude tracking on SO (3) . With an application to a quadrotor UAV. IEEE Transactions on Control Systems Technology, Vol. 21, No. 5, pp. 1924–1930, 2012. [21] Lee, T.; Leok, M.; McClamroch, N.H.: Nonlinear robust tracking control of a quadrotor UAV on 
+
+SE (3) . Asian Journal of Control, Vol. 15, No. 2, pp. 391–408, 2013. [22] Lee, T.; Leok, M.; McClamroch, N.H.: Global formulations of Lagrangian and Hamiltonian dynam-ics on manifolds. New York: Springer, 2018. [23] Leok, M.: Foundations of computational geometric mechanics. PhD Thesis, California Institute of Technology, 2004. [24] Li, Z.; Sun, F.; Wu, S.; Sun, F.; Xiong, P.; Liu, C.; Chen, W.: Learning accurate robot dynamics from position-only data with discrete Lagrangian neural networks. IEEE Robotics and Automation Letters, 2026. [25] Lutter, M.; Ritter, C.; Peters, J.: Deep Lagrangian networks: using physics as model prior for deep learning. arXiv preprint arXiv:1907.04490, 2019. [26] Mahony, R.; Hamel, T.; Pflimlin, J.-M.: Nonlinear complementary filters on the special orthogonal group. IEEE Transactions on Automatic Control, Vol. 53, No. 5, pp. 1203–1218, 2008. [27] Marsden, J.E.; Ratiu, T.S.; Hermann, R.: Introduction to mechanics and symmetry. SIAM Review, Vol. 39, No. 1, pp. 152–152, 1997. [28] Marsden, J.E.; Ratiu, T.S.: Introduction to mechanics and symmetry: a basic exposition of classical mechanical systems. New York: Springer-Verlag, Vol. 17, 2nd Ed., 1999. [29] Marsden, J.E.; West, M.: Discrete mechanics and variational integrators. Acta Numerica, Vol. 10, pp. 357–514, 2001. [30] Moser, J.; Veselov, A.P.: Discrete versions of some classical integrable systems and factorization of matrix polynomials. Comm. Math. Phys., Vol. 139, No. 2, pp. 217–243, 1991. [31] Mur-Artal, R.; Montiel, J.M.M.; Tardos, J.D.: ORB-SLAM: A versatile and accurate monocular SLAM system. IEEE Transactions on Robotics, Vol. 31, No. 5, pp. 1147–1163, 2015. [32] Murray, R.M.; Li, Z.; Sastry, S.S.: A mathematical introduction to robotic manipulation. Boca Raton: CRC Press, 2017. [33] Ober-Blöbaum, S.; Offen, C.: Variational learning of Euler-Lagrange dynamics from data. Journal of Computational and Applied Mathematics, Vol. 421, pp. 114780, 2023. [34] Offen, C.; Ober-Blöbaum, S.: Symplectic integration of learned Hamiltonian systems. Chaos: An Interdisciplinary Journal of Nonlinear Science, Vol. 32, No. 1, 2022. [35] Offen, C.: Machine learning of continuous and discrete variational ODEs with convergence guaran-tee and uncertainty quantification. Mathematics of Computation, 2025. [36] Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.; Chanan, G,; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.; et al.: PyTorch: an imperative style, high-performance deep learning library. Advances in Neural Information Processing Systems 32, pp. 8024–8035, 2019. [37] Savitzky, A.: Smoothing and differentiation of data by simplified least squares procedures. Analyti-cal Chemistry, Vol. 36, No. 8, pp. 1627–1639, 1964. [38] Selig, J.M.: Geometric fundamentals of robotics. New York: Springer, 2005. [39] Tong, Y.; Xiong, S.; He, X.; Pan, G.; Zhu, B.: Symplectic neural networks in Taylor series form for Hamiltonian systems. Journal of Computational Physics, Vol. 437, pp. 110325, 2021. [40] Vyas, N.; Morwani, D.; Zhao, R.; Kwun, M.; Shapira, I.; Brandfonbrener, D.; Janson, L.; Kakade, S.: SOAP: improving and stabilizing shampoo using Adam. arXiv preprint arXiv:2409.11321, 2024. [41] Walker, M.W.; Shao, L.; Volz, R.A.: Estimating 3-D location parameters using dual number quater-nions. CVGIP: Image Understanding, Vol. 54, No. 3, pp. 358–367, 1991. [42] Xiao, S.; Zhang, J.; Tang, Y.: Generalized Lagrangian neural networks arXiv preprint arXiv:2401.03728, 2024. [43] Zhong, Y.D.; Dey, B.; Chakraborty, A.: Symplectic ODE-net: learning Hamiltonian dynamics with control. Proc. Int. Conf. on Learning Representations (ICLR), 2020. [44] Zhou, Y.; Barnes, C.; Lu, J.; Yang, J.; Li, H.: On the continuity of rotation representations in neural networks. Proc. IEEE/CVF Conf. on Computer Vision and Pattern Recognition (CVPR), pp. 5745– 5753, 2019. 
+
+A BASIC NOTIONS ABOUT SO (3) AND SE (3) 
+
+A.1 The Lie group SO (3) 
+
+Consider the 3D rotation group SO (3) = {R ∈ R3×3 : R⊤R = RR ⊤ = I, det( R) = 1 }. Its Lie algebra 
+
+so (3) = {Ω ∈ R3×3 : Ω ⊤ = −Ω} can be identified with R3 via the hat map 
+
+ˆ: R3 → so (3) , \(a, b, c ) = 
+
+
+
+0 −c bc 0 −a
+
+−b a 0
+
+ ,
+
+and we let vex : so (3) → R3 be its inverse. 
+
+Left and Right multiplications in SO (3) . Let R ∈ SO (3) . The Left and Right multiplications by R on 
+
+SO (3) , LR, RR : SO (3) → SO (3) are 
+
+LR(Q) = RQ, RR(Q) = QR. 
+
+The tangent lifts at the identity of the Left and Right multiplications T LR, T RR : so (3) → TRSO (3) are given by 
+
+T LR(ˆ ω) = ddt t=0 
+
+LRQ(t) = Rˆω, T RR(ˆ ω) = ddt t=0 
+
+RRQ(t) = ˆ ωR 
+
+where Q(t) is a curve on SO (3) such that Q(0) = I3 and ˙Q(0) = ˆ ω ∈ so (3) . The cotangent lifts of the Left and Right multiplications L∗
+
+> R
+
+, R∗ 
+
+> R
+
+: ( TRSO (3)) ∗ → so (3) ∗ are the maps such that 
+
+⟨L ∗
+
+> R
+
+(Π) , ˆω⟩ = ⟨Π, T LR(ˆ ω)⟩, ⟨R ∗
+
+> R
+
+(Π) , ˆω⟩ = ⟨Π, T RR(ˆ ω)⟩
+
+for any ˆω ∈ so (3) . Define the pairing ⟨Π, ˆω⟩ = trace(Π ⊤ ˆω), then one has 
+
+L∗
+
+> R
+
+(Π) = R⊤Π, R∗
+
+> R
+
+(Π) = Π R⊤.
+
+Exp and Log maps in SO (3) . The exponential map exp : so (3) → SO (3) is given by 
+
+R = exp( bω) := I + sin θθ bω + 1 − cos θθ2 bω2, θ := ∥ω∥.
+
+Taking the trace on both sides 
+
+trace( R) = 3 + 1 − cos θθ2 2θ2 ⇒ θ = cos −1
+
+ trace( R) − 12
+
+
+
+.
+
+Also 
+
+R − R⊤ = 2 sin θθ bω ⇒ bω = θ
+
+2 sin θ (R − R⊤),
+
+so log : SO (3) → so (3) is given by 
+
+bω = log( R) := θ
+
+2 sin θ (R − R⊤), θ := cos −1
+
+ trace( R) − 12
+
+
+
+.A.2 The Lie group SE (3) 
+
+Consider the group of 3D rotations and translations SE (3) ≃ SO (3) × R3 and its Lie algebra se (3) ≃
+
+R3 × R3. Let g ∈ SE (3) , ξ ∈ se (3) , then 
+
+g =
+
+R p
+
+0 1
+
+
+
+, g−1 =
+
+R⊤ −R⊤p
+
+0 1
+
+
+
+, ξ =
+
+ˆω v
+
+0 0
+
+
+
+, R ∈ SO (3) , ˆω ∈ so (3) , p, v ∈ R3.
+
+Left and Right multiplications in SO (3) . The Left and Right multiplications by g = ( R, p ) on SE (3) ,
+
+Lg , Rg : SE (3) → SE (3) are 
+
+L(R,p )(Q, y ) = ( RQ, p + Ry ), R(R,p )(Q, y ) = ( QR, y + Qp ).
+
+The tangent lifts of the Left and Right multiplications T Lg , T Rg : se (3) → Tg SE (3) are given by 
+
+T Lg (ˆ ω, v ) = ddt t=0 
+
+L(R,p )(Q(t), y (t)) = ddt t=0 
+
+(RQ (t), p + Ry (t)) = ( Rˆω, Rv )
+
+and 
+
+T Rg (ˆ ω, v ) = ddt t=0 
+
+R(R,p )(Q(t), y (t)) = ddt t=0 
+
+(Q(t)R, Q (t)p + y(t)) = (ˆ ωR, ˆωp + v)
+
+where (Q(t), y (t)) is a curve on SE (3) such that (Q(0) , y (0)) = ( I3, 0) and ( ˙Q(0) , ˙y(0)) = (ˆ ω, v ) ∈ se (3) .The cotangent lifts of the Left and Right multiplications L∗ 
+
+> g
+
+, R∗ 
+
+> g
+
+: ( Tg SE (3)) ∗ → se (3) ∗ are the maps such that 
+
+⟨L ∗ 
+
+> g
+
+(τ ), ξ ⟩ = ⟨τ, T Lg (ξ)⟩, ⟨R ∗ 
+
+> g
+
+(τ ), ξ ⟩ = ⟨τ, T Rg (ξ)⟩.
+
+for any ξ ∈ se (3) . For τ = (Π , F ) ∈ so (3) ∗ × R3 and ξ = (ˆ ω, v ) ∈ so (3) × R3, let us define the pairing 
+
+⟨(Π , F ), (ˆ ω, v )⟩ = trace(Π ⊤ ˆω) + F ⊤v. 
+
+One can then compute that 
+
+L∗
+
+> (R,p )
+
+(Π , F ) = ( R⊤Π, R ⊤F ), R∗
+
+> (R,p )
+
+(Π , F ) = 
+
+
+
+ΠR⊤ − 12 \F × p, F 
+
+
+
+.
+
+Above we have used 
+
+F ⊤(ˆ ωp ) = F · (ω × p) = ω · (p × F ) = − 12 trace( \F × p⊤
+
+ˆω).
+
+Exp and Log maps in SE (3) . The exponential map is given by 
+
+exp : se (3) → SE (3) , (ω, v ) 7 → (R, Av )
+
+where, for θ := ∥ω∥,
+
+R = I + sin θθ bω + 1 − cos θθ2 bω2, A = I + 1 − cos θθ2 ˆω + θ − sin θθ3 ˆω2.
+
+Its inverse, namely the logarithmic map, is given by 
+
+log : SE (3) → se (3) , (R, p ) 7 → (ω, A −1p)
+
+where, for θ := cos −1
+
+ trace( R)−12
+
+
+
+,
+
+bω = log( R) := θ
+
+2 sin θ (R − R⊤), A−1 = I − 12 ˆω +
+
+ 1
+
+θ2 − 1 + cos θ
+
+2θ sin θ
+
+
+
+ˆω2Remark A.1. In numerics, when θ → 0 one encounters division by zero. It is then desirable to replace the above close forms with e.g. Taylor approximations. More precisely, for small θ one has 
+
+sin θθ ≈ 1 − θ2
+
+6 , 1 − cos θθ2 ≈ 12 − θ2
+
+24 , θ − sin θθ3 ≈ 16 − θ2
+
+120 , 1
+
+θ2 − 1 + cos θ
+
+2θ sin θ ≈ 112 + θ2
+
+720 ,
+
+hence 
+
+exp( ω, v ) ≈
+
+
+
+I + ˆ ω + 12 ˆω2,
+
+
+
+I + 12 ˆω + 16 ˆω2
+
+
+
+v
+
+
+
+and 
+
+log( R, p ) ≈ (ω, v ) = 
+
+ 36 − θ2 (R − R⊤),
+
+
+
+I − 12 ˆω + 112 ˆω2
+
+
+
+p
+
+
+
+.
+
+In particular, using the first order approximation for the exp map, we obtain 
+
+(W, z ) = exp( hω, hv ) ≈
+
+
+
+I + hˆω, 
+
+
+
+I + 12 hˆω
+
+
+
+hv 
+
+
+
+from which one can compute 
+
+ˆω ≈ W − Ih , v ≈
+
+
+
+I + 12 hˆω
+
+−1 zh ≈
+
+
+
+I − 12 hˆω
+
+ zh
+
+where we have used the Neumann series to approximate the inverse of a matrix. To make sure that ˆω is skew symmetric one should take the skew symmetric part of W −Ih , leading to 
+
+ˆω ≈ skew 
+
+ W − Ih
+
+
+
+= 12h (W − W ⊤).
+
+The same is obtained using the first order approximation of the log map: 
+
+(ˆ ωk, z k) = 1
+
+h log( Wk, z k) ≈
+
+ 12h (Wk − W ⊤ 
+
+> k
+
+),
+
+
+
+I − 12 hˆωk
+
+ zk
+
+h
+
+
+
+.
+
+B DETAILED DERIVATION OF THE DISCRETE EULER-LAGRANGE EQUATIONS (DEL) B.1 Discrete forced rigid body equations on SO (3) 
+
+Let η ∈ R3. The discrete Euler-Lagrange equation (5) rewrites 
+
+⟨L ∗
+
+> Rk
+
+∂ ¯Ld,k 
+
+∂R k
+
+, ˆη⟩ − ⟨R ∗
+
+> Wk
+
+∂ ¯Ld,k 
+
+∂W k
+
+, ˆη⟩ + ⟨L ∗
+
+> Wk−1
+
+∂ ¯Ld,k −1
+
+∂W k−1
+
+, ˆη⟩ + ⟨τext −
+
+> d,k
+
+, η ⟩ + ⟨τext +
+
+> d,k −1
+
+, η ⟩
+
+= trace 
+
+
+
+R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂R k
+
+− ∂ ¯Ld,k 
+
+∂W k
+
+Wk + Wk−1
+
+∂ ¯Ld,k 
+
+∂W k−1
+
++ 12 ( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+)
+
+⊤
+
+ˆη
+
+!
+
+= trace( A⊤ ˆη) = 0 .
+
+The above holds for any η if and only if A = A⊤, that is (6). 
+
+B.2 Discrete forced rigid body equations on SE (3) 
+
+Let ξ = (ˆ η, μ ) ∈ se (3) . The discrete Euler-Lagrange equation (5) rewrites 
+
+⟨L ∗  
+
+> (Rk,p k)
+
+ ∂ ¯Ld,k 
+
+∂R k
+
+, ∂ ¯Ld,k 
+
+∂p k
+
+
+
+, ξ ⟩ − ⟨R ∗  
+
+> (Wk,z k)
+
+ ∂ ¯Ld,k 
+
+∂W k
+
+, ∂ ¯Ld,k 
+
+∂z k
+
+
+
+, ξ ⟩ + ⟨L ∗
+
+> (Wk−1,z k−1)
+
+ ∂ ¯Ld,k −1
+
+∂W k−1
+
+, ∂ ¯Ld,k −1
+
+∂z k−1
+
+
+
+, ξ ⟩
+
+= trace 
+
+ R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂R k
+
+− ∂ ¯Ld,k 
+
+∂W k
+
+W ⊤ 
+
+> k
+
++ 12
+
+ ∂ ¯Ld,k 
+
+∂z k
+
+× zk
+
+∧
+
++ W ⊤
+
+> k−1
+
+∂ ¯Ld,k −1
+
+∂W k−1
+
++ 12 ( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+)
+
+!⊤
+
+ˆη
+
+
+
++
+
+
+
+R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂p k
+
+− ∂ ¯Ld,k 
+
+∂z k
+
++ W ⊤
+
+> k−1
+
+∂ ¯Ld,k −1
+
+∂z k−1
+
++ ( fext − 
+
+> d,k
+
++ fext +
+
+> d,k −1
+
+)
+
+⊤
+
+μ
+
+= trace( A⊤ ˆη) + b⊤μ = 0 .The above equation holds true for any (ˆ η, μ ) if and only if A = A⊤ and b = 0 , that is, 
+
+R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂R k
+
+− ∂ ¯Ld,k 
+
+∂R k
+
+> ⊤
+
+Rk + Wk
+
+∂ ¯Ld,k 
+
+∂W k
+
+> ⊤
+
+− ∂ ¯Ld,k 
+
+∂W k
+
+W ⊤ 
+
+> k
+
++
+
+ ∂ ¯Ld,k 
+
+∂z k
+
+× zk
+
+∧
+
++W ⊤
+
+> k−1
+
+∂ ¯Ld,k −1
+
+∂W k−1
+
+− ∂ ¯Ld,k −1
+
+∂W k−1
+
+> ⊤
+
+Wk−1 + ( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+) = 0 ,R⊤
+
+> k
+
+∂ ¯Ld,k 
+
+∂p k
+
+− ∂ ¯Ld,k 
+
+∂z k
+
++ W ⊤
+
+> k−1
+
+∂ ¯Ld,k −1
+
+∂z k−1
+
++ ( fext − 
+
+> d,k
+
++ fext +
+
+> d,k −1
+
+) = 0 ,
+
+which correspond to equations (8)-(9). 
+
+Example B.1 (Rigid body) . Let us consider the Lagrangian of a rigid body 
+
+¯L(R, p, ω, v ) = T (ω, v ) − V (R, p ) = 12 ω⊤Jω + 12 m(v + ˆ ωρ COM )⊤(v + ˆ ωρ COM ) − V (R, p ).
+
+where J is the inertia matrix for vector representation, m > 0 the mass, ρCOM ∈ R3 the center of mass vector in the body frame, v + ˆ ωρ COM = ∂p ∂t + ∂R ∂t ρCOM the velocity of the center of the mass in the global frame ( p + Rρ COM is its position). The discrete Lagrangian is 
+
+¯Ld,k = ¯Ld(Rk, p k, W k, z k) = h ¯L
+
+
+
+Rk, p k, Wk − Ih , zk
+
+h
+
+
+
+= 1
+
+h (trace( Jd) − trace( WkJd)) + 12h m(zk + ( Wk − I)ρCOM )⊤(zk + ( Wk − I)ρCOM ) − hV (Rk, p k)
+
+where Jd satisfies J = trace( Jd)I − Jd as noted in [19]. The partial derivatives of ¯Ld with respect to R, p,
+
+W and z are 
+
+∂ ¯Ld
+
+∂R = −h ∂V ∂R , ∂ ¯Ld
+
+∂W = − 1
+
+h Jd + 1
+
+h mz kρ⊤ 
+
+> COM
+
+− 1
+
+h mρ COM ρ⊤ 
+
+> COM
+
+,∂ ¯Ld
+
+∂p = −h ∂V ∂p , ∂ ¯Ld
+
+∂z = 1
+
+h mz + 1
+
+h m(Wk − I)ρCOM 
+
+and we can replace them in (8)-(9) to find 
+
+−h R⊤
+
+> k
+
+∂V k
+
+∂R −
+
+ ∂V k
+
+∂R 
+
+⊤
+
+Rk
+
+!
+
++ 1
+
+h
+
+ JdW ⊤ 
+
+> k
+
+− WkJd
+
+ + 1
+
+h
+
+ JdWk−1 − W ⊤
+
+> k−1
+
+Jd
+
+
+
++ 1
+
+h m  WkρCOM z⊤ 
+
+> k
+
+− zkρ⊤
+
+> COM
+
+W ⊤ 
+
+> k
+
++ W ⊤
+
+> k−1
+
+zk−1ρ⊤ 
+
+> COM
+
+− ρCOM z⊤
+
+> k−1
+
+Wk−1
+
+
+
++ 1
+
+h m  ρCOM ρ⊤
+
+> COM
+
+(W ⊤ 
+
+> k
+
++ Wk−1) − (Wk + W ⊤
+
+> k−1
+
+)ρCOM ρ⊤
+
+> COM
+
+
+
++ 1
+
+h m (( Wk − I)ρCOM × zk)∧ + ( \τext − 
+
+> d,k
+
++ \τext +
+
+> d,k −1
+
+) = 0 
+
+(21) 
+
+−hR ⊤
+
+> k
+
+∂V k
+
+∂p + 1
+
+h m  W ⊤
+
+> k−1
+
+zk−1 − zk + 2 Iρ COM − (W ⊤ 
+
+> k−1
+
++ Wk)ρCOM 
+
+ + ( fext − 
+
+> d,k
+
++ fext +
+
+> d,k −1
+
+) = 0 .
+
+(22) with Rk+1 = RkWk, pk+1 = pk + Rkzk.
+
+B.3 Discrete forced equations on SE (3) × SO (3) 
+
+We consider two bodies and choose SE (3) × SO (3) as configuration space. The state and velocity of body 1 at timestep k is given by (R1,k , p 1,k , ω 1,k , v 1,k ) ∈ SE (3) × se (3) , while for body 2 we have 
+
+(R2,k , ω 2,k ) ∈ SO (3) × so (3) . The discrete Lagrangian ¯Ld : SE (3) × SE (3) × SO (3) × SO (3) → R is 
+
+¯Ld,k = ¯Ld, 1,k + ¯Ld, 2,k − hV int ,k 
+
+= ¯Ld, 1(R1,k , p 1,k , W 1,k , z 1,k ) + ¯Ld, 2(R2,k , W 2,k ) − hV int (R1,k , p 1,k , R 2,k )where ¯Ld, 1 : SE (3) ×SE (3) → R is the discrete Lagrangian for body 1, ¯Ld, 2 : SO (3) ×SO (3) → R is the discrete Lagrangian for body 2, and we have assumed that the interaction potential Vint : SE (3) ×SO (3) →
+
+R depends on positions only. For readability, we also assume that there are no external forces. The system of equations corresponding to the Euler-Lagrange equation (5) is then 
+
+R⊤
+
+> 1,k
+
+ ∂ ¯Ld, 1,k 
+
+∂R 1,k 
+
++ ∂V int ,k 
+
+∂R 1,k 
+
+
+
+−
+
+ ∂ ¯Ld, 1,k 
+
+∂R 1,k 
+
++ ∂V int ,k 
+
+∂R 1,k 
+
+⊤
+
+R1,k +
+
+ ∂ ¯Ld, 1,k 
+
+∂z 1,k 
+
+× z1,k 
+
+∧
+
++W1,k 
+
+∂ ¯Ld, 1,k 
+
+∂W 1,k 
+
+> ⊤
+
+− ∂ ¯Ld, 1,k 
+
+∂W 1,k 
+
+W ⊤ 
+
+> 1,k
+
++ W ⊤
+
+> 1,k −1
+
+∂ ¯Ld, 1,k −1
+
+∂W 1,k −1
+
+− ∂ ¯Ld, 1,k −1
+
+∂W 1,k −1
+
+> ⊤
+
+W1,k −1 = 0 ,
+
+(23) 
+
+R⊤
+
+> 2,k
+
+ ∂ ¯Ld, 2,k 
+
+∂p 2,k 
+
++ ∂V int ,k 
+
+∂p 2,k 
+
+
+
+− ∂ ¯Ld, 2,k 
+
+∂z 2,k 
+
++ W ⊤
+
+> 2,k −1
+
+∂ ¯Ld, 2,k −1
+
+∂z 2,k −1
+
+= 0 ,
+
+(24) 
+
+R⊤
+
+> 2,k
+
+∂ ¯Ld, 2,k 
+
+∂R 2,k 
+
+− ∂ ¯Ld, 2,k 
+
+∂R 2,k 
+
+> ⊤
+
+!
+
+− ∂ ¯Ld, 2,k 
+
+∂W 2,k 
+
+− ∂ ¯Ld, 2,k 
+
+∂W 2,k 
+
+> ⊤
+
+!
+
+W2,k + W2,k −1
+
+∂ ¯Ld, 2,k 
+
+∂W 2,k −1
+
+− ∂ ¯Ld, 2,k 
+
+∂W 2,k −1
+
+> ⊤
+
+!
+
+= 0 ,
+
+(25) with R1,k +1 = R1,k W1,k , p1,k +1 = p1,k + R1,k z1,k and R2,k +1 = R2,k W2,k .
+
+C REGULAR LAGRANGIAN Discrete regular Lagrangian. Let us consider the discrete Lagrangian of a rigid body evolving on SE (3) 
+
+(see Example B.1) 
+
+¯Ld(Rk, p k, W k, z k) = hL 
+
+
+
+Rk, p k, Wk − Ih , zk
+
+h
+
+
+
+= 1
+
+h trace(( I − Wk)Jd) + m
+
+2h ∥Xk∥2 − hV d(pk, R k),
+
+where Xk = zk + ( Wk − I)ρCOM , Jd is such that J = trace( Jd)I − Jd, J is the inertia matrix, m is the mass and ρCOM the position of the center of mass ( COM ). ¯Ld is regular if the Hessian with respect to the increments 
+
+H =
+
+" ∂2 ¯Ld    
+
+> ∂z 2
+> ∂2¯Ld
+> ∂z∂W ∂2¯Ld
+> ∂W ∂z ∂2¯Ld
+> ∂W 2
+
+#
+
+=: 
+
+ Hzz HzW 
+
+HW z HW W 
+
+
+
+is non-singular [19]. Below we provide the explicit computation of H.
+
+First variations (discrete momenta). The discrete momenta are the first variation of ¯Ld with respect to a variation (δz, δW ). The variation of ¯Ld with respect to δz is the usual gradient with respect to zk ∈ R3
+
+δz ¯Ld = ∂ ¯Ld
+
+∂z k
+
+= mh Xk.
+
+For variations with respect to δW we cannot compute the standard partial derivative as W ∈ SO (3) . We use the Lie algebra so (3) and perturb Wk in the direction η ∈ R3:
+
+Wk(ϵ) = Wk exp( ϵˆη).
+
+The first variation (discrete momentum) is given by 
+
+δW ¯Ld = ddϵ ϵ=0 
+
+¯Ld(Rk, p k, W k exp( ϵˆη), z k)= ddϵ ϵ=0 
+
+1
+
+h trace(( I − Wk exp( ϵˆη)) Jd) + ddϵ ϵ=0 
+
+m
+
+2h ∥zk + ( Wk exp( ϵˆη) − I)ρCOM ∥2For the first term we have 
+
+ddϵ ϵ=0 
+
+1
+
+h trace(( I − Wk exp( ϵˆη)) Jd) = − 1
+
+h trace( Wk ˆηJ d) = − 1
+
+h trace( JdWk ˆη)= 1
+
+h vex( JdWk − W ⊤ 
+
+> k
+
+Jd) · η =: Mk, rot · η
+
+where we have used the property ddϵ ϵ=0 exp( ϵˆη) = ˆ η and the trace identity trace( Aˆb) = vex( A⊤ − A) · b
+
+with vex the inverse of the hat operator. For the second term 
+
+ddϵ ϵ=0 
+
+m
+
+2h ∥zk + ( Wk exp( ϵˆη) − I)ρCOM ∥2 = mh Xk · (Wk ˆηρ COM ) = − mh Xk · (Wk ˆρCOM η)
+
+where we have used ˆvw = v × w = −w × v = − ˆwv . Now 
+
+Xk · (Wk ˆρCOM η) = ( Wk ˆρCOM η) · Xk = ( Wk ˆρCOM η)⊤Xk = η⊤ ˆρ⊤
+
+> COM
+
+W ⊤ 
+
+> k
+
+Xk = −η · (ˆ ρCOM W ⊤ 
+
+> k
+
+Xk)
+
+hence we get 
+
+δW ¯Ld =
+
+
+
+Mk, rot + mh ˆρCOM W ⊤ 
+
+> k
+
+Xk
+
+
+
+· η =: ( Mk, rot + Mk, COM ) · η. 
+
+Second variations. To find the components of H we need the variations of the momenta δz ¯Ld and δW ¯Ld
+
+with respect to a second variation (δz, ζ ), for ζ ∈ R3. For the variation with respect to δz we have the standard partial derivatives 
+
+Hzz = ∂∂z δz ¯Ld = ∂∂z mh (zk + ( Wk − I)ρCOM ) = mh I3×3
+
+HW z = ∂∂z δW ¯Ld = ∂∂z Mk = mh ˆρCOM W ⊤ 
+
+> k
+
+.
+
+For the variation with respect to δW we proceed as earlier. For HzW we compute 
+
+δW δz ¯Ld = ddϵ ϵ=0 
+
+mh (zk + ( Wk exp( ϵ ˆζ) − I)ρCOM ) = mh Wk ˆζρ COM = − mh Wk ˆρCOM ζ = HzW ζ. 
+
+For HW W we need 
+
+δW Mk, rot = ddϵ ϵ=0 
+
+1
+
+h vex 
+
+
+
+JdWk exp( ϵˆζ) − (Wk exp( ϵˆζ)) ⊤Jd
+
+
+
+= 1
+
+h vex 
+
+
+
+JdWk ˆζ + ˆζW ⊤ 
+
+> k
+
+Jd
+
+
+
+= 1
+
+h (trace( W ⊤ 
+
+> k
+
+Jd)I − W ⊤ 
+
+> k
+
+Jd)ζ =: 1
+
+h Hrot ζ
+
+where we have used the identity vex( A⊤ ˆζ + ˆζA ) = (trace( A)I − A), and 
+
+δW Mk, COM = ddϵ ϵ=0 
+
+mh ˆρCOM (Wk exp( ϵˆζ)) ⊤(zk + ( Wk exp( ϵˆζ) − I)ρCOM )= mh ˆρCOM (−ˆζW ⊤ 
+
+> k
+
+Xk + ˆζρ COM ) = mh ˆρCOM ( \W ⊤ 
+
+> k
+
+Xk − ˆρCOM )ζ =: 1
+
+h HCOM ζ, 
+
+so that HW W = 1 
+
+> h
+
+(Hrot + HCOM ).
+
+Condition for regularity. We now impose det( H)̸ = 0 . We use the Schur complement for a block matrix A BC D
+
+
+
+so that 
+
+det( H) = det( A) det( D − CA −1B).In our case we have 
+
+det( A) = det( Hzz ) = 
+
+ mh
+
+3̸ = 0 
+
+as long as m > 0. Then 
+
+CA −1B = HW z H−1 
+
+> zz
+
+HzW =
+
+ mh ˆρCOM W ⊤
+
+> k
+
+ hm I
+
+
+
+− mh Wk ˆρCOM 
+
+
+
+= − mh ˆρCOM ˆρCOM 
+
+so that 
+
+D − CA −1B = 1
+
+h HW W + mh ˆρCOM ˆρCOM = 1
+
+h Hrot + mh ˆρCOM \W ⊤ 
+
+> k
+
+Xk.
+
+The final condition then is 
+
+det( H) = det 
+
+
+
+trace( W ⊤ 
+
+> k
+
+Jd)I − W ⊤ 
+
+> k
+
+Jd + mˆρCOM \W ⊤ 
+
+> k
+
+Xk
+
+̸
+
+= 0 .
+
+Remark C.1. When the frame is located at the COM, the discrete Lagrangian simplifies to 
+
+¯Ld(Rk, p k, W k, z k) = 1
+
+h trace(( I − Wk)Jd) + m
+
+2h ∥zk∥2 − hV (Rk, p k).
+
+For such Ld, z and W are decoupled, hence the off-diagonal blocks of H are zero and the condition for regularity reduces to 
+
+det( Hk, rot ) = det(trace( W ⊤ 
+
+> k
+
+Jd)I − W ⊤ 
+
+> k
+
+Jd)̸ = 0 .
+
+D DETAILED EXPERIMENTS SET-UP D.1 Implementation and training details 
+
+All models are implemented in PyTorch [36] and trained on CPU. The neural networks parameterizing the discrete Lagrangian and forces are multilayer perceptrons with GELU activations, their widths and depths are listed in Table 2, and training parameters in Table 3. 
+
+Table 2 . Network architecture for the proposed model and all baselines. “MLP” gives the width × depth of the learned networks (the potential V θ , control uθ , general force F θ
+
+> NN
+
+, nonlinear dissipation force 
+
+F θ
+
+> NL
+
+, or the Neural ODE vector field f θ ). All MLPs use GELU activations. “Reg.” denotes the number er regularization points used when relevant. Exp. Model Input Learned ( θ) MLP Reg. 1 LieDFLNN (ours) R (9) Jθd , D θ , V θ 64 × 3 10 Euclidean DFLNN w/Euler-angles (ϕ, θ, ψ ) (3) Jθd , D θ , V θ 64 × 3 100 2LieDFLNN (ours) R (9) Jθd , D θ – 10 GLNN w/RK4 R, ω Jθd , D θ – –GLNN w/Lie-Midpoint R, ω Jθd , D θ – –GLNN w/Lie-Heun R, ω Jθd , D θ – –3LieDFLNN (ours) (R, p ) (12) Jθd , D θ , ρ θ , V θ 32 × 3 10 Euclidean DFLNN (R, p ) (12) Jθd , D θ , ρ θ , V θ 32 × 3 10 Neural ODE (R, p ) (12) f θ 64 × 3 –4 LieDFLNN (ours) joints Jθd , D θ , ρ θ , V θ ,V θ
+
+> int
+
+, F θ
+
+> NN
+
+, F θ
+
+> NL
+
+32 × 3 10 5 LieDFLNN (ours) R (9) Cθ , u θ 64 × 3 –
+
+Optimization. All models are trained with the SOAP optimizer [40] at a learning rate of 3 × 10 −3.Batch size, number of epochs, and data window length are reported in Table 3. The proposed model (and baseline Euclidean DFLNN) minimize the discrete forced Euler-Lagrange residual together with a regularity penalty (see Section C), combined with weights ωDEL = ωreg = 0 .5, and threshold exponent ϵ = 10 
+
+(Experiments 1, 3), ϵ = 100 (Experiments 2) or ϵ = 100 .000 (Experiment 3). The Neural ODE has no variational structure and is trained with a pure trajectory mean-squared error. In Experiment 5, the Lagrangian is fixed, so the loss reduces to the controlled residual alone ( ωDEL = 1 , ωreg = 0 ) and no regularity penalty is needed. Table 3 . Training settings for the proposed model and all baselines. ”Window” is the number of poses per backpropagated segment, ”Traj.” the full data-sequence length. All models are trained with the SOAP optimizer at learning rate 3 × 10 −3.Exp. Model Batch Window Traj. Epochs 1 LieDFLNN (ours) 1024 3 100 2.500                                           
+
+> Euclidean DFLNN w/Euler-angles 1024 3100 2.500
+> 2LieDFLNN (ours) 256/512/1024/1024 310/40/70/100 1000
+> GLNN w/RK4 8/16/32/32 full 10/40/70/100 2.000
+> GLNN w/Lie-Midpoint 256/512/1024/1024 310/40/70/100 1.000
+> GLNN w/Lie-Heun 8/16/32/32 full 10/40/70/100 500
+> 3LieDFLNN (ours) 1024 332 5.000
+> Euclidean DFLNN 1024 332 5.000
+> Neural ODE 1024 332 5.000
+> 4LieDFLNN (ours) 63 32 seq. 10 .000
+> 5LieDFLNN (ours) 128 3600 2.000
+
+Window length. We distinguish the trajectory length (timesteps per data sequence) from the window length (consecutive poses in a single training segment, i.e. the window backpropagated through), since the latter is the unit counted by the batch size. The proposed model and the discrete baselines (Euclidean DFLNN, GLNN w/Lie-Midpoint) operate on pose triplets (sample length 3), whereas the rollout-based GLNN w/RK4, GLNN w/Lie-Heun and the Neural ODE backpropagate through the full integrated trajec-tory. 
+
+Inference. Forward prediction integrates the learned discrete system by solving the implicit update at each step with a damped Newton iteration (tolerance 10 −5, at most 10 iterations), as described in Section 4.3. 
+
+D.2 Rigid body on SO (3) in a gravitational field with Rayleigh dissipation 
+
+The continuous system describing a single rigid body evolving on SO (3) (example 3.1) in the presence of an external gravitational field and frictional damping torque is 
+
+˙ω = J−1(τ − ω × (Jω )) ˙R = Rˆω
+
+where J ∈ R3×3 is the symmetric positive definite inertia matrix for vector representation, and τ =
+
+τcons + τext is the sum of the conservative (gravitational) torque and the external torque. We consider the gravitational potential 
+
+V : SO (3) → R, V (R) = mge ⊤ 
+
+> 3
+
+Rρ COM 
+
+where m > 0 is the mass and ρCOM ∈ R3 is the center of mass vector in the body frame. The corresponding conservative torque is given by the negative gradient of the potential 
+
+τcons = − grad R V (R).
+
+Since grad R V (R) ∈ TRSO (3) and by left trivialization TRSO (3) ≃ R so (3) , we have 
+
+τcons = − 12 vex R⊤ ∂V ∂R −
+
+
+
+R⊤ ∂V ∂R 
+
+⊤!
+
+= −mgρ COM × (R⊤e3).
+
+For the external torque we can use a Rayleigh dissipative load of the form 
+
+τext (ω) = −Dω, 
+
+where D ∈ R3×3 is a symmetric positive semidefinite damping matrix. D.3 Rigid body on SE (3) in a gravitational field with Rayleigh dissipation 
+
+The continuous system describing a single rigid body evolving on SE (3) (example B.1) in the presence of an external gravitational field and frictional damping force is 
+
+˙ω = J−1 τ − ω ×  Jω + ρCOM × P  − v × P − ρCOM ×  f − ω × P  
+
+˙v = 1
+
+m
+
+ f − ω × P  − ˙ω × ρCOM 
+
+˙R = Rˆω
+
+˙p = Rv 
+
+where P := m v + ω × ρCOM 
+
+, J ∈ R3×3 is the symmetric positive definite inertia matrix for vector representation, m > 0 is the mass, ρCOM ∈ R3 is the center of mass vector in the body frame, τ =
+
+τcons +τext is the sum of the conservative (gravitational) torque and the external torque, and f = fcons +fext 
+
+is the sum of the conservative (gravitational) translational force and the external translational force. We consider the gravitational potential 
+
+V : SE (3) → R, V (R, p ) = mge ⊤ 
+
+> 3
+
+(p + Rρ COM ).
+
+The corresponding conservative torque and translational force read 
+
+τcons = −mgρ COM × (R⊤e3), fcons = −mgR ⊤e3.
+
+For the external force we can use a Rayleigh dissipative load of the form 
+
+τext (ω, v )
+
+fext (ω, v )
+
+
+
+= −D
+
+ωv
+
+
+
+= −
+
+Dωω ω + Dωv vDvω ω + Dvv v
+
+
+
+,
+
+where τext ∈ R3 is the rotational damping torque (e.g. rotational drag, internal friction, bearing or joint damping), fext ∈ R3 is the translational damping force (e.g. air drag, fluid resistance, translational viscous friction) and D ∈ R6×6 is a symmetric positive semidefinite damping matrix 
+
+D =
+
+Dωω Dωv 
+
+Dvω Dvv 
+
+
+
+, D•• ∈ R3×3.
+
+D.4 2-body system 
+
+Consider a 2-body system evolving on SE (3) × SO (3) as in example B.3. For body i, i = 1 , 2, let 
+
+Ji ∈ R3×3 be the symmetric positive definite inertia matrix for vector representation, mi > 0 the mass, and 
+
+ρCOM i ∈ R3 the center of mass vector in the body frame. The continuous equations describing the system in the presence of an external gravitational field are 
+
+˙ω1 = J−11
+
+ τ1 − ω1 ×  J1ω1 + ρCOM ,1 × P  − v1 × P − ρCOM ,1 ×  f1 − ω1 × P  (26) 
+
+˙v1 = 1
+
+m1
+
+ f1 − ω1 × P1
+
+ − ˙ω1 × ρCOM ,1 (27) 
+
+˙R1 = Rˆω1 (28) 
+
+˙p1 = Rv 1 (29) 
+
+˙ω = J−12 (τ2 − ω2 × (J2ω2)) (30) 
+
+˙R = Rˆω2 (31) where P := m1
+
+ v1 + ω1 × ρCOM ,1
+
+, τi is the conservative (gravitational) torque acting on body i, and 
+
+f = fcons + fext is the conservative (gravitational) translational force acting on body 1. We have 
+
+τi = − vex 
+
+
+
+skew 
+
+
+
+R⊤
+
+> i
+
+ ∂V i
+
+∂R i
+
++ ∂V int 
+
+∂R i
+
+ 
+
+, f = −R⊤
+
+> 1
+
+ ∂V 1
+
+∂p 1
+
++ ∂V int 
+
+∂p 1
+
+where Vint : SE (3) × SO (3) → R is the interaction potential, and the gravitational potentials are given by 
+
+V1 : SE (3) → R, V1(R1, p 1) = m1ge ⊤ 
+
+> 3
+
+(p1 + R1ρCOM ,1)
+
+V2 : SO (3) → R, V2(R2) = m2ge ⊤ 
+
+> 3
+
+R2ρCOM ,2.
+
+The continuous Lagrangian corresponding to the system (26)-(31) is 
+
+L(R1, p 1, ω 1, v 1, R 2, ω 2) = 12 ω⊤ 
+
+> 1
+
+J1ω1 + 12 ω⊤ 
+
+> 2
+
+J2ω2 + 12 m1(v1 + ˆ ω1ρCOM ,1)⊤(v1 + ˆ ω1ρCOM ,1)
+
+− V1(R1, p 1) − V2(R2) − Vint (R1, p 1, R 2).
+
+D.4.1 Examples of interaction potentials 
+
+Here we provide some choices of interaction potentials. 1. Alignment potential. If the two bodies are connected by a spring or a flexible beam with stiffness μ
+
+at a point r1 (in body 1’s frame) and r2 (in body 2’s frame). The global position of these points are 
+
+X1 = p1 + R1r1 and X2 = p2 + R2r2, hence the interaction potential is 
+
+Vint (R1, p 1, R 2, p 2) = μ
+
+2 ∥(p1 + R1r1) − (p2 + R2r2)∥2.
+
+If the configuration manifold is SO (3) × SO (3) , we need to penalize the relative rotation between them. The interaction potential is then 
+
+Vint (R1, R 2) = 12 μ∥ log( R⊤ 
+
+> 1
+
+R2)∥2
+
+or, for a computationally cheaper version 
+
+Vint (R1, R 2) = μ(3 − trace( R⊤ 
+
+> 1
+
+R2)) .
+
+2. Gravitational Interaction. If the two bodies are massive, then they exert a mutual gravitational pull on each other. The interaction potential is the standard Newtonian gravity between the centers of mass 
+
+Vint (p1, p 2) = −g m1m2
+
+∥(p2 + R2ρCOM ,2) − (p1 + R1ρCOM ,1)∥ .
+
+3. Magnetic dipole-dipole interaction. Assume each body has an internal magnet located at positions 
+
+r1 and r2, with μ1 and μ2 the magnetic moment vectors (in the local body frames). Let r = X2 −
+
+X1 = ( p2 + R2r2) − (p1 + R1r1) be the distance vector between the magnets in the global frame. The interaction potential is 
+
+Vint (R1, p 1, R 2, p 2) = μ0
+
+4π∥r∥3
+
+
+
+(R1μ1) · (R2μ2) − 3
+
+∥r∥2 (R1μ1 · r)( R2μ2 · r)
+
+
+
+.
+
+D.5 PD control in SO (3) 
+
+Consider a control-affine system in SO (3) as in [20]. Let Rf be the desired attitude, and consider the PD controller 
+
+τP D (R, ω ) = −KReR(R, R f) − Kω eω (ω) + vex( τff ),
+
+where KR, K ω > 0 are gain constants, and the attitude and angular velocity error vectors are 
+
+eR(R, R f ) = 12 vex( R⊤ 
+
+> f
+
+R − R⊤Rf ),eω (ω) = ω. To compensate for gravitational effects, we include the feed-forward torque τff derived from the potential 
+
+V :
+
+τff = 12 R⊤ ∂V ∂R −
+
+ ∂V ∂R 
+
+⊤
+
+R
+
+!
+
+.
+
+This control low drives the orientation R toward Rf by canceling the conservative torque and providing dissipative-restorative feedback. One could further choose KR, K ω ∈ R3×3 as symmetric positive definite matrices to tune the response along specific body axes, and/or KR = KR(R) to be a function of R with larger magnitude when R is far from Rf .

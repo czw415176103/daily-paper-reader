@@ -6,89 +6,83 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-19
-- 运行时间：2026-07-19 21:32:38 UTC
+- 最新运行日期：2026-07-20
+- 运行时间：2026-07-20 22:03:56 UTC
 - 运行状态：成功
-- 本次总论文数：23
-- 精读区：10
+- 本次总论文数：21
+- 精读区：8
 - 速读区：13
 
 ### 今日简报（AI）
-今日聚焦23篇论文，重点精读了两项高维PDE与物理信息神经网络的前沿工作。最值得关注的是统一残差加权框架与Inf-Sup神经网络，它们分别解决了训练权重问题和高维PDE求解。前沿读者可锚定“物理信息+神经网络”的融合方法，并留意图增强强化学习在科学发现中的潜力。
-- 详情：[/202607/19/README](/202607/19/README)
+今日共阅读21篇论文，精读8篇，重点关注物理信息神经网络（PINNs）在脑动脉瘤检测与破裂风险预测中的突破性应用。精读中两篇9.0分论文分别提出结合3D血管几何的多模态风险预测模型和分层配置点细化策略。建议关注PINNs在医学影像与流体力学交叉领域的前沿进展，以及新型配置点优化方法对计算效率的提升。
+- 详情：[/202607/20/README](/202607/20/README)
 
 ### 精读区论文标签
-1. [Multi-dimensional training-priority weighting based on physical information propagation paths: a unified residual-weighting framework for physics-informed neural networks](/202607/19/2607.11094v1-multi-dimensional-training-priority-weighting-based-on-physical-information-propagation-paths-a-unified-residual-weighting-framework-for-physics-informed-neural-networks)  
+1. [Integrating Physics-Informed Neural Networks and 3D Vascular Geometry Learning for Cerebral Aneurysm Detection and Multimodal Rupture-Risk Prediction](/202607/20/2607.10530v1-integrating-physics-informed-neural-networks-and-3d-vascular-geometry-learning-for-cerebral-aneurysm-detection-and-multimodal-rupture-risk-prediction)  
    标签：评分：9.0/10、query:physics-ml
-   evidence：为求解PDE的物理信息神经网络提出训练优先级加权方法
-2. [Inf-Sup Neural Networks for High Dimensional PDEs](/202607/19/2607.11718v1-inf-sup-neural-networks-for-high-dimensional-pdes)  
+   evidence：融合物理信息神经网络与3D几何学习用于脑动脉瘤检测和破裂风险预测
+2. [A new strategy for physics-informed neural networks based on hierarchical collocation point refinement](/202607/20/2607.14665v1-a-new-strategy-for-physics-informed-neural-networks-based-on-hierarchical-collocation-point-refinement)  
    标签：评分：9.0/10、query:physics-ml
-   evidence：通过inf-sup优化的神经网络高维PDE求解
-3. [How to Realize Recursively Self-Improving Agents and Personal Singularity: A Goal-, Scope-, Tool-, and Benchmark-Driven Multi-Agent Architecture](/202607/19/2607.12254v1-how-to-realize-recursively-self-improving-agents-and-personal-singularity-a-goal--scope--tool--and-benchmark-driven-multi-agent-architecture)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：递归自改进智能体架构
-4. [Self-Improvements in Modern Agentic Systems: A Survey](/202607/19/2607.13104v1-self-improvements-in-modern-agentic-systems-a-survey)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：自我改进自主代理综述
-5. [LIGO-PINN: Learned Initialization via Gated Optimization to Alleviate Convergence Failures in Physics Informed Neural Networks](/202607/19/2607.14233v1-ligo-pinn-learned-initialization-via-gated-optimization-to-alleviate-convergence-failures-in-physics-informed-neural-networks)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：提出物理信息神经网络的初始化学习方法以求解PDE
-6. [Neural Very Weak Formulations enabling Hardware-Oriented deep PDE solvers](/202607/19/2607.14498v1-neural-very-weak-formulations-enabling-hardware-oriented-deep-pde-solvers)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：利用神经网络的非常弱形式求解PDE，支持硬件定向实现
-7. [A new strategy for physics-informed neural networks based on hierarchical collocation point refinement](/202607/19/2607.14665v1-a-new-strategy-for-physics-informed-neural-networks-based-on-hierarchical-collocation-point-refinement)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：物理信息神经网络结合分层配点细化求解PDE
-8. [SEED: Self-Evolving On-Policy Distillation for Agentic Reinforcement Learning](/202607/19/2607.14777v1-seed-self-evolving-on-policy-distillation-for-agentic-reinforcement-learning)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：自进化强化学习框架提升智能体技能
-9. [Harnessing Machine Learning for Hybrid Constitutive Modelling of Viscoelastic Fluid Flows in Computational Rheology](/202607/19/2607.14944v1-harnessing-machine-learning-for-hybrid-constitutive-modelling-of-viscoelastic-fluid-flows-in-computational-rheology)  
-   标签：评分：9.0/10、query:sr
-   evidence：使用通用微分方程的混合模型从数据中发现本构方程
-10. [Split Complex-Valued Physics-Informed Neural Networks for Forward and Inverse Nonlinear PDEs](/202607/19/2607.15087v1-split-complex-valued-physics-informed-neural-networks-for-forward-and-inverse-nonlinear-pdes)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：复数值物理信息神经网络求解正反非线性PDE
+   evidence：基于多网格的分层配置点细化PINN
+3. [Multi-Agent LLMs Fail to Explore Each Other](/202607/20/2607.11250v1-multi-agent-llms-fail-to-explore-each-other)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：多智能体LLM探索以学习技能
+4. [Symmetry-Informed Deep Learning for Electromagnetic Scattering](/202607/20/2607.12810v1-symmetry-informed-deep-learning-for-electromagnetic-scattering)  
+   标签：评分：8.0/10、query:physics-ml
+   evidence：利用麦克斯韦方程等变性的对称性信息深度学习
+5. [Learning Physics-Guided Residual Dynamics for Deformable Object Simulation](/202607/20/2607.13451v1-learning-physics-guided-residual-dynamics-for-deformable-object-simulation)  
+   标签：评分：8.0/10、query:physics-ml
+   evidence：物理引导的残差动力学用于可变形物体仿真
+6. [ToolAnchor: Anchoring Counterfactual Context to Boost Agentic Tool-use Capability](/202607/20/2607.14145v1-toolanchor-anchoring-counterfactual-context-to-boost-agentic-tool-use-capability)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：反事实上下文打破行为惯性以提升代理工具使用能力
+7. [Step-Level Preference Learning for Generative Agents in Social Simulations](/202607/20/2607.14485v1-step-level-preference-learning-for-generative-agents-in-social-simulations)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：使用步骤级偏好学习改进生成式agent决策，类似于强化学习
+8. [ToolVerse: Unlocking Massive Environments and Long-Horizon Tasks for Agentic Reinforcement Learning](/202607/20/2607.15660v1-toolverse-unlocking-massive-environments-and-long-horizon-tasks-for-agentic-reinforcement-learning)  
+   标签：评分：8.0/10、query:cfd-agent
+   evidence：大规模工具集成强化学习环境用于代理技能发展
 
 ### 速读区论文标签
-1. [GAE: Graph-Augmented Evolution for Scientific Discovery via Reinforcement Optimization](/202607/19/2607.10127v1-gae-graph-augmented-evolution-for-scientific-discovery-via-reinforcement-optimization)  
-   标签：评分：8.0/10、query:sr
-   evidence：进化程序搜索用于科学发现，类似符号回归
-2. [Integrating Physics-Informed Neural Networks and 3D Vascular Geometry Learning for Cerebral Aneurysm Detection and Multimodal Rupture-Risk Prediction](/202607/19/2607.10530v1-integrating-physics-informed-neural-networks-and-3d-vascular-geometry-learning-for-cerebral-aneurysm-detection-and-multimodal-rupture-risk-prediction)  
+1. [Evaluation of State-of-the-Art Deep Learning Architectures for Aerodynamical Predictions](/202607/20/2607.13866v1-evaluation-of-state-of-the-art-deep-learning-architectures-for-aerodynamical-predictions)  
    标签：评分：8.0/10、query:physics-ml
-   evidence：结合PINN与3D几何学习进行动脉瘤检测
-3. [Cross-Layer Misalignment Detection in Agent Skills: A Progressive Loading-Aware Contrastive Learning Approach](/202607/19/2607.10534v1-cross-layer-misalignment-detection-in-agent-skills-a-progressive-loading-aware-contrastive-learning-approach)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：检测智能体技能的跨层不一致性以提升可靠性
-4. [Agentic-DPO: From Imitation to Agentic Policy Optimization on Expert Trajectories](/202607/19/2607.10601v1-agentic-dpo-from-imitation-to-agentic-policy-optimization-on-expert-trajectories)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：离线策略优化用于智能体技能提升
-5. [LOGOS: A Living Logic for AI Agent Teams That Evolve With Humans](/202607/19/2607.10878v1-logos-a-living-logic-for-ai-agent-teams-that-evolve-with-humans)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：用于多智能体团队自我演进和治理的logos层
-6. [ABot-AgentOS: A General Robotic Agent OS with Lifelong Multi-modal Memory](/202607/19/2607.10350v2-abot-agentos-a-general-robotic-agent-os-with-lifelong-multi-modal-memory)  
+   evidence：评估用于空气动力学PDE求解的算子学习架构
+2. [DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators](/202607/20/2607.14394v1-drift-direct-reduced-fourier-transforms-for-distributed-spectral-neural-operators)  
+   标签：评分：8.0/10、query:physics-ml
+   evidence：分布式谱神经算子用于PDE求解
+3. [Operator-Split Bayesian Learning for Elliptic PDEs with Unequal Interior and Boundary Data](/202607/20/2607.14680v1-operator-split-bayesian-learning-for-elliptic-pdes-with-unequal-interior-and-boundary-data)  
+   标签：评分：8.0/10、query:physics-ml
+   evidence：贝叶斯神经网络先验用于椭圆PDE，算子分裂框架适用于正反问题
+4. [Neural operators solve inverse problems for constitutive model discovery](/202607/20/2607.15049v1-neural-operators-solve-inverse-problems-for-constitutive-model-discovery)  
+   标签：评分：8.0/10、query:physics-ml
+   evidence：神经算子求解本构模型发现的反问题
+5. [Evolutionary Algorithm-Guided LLMs for Physics-Informed Neural Network Design](/202607/20/2607.15560v1-evolutionary-algorithm-guided-llms-for-physics-informed-neural-network-design)  
+   标签：评分：8.0/10、query:physics-ml
+   evidence：进化算法结合LLM自动设计PINN配置
+6. [Self-Improving AI Coding Agents Through Accumulated Behavioral Rules: A Closed-Loop Framework](/202607/20/2607.13091v1-self-improving-ai-coding-agents-through-accumulated-behavioral-rules-a-closed-loop-framework)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：通用机器人智能体操作系统，具备上下文隔离的技能执行与验证
-7. [Distributed Agent System: Fault-Tolerant Collaboration Among Embodied Agents](/202607/19/2607.10811v1-distributed-agent-system-fault-tolerant-collaboration-among-embodied-agents)  
+   evidence：通过审查反馈行为规则自我改进编码代理
+7. [Approximation of solutions of parameter-dependent problems by residual neural networks](/202607/20/2607.13574v1-approximation-of-solutions-of-parameter-dependent-problems-by-residual-neural-networks)  
+   标签：评分：7.0/10、query:physics-ml
+   evidence：用残差神经网络近似参数依赖的ODE/PDE解
+8. [Memory as a Controlled Process: Learned Adaptive Memory Management for LLM Agents](/202607/20/2607.13591v1-memory-as-a-controlled-process-learned-adaptive-memory-management-for-llm-agents)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：多智能体容错协作框架
-8. [Route, Communicate, and Reason: Gated Routing and Adaptive Depth for Efficient Multi-Agent Reasoning](/202607/19/2607.10836v1-route-communicate-and-reason-gated-routing-and-adaptive-depth-for-efficient-multi-agent-reasoning)  
+   evidence：自适应内存管理提升LLM代理技能
+9. [Experience Memory Graph: One-Shot Error Correction for Agents](/202607/20/2607.13884v1-experience-memory-graph-one-shot-error-correction-for-agents)  
    标签：评分：7.0/10、query:cfd-agent
-   evidence：提出了CoGRPO，一种适用于多智能体层级结构的强化学习方法，直接关联多智能体系统技能学习。
-9. [Knowledge- and Gradient-Guided Reinforcement Learning for Parametrized Action Markov Decision Processes](/202607/19/2607.12924v2-knowledge--and-gradient-guided-reinforcement-learning-for-parametrized-action-markov-decision-processes)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：知识引导的强化学习用于代理技能发展
-10. [UNIBROWSE: A Data-to-Agent Framework for Multimodal BrowseComp](/202607/19/2607.10557v1-unibrowse-a-data-to-agent-framework-for-multimodal-browsecomp)  
+   evidence：通过经验记忆图对LLM智能体进行一次性错误纠正
+10. [Structure-Preserving Neural ODEs via Nonstandard Finite Difference Discretization](/202607/20/2607.10858v1-structure-preserving-neural-odes-via-nonstandard-finite-difference-discretization)  
+   标签：评分：6.0/10、query:physics-ml
+   evidence：提出保持正性的神经ODE，符合物理约束要求
+11. [Deep Learning-based Surrogate Modelling of the LOD Method for Multiscale Problems](/202607/20/2607.12570v1-deep-learning-based-surrogate-modelling-of-the-lod-method-for-multiscale-problems)  
+   标签：评分：6.0/10、query:physics-ml
+   evidence：基于深度学习的LOD代理模型，神经算子用于多尺度PDE
+12. [Learning Forced Multibody Dynamics on Lie Groups](/202607/20/2607.12627v1-learning-forced-multibody-dynamics-on-lie-groups)  
+   标签：评分：6.0/10、query:physics-ml
+   evidence：基于几何物理信息的多体动力学学习
+13. [Do AI Agents Know When a Task Is Simple? Toward Complexity-Aware Reasoning and Execution](/202607/20/2607.13034v1-do-ai-agents-know-when-a-task-is-simple-toward-complexity-aware-reasoning-and-execution)  
    标签：评分：6.0/10、query:cfd-agent
-   evidence：面向多模态浏览的数据到智能体框架提升智能体能力
-11. [Structure-preserving variational neural fields: Uncertainty-quantified reduced-order modeling of nonlinear conservation laws](/202607/19/2607.10965v1-structure-preserving-variational-neural-fields-uncertainty-quantified-reduced-order-modeling-of-nonlinear-conservation-laws)  
-   标签：评分：6.0/10、query:physics-ml
-   evidence：结构保持变分神经场，融合守恒律与不确定性量化
-12. [From Observation to Insight: Mechanistic World Models and the Quest for Autonomous Discovery](/202607/19/2607.12474v1-from-observation-to-insight-mechanistic-world-models-and-the-quest-for-autonomous-discovery)  
-   标签：评分：6.0/10、query:sr
-   evidence：机械世界模型用于科学发现
-13. [Residual-Christoffel Sampling for Random Feature Collocation of Linear PDEs](/202607/19/2607.13382v1-residual-christoffel-sampling-for-random-feature-collocation-of-linear-pdes)  
-   标签：评分：6.0/10、query:physics-ml
-   evidence：随机特征配点法求解线性PDE并融入物理约束
+   evidence：复杂性感知推理提升代理效率
 
 
 <div class="dpr-home-promo-card">

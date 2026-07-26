@@ -1,0 +1,1113 @@
+Title: PG-KINN: A Physics-Informed Petrov-Galerkin Kolmogorov-Arnold Network for Solving Forward and Inverse PDEs
+
+URL Source: https://arxiv.org/pdf/2607.20378v1
+
+Published Time: Thu, 23 Jul 2026 01:16:07 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# PG-KINN: A Physics-Informed Petrov–Galerkin Kolmogorov–Arnold Network for Solving Forward and Inverse PDEs 
+
+Amirhossein Sadr a,b , Nima Soltani a, Vahideh Moghtadaiee c, Aida Pakniyat b, Dara Rahmati a, ∗, Saeid Gorgin d
+
+> aDepartment of Computer Science and Engineering, Shahid Beheshti University, Tehran, Iran
+> bSchool of Computer Science, Institute for Research in Fundamental Sciences (IPM), Tehran, Iran
+> cCyberspace Research Institute, Shahid Beheshti University, Tehran, Iran
+> dSchool of Physics, Engineering and Computer Science, University of Hertfordshire, Hatfield, UK
+
+Abstract 
+
+Physics-informed learning of partial differential equations (PDEs) has been dominated by multilayer perceptrons (MLPs), whose spectral bias and dense parameterization limit both accuracy and interpretability. Kolmogorov– Arnold Networks (KANs) mitigate these limitations because their learnable spline activations are structurally aligned with the piecewise-polynomial bases of classical discretizations. However, the way a PDE is cast into a loss functional is as decisive as the choice of approximator: strong-form residual minimization requires high-order derivatives and heavily weighted losses, the energy (Bubnov–Galerkin) form is restricted to self-adjoint operators and, as we show, collapses to a trivial solution for parameter-identification problems, and boundary-integral forms require a known fundamental solution. We propose PG-KINN , a physics-informed KAN built on a Petrov–Galerkin formulation in which the trial space is a KAN and the test space is an independent , compactly supported, piecewise-polynomial space evaluated with Gauss–Legendre quadrature. Integration by parts lowers the differentiation order while retaining applicability to general non-self-adjoint, nonlinear, and inverse prob-lems; the localized test functions turn the global residual into a set of element-wise weak residuals with favorable conditioning. We prove that the resulting residual-based inverse loss is immune to the zero-modulus collapse that afflicts energy-based inverse formulations. On a suite of benchmarks spanning crack singularities, stress concentration, Neo-Hookean hyperelasticity, inverse parameter identification in heterogeneous media, and com-plex geometries—PG-KINN consistently outperforms legacy MLP baselines and state-of-the-art KAN-based strong/energy/inverse formulations (PIKAN). The one exception is extreme complex geometries, where the axis-aligned spline grid remains a bottleneck. These results position the Petrov–Galerkin coupling of KAN trial spaces and polynomial test spaces as a robust and accurate route for AI-based computational mechanics. 
+
+Keywords: Physics-informed neural networks, Kolmogorov–Arnold Networks, Petrov–Galerkin method, Weak-form PDE solvers, Inverse problems, Computational mechanics 
+
+Nomenclature AD Automatic differentiation 
+
+BINN Boundary-integral neural network (inverse form) 
+
+DEM Deep energy method (Bubnov–Galerkin/energy form) 
+
+FEM Finite element method 
+
+PG-KINN KAN trial space in a Petrov–Galerkin weak form (this work) 
+
+GL Gauss–Legendre quadrature 
+
+KAN Kolmogorov–Arnold Network 
+
+MLP Multilayer perceptron   
+
+> ∗Corresponding author
+> Email address: d_rahmati@sbu.ac.ir (Dara Rahmati) arXiv:2607.20378v1 [cs.LG] 22 Jul 2026
+
+2
+
+NTK Neural tangent kernel 
+
+PDE Partial differential equation 
+
+PG Petrov–Galerkin 
+
+PIKAN Physics-informed KAN (strong/energy/inverse form with KAN backbone) 
+
+PINN Physics-informed neural network (strong form) 
+
+VPINN Variational PINN (weak form with MLP) 
+
+1. Introduction 
+
+Partial differential equations (PDEs) are the language of continuum physics, and their reliable solution underpins engineering analysis and design. When geometries, material laws, or boundary conditions become intricate, closed-form solutions are unavailable and numerical methods such as the finite element method (FEM) [1, 2, 3, 4], mesh-free methods [5, 6, 7], finite-difference [8], finite-volume [9], and boundary-element methods [10] become indispensable. Over the last decade, deep learning has emerged as a complementary paradigm for PDEs, broadly organized into physics-informed neural networks (PINNs) [11], operator learning [12, 13], and physics-informed operators [14]. The present work concerns the first paradigm, in which a single network is trained to satisfy the governing equations of one boundary-value problem in a mesh-free manner. A recurring theme in this literature is that the same PDE admits multiple, mathematically equivalent but computationally distinct, variational statements. The strong form underlies collocation-based PINNs [11]; the weak form underlies variational PINNs (hp-VPINNs) [15, 16, 17, 18]; the energy form underlies the deep energy method (DEM) [19, 20, 21]; and the inverse (boundary-integral) form underlies boundary-integral neural networks (BINNs) [22]. Each statement trades derivative order, boundary-condition treatment, and the class of admissible operators against one another, so that the choice of formulation is not a matter of taste but of numerical performance [23]. The second ingredient of any physics-informed solver is the function approximator. The universal approx-imation theorem justifies the multilayer perceptron (MLP) [24, 25], but MLPs suffer from a well-documented spectral bias: through the lens of the neural tangent kernel (NTK), high-frequency components are learned far more slowly than low-frequency ones [26, 27, 28]. The recently proposed Kolmogorov–Arnold Network (KAN) [29], grounded in the Kolmogorov–Arnold representation theorem [30, 31], replaces fixed nodal nonlinearities with learnable univariate functions, typically B-splines. This yields fewer parameters, greater interpretability, and—crucially for PDEs—a trial space whose local, piecewise-polynomial structure mirrors the shape func-tions of FEM and the NURBS bases of isogeometric analysis [32]. Variants replace B-splines with Chebyshev polynomials [33, 34], radial basis functions [35], or wavelets [36], and early studies confirm KAN’s promise for differential equations [37, 38]. Coupling KANs with the different PDE formulations has recently been shown to improve accuracy and convergence over MLP counterparts on strong-, energy-, and inverse-form problems [29]. Yet each of these three formulations carries an intrinsic limitation that KAN alone does not remove: the strong form still requires the highest derivative order and a delicate balancing of residual and boundary penalties; the energy form still requires the operator to be self-adjoint and, as we prove in Section 4.2, becomes ill-posed for material-identification inverse problems; and the boundary-integral form still requires a closed-form fundamental solution, which is unavailable for most nonlinear or heterogeneous operators. A formulation that simultaneously (i) reduces the derivative order, (ii) remains valid for general non-self-adjoint and nonlinear operators, (iii) avoids fundamental solutions, and (iv) is robust for inverse problems, would combine the strengths of all three while inheriting the approximation advantages of KAN. We argue that the classical Petrov–Galerkin method provides exactly this formulation. In a Petrov–Galerkin statement the trial and test spaces are chosen independently : we let the trial space be a KAN and the test space be a fixed, compactly supported, piecewise-polynomial space defined on a background partition and integrated with Gauss–Legendre quadrature. Integration by parts transfers derivatives from the KAN trial function onto the smooth polynomial test functions, lowering the differentiation order (as in the weak/energy forms) while preserving generality (as in the strong form). Because the test functions are local, the single global residual is replaced by a vector of element-wise weak residuals, which improves conditioning and provides a natural, penalty-light treatment of interfaces and Neumann data. 3We term the resulting framework PG-KINN . Its contributions are: 1. A Petrov–Galerkin physics-informed formulation with a KAN trial space and an independent piecewise-polynomial test space, unifying the derivative-order reduction of weak forms with the operator generality of strong forms. 2. An inverse formulation whose residual-based loss we prove to be free of the zero-modulus collapse intrinsic to energy-based inverse problems. 3. A systematic evaluation on singularity, stress-concentration, nonlinear hyperelastic, heterogeneous inverse, and complex-geometry benchmarks, showing consistent accuracy gains over both legacy MLP baselines and state-of-the-art KAN-based strong/energy/inverse formulations, and an honest account of the extreme-complex-geometry limitation. The remainder of the paper is organized as follows. Section 2 motivates the Petrov–Galerkin choice. Sec-tion 3 reviews KANs, the strong form, the Petrov–Galerkin formulation, and its inverse counterpart. Section 4 introduces PG-KINN, including the weak-form derivation, the collapse-freeness proof, the KAN–FEM cor-respondence, and quadrature/test-function details. Section 5 reports numerical experiments, and Section 6 concludes. 
+
+2. Motivation 
+
+The design of a physics-informed solver rests on two coupled decisions—how to represent the solution and how to measure its physical consistency. We motivate PG-KINN by examining the failure modes that arise when either decision is made in isolation, and by showing that a Petrov–Galerkin coupling of a KAN trial space with an independent polynomial test space resolves them jointly. 
+
+Representation: why splines, not MLPs. An MLP trained by gradient descent converges at a rate governed by the eigenspectrum of its NTK, whose eigenvalues decay rapidly so that high-frequency error modes persist [26, 27]. Because differentiation amplifies high frequencies, this spectral bias is especially damaging when the loss involves derivatives of the network, as in every physics-informed formulation. KANs replace global nodal nonlinearities with local B-spline activations; the compact support of the splines flattens the NTK spectrum and equips the trial space with the same piecewise-polynomial locality that makes FEM and isogeometric analysis effective for fields with sharp gradients, interfaces, and singularities. This makes a spline-based KAN the natural trial space for mechanics-oriented PDEs. 
+
+Measurement: the limits of a single formulation. Given a good trial space, three established formulations still each fall short. (i) Strong form. Collocation minimizes the pointwise residual of the highest-order operator, which magnifies approximation error near singularities and forces a fragile, hand-tuned balance between interior and boundary penalties [39, 40]. (ii) Energy form. Minimizing a potential energy lowers the derivative order and eliminates loss weights, but it presupposes a self-adjoint operator that admits an energy functional [19]; for parameter identification it is worse than fragile—we show in Section 4.2 that minimizing strain energy over an unknown modulus drives the modulus to zero, a spurious global minimizer. (iii) Inverse/boundary-integral form. Recasting the problem on the boundary is highly accurate but requires the fundamental solution of the operator [22], which is unavailable for nonlinear or strongly heterogeneous media. 
+
+The Petrov–Galerkin resolution. The weighted-residual (weak) statement multiplies the residual by a test func-tion and integrates by parts, transferring one or more derivatives onto the test function. Choosing the test space independently of the trial space—the defining feature of a Petrov–Galerkin method, in contrast to the Bubnov–Galerkin/energy choice of test = variation of trial—yields four decisive advantages for a KAN-based solver: 
+
+• Lower derivative order without loss of generality. Integration by parts reduces the order demanded of the KAN (as in the energy form) while keeping the formulation valid for non-self-adjoint and nonlinear operators (as in the strong form), and without any fundamental solution (unlike BINN). 4
+
+Generality of operators (measurement) 
+
+> Robustness & low derivative order
+
+Strong form (PINN) high order, fragile weights 
+
+Energy form (DEM) self-adjoint only, inverse collapse 
+
+Inverse form (BINN) needs fundamental sol. 
+
+PG-KINN 
+
+Petrov–Galerkin + KAN low order, general, robust  
+
+> Fig. 1. The design space of physics-informed formulations. Strong, energy, and inverse forms each occupy a corner with a structural limitation. PG-KINN combines a KAN trial space with a Petrov–Galerkin test space to reach the favorable region: low derivative order, generality across operators, and robustness for inverse problems.
+
+• Localized, well-conditioned residuals. Compactly supported polynomial test functions produce one weak residual per background cell. The resulting vector-valued loss is better conditioned than a single global residual and localizes error control where the physics is difficult, echoing the element-wise assembly of FEM. 
+
+• Penalty-light boundary and interface handling. Neumann data enter naturally as boundary inte-grals, and material interfaces are captured by the intrinsic C0 structure of the spline trial space, reducing the number of hand-tuned weights relative to strong-form losses. 
+
+• Robust inverse problems. When the unknown is a material field, the weak residual is affine in that field, giving a genuine least-squares problem whose minimizer is the true field; the trivial (zero) solution is not a minimizer. The synergy is specific: KAN supplies a spline trial space aligned with the geometry of the solution, and the Petrov–Galerkin weak form supplies a measurement of physical consistency that is low-order, general, and robust. Fig. 1 summarizes this design space. PG-KINN is the point at which both decisions are made together. 
+
+3. Preliminaries 
+
+This section fixes notation and reviews the ingredients of PG-KINN: the KAN trial space, the strong form of a boundary-value problem, the Petrov–Galerkin weak form, and its inverse counterpart. 
+
+3.1. Kolmogorov–Arnold Networks 
+
+The Kolmogorov–Arnold representation theorem states that any continuous multivariate function can be written as a finite superposition of continuous univariate functions [30]. KAN operationalizes this by making 5the univariate functions learnable [29]. For a layer with li inputs and lo outputs, each scalar map ϕij is expanded in a B-spline basis of order r on a grid of size G,
+
+ϕij (xj ) = 
+
+> G+r
+
+X
+
+> m=1
+
+c(i,j ) 
+
+> m
+
+Bm(xj ), (1) where {Bm} are the B-spline basis functions and c(i,j ) 
+
+> m
+
+are trainable coefficients. Following [29], a residual path and scaling factors are added so that the layer output reads 
+
+Y =
+
+h P 
+
+> col
+
+ϕ(X) ⊙ S
+
+i
+
++ W σ(X), (2) with ⊙ the element-wise product, S and W scaling/linear factors, and σ a smooth activation (SiLU). Stacking 
+
+N such layers gives the KAN map uh(x; θ) = K(N ) ◦ · · · ◦ K(1) (x). To keep intermediate outputs inside the spline grid [−1, 1] , a tanh is applied after every hidden layer, and the input is affinely rescaled by the bounding box [L, W, X c, Y c] of the domain, 
+
+xs = x − Xc
+
+L/ 2 , ys = y − Yc
+
+W/ 2 . (3) The trainable parameters are the spline coefficients c(i,j ) 
+
+> m
+
+(count lilo(G+r)), the base weights W , and the scalers 
+
+S.
+
+3.2. Strong form of PDEs 
+
+Consider a boundary-value problem on a domain Ω ⊂ Rd with boundary Γ = Γ u ∪ Γt,
+
+
+
+P(u(x)) = f (x), x ∈ Ω,
+
+u(x) = ¯ u(x), x ∈ Γu,
+
+B(u(x)) = ¯ t(x), x ∈ Γt,
+
+(4) where P is the (possibly nonlinear) interior operator, B the Neumann/flux operator, and Γu, Γt the Dirichlet and Neumann boundaries. Strong-form PINNs choose the residual itself as the weight function and minimize 
+
+Lstrong = λr
+
+NrNrX
+
+> i=1
+
+P(uh(xi)) − f (xi) 2 + λb
+
+NbNbX
+
+> i=1
+
+B(uh(xi)) − ¯t(xi) 2 + · · · , (5) which requires the full order of P and a set of weights {λ} that must be tuned. This is our most general but most derivative-hungry baseline. 
+
+3.3. The Petrov–Galerkin formulation 
+
+Multiplying the interior residual by a test function v from a test space V and integrating over Ω gives the weighted-residual statement Z
+
+> Ω
+
+P(u) − f  v d Ω = 0 , ∀v ∈ V . (6) For a second-order operator such as P(u) = −∇· (κ∇u), integration by parts (Green’s identity) transfers one derivative to v, Z
+
+> Ω
+
+κ ∇u · ∇ v d Ω −
+
+Z
+
+> Γt
+
+¯t v d Γ −
+
+Z
+
+> Ω
+
+f v d Ω = 0 , ∀v ∈ V , (7) where Neumann data enter as a natural boundary integral and v is required to vanish on Γu; the full derivation for a general operator is given in Section 4.1. The essential distinction is the choice of the trial space U (which contains u) and the test space V:6
+
+Trial space U
+
+KAN (B-splines) globally smooth trainable θ
+
+Test space V
+
+piecewise-polynomials compact support fixed (no training) 
+
+weak form R (· · · )vk
+
+Bubnov–Galerkin 
+
+V = δU (energy) self-adjoint only 
+
+Petrov–Galerkin (ours) 
+
+V̸ = U (independent) general operators  
+
+> Fig. 2. Petrov–Galerkin versus Bubnov–Galerkin. PG-KINN keeps the trial space (KAN) and the test space (compactly supported piecewise-polynomials) independent, so the weak form applies to general—including non-self-adjoint and nonlinear—operators, unlike the energy form in which the test space is the variation of the trial space.
+
+• In the Bubnov–Galerkin (energy) method, V is taken as the variation δu of the trial space, so trial and test spaces coincide. This yields the deep energy method and is restricted to operators possessing an energy functional. 
+
+• In the Petrov–Galerkin method adopted here, V is chosen independently of U. We set U to be the KAN of Section 3.1 and V = span {vk}Mk=1 to be a fixed, compactly supported, piecewise-polynomial space on a background partition {Ωe} of Ω.Enforcing Eq. (7) against each basis test function vk produces a vector of weak residuals 
+
+Rk(θ) = 
+
+Z
+
+> Ω
+
+κ ∇uh(x; θ) · ∇ vk dΩ −
+
+Z
+
+> Γt
+
+¯t v k dΓ −
+
+Z
+
+> Ω
+
+f v k dΩ, k = 1 , . . . , M, (8) and the network is trained by minimizing their squared sum, 
+
+LPG (θ) = 1
+
+M
+
+> M
+
+X
+
+> k=1
+
+ωk Rk(θ)2 + λu LΓu (θ), (9) where LΓu enforces the Dirichlet data (by penalty or by an admissible construction) and ωk are optional per-cell weights (unity unless stated). All integrals in Eq. (8) are evaluated by Gauss–Legendre quadrature on the background cells (Section 4.4). Because each vk is local, Rk probes the physics on a small patch, and the aggregate loss behaves like an element-wise assembled residual rather than a single global scalar. Fig. 2 contrasts the Bubnov– and Petrov–Galerkin choices. 
+
+3.4. Inverse formulation in Petrov–Galerkin 
+
+In an inverse problem the field u (and possibly f , ¯t) is measured while a material coefficient—say the conductivity κ(x) in −∇ · (κ∇u) = f —is unknown. We represent the coefficient by a KAN, κh(x; θκ), and substitute it into the weak residual Eq. (8) using the measured field for u:
+
+Rk(θκ) = 
+
+Z
+
+> Ω
+
+κh(x; θκ) ∇u · ∇ vk dΩ −
+
+Z
+
+> Γt
+
+¯t v k dΓ −
+
+Z
+
+> Ω
+
+f v k dΩ, (10) and minimize Linv PG (θκ) = 1
+
+> M
+
+P 
+
+> k
+
+Rk(θκ)2. Two features are important. First, since u is fixed data, Rk is affine 
+
+in κh: the map θκ 7 → Rk inherits the linearity of the operator in κ, so the loss is a genuine linear least-squares residual (up to the network parameterization) whose global minimizer reproduces the true coefficient. Second, and in stark contrast to the energy form, the trivial field κh ≡ 0 is not a minimizer: setting κh = 0 leaves the nonzero data terms R 
+
+> Γt
+
+¯t v k + R 
+
+> Ω
+
+f v k, so Rk̸ = 0 . We formalize this collapse-freeness in Section 4.2, contrasting it with the energy-based inverse problem in which the strain-energy minimizer drives the modulus to zero. This is the central reason PG-KINN is well suited to parameter identification in heterogeneous media. 7
+
+4. The Proposed Framework: PG-KINN 
+
+PG-KINN assembles the ingredients of Section 3 into a single, general-purpose solver for forward and inverse PDEs. The trial field is a KAN, the physics is measured by a Petrov–Galerkin weak residual against an independent piecewise-polynomial test space, and all integrals are evaluated by Gauss–Legendre quadrature. Fig. 3 shows the pipeline and Algorithms 1 and 2 state the procedures. 
+
+Trial space. The solution (forward) or the unknown coefficient (inverse) is approximated by a KAN uh(x; θ) as in Eq. (2), with inputs normalized to the spline grid by Eq. (3). The spline grid of the KAN and the background quadrature partition are chosen independently; the former controls the resolution of the trial field, the latter the accuracy of the weak-form integrals. 
+
+Test space. On a background partition {Ωe}Ee=1 of Ω we define M compactly supported test functions {vk}.Two families are used: (i) nodal hat/tensor-product functions of degree p that are C0 across cell faces, and (ii) higher-order interior “bubble” functions built from shifted Legendre polynomials {Lp} that vanish on ∂Ωe,
+
+vbub  
+
+> e,p
+
+(ξ) = (1 − ξ21 )(1 − ξ22 ) Lp(ξ1)Lp(ξ2), ξ ∈ [−1, 1] 2, (11) mapped to Ωe. The test functions are fixed once the partition is set; they carry no trainable parameters. Their locality makes each residual Rk in Eq. (8) sensitive only to the patch supp( vk), which localizes error control and improves conditioning relative to a single global residual. Construction details and the choice of p appear in Section 4.4. 
+
+Weak residual and quadrature. For each vk the weak residual Eq. (8) (forward) or Eq. (10) (inverse) is evaluated by mapping every background cell to the reference element and applying an ng -point Gauss–Legendre rule, 
+
+Z
+
+> Ωe
+
+g(x) dΩ ≈
+
+> n2
+> g
+
+X
+
+> q=1
+
+wq g(x(ξq )) |Je(ξq )|, (12) with Je the cell Jacobian. Gauss–Legendre integration is exact for polynomial integrands up to degree 2ng − 1
+
+and, because the KAN trial field is piecewise-polynomial, delivers markedly lower integration error than the Monte-Carlo sampling used in energy-form baselines (Section 4.4). Gradients of uh inside Eq. (8) are obtained by automatic differentiation [41]. 
+
+Boundary conditions. Neumann/traction data enter naturally through the boundary integral in Eq. (7). Dirich-let data are imposed either by a light penalty term LΓu = 1
+
+> Nu
+
+P 
+
+> i
+
+|uh(xi) − ¯u(xi)|2 or, when a distance function is convenient, by the admissible construction uh = up + D(x) ug with D vanishing on Γu. Because the weak form already encodes the interior physics and natural conditions, the number of tuned weights is far smaller than in Eq. (5). 
+
+Optimization. The parameters are trained with Adam [42] followed by L-BFGS for the forward mechanics problems. The total loss is Eq. (9) for forward problems and Linv PG for inverse problems. Algorithms 1 and 2 formalize the forward and inverse pipelines. For inverse problems the trainable KAN represents the unknown coefficient, the measured field is fixed inside each residual, and the boundary penalty is omitted from the trainable set. By Section 4.2 this loss cannot collapse to the trivial coefficient, unlike the energy form. 
+
+4.1. Mathematical derivation of the Petrov–Galerkin weak form 
+
+We derive the weak form used in Section 3.3 for a general second-order operator and then specialize to the model problems. Consider 
+
+P(u) = −∇·  κ ∇u + b · ∇ u + c u = f in Ω, u = ¯ u on Γu, (κ∇u) · n = ¯ t on Γt, (13) 8
+
+KAN trial 
+
+uh(x; θ)
+
+background partition {Ωe}
+
+test space 
+
+{vk } (poly.) 
+
+Gauss–Legendre quadrature 
+
+weak residuals 
+
+Rk (θ)
+
+loss LPG 
+
++ BC term 
+
+Adam / L-BFGS 
+
+update θ       
+
+> Fig. 3. The PG-KINN pipeline. A KAN provides the trial field uh; an independent, compactly supported piecewise-polynomial test space {vk}is defined on a background partition; each pairing is integrated by Gauss–Legendre quadrature to form a weak residual
+> Rk; the aggregated residual loss (plus a light boundary term) is minimized by Adam/L-BFGS, updating the KAN parameters θ.
+
+Algorithm 1 PG-KINN (Forward)  
+
+> 1:
+
+Input: operator P, data f, ¯u, ¯t; KAN architecture, grid G, order r; background partition {Ωe}; test degree 
+
+p; GL points ng 
+
+> 2:
+
+(a) Build test basis: construct {vk}Mk=1 from nodal hat and interior bubble functions (Eq. (11)) on {Ωe} 
+
+> 3:
+
+(b) Precompute quadrature: map each Ωe to [−1, 1] d; store GL nodes {ξq , w q } and Jacobians |Je|
+
+(Eq. (12))  
+
+> 4:
+
+Initialize KAN parameters θ; normalize inputs by Eq. (3)  
+
+> 5:
+
+for epoch = 1 , . . . , N ep do  
+
+> 6:
+
+for k = 1 , . . . , M do  
+
+> 7:
+
+Evaluate uh and ∇uh at GL nodes of supp( vk) via AD  
+
+> 8:
+
+(c) Assemble residual: Rk(θ) ← a(uh, v k) − ℓ(vk) by Eq. (8) and Eq. (12)  
+
+> 9:
+
+end for  
+
+> 10:
+
+L ← 1
+
+> M
+
+P 
+
+> k
+
+ωkR2 
+
+> k
+
++ λuLΓu 
+
+> 11:
+
+(d) Update: θ ← Adam / L-BFGS step on ∇θ L 
+
+> 12:
+
+end for  
+
+> 13:
+
+Output: trained field uh(x; θ)
+
+where κ is a (possibly spatially varying and anisotropic) coefficient, b an advection field, and c a reaction term; the operator is not required to be self-adjoint (the advection term b · ∇ u breaks self-adjointness). Multiplying by a test function v that vanishes on Γu and integrating over Ω,
+
+Z
+
+> Ω
+
+h
+
+− ∇· (κ∇u) + b · ∇ u + c u − f
+
+i
+
+v d Ω = 0 . (14) Applying the divergence theorem to the leading term, 
+
+−
+
+Z
+
+> Ω
+
+∇· (κ∇u) v d Ω = 
+
+Z
+
+> Ω
+
+(κ∇u) · ∇ v d Ω −
+
+Z
+
+> Γ
+
+(κ∇u) · n v d Γ. (15) Since v = 0 on Γu, the boundary integral reduces to Γt, on which (κ∇u) · n = ¯ t. Substituting Eq. (15) into Eq. (14) gives the Petrov–Galerkin weak form: find u with u = ¯ u on Γu such that 
+
+Z
+
+> Ω
+
+(κ∇u) · ∇ v d Ω + 
+
+Z
+
+> Ω
+
+(b · ∇ u) v d Ω + 
+
+Z
+
+> Ω
+
+c u v d Ω
+
+| {z }
+
+> a(u,v )
+
+=
+
+Z
+
+> Ω
+
+f v d Ω + 
+
+Z
+
+> Γt
+
+¯t v d Γ
+
+| {z }
+
+> ℓ(v)
+
+, ∀v ∈ V . (16) 9
+
+Algorithm 2 PG-KINN (Inverse)  
+
+> 1:
+
+Input: measured field u (or u), operator data f, ¯t; unknown coefficient κ (or material parameters μ); KAN architecture for κh; partition {Ωe}; test basis {vk}; GL points ng 
+
+> 2:
+
+Build {vk} and precompute GL nodes/weights as in Algorithm 1 (steps a–b)  
+
+> 3:
+
+Initialize KAN parameters θκ for κh(x; θκ) 
+
+> 4:
+
+for epoch = 1 , . . . , N ep do  
+
+> 5:
+
+for k = 1 , . . . , M do  
+
+> 6:
+
+Insert measured u into Eq. (10); assemble Rk(θκ) at GL nodes  
+
+> 7:
+
+end for  
+
+> 8:
+
+Linv ← 1
+
+> M
+
+P 
+
+> k
+
+Rk(θκ)2 ▷ no BC penalty; collapse-free by Proposition 1  
+
+> 9:
+
+Update θκ with Adam / L-BFGS on ∇θκ Linv  
+
+> 10:
+
+end for  
+
+> 11:
+
+Output: identified coefficient κh(x; θκ)
+
+The bilinear form a(·, ·) need not be symmetric, which is precisely why a Petrov–Galerkin (independent test space) statement is appropriate: the Bubnov–Galerkin choice v = δu would presuppose symmetry (self-adjointness). For the Poisson/heat model in Section 3.3 we set κ = κI, b = 0, c = 0 , recovering Eq. (7). Replacing v by the finite test basis {vk} yields the residuals Rk = a(uh, v k) − ℓ(vk) of Eq. (8). For the elas-ticity problems, the same steps applied to the momentum balance −∇· σ = f give the virtual-work residual R 
+
+> Ω
+
+σ : ∇vk dΩ − R 
+
+> Γt
+
+¯t · vk dΓ − R 
+
+> Ω
+
+f · vk dΩ, and for finite deformation σ is replaced by the first Piola–Kirchhoff stress P = ∂Ψ/∂ F with the integral taken over the reference configuration [43]. Only first derivatives of uh
+
+appear, one order lower than the strong form Eq. (5). 
+
+4.2. Collapse-freeness of the Petrov–Galerkin inverse loss 
+
+We show that the residual-based inverse loss of Section 3.4 does not admit the trivial-coefficient minimizer that afflicts the energy-based inverse problem. 
+
+Energy-based inverse problem collapses. Consider linear elasticity with unknown modulus E (Poisson ratio ν
+
+fixed) and prescribed displacement data u, tractions ¯t, and body force f . The deep energy method minimizes 
+
+LDEM =
+
+Z
+
+> Ω
+
+Ψ dΩ −
+
+Z
+
+> Γt
+
+¯t · u dΓ −
+
+Z
+
+> Ω
+
+f · u dΩ, Ψ = 12 σij εij , σij = 2 Gε ij + λε kk δij . (17) Because u, ¯t, f are data, the last two integrals are constants in the optimization over E, and εij is fixed. With 
+
+G = E 
+
+> 2(1+ ν)
+
+and λ = Eν  
+
+> (1+ ν)(1 −2ν)
+
+both proportional to E, the strain energy is Ψ = E Ψ0 with Ψ0 ≥ 0 independent of E. Hence 
+
+arg min 
+
+> E≥0
+
+Z
+
+> Ω
+
+Ψ dΩ = arg min  
+
+> E≥0
+
+E
+
+Z
+
+> Ω
+
+Ψ0 dΩ = 0 , (18) so the energy form drives E → 0: a spurious global minimizer with zero strain energy. This is the zero-modulus collapse. 
+
+Petrov–Galerkin residual does not collapse. Consider the same class of inverse problems in weak-residual form. For the conductivity problem (the elasticity case is identical with κ → E and gradients replaced by symmetric gradients), the residuals are affine in the unknown field, 
+
+Rk(θκ) = 
+
+Z
+
+> Ω
+
+κh(x; θκ) ∇u · ∇ vk dΩ
+
+| {z } 
+
+> linear in κh
+
+−
+
+ Z
+
+> Γt
+
+¯t v k dΓ + 
+
+Z
+
+> Ω
+
+f v k dΩ
+
+| {z }  
+
+> =: ℓk(data, constant)
+
+. (19) Setting the trivial coefficient κh ≡ 0 gives Rk = −ℓk, and therefore 
+
+Linv PG (κh ≡ 0) = 1
+
+M
+
+> M
+
+X
+
+> k=1
+
+ℓ2
+
+> k
+
+. (20) 10 Whenever the data are nontrivial—i.e. there exists at least one test function with ℓk̸ = 0 , which holds for any problem with a nonzero source or nonzero Neumann flux—we have Linv PG (κh ≡ 0) > 0, so κh ≡ 0 is not aminimizer. 
+
+Proposition 1 (Collapse-freeness) . Let u be exact data generated by the true coefficient κ⋆, so that Rk(κ⋆) = 0 
+
+for all k. Then Linv PG (κ⋆) = 0 , while Linv PG (0) = 1
+
+> M
+
+P 
+
+> k
+
+ℓ2 
+
+> k
+
+> 0 whenever the data are nontrivial. Consequently the trivial coefficient is never a global minimizer, and if the test space is rich enough that {vk} determines κ from R 
+
+> Ω
+
+κ ∇u · ∇ vk uniquely, the true coefficient κ⋆ is the unique global minimizer. Proof. Rk(κ⋆) = 0 gives Linv PG (κ⋆) = 0 , the global lower bound of a sum of squares. Eq. (20) gives Linv PG (0) > 0.Uniqueness follows because Rk is affine in κh: the minimizers form the affine solution set of R 
+
+> Ω
+
+κh∇u · ∇ vk = ℓk
+
+for all k, which is the singleton {κ⋆} under the stated identifiability of the test space. The contrast with Eq. (18) is the crux: the energy form discards the external-work data during optimization (they become additive constants), whereas the weak residual keeps them inside each Rk through ℓk, anchoring the minimizer to the true coefficient. This is why PG-KINN is used only in weak-residual form for inverse problems. 
+
+4.3. Similarities between KAN B-splines and finite element shape functions 
+
+The affinity between PG-KINN and classical discretizations rests on the fact that a KAN edge is a spline expansion, and splines are the bases of FEM and isogeometric analysis. Consider a 1D linear finite element mesh of N elements, 
+
+ufem (x) =  
+
+> N+1
+
+X
+
+> i=1
+
+Ni(x) ui, (21) with hat shape functions Ni, and a [1 , 1] KAN of grid size N ,
+
+ukan (x) =  
+
+> N+k
+
+X
+
+> i=1
+
+Bi(x) ci, (22) neglecting the residual/scaler terms for clarity. For first-order splines ( k = 1 ) one has Bi(x) = Ni(x) exactly, so a single KAN edge is a linear finite element expansion. For quadratic order ( k = 2 , grid size 2) the four B-spline coefficients {c1, . . . , c 4} are determined by the three nodal values {u1, u 2, u 3}: matching ufem = ukan 
+
+on [−1, 0] and [0 , 1] yields 
+
+c1
+
+c2
+
+c3
+
+c4
+
+ =
+
+
+
+1.75 −1 0.25 0.25 1 −0.25 
+
+−0.25 1 0.25 0.25 −1 1.75 
+
+u1
+
+u2
+
+u3
+
+ , (23) so quadratic FEM is contained in the quadratic KAN. In two dimensions the correspondence is exact once the additive KAN combination is made multiplicative: a [2 , 1] KAN with grid size N and order 1 gives K(x) = P 
+
+> i
+
+N xi (x)cxi + P 
+
+> i
+
+N yi (y)cyi , whereas the tensor-product FEM field is u(x) = P 
+
+> i
+
+Ni(x)ui with Ni = N xi N yi ;replacing the sum of the two edge maps by their product, 
+
+Kmult (x) = 
+
+ X 
+
+> i
+
+N xi (x)cxi
+
+ X 
+
+> j
+
+N yj (y)cyj
+
+
+
+= X
+
+> i,j
+
+N xi (x)N yj (y) cxi cyj , (24) reproduces the FEM tensor-product basis. Since a deep KAN composes such spline maps, ukan = S(S(· · · S(x))) 
+
+is a nested shape-function expansion, and because B-splines are a special case of NURBS, the same reasoning links KAN to isogeometric analysis. This structural kinship is what makes the KAN trial space a natural partner for the weak (Petrov–Galerkin) forms used throughout the paper: both are piecewise-polynomial, so quadrature is accurate and interfaces are captured by the C0 structure. 11 
+
+4.4. Numerical integration and construction of piecewise-polynomial test functions Gauss–Legendre quadrature. Every weak residual Eq. (8) is a sum of cell integrals. On a background cell Ωe we map to the reference square [−1, 1] 2 and apply a tensor-product Gauss–Legendre rule, 
+
+Z
+
+> Ωe
+
+g d Ω = 
+
+Z
+
+> [−1,1] 2
+
+g(x(ξ)) |Je(ξ)| dξ ≈
+
+> ng
+
+X
+
+> p=1
+> ng
+
+X
+
+> q=1
+
+wpwq g x(ξp, ξ q ) |Je(ξp, ξ q )|, (25) where {ξp, w p} are the 1D Gauss–Legendre nodes and weights (roots of the Legendre polynomial Lng ), computed once by the Golub–Welsch algorithm [44, 45]. The rule is exact for polynomial integrands of degree ≤ 2ng − 1.Because both the KAN trial field and the polynomial test functions are piecewise-polynomial, the integrand 
+
+κ∇uh · ∇ vk is nearly polynomial on each cell, and a modest ng (we use ng = 4 –6) integrates it to near machine precision for the tested settings. This is the mechanism behind the beam experiment (Section 5.2), where Gauss–Legendre quadrature reduces the error by more than an order of magnitude relative to Monte-Carlo sampling. 
+
+Piecewise-polynomial test functions. The test space is spanned by two families defined on the partition {Ωe}.
+
+(i) Nodal C0 functions. Tensor products of 1D hat (degree 1) or Lagrange (degree p) functions, continuous across cell faces and supported on the cells adjacent to a node. (ii) Interior bubble functions. On each cell, shifted Legendre polynomials multiplied by a vanishing envelope, 
+
+vbub  
+
+> e,p
+
+(ξ) = (1 − ξ21 )(1 − ξ22 ) Lp(ξ1) Lp(ξ2), p = 0 , 1, . . . , p max , (26) which vanish on ∂Ωe and are therefore admissible ( v = 0 on Γu is enforced by excluding boundary-node functions on Γu). The Legendre factor makes the family hierarchical and nearly L2-orthogonal, so distinct 
+
+vk probe distinct spectral content of the residual, which flattens the effective conditioning of the loss Eq. (9). The number of test functions per cell, Me = ( pmax + 1) 2, controls how finely the weak form is sampled; we use pmax = 2 –4 depending on the field complexity, matched to the KAN grid size. The partition for the test space and the spline grid of the KAN are chosen independently: refining the test partition sharpens the physics measurement, while refining the KAN grid sharpens the trial representation. 
+
+5. Numerical Experiments 
+
+We evaluate PG-KINN on benchmarks drawn from computational solid mechanics. Unless stated otherwise, all methods share the same optimizer, learning rate ( 10 −3 for Adam), and sampling budget. We report the relative L2 error 
+
+ϕL2 =
+
+R 
+
+> Ω
+
+|ϕpred − ϕexact |2 dΩ
+
+R 
+
+> Ω
+
+|ϕexact |2 dΩ , (27) and, where stress accuracy matters, the relative H1 error of the Mises field. Reference solutions are analytical where available and FEM otherwise. Two baseline families are compared: 
+
+• Baseline 1 (Legacy MLP): strong-form PINN-MLP, energy-form DEM-MLP, inverse-form BINN-MLP, and Petrov–Galerkin PG-MLP (VPINN-style [15]). 
+
+• Baseline 2 (SOTA KINN): PIKAN_CPINNs (strong+KAN), PIKAN_DEM (energy+KAN), and PIKAN_BINN (inverse+KAN) [29], which isolate the effect of the formulation when the backbone is held fixed. PG-KINN denotes the Petrov–Galerkin KAN of Section 4; its errors are highlighted in bold in the tables. Computations use a single GPU. 12 
+
+> Table 1
+> Mode III crack: accuracy. Baseline 1: legacy MLP; Baseline 2: PIKAN (KINN).
+
+Method Rel. L2 error Grid size Grid range Order Architecture 
+
+Baseline 1 (Legacy MLP) 
+
+PINN-MLP (strong) 0.06254 – – – [2,30,30,30,30,1] DEM-MLP (energy) 0.02429 – – – [2,30,30,30,30,1] PG-MLP (VPINN) 0.01810 – – – [2,30,30,30,30,1] 
+
+Baseline 2 (SOTA KINN) 
+
+PIKAN_CPINNs (strong+KAN) 0.02988 10 [-1,1] 3 [2,5,5,1] PIKAN_DEM (energy+KAN) 0.01117 10 [-1,1] 3 [2,5,5,1] PIKAN_BINN (inverse+KAN) 0.00083 10 [-1,1] 3 [2,5,5,5,1] 
+
+PG-KINN (PG+KAN) 0.00081 10 [-1,1] 3 [2,5,5,1] 
+
+5.1. Singularity and Discontinuity Problems 5.1.1. Mode III Crack (Singularity) 
+
+The anti-plane (Mode III) crack is a canonical singular problem on Ω = [ −1, 1] 2. The strong-form governing equations and boundary conditions are 
+
+(
+
+∆u = 0 , x ∈ Ω,
+
+¯u(x) = r1/2 sin( θ/ 2) , x ∈ Γ, (28) where (r, θ ) are polar coordinates and θ ∈ [−π, π ], so that u is discontinuous across the crack face x < 0, y = 0 .The crack-tip strain εzθ = 12√r is singular at the origin. Baseline strong-form CPINNs [46] minimize 
+
+LCPINNs = λ1
+
+> N+
+
+X
+
+> i=1
+
+|∆u+(xi)|2 + λ2
+
+> N−
+
+X
+
+> i=1
+
+|∆u−(xi)|2 + λ3
+
+> Nb+
+
+X
+
+> i=1
+
+|u+ − ¯u|2 + λ4
+
+> Nb−
+
+X
+
+> i=1
+
+|u− − ¯u|2
+
++ λ5
+
+> NI
+
+X
+
+> i=1
+
+|u− − u+|2 + λ6
+
+> NI
+
+X
+
+> i=1
+
+|n·(∇u+ − ∇ u−)|2,
+
+(29) with {λi}6 
+
+> i=1
+
+= {1, 1, 50 , 50 , 10 , 10 }; the energy-form DEM baseline minimizes LDEM = R 
+
+> Ω12
+
+|∇ u|2 dΩ with hard essential BCs. PG-KINN has no such hyperparameters: it minimizes LPG from Eq. (9). We compare the strong-form PINN, the energy-form DEM, PG-MLP, and PG-KINN. Table 1 quantifies the comparison: PG-KINN attains the lowest relative L2 error. 
+
+5.1.2. Plate with a Central Hole (Stress Concentration) 
+
+The plate with a central hole tests stress concentration in linear elasticity. On the quarter model Ω (L =20 mm) the governing equations are 
+
+
+
+σij,j = 0 , x ∈ Ω,σij = E
+
+1 + ν εij + Eν 
+
+(1 + ν)(1 − 2ν) εkk δij , x ∈ Ω,εij = 12 (ui,j + uj,i ), x ∈ Ω,ux = 0 on x = 0 , uy = 0 on y = 0 , σij nj = ¯ ti on Γt,
+
+(30) with E = 1000 MPa, ν = 0 .3 (plane stress), hole radius 5 mm, and applied traction tx = 100 N/mm on the right edge. The strong-form PINN baseline minimizes a heavily weighted residual with eight penalty terms [29]; the DEM baseline minimizes LDEM = R 
+
+> Ω
+
+Ψ dΩ − R 
+
+> Γright
+
+txux dΓ with Ψ = 12 σij εij and admissible displacements 
+
+ux = xˆux, uy = yˆuy .13 
+
+> Table 2
+> Plate with a central hole: accuracy.
+
+Method Disp. L2 Mises H1 Grid size Grid range Order Architecture 
+
+Baseline 1 (Legacy MLP) 
+
+PINN-MLP (strong) 0.00858 0.00649 – – – [2,30,30,30,30,2] DEM-MLP (energy) 0.00154 0.01150 – – – [2,30,30,30,30,2] PG-MLP (VPINN) 0.00110 0.00350 – – – [2,30,30,30,30,2] 
+
+Baseline 2 (SOTA KINN) 
+
+PIKAN_CPINNs (strong+KAN) 0.00629 0.00481 15 [0,1] 3 [2,5,5,5,2] PIKAN_DEM (energy+KAN) 0.00092 0.00517 15 [0,1] 3 [2,5,5,5,2] PIKAN_BINN (inverse+KAN) 0.00023 0.00211 10 [0,20] 3 [2,5,5,5,2] 
+
+PG-KINN (PG+KAN) 0.00035 0.00160 15 [0,1] 3 [2,5,5,5,2] 
+
+> Table 3
+> Neo-Hookean cantilever beam: accuracy.
+
+Method Disp. L2 Grid size Grid range Order Architecture 
+
+Baseline 1 (Legacy MLP) 
+
+DEM-MLP, Monte-Carlo 0.04756 – – – [2,30,30,30,30,2] DEM-MLP, Simpson 0.01753 – – – [2,30,30,30,30,2] 
+
+Baseline 2 (SOTA KINN) 
+
+PIKAN_DEM, Monte-Carlo 0.03334 15 [0,1] 3 [2,5,5,5,2] PIKAN_DEM, trapezoidal 0.00254 15 [0,1] 3 [2,5,5,5,2] PIKAN_DEM, Simpson 0.00218 15 [0,1] 3 [2,5,5,5,2] 
+
+PG-KINN, Gauss–Legendre 0.00192 15 [0,1] 3 [2,5,5,5,2] Table 2 reports the final displacement ( L2) and Mises-stress ( H1) errors. PG-KINN attains the lowest displacement error and the best Mises-stress accuracy among the Petrov–Galerkin and strong-form baselines. 
+
+5.2. Nonlinear Hyperelasticity (Neo-Hookean Cantilever Beam) 
+
+We test geometrically and materially nonlinear solid mechanics. On the reference domain Ω = [0 , L ] × [0 , H ]
+
+(L = 4 , H = 1 ) the governing equations are 
+
+
+
+∇· P = 0, X ∈ Ω,
+
+P = ∂Ψ/∂ F , F = ∂x/∂ X, x = X + u, X ∈ Ω,
+
+u = 0 at X1 = 0 , ¯t = (0 , −5) T at X1 = L, 
+
+(31) with Neo-Hookean strain energy 
+
+Ψ = 12 λ(ln J)2 − μ ln J + 12 μ(I1 − 3) , J = det F , I 1 = tr( F ⊤F ), (32) Lamé parameters λ, μ from E = 1000 , ν = 0 .3. The DEM baseline minimizes LDEM = R
+
+> Ω
+
+(Ψ −f·u) dΩ−R 
+
+> Γt
+
+¯t·u dΓ
+
+[29]. PG-KINN forms the Petrov–Galerkin residual from the first variation of the total potential, i.e. R 
+
+> Ω
+
+P :
+
+∇vk dΩ − R 
+
+> Γt
+
+¯t · vk dΓ = 0 .Because the energy integral must be evaluated accurately, we compare quadrature rules. Table 3 reports that PG-KINN with Gauss–Legendre quadrature is the most accurate configuration; low-order rules (trapezoidal) already suffice for the KAN trial space, while Monte-Carlo integration should be avoided. 14                      
+
+> Table 4
+> Highly heterogeneous conductivity identification: relative L2errors. P: Picasso-like, C: Caspar-like, V: Van Gogh-like.
+> Method Data-driven L2PDE inverse L2Grid size Order Architecture MLP P: 48.6%; C: 21.5%; V: 35.0% –––[2,200,200,1]
+> PG-KINN (KAN) P: 21.1%; C: 3.4%; V: 12.9% P: 31.2%; C: 5.5%; V: 20.2% 100 3[2,15,15,1]
+> Table 5
+> Complex geometries: relative L2error.
+
+Method Rel. L2 error Grid size Order Architecture 
+
+Baseline 1 (Legacy MLP) 
+
+PINN-MLP (strong, Koch) 0.01939 – – [2,30,30,30,30,1] DEM-MLP (Koch) 0.01563 – – [2,30,30,30,30,1] 
+
+Baseline 2 (SOTA KINN) 
+
+PIKAN_CPINNs (Koch) 0.01188 10 2 [2,5,5,5,1] PIKAN_DEM (Koch) 0.01565 3 2 [2,5,5,1] PIKAN_BINN (flower) 0.00473 10 3 [2,5,5,5,1] 
+
+PG-KINN (Koch) 0.00950 10 2 [2,5,5,5,1] 
+
+PG-KINN (flower) 0.00473 10 3 [2,5,5,5,1] 
+
+5.3. Inverse Problems: Parameter Identification in Heterogeneous Media 
+
+We now identify an unknown material field from measured responses using the collapse-free inverse formu-lation of Section 3.4. 
+
+5.3.1. Highly Heterogeneous Thermal Conductivity (Famous Paintings) 
+
+To stress-test the fitting capacity, we identify a spatially varying conductivity k(x, y ) on [0 , 1] 2 from a manufactured temperature field. The forward problem is 
+
+(
+
+−∇· (k∇T ) = f, (x, y ) ∈ [0 , 1] 2,T (x, y ) = cos(15 πxy ), f = cos(15 πxy )(15 πx )2 + (15 πy )2k(x, y ), (33) with k given by three grayscale textures (Picasso-like P, Caspar-like C, Van Gogh-like V) [47, 48]. PG-KINN minimizes Linv PG of Algorithm 2 with kh represented by a KAN. Table 4 lists the data-driven and physics-based inverse errors: the KAN trial space substantially outperforms the MLP on high-contrast textures, and the collapse-free weak residual recovers the conductivity field directly from the PDE. 
+
+5.4. Performance on Complex Geometries 
+
+We probe the limitation of the spline trial space on extreme complex geometries. We solve 
+
+(
+
+∆u = 0 , x ∈ Ω,u = sin( x) sinh( y) + cos( x) cosh( y), x ∈ ∂Ω, (34) on a Koch snowflake and a flower-shaped domain. Table 5 reports that PG-KINN on the Koch snowflake attains 
+
+e = 9 .5 × 10 −3, beating PIKAN_CPINNs ( 0.01188 ) and matching PIKAN_BINN on the flower problem. The reason is structural: the KAN spline grid is axis-aligned and rectangular, so a highly non-rectangular boundary forces a mismatch between the simplicity of the target field and the grid needed to conform to the geometry. This is consistent with the known difficulty of spline bases on fractal boundaries and motivates adaptive or conformal grids for extreme cases. 15 
+
+6. Conclusion 
+
+We introduced PG-KINN, a physics-informed Kolmogorov–Arnold network built on a Petrov–Galerkin weak formulation. The framework pairs a KAN trial space, whose local spline structure mirrors the shape functions of finite elements, with an independent , compactly supported, piecewise-polynomial test space evaluated by Gauss– Legendre quadrature. This combination inherits the low derivative order of the energy form, the operator generality of the strong form, and—unlike either—a residual-based loss that remains well posed for inverse problems. We proved that this inverse loss cannot collapse to the trivial coefficient that ruins energy-based identification, and we derived the weak form for general operators. Formal forward and inverse algorithms (Algorithms 1 and 2) make the pipeline directly implementable. Across a benchmark suite spanning crack singularities, stress concentration, Neo-Hookean hyperelasticity, highly heterogeneous inverse identification, and complex geometries—PG-KINN was consistently more accu-rate than legacy MLP baselines and state-of-the-art KAN-based strong/energy/inverse formulations (PIKAN). It identified conductivity fields robustly in the inverse setting. The remaining limitation is extreme complex geometries (Koch snowflake, flower), where the axis-aligned spline grid is a bottleneck; here PG-KINN is com-petitive with PIKAN on the Koch domain but does not match PIKAN_BINN on the flower problem. Several directions follow. Adaptive isoparametric refinement and conformal mappings can improve accuracy on irregular boundaries; h-adaptive refinement of the KAN grid remains attractive. On the efficiency side, the per-epoch cost of B-spline evaluation can be reduced with faster bases such as Chebyshev polynomials [33, 34]. On the formulation side, adaptive and adversarial choices of the test space [49] and rigorous quadrature/test-function analysis [18] may further tighten accuracy. We believe the Petrov–Galerkin coupling of learnable spline trial spaces with fixed polynomial test spaces is a principled and extensible foundation for AI-based computational mechanics. 
+
+Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Acknowledgements 
+
+The authors acknowledge that ChatGPT, available at https://openai.com/chatgpt, was used for language editing and proofreading purposes. All technical content, analyses, and conclusions were entirely developed and written by the authors. 
+
+References 
+
+[1] O. C. Zienkiewicz, R. L. Taylor, J. Z. Zhu, The finite element method: its basis and fundamentals, Elsevier, 2005. [2] T. J. Hughes, The finite element method: linear static and dynamic finite element analysis, Courier Cor-poration, 2012. [3] K.-J. Bathe, Finite element procedures, Klaus-Jurgen Bathe, 2006. [4] J. N. Reddy, Introduction to the finite element method, McGraw-Hill Education, 2019. [5] G.-R. Liu, D. Karamanlidis, Mesh free methods: moving beyond the finite element method, Appl. Mech. Rev. 56 (2) (2003) B17–B18. [6] T. Rabczuk, T. Belytschko, Cracking particles: a simplified meshfree method for arbitrary evolving cracks, International journal for numerical methods in engineering 61 (13) (2004) 2316–2343. 16 [7] V. P. Nguyen, T. Rabczuk, S. Bordas, M. Duflot, Meshless methods: a review and computer implementation aspects, Mathematics and computers in simulation 79 (3) (2008) 763–813. [8] R. J. LeVeque, Finite difference methods for ordinary and partial differential equations: steady-state and time-dependent problems, SIAM, 2007. [9] M. Darwish, F. Moukalled, The finite volume method in computational fluid dynamics: an advanced introduction with OpenFOAM ® and Matlab ®, Springer, 2016. [10] C. A. Brebbia, J. C. F. Telles, L. C. Wrobel, Boundary element techniques: theory and applications in engineering, Springer Science & Business Media, 2012. [11] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning frame-work for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. [12] L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, Learning nonlinear operators via deeponet based on the universal approximation theorem of operators, Nature Machine Intelligence 3 (3) (2021) 218–229. 
+
+doi:10.1038/s42256-021-00302-5 .[13] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, A. Anandkumar, Fourier neural operator for parametric partial differential equations, arXiv preprint arXiv:2010.08895 (2020). [14] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, A. Anandkumar, Physics-informed neural operator for learning partial differential equations, ACM/JMS Journal of Data Science 1 (3) (2024) 1–27. [15] E. Kharazmi, Z. Zhang, G. E. Karniadakis, hp-vpinns: Variational physics-informed neural networks with domain decomposition, Computer Methods in Applied Mechanics and Engineering 374 (2021) 113547. [16] E. Kharazmi, Z. Zhang, G. E. Karniadakis, Variational physics-informed neural networks for solving partial differential equations, arXiv preprint arXiv:1912.00873 (2019). [17] R. Khodayi-Mehr, M. Zavlanos, Varnet: Variational neural networks for the solution of partial differential equations, Proceedings of Machine Learning Research 120 (2020) 298–307. [18] S. Berrone, C. Canuto, M. Pintore, Variational physics informed neural networks: the role of quadratures and test functions, Journal of Scientific Computing 92 (3) (2022) 100. [19] E. Samaniego, C. Anitescu, S. Goswami, V. M. Nguyen-Thanh, H. Guo, K. Hamdia, X. Zhuang, T. Rabczuk, An energy approach to the solution of partial differential equations in computational me-chanics via machine learning: Concepts, implementation and applications, Computer Methods in Applied Mechanics and Engineering 362 (2020) 112790. [20] B. Yu, et al., The deep ritz method: a deep learning-based numerical algorithm for solving variational problems, Communications in Mathematics and Statistics 6 (1) (2018) 1–12. [21] Y. Wang, J. Sun, W. Li, Z. Lu, Y. Liu, Cenn: Conservative energy method based on neural networks with subdomains for solving variational problems involving heterogeneous and complex geometries, Computer Methods in Applied Mechanics and Engineering 400 (2022) 115491. [22] J. Sun, Y. Liu, Y. Wang, Z. Yao, X. Zheng, Binn: A deep learning approach for computational mechanics problems based on boundary integral equations, Computer Methods in Applied Mechanics and Engineering 410 (2023) 116012. [23] W. Li, M. Z. Bazant, J. Zhu, A physics-guided neural network framework for elastic plates: Comparison of governing equations-based and energy-based approaches, Computer Methods in Applied Mechanics and Engineering 383 (2021) 113933. doi:10.1016/j.cma.2021.113933 .17 [24] K. Hornik, M. Stinchcombe, H. White, Multilayer feedforward networks are universal approximators, Neural networks 2 (5) (1989) 359–366. [25] G. Cybenko, Approximation by superpositions of a sigmoidal function, Mathematics of control, signals and systems 2 (4) (1989) 303–314. [26] A. Jacot, F. Gabriel, C. Hongler, Neural tangent kernel: Convergence and generalization in neural networks, Advances in neural information processing systems 31 (2018). [27] S. Wang, H. Wang, P. Perdikaris, On the eigenvector bias of fourier feature networks: From regression to solving multi-scale pdes with physics-informed neural networks, Computer Methods in Applied Mechanics and Engineering 384 (2021) 113938. doi:10.1016/j.cma.2021.113938 .[28] N. Rahaman, A. Baratin, D. Arpit, F. Draxler, M. Lin, F. Hamprecht, Y. Bengio, A. Courville, On the spectral bias of neural networks, in: International conference on machine learning, PMLR, 2019, pp. 5301– 5310. [29] Z. Liu, Y. Wang, S. Vaidya, F. Ruehle, J. Halverson, M. Soljacc, T. Y. Hou, M. Tegmark, Kan: Kolmogorov-arnold networks, arXiv preprint arXiv:2404.19756 (2024). [30] A. N. Kolmogorov, On the representation of continuous functions of several variables by superpositions of continuous functions of a smaller number of variables, American Mathematical Society, 1961. [31] J. Braun, M. Griebel, On a constructive proof of kolmogorov superposition theorem, Constructive approx-imation 30 (2009) 653–675. [32] T. J. Hughes, J. A. Cottrell, Y. Bazilevs, Isogeometric analysis: Cad, finite elements, nurbs, exact geometry and mesh refinement, Computer methods in applied mechanics and engineering 194 (39-41) (2005) 4135– 4195. [33] S. SS, Chebyshev polynomial-based kolmogorov-arnold networks: An efficient architecture for nonlinear function approximation, arXiv preprint arXiv:2405.07200 (2024). [34] K. Shukla, J. D. Toscano, Z. Wang, Z. Zou, G. E. Karniadakis, A comprehensive and fair comparison between mlp and kan representations for differential equations and operator networks, arXiv preprint arXiv:2406.02917 (2024). [35] Z. Li, Kolmogorov-arnold networks are radial basis function networks, arXiv preprint arXiv:2405.06721 (2024). [36] Z. Bozorgasl, H. Chen, Wav-kan: Wavelet kolmogorov-arnold networks, arXiv preprint arXiv:2405.12832 (2024). [37] S. Rigas, M. Papachristou, T. Papadopoulos, F. Anagnostopoulos, G. Alexandridis, Kolmogorov-arnold networks for solving partial differential equations, IEEE Access 12 (2024) 176982–176998. [38] Y. Wang, J. W. Siegel, Z. Liu, T. Y. Hou, On the expressiveness and spectral bias of kans, arXiv preprint arXiv:2410.01803 (2024). [39] S. Wang, Y. Teng, P. J. S. J. o. S. C. Perdikaris, Understanding and mitigating gradient flow pathologies in physics-informed neural networks, SIAM Journal on Scientific Computing 43 (5) (2021) A3055–A3081. [40] S. Wang, X. Yu, P. Perdikaris, When and why pinns fail to train: A neural tangent kernel perspective, Journal of Computational Physics 449 (2022) 110768. [41] A. G. Baydin, B. A. Pearlmutter, A. A. Radul, J. M. Siskind, Automatic differentiation in machine learning: a survey, Journal of Marchine Learning Research 18 (2018) 1–43. 18 [42] D. P. Kingma, J. Ba, Adam: A method for stochastic optimization, arXiv preprint arXiv:1412.6980 (2014). [43] J. Bonet, R. D. Wood, Nonlinear Continuum Mechanics for Finite Element Analysis, Cambridge University Press, 1997. [44] G. H. Golub, C. F. Van Loan, Matrix Computations, 4th Edition, Johns Hopkins University Press, Balti-more, 2013. [45] A. Quarteroni, R. Sacco, F. Saleri, Numerical Mathematics, Vol. 37, Springer Science & Business Media, 2008. [46] A. D. Jagtap, E. Kharazmi, G. E. Karniadakis, Conservative physics-informed neural networks on dis-crete domains for conservation laws: Applications to forward and inverse problems, Computer Methods in Applied Mechanics and Engineering 365 (2020) 113028. [47] C.-T. Chen, G. X. Gu, Learning hidden elasticity with deep neural networks, Proceedings of the National Academy of Sciences 118 (31) (2021) e2102721118. [48] B. Liu, Y. Wang, T. Rabczuk, T. Olofsson, W. Lu, Multi-scale modeling in thermal conductivity of polyurethane incorporated with phase change materials using physics-informed neural networks, Renewable Energy 220 (2024) 119565. [49] Y. Zang, G. Bao, X. Ye, H. Zhou, Weak adversarial networks for high-dimensional partial differential equations, Journal of Computational Physics 411 (2020) 109409.

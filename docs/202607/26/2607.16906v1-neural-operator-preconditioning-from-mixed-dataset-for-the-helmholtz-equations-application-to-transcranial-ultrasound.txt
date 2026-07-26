@@ -1,0 +1,4874 @@
+Title: Neural operator preconditioning from mixed dataset for the Helmholtz equations: Application to transcranial ultrasound
+
+URL Source: https://arxiv.org/pdf/2607.16906v1
+
+Published Time: Tue, 21 Jul 2026 00:52:32 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Neural operator preconditioning from mixed dataset for the Helmholtz equations: Application to transcranial ultrasound 
+
+Yanfei Xiang 1,* 1IRMA, Université de Strasbourg, MACARON, Inria, France. 
+
+> *
+
+Corresponding author ( yfxiang0amber@gmail.com and 
+
+yanfei.xiang@math.unistra.fr ). 
+
+Abstract 
+
+This work develops a neural operator preconditioned subspace method for sequences of linear systems arising from the discretization of the two-dimensional Helmholtz equation in transcranial ultrasound ap-plications. The problem involves strongly heterogeneous, patient-dependent velocity fields that induce severe wave distortion and pose significant challenges for standard iterative solvers. Building on neural network preconditioning framework of Giraud et al. (HAL RR-9593, 2025) and the idealized skull dataset used for the learned optimizer of Stanziola et al. (JCP 441, 2021), neural operator preconditioners are trained on six mixed velocity-source datasets combining randomized source configurations and idealized skull-based velocity fields with random noise. The proposed mixed-dataset strategy aims to improve both computational efficiency and generalization across varying configurations. The neural operator is trained on a coarse grid using a physics-informed loss based on the relative residual of the discrete Helmholtz equation and is incorporated as a nonlinear preconditioner within flexible GMRES (FGMRES). Numer-ical experiments demonstrate that the resulting hybrid method efficiently solves practical transcranial ultrasound problems on grids 64 times larger than those used during training, whereas both classical GM-RES and the learned optimizer fail to converge within comparable computational budgets. Moreover, the proposed method achieves arbitrary solution accuracies and exhibits strong out-of-distribution general-ization across diverse source and velocity configurations. These results demonstrate that appropriately designed mixed training datasets substantially improve the effectiveness of learned neural operator pre-conditioners. More broadly, this work highlights the importance of dataset design in scientific machine learning and provides a practical framework for integrating matrix-free neural operator preconditioning with Krylov subspace methods for solving practical large-scale Helmholtz problems. 
+
+Keywords: Large-scale Helmholtz equation; Transcranial ultrasound; Neural operator preconditioning; Scientific machine learning; Flexible GMRES; Krylov subspace methods 
+
+## 1 Introduction 
+
+This work focuses on developing neural operator preconditioners trained on mixed datasets to accelerate the solution of sequences of linear systems arising from the discretization of the two-dimensional parametric Helmholtz equation in transcranial ultrasound therapy [22]. In this setting, the Helmholtz equation incorpo-rates a heterogeneous velocity field derived from human head CT data, resulting in complex wave interactions within the adult human skull. Since skull geometries and acoustic properties vary significantly across pa-tients, the corresponding Helmholtz operators can exhibit considerable variability, making the development of robust and efficient hybrid numerical solvers, potentially enhanced by machine learning, essential for practical clinical applications. This challenging transcranial ultrasound problem was previously investigated by Stanziola et al. [26], who proposed a learned optimizer based on a recurrent neural network embedded within a Richardson iteration. For the representative transcranial ultrasound example considered in their study, the learned optimizer outperformed classical GMRES [24] in computational efficiency while exhibiting encouraging generalization capabilities. However, its attainable accuracy remained limited, and it failed to converge on the additional transcranial ultrasound examples considered in the present work (see Table 7 1arXiv:2607.16906v1 [math.NA] 18 Jul 2026 and Figure 9 in Section 4.2.2). Rather than replacing classical iterative solvers, our approach in [9] em-ploys neural networks as nonlinear preconditioners within flexible GMRES (FGMRES) [23], combining the approximation and generalization capabilities of scientific machine learning [8], particularly neural operator learning [17], with the robustness and reliability of Krylov subspace methods. The resulting hybrid methods converge reliably to arbitrary prescribed accuracies without requiring repeated network training and exhibit strong generalization across a broad range of Helmholtz problems. Nevertheless, the previous framework was trained exclusively on randomly generated datasets, and its computational efficiency deteriorates when ap-plied to the realistic challenging application-oriented transcranial ultrasound simulations. This observation motivates the present work. We investigate whether carefully designed mixed training datasets can improve the effectiveness of neural operator preconditioning while preserving its robustness and generalization capa-bilities. Specifically, we train the same neural operator architecture using six different mixed datasets for the Helmholtz equation. These datasets combine application-oriented samples that mimic realistic transcranial ultrasound configurations with randomized source and velocity fields to maintain sufficient diversity during training. Their relative performance is systematically evaluated to identify dataset compositions that provide a favorable balance between specialization for the target application and generalization to previously unseen configurations. The present work can therefore be viewed as a practical extension of our previous neural operator preconditioning framework [9]. Whereas our earlier study relied exclusively on randomly gener-ated training data, the central contribution of the present work is the design and systematic investigation of mixed training datasets that improve efficiency for challenging transcranial ultrasound simulations while preserving strong out-of-distribution performance on other Helmholtz problems. More broadly, the present work demonstrates that careful dataset design is a key ingredient for translating scientific machine learning methods from idealized benchmarks to challenging real-world applications. In parallel, recent advances in scientific machine learning, particularly in neural operator learning and dif-fusion models, have also highlighted the importance of exposing models to diverse training data distributions to improve robustness and out-of-distribution generalization across varying physical parameters, geometries, and discretizations [1, 5, 12, 14–16, 18, 19]. Some related developments in neural network preconditioning for classical numerical methods are discussed in [2, 7, 11, 13, 27]. The field of scientific machine learning is evolving rapidly, and the references cited above are intended to highlight representative developments closely related to the present work rather than to provide a comprehensive survey. The remainder of this paper is organized as follows. Section 2 introduces the governing Helmholtz equation arising in transcranial ultrasound therapy together with its numerical solution using nonlinear preconditioned subspace method. We present the mathematical formulation, including the boundary con-ditions, discretization, and iterative solution strategies, and briefly review recent developments in neural network solvers and neural operator preconditioners for the Helmholtz equation, highlighting the limitations that motivate the present work. Section 3 presents the proposed convolutional neural network (CNN)-based neural operator preconditioner and the construction of the six mixed training datasets. The resulting pre-conditioner is designed to accelerate FGMRES for solving sequences of heterogeneous Helmholtz equations arising in transcranial ultrasound simulations while maintaining strong generalization to other Helmholtz applications. Section 4 evaluates the proposed approach on a variety of transcranial ultrasound examples with previously unseen physical parameters. We systematically compare the different mixed training datasets and demonstrate that the resulting preconditioners substantially accelerate FGMRES while exhibiting strong out-of-distribution generalization across a broad range of Helmholtz problems. Finally, Section 5 summarizes the main findings and discusses their implications for scientific machine learning, neural operator precondi-tioning, and large-scale PDE simulations. Key notations used throughout this paper are summarized below. Unless otherwise specified, ∥· ∥ denotes the Euclidean norm for both vectors and matrices. The superscript H denotes the conjugate transpose. The symbols R and C denote the sets of real and complex numbers, respectively. For convenience, some 
+
+Python -style notation is adopted in the presentation of the algorithm. To improve readability, we use the following notation throughout the paper. Scalars are denoted by lowercase letters. Bold lowercase letters, e.g., x, denote vectors (or columns of a matrix), while uppercase letters, e.g., A, denote matrices. Functions, operators, and mappings are represented by calligraphic letters, e.g., F. Unless otherwise stated, the subscript j denotes the quantity obtained at iteration j, while the positive integer subscript m denotes the maximum number of iterations within a Krylov cycle. The inner product between two vectors x and y
+
+is denoted by ⟨x, y⟩, and the linear span of the vectors x1, . . . , xj is denoted by span {x1, . . . , xj }.
+
+22 Background 
+
+2.1 Governing equation: The Helmholtz equation 
+
+We consider the two-dimensional Helmholtz equation, subject to the so-called Sommerfeld radiation condi-tion, 
+
+∇2u + k2u = f in R2,
+
+lim ∥x∥2→∞ ∥x∥1/22
+
+ ∂u ∂∥x∥2
+
+(x) − ȷk (x)u(x)
+
+
+
+= 0 ,
+
+(1) where ȷ ∈ C denotes the imaginary unit such that ȷ2 = −1, and u : R2 → C, f : R2 → C, k : R2 → R+ are scalar fields, referred to as the solution field, the source field, and the wavenumber field, respectively. The latter is defined by k : x 7 → ω/c (x), where ω ∈ R+ is the angular frequency of the source, and c : R2 → R+
+
+is the velocity (speed of sound) field. In what follows, we restrict ourselves to the case ω = 1 . Numerically, the unbounded domain R2 is truncated to a computational, square domain Ω := [ −L, L ]2 ⊂ R2 and the derivatives in Equation (1) are discretized using Fourier differentiation [25, 26, 29] with N points in each direction. Consequently, there is a total of n := N 2 degrees of freedom. The boundary conditions are (approximately) enforced using perfectly matched layers (PMLs) [3] in the outer region Ωpml := Ω \ Ωinner ,where Ωinner := [ −Linner , L inner ]2, with Linner := L − ℓ and ℓ < L , as illustrated in Figure 1. 
+
+> Ωinner
+> Ωpml ℓ
+> 2L
+
+Figure 1: Illustration of the PML boundary condition on two-dimensional domain ([9, Figure 1]). Within the PML framework, the absorbing layer for truncating the domain can be characterized by a damping function 
+
+σ(x) = 
+
+
+
+0, for x ∈ Ωinner ⊂ Ω,σmax 
+
+(x − Linner )2
+
+l2 , for x ∈ Ωpml ⊂ Ω,
+
+(2) where σmax ∈ R+ is a prescribed parameter denoting the maximum damping coefficient. With this con-struction, the solution remains unchanged in the inner domain Ωinner ⊂ Ω, while it decays exponentially in the PML region Ωpml ⊂ Ω. As a result, outgoing waves are effectively absorbed without producing spurious reflections at the interface between the physical domain and the absorbing layer. The discretization of the Helmholtz problem (1) with varying physical parameters (i.e., varying source filed f and velocity filed c) yields a groups of linear systems with varying left and right hand sides 
+
+A(c)(ℓ)u = b(ℓ), with A := ∇2 + k2 ∈ Cn×n, ℓ = 1 , 2, ....L, (3) where, associated with the ℓ-th family from each discrete Helmholtz equation involving the discrete velocity field c ∈ Rn and the associated discretized operator (matrix) A(c) ∈ Cn×n, as well as the discretized source term b ∈ Cn and solution u ∈ Cn.
+
+32.2 Subspace solver with nonlinear preconditioner 
+
+The solution of large linear systems of equations is commonly addressed using iterative methods. These approaches are attractive due to their modest memory requirements and their ability to stop the iterations when the quality of the solution is similar to the possible uncertainty in the matrix entries or right-hand sides, which may arise from discretization errors in PDE or from uncertainties in the input data. In this context, backward error analysis [20, 28] provides powerful techniques for designing meaningful stopping criteria. Among iterative techniques, subspace methods, such as Krylov subspace methods, have become standard tools over the past decades. For unsymmetric problems, the best known method is GMRES [24], which minimizes the residual norm over an increasing Krylov subspace. This technique relies on the so-called Arnoldi process, which incrementally builds an orthonormal basis of the nested subspaces. At iteration k,the Arnoldi algorithm computes a set of orthonormal vectors Vk = [ v1, . . . , vk] that satisfy the so-called Arnoldi relation, which is written in matrix form: 
+
+AV k = Vk+1 ¯Hk with V Hk+1 Vk+1 = Ik+1 
+
+where ¯Hk ∈ C(k+1) ×k is upper Hessenberg. Assume the approximated solution at iteration k is denoted as xk,
+
+the minimum residual norm iterate xk ∈ span {v1, . . . , vk}, that is xk = Vkyk with yk = arg min y∈Ck (∥ ¯Hky−
+
+βe1∥) where β = ∥b∥. In practice, a preconditioner M is used to speed up the convergence of GMRES, where 
+
+M is expected to approximate A−1 somehow. For GMRES it is recommended to use the preconditioner on the right, i.e., GMRES solves AM t = b, with M t = x. Thus, at each iteration, GMRES still minimizes the residual norm of the residual associated with the original linear system. The Arnoldi relation is 
+
+AM V k = Vk+1 ¯Hk with V Hk+1 Vk+1 = Ik+1 .
+
+In [23], Saad introduced the idea of a flexible preconditioner, which allows to have a different preconditioning matrix Mi at each iteration, so that the generalized Arnoldi relation becomes 
+
+AZ k = Vk+1 ¯Hk with V Hk+1 Vk+1 = Ik+1 , (4) where Zk = [ z1, . . . , zk] with zi = Mivi (i = 1 , . . . , k ). This idea can easily be extended to the situation where the preconditioner is no longer linear, that is, zi = Mi(vi), where each Mi may be a nonlinear operator. In the latter case, Equation (4) still holds and uniquely defines each iterate as long as Zk remains full rank. In this work, we adopt Mi() = Nθ () , where Nθ denotes the trained neural network inference (see Section 3). The nonlinearity has two origins; first, the activation functions in the neurons are nonlinear, and second, the preconditioner is computed in 32-bit arithmetic while the rest of the computation is done in 64-bit arithmetic. This truncation due to casting 64 bits to 32 bits is also nonlinear. A sketch of the CNN-preconditioned FGMRES algorithm is provided in Algorithm 1. 
+
+2.3 Related work on neural network solvers and neural operator precondition-ers for the Helmholtz equation 
+
+The present work is motivated by a sequence of previous studies on machine learning approaches for solving Helmholtz equations arising in transcranial ultrasound simulations. An early contribution in this direction is the learned optimizer proposed by Stanziola et al. [26]. Their approach employed a modified U-Net architec-ture [21] within a Richardson iteration framework, in which a recurrent neural network generated a corrective update at each iteration. The model was trained using a fixed source configuration and velocity fields derived from idealized skull geometries. While this work demonstrated the potential of neural-network-based solvers for Helmholtz problems, it also revealed several important limitations. In particular, the attainable accuracy was limited (approximately 10 −4), and the method successfully solved only one practical transcranial ultra-sound example while failing on the remaining cases considered in the present work (see Table 7 and Figure 9 in Section 4.2.2). Moreover, the training procedure exhibited instabilities, including producing divergent training losses and sensitivity to initialization (see [29, Figure 5.2]), which occasionally required training at-tempts to obtain a satisfactory model. To address these issues, an optimal step-size strategy was introduced in [29, Chapter 5], leading to a minimum-residual Richardson iteration. By explicitly minimizing the residual at each iteration, this formulation substantially improved both the attainable accuracy and the stability of 4Algorithm 1: Sketch of the CNN-preconditioned FGMRES algorithm [9, Algorithm 1].  
+
+> 1
+
+r0 = b − Ax0, β = ∥r0∥, v1 = r0/β  
+
+> 2
+
+for j = 1 , . . . , m do  
+
+> 3
+
+zj = Nθ (vj , **kwargs ) (Here, **kwargs means “keyword arguments" in Python)  
+
+> 4
+
+w = Azj 
+
+> 5
+
+for i = 1 , . . . , j do  
+
+> 6
+
+hi,j = ⟨w, vi⟩ 
+
+> 7
+
+w ← w − hi,j vi 
+
+> 8
+
+end for  
+
+> 9
+
+hj+1 ,j = ∥w∥ 
+
+> 10
+
+vj+1 = w/h j+1 ,j  
+
+> 11
+
+end for  
+
+> 12
+
+¯Hm = [ hi,j ]1≤j≤m, 1≤i≤j+1  
+
+> 13
+
+Zm = [ z1, . . . , zm] 
+
+> 14
+
+ym = arg min y∈Cm ∥ ¯Hmy − βe1∥ 
+
+> 15
+
+xm = x0 + Zmym
+
+the training procedure. Beyond using neural networks as correction operators, this work also introduced the idea of employing them as nonlinear preconditioners within two types of Krylov subspace methods. Subse-quent studies [9, 25] extended this neural operator preconditioning framework to more general Helmholtz problems and other classes of PDEs. Unlike purely data-driven solvers, these hybrid approaches combine the approximation capability and generalization of neural operators with the robustness of Krylov subspace methods, enabling convergence to arbitrary prescribed tolerances while retaining strong performance across a broad range of benchmark problems. Although these methods demonstrated excellent robustness and gener-alization across diverse Helmholtz problems, their computational efficiency remained limited for challenging application-specific transcranial ultrasound simulations. The objective of the present work is therefore to in-vestigate whether application-oriented mixed training datasets can improve the efficiency of neural operator preconditioning while preserving its robustness and out-of-distribution generalization. 
+
+## 3 Components of nonlinear neural operator preconditioning 
+
+Assume the CNN-based preconditioning operator is denoted as Nθ with trainable parameters θ (i.e., the trainable weights and biases of the CNNs). We focus on learning an operator Nθ
+
+Nθ : P −→ U , (5) with coefficient input b(ℓ), **kwarg ∈ P , **kwarg = c(ℓ), σ , ℓ = 1 , . . . , L (here L denotes the size of the training dataset, similar to the number of the linear systems shown in Equation (3)) and output solution 
+
+u(ℓ) 
+
+> θ
+
+∈ U returned from CNNs with θ. Our target is to find the learning operator such that 
+
+Nθ (b(ℓ), **kwarg ) ∼ u(ℓ) 
+
+> θ
+
+, with **kwarg =
+
+n
+
+c(ℓ), σ 
+
+o
+
+, i = 1 , . . . , L, (6) which means the learned operator Nθ approximates to the inverse of the coefficient matrix A−1 since we have u = A−1(b, **kwarg ) from Equation (3). Because of this, the learned operator Nθ can be used as a nonlinear CNN-based preconditioner in the FGMRES method described in Algorithm 1, where the preconditioned Krylov basis is computed as: 
+
+zj = Nθ (vj , c, σ ) (7) for the application in the parametric Helmholtz equation (1). Except for use the Krylov basis as the input of the trained inference, refer to [29, Chapter 5] for more details about other possibilities with similar numerical performance. 5To distinguish from the original FGMRES [23], we denote FGMRES with the CNN-based preconditioning step shown in Equation (7) for Algorithm 1 as the CNN-FGMRES algorithm. Compared to the original FGMRES, these CNN-based preconditioning steps are performed in 32-bit, consistent with the precision used during the training processes. The other remaining operations in the CNN-FGMRES algorithm are conducted in 64-bit. Thus, this CNN-FGMRES algorithm is realized under mixed-precision calculations. 
+
+3.1 Network architecture 
+
+As introduced in Section 2.2, our approach uses a neural network as a nonlinear preconditioner. To do so, we design a convolutional neural network based on the U-Net architecture [21], which takes the discretized source field, velocity field and the PML damping function σ as inputs. To make them suitable to the convolutional nature of the U-Net, these 2D fields are recast as image-like tensors. Specifically, recalling that n = N 2, the complex-valued source term b ∈ Cn may be recast as a 2 × N × N tensor composed of two N × N channels representing the real and imaginary parts of the field. So does the complex σ ∈ Cn function. Similarly, the real-valued velocity field c ∈ Rn may be recast as a 1 × N × N tensor. These five inputs are concatenated along channel dimension to get a 5 × N × N input tensor. The output of the network is a 2 × N × N tensor, representing a 2D, complex-valued field. As we shall see in Section 3.3, the network will be trained to provide approximations (predictions) ˆuθ of discrete solution fields u of the linear system A(c)u = b corresponding to a discretized version of the Helmholtz problem (1) with seetings described in Table 1. The primary hyperparameter of the U-Net architecture is its depth. For the Helmholtz problems consid-ered in Table 1, a depth of four is sufficient to construct an effective neural preconditioner. The resulting U-Net architecture is illustrated in Figure 2. It consists of an encoder–decoder structure, where the encoder progressively downsamples the input and the decoder reconstructs the output through successive upsampling operations. The encoder and decoder are linked through a bottleneck layer and a set of skip connections. These skip connections play a crucial role in preserving fine-scale information while combining it with the high-level features extracted by the encoder, thereby enabling the network to capture both global context and local details. The corresponding hyperparameter settings are summarized in Table 2. With the Helmholtz problem parameters and network hyperparameters specified in Tables 1 and 2, our U-Net architecture con-tains approximately 832 K trainable parameters, which is independent of n owing to its convolutional nature. 
+
+Figure 2: Overview of our U-Net architecture with 4 depth. 6Table 1: Helmholtz equation with PML in 2D and Fast Fourier Transforms (FFT) parameters 
+
+Parameter Value 
+
+Limits of the Domain [[ −20 , 20] , [−20 , 20]] 
+
+Discretisation points n in Domain [64 , 64] 
+
+Axes for which FFT is applied [−2, −1] 
+
+Configurations for PML l = 4 , σ max = 2 
+
+Table 2: U-Net Model Hyper-parameters 
+
+Parameter Value 
+
+Input Channels 5Output Channels 2Activation Function PReLU Depth 4Channels per Layer 32 Channels per State 32 Convolving kernel size, Stride, Padding 8, 2, 3 Batch normalization True Bias in concolutional layers True Table 3: Training Hyper-parameters 
+
+Parameter Value 
+
+Maximal Epoch 500 Optimizer Adam Batch Size 32 Gradient Clipping value 1Learning Rate (LR) 10 −3
+
+Minimal LR 10 −5
+
+Seed for Random Number 42 The abstract, functional representation of the neural network preconditioning with trainable parameters θ
+
+is thus a nonlinear operator, 
+
+Nθ : Cn × Rn × Cn → Cn,
+
+(b, c, σ ) 7 → N θ (b, c, σ ) = Nθ (c, σ )( b), (8) where the conversions to and from image-like tensors are implicit. 
+
+3.2 Mixed training dataset 
+
+In this work, mixed training datasets are employed to train the neural operator preconditioners. Each training dataset is composed of pairs of velocity fields c and source fields b, denoted by (c, b). By defining the distributions of c and b independently, different combinations of structured, application-oriented samples and randomized samples can be constructed. We first define a fully mixed dataset by considering the following distributions for c and b:1. For the velocity field c ∈ Rn : c ∈ {U ([1 , 2]) , TruncIdealSkulls , randConstant , square } , the four configurations are sampled with probabilities [0 .4, 0.4, 0.1, 0.1] , respectively: (a) c iid 
+
+∼ U ([1 , 2]) : each entry of c is independently sampled from the uniform distribution on [1 , 2] ;(b) c iid 
+
+∼ TruncIdealSkulls : c is generated from the centrally truncated regions of the training dataset of idealized skull models introduced in [26]. The truncated region preserves the main geometric features of the idealized skull structures; (c) c iid 
+
+∼ randConstant : all entries of c are assigned the same value, sampled uniformly at random from [1 , 2] ;(d) c iid 
+
+∼ square : a square region centered in the computational domain is assigned the value 2, while all remaining entries are set to 1. 2. For the source field b ∈ Cn : b ∈ {N (0 , 1) , dirac , dirac1 , dirac4 } , the four configurations are sampled with probabilities [0 .6, 0.3, 0.05 , 0.05] , respectively: 7(a) b iid 
+
+∼ N (0 , 1) : each entry of b is independently sampled from a standard normal distribution with zero mean and unit variance; (b) b iid 
+
+∼ dirac : a single entry of b is assigned the value 60 at a randomly selected grid location, while all remaining entries are set to zero; (c) b iid 
+
+∼ dirac1 : a single entry of b is assigned the value 60 at the center of the computational domain, while all remaining entries are set to zero; (d) b iid 
+
+∼ dirac4 : four entries of b are assigned the value 30 at four fixed grid locations within the computational domain, while all remaining entries are set to zero. Refer to Figure 3 for a visualisation of representative samples from the different types of training data pairs (c, b) described in blocks 1-2. We note that the amplitudes 60 or 30 was applied to the dirac -type source configurations so that the resulting source field has a magnitude comparable to that of the standard normal setting N (0 , 1) over the computational domain. This is important in the training process, which normalization helps maintain the effectiveness of the neural operator preconditioning across different source distributions. Such localized dirac -type sources are frequently encountered in practical wave propagation problems, including transcranial ultrasound simulations and spherical wave propagation, where the source term is concentrated at a small number of points or within a localized region and vanishes elsewhere. 0 100 200 300 400 500        
+
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 8 × 8 mixed speed of sounds c
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 8 × 8 mixed source terms b
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+
+Figure 3: Visualize some samples from the different types of the training dataset (c, b) illustrated at blocks 1-2 (colorbar of the mixed source terms b shown in the right plot has been scaled for better visualisation). According to the velocity and source distributions defined in blocks 1-2, five additional mixed datasets are then obtained by selecting different subsets or combinations of these distributions. The final six training datasets considered in this work are summarized in Table 4. Each dataset is denoted by D0 -D5 , where D2 
+
+corresponds to the mixed setting described in blocks 1-2. As shown in Table 4, datasets D0 and D1 share the same configuration of c but differ in the source term b. Similarly, D2 and D3 share the same configuration of 
+
+c while differing in b. In contrast, D4 and D5 use the same configuration of b but vary in c. In the following, we describe how neural networks are trained using these six mixed datasets to construct effective neural operator preconditioners, with a primary focus on applications to transcranial ultrasound simulation. 
+
+3.3 Training neural operator preconditioner 
+
+The training process aims at finding the parameters θ∗ ∈ Θ of the neural network that minimize a certain cost functional J : Θ → R, where Θ denotes the parameter space, that is, 
+
+θ∗ ∈ arg min 
+
+> θ∈Θ
+
+J(θ). (9) 8#Dataset Source term b                                                        
+
+> (with probability) Velocity field (or Speed of sound) c
+> (with probability)
+> D0 {N (0 ,1) ,dirac ,dirac1 ,dirac4 }
+> ([0 .6,0.3,0.05 ,0.05] )
+> {U ([1 ,2]) ,TruncIdealSkulls }
+> ([0 .5,0.5] )
+> D1 N(0 ,1) {U ([1 ,2]) ,TruncIdealSkulls }
+> ([0 .5,0.5] )
+> D2 {N (0 ,1) ,dirac ,dirac1 ,dirac4 }
+> ([0 .6,0.3,0.05 ,0.05] )
+> {U ([1 ,2]) ,TruncIdealSkulls ,randConstant ,square }
+> ([0 .4,0.4,0.1,0.1] )
+> D3 N(0 ,1) {U ([1 ,2]) ,TruncIdealSkulls ,randConstant ,square }
+> ([0 .4,0.4,0.1,0.1] )
+> D4 N(0 ,1) TruncIdealSkulls D5 N(0 ,1) U([1 ,2])
+
+Table 4: Six types of mixed training dataset pairs (b, c) used for training neural operator preconditioning. For our specific problem, the cost function takes the form 
+
+J(θ) = Eb,c,σ [Lθ (b, c, σ )] , (10) where b, c and σ are the inputs of the network, Lθ is a loss function and Eb,c,σ denotes the expectation operator with respect to b, c and σ. In this work, we consider the loss function defined by 
+
+Lθ (b, c, σ ) = ∥b − A(c)Nθ (b, c, σ )∥2
+
+∥b∥2 = ∥b − A(c)ˆ uθ ∥2
+
+∥b∥2 = ∥b − ˆbθ ∥2
+
+∥b∥2 , (11) where ˆuθ := Nθ (b, c, σ ) = Nθ (c, σ )( b) denotes the prediction of the neural network, and ˆbθ = A(c)ˆ uθ .The neural network is thus trained to be a good approximation of A−1, i.e., roughly speaking, so that 
+
+Nθ (c, σ ) ≈ A−1(c) for any c with fixed σ. The training process can here be interpreted as unsupervised, in the sense that the prediction ˆuθ are not (directly) compared to reference values u∗ in the loss function. We remark that the residual of the linear system for a given prediction ˆuθ = Nθ (c, σ )( b), namely b − A(c)ˆ uθ ,which is at the core of the loss definition, corresponds to an algebraic (discretized) version of the residual of the PDE, including the boundary conditions. As such, the loss may be interpreted as being physics-informed. In terms of numerical linear algebra, we further note that for any given c ∈ Rn, Lθ (b, c, σ ) = ηb(ˆ uθ )2, where 
+
+ηb(˜ u) denotes the backward error with respect to b of ˜u as an approximate solution to the linear system 
+
+A(c)u = b [10, 20]. An alternative interpretation that can be drawn from the last representation of the loss function (11) is that the neural network is trained so that A(c)Nθ (c, σ ) be a good approximation of the identity operator, similar to an autoencoder [4]. Thus, the neural network Nθ can then be interpreted as an encoder, trained such that it is decoded by A. The training process is summarized in Figure 4. 
+
+Figure 4: Schematic representation of the training framework. 93.4 Some training details and remarks 
+
+To train the CNN-based neural operator preconditioning described in Equation (8) or Figure 4, 10,000 random samples are generated for each training dataset listed in Table 4, including distributions for b and c. 
+
+The training is conducted using the Adam optimizer, with the maximum number of epochs (denoted as 
+
+max_epoch ) set to 500, that is max_epoch = 500 . The learning rate is initialized at 0.001 and gradually decreases to a minimum value of 10 −5. Refer to Table 1-3 for more details about the Helmholtz operator parameters, the model, and training hyper-parameters of the U-Net model designed for the Helmholtz operators on a two-dimensional domain. This U-Net preconditioning model, configured with a depth of 4, is trained under the single precision (that is float32 (32-bit) and complex64 ) on 4 NVIDIA V100 GPUs (32.5 GB) with 2x 16-core Intel Skylake CPUs (Model name: Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz) located on the CAIUS cluster 1 of the University of Strasbourg Computing Centre (CCUS). The network architecture and the Helmholtz operator training utilities are implemented using the PyTorch and PyTorch Lightning libraries. The training time required for this U-Net preconditioning model under these different training datasets for the discrete Helmholtz equations is summarized in Table 5. Table 5: Training time for learning the Helmholtz operator with the six different datasets D0 -D5 described in Table 4 
+
+Training Dataset Training Time Saved Epoch Validation Loss 
+
+D0 36.95 mins 437 0.52514 
+
+D1 31.61 mins 494 0.27424 
+
+D2 31.58 mins 492 0.60667 
+
+D3 36.85 mins 498 0.29508 
+
+D4 36.64 mins 498 0.3199 
+
+D5 31.62 mins 491 0.18456 
+
+## 4 Numerical experiments 
+
+This numerical section focus on illustrating different numerical features of these six trained U-Net neural operator preconditioners, including testing similar but unseen scenarios and checking network generalizabil-ity from various applications. Most importantly, the dataset from the transcranial ultrasound therapy [22]. Specifically, in these testing phases, numerical experiments are carried out with the discrete parametric Helmholtz equations (3) that the neural operators have never seen before. Without special notes, we display results of GMRES and CNN-FGMRES (that is FGMRES preconditioned by the trained U-Net precondi-tioner with 4 depth ) without restart. A classical stopping criterion for the numerical linear algebra solvers is based on backward error analysis and consists of stopping the iteration when 
+
+ηb = ∥Au − b∥∥b∥ ≤ ε, with ε = 10 −12 by default . (12) The performance of the involved algorithms is evaluated in terms of the number of iterations, denoted as Its , as well as the execution time, denoted as ET , required to converge. The maximum dimension of the Krylov search space m shown in Algorithm 1 is set to be 512, that is m = 512 . The number of restart is 
+
+l = 1 or 10 (here l = 1 refers to the case without restart). Thus, the whole maximum iteration (denoted as 
+
+maxIts ) is l × 512 . We stop the algorithm when satisfying formula (12) or when maxIts = l × 512 . Notation 
+
+Its max , Its avg , Its min refers to the maximal, average, and minimum number of consumed Its when testing multiple examples (that is L > 1). Symbol (Its max , Its avg , Its min )∗ 
+
+> E
+
+denotes the algorithm diverges with E
+
+linear systems among the whole L testing systems ( 0 < E ≤ L), or these E linear systems are unable to reach the targeted accuracy within maxIts .Recall that this 2D U-Net inference was trained on GPUs, whereas the classical subspace solvers have been generally implemented on CPUs. In the following subsections, the GMRES and CNN-FGMRES solvers  
+
+> 1le Cluster de cAlcul Intensif à l’Université de Strasbourg (CAIUS): https://hpc.pages.unistra.fr
+
+10 are implemented in a Python prototype, supporting both CPU and GPU backends for computations with 
+
+numpy and cupy Python libraries. Without special notes, those two involved solvers in each of the subsections are running on the same 4 V100 GPUs devices used in the training process for a fair comparison. 
+
+4.1 Neural operator preconditioning on the test dataset 
+
+We first assess the effectiveness of the six trained neural operator preconditioning inferences on problems sim-ilar to those used during the training, that is, linear systems arising from the discretization on a 64 × 64 grid, with physical parameters c and b drawn from the randomly mixed dataset D0 -D5 described in Table 4. The corresponding numerical results for GMRES and CNN-FGMRES applied to the L linear systems are re-ported in Table 6. For the testing cases with L = 500 , we observe that GMRES (mostly) fails to reach the prescribed accuracy within maxIts. In contrast, CNN-FGMRES converges with significantly reduced computational cost, thanks to the trained neural operator preconditioner. This effectiveness and robustness are maintained when increasing the number of test problems to L = 1000 , thereby covering a broader range of physical parameter variations. This conclusion holds consistently across all trained models. These results are further illustrated in Figure 5, which presents the convergence history of GMRES and CNN-FGMRES (with the CNN-preconditioning trained on dataset D0 ) with L systems. Figure 6 provides visualizations of the obtained complex wavefield solutions under different configurations of the physical parameters. # 
+
+> Domain/Dataset
+
+Method L (Its max , Its avg , Its min ) ET 
+
+64 × 64 /D0 
+
+GMRES 500 (512, 512, 512) ∗ 
+
+> 500
+
+50359.62s CNN-FGMRES 500 (87, 77, 67) 478.97s CNN-FGMRES 1000 (84, 77, 67) 888.59s /D1 
+
+GMRES 500 (512, 512, 512) ∗ 
+
+> 500
+
+50370.80s CNN-FGMRES 500 (51, 35, 30) 134.40s CNN-FGMRES 1000 (50, 35, 30) 261.95s /D2 
+
+GMRES 500 (512, 511, 500) ∗ 
+
+> 493
+
+51754.15s CNN-FGMRES 500 (95, 79, 68) 465.44s CNN-FGMRES 1000 (96, 79, 67) 925.23s /D3 
+
+GMRES 500 (512, 512, 512) ∗ 
+
+> 500
+
+50367.13s CNN-FGMRES 500 (49, 35, 26) 136.70s CNN-FGMRES 1000 (49, 34, 26) 237.14s /D4 
+
+GMRES 500 (512, 512, 512) ∗ 
+
+> 500
+
+51274.51s CNN-FGMRES 500 (52, 38, 31) 163.01s CNN-FGMRES 1000 (50, 38, 30) 296.01s /D5 
+
+GMRES 500 (512, 512, 512) ∗ 
+
+> 500
+
+53071.27s CNN-FGMRES 500 (29, 27, 27) 114.50s CNN-FGMRES 1000 (29, 27, 27) 195.50s Table 6: Numerical results shown in Figure 5 in terms of (Its max , Its avg , Its min ) and the GPUs ET on 4 V100 GPUs for L = 500 or 1000 examples from the test dataset with ηb = 10 −12 and maxIts = 512 without restrat. 
+
+On the other hand, the effectiveness of the neural operator preconditioner depends on the composition of the training dataset. For example, the model trained on dataset D5 , which is constructed from a single configuration of the physical parameters (c, b), yields the largest reduction in computational cost relative to GMRES. In contrast, the model trained on dataset D2 (or D0 ), which contains a more diverse mixture of parameter configurations, exhibits relatively lower acceleration. This behavior is expected: training on a single configuration allows the network to specialize to that particular distribution, whereas mixed datasets require the model to represent a broader range of physical configurations. Consequently, mixed datasets generally trade a small amount of efficiency on individual configurations for improved robustness 11 0 20 40 60 80                             
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES (a) CNN-FGMRES with L= 1000 ,dataset D0 0100 200 300 400 500
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+> GMRES (b) GMRES, CNN-FGMRES with L= 500 ,dataset D0
+
+Figure 5: Results of the CNN-preconditioning trained with dataset D0 in Table 4: Convergence in terms of 
+
+ηb = 10 −12 of CNN-FGMRES and GMRES with maxIts = 512 without restrat for L examples from the test dataset with mixed data. and generalization across diverse problems. This trend is further illustrated by comparing the results obtained with datasets D0 and D1 , as well as with datasets D2 and D3 . In each pair, the velocity distributions c are generated using the same mixed strategy, while the source fields b differ between a mixed distribution and a single structured configuration (see Table 4). 
+
+4.2 Network generalizability in human head CT scan examples 
+
+The following subsections investigate the generalization capabilities of the trained CNN-based precondition-ing operators in the primary application of head CT scan examples. To evaluate their generalizability, we test their performance under various heterogeneous parameter configurations in the parametric Helmholtz equation (3), extending beyond the settings used during training. We first consider the truncated idealized skulls on a 64 × 64 grid with variations in terms of the source field in Section 4.2.1. Then, in Section 4.2.2, we focus on the primary application involving a practical transcranial ultrasound dataset derived from adult hu-man head CT scans, where both the source and velocity fields exhibit structured heterogeneity on a 512 ×512 
+
+grid, which is 64 times larger than that used in training. It is worth noting that, for challenging large-scale problems such as the practical transcranial ultrasound applications considered in Section 4.2.2, many classical algebraic preconditioners—including Jacobi, alge-braic multigrid, and incomplete LU (ILU) or incomplete Cholesky factorizations—may become impractical. Their construction and application typically require explicit access to the matrix representation of the dis-cretized operator, which can lead to prohibitive memory requirements and setup costs on fine computational grids. In contrast, the proposed neural operator preconditioner, which approximates the inverse of the dis-cretized differential operator, is inherently matrix-free and is applied directly through network inference, thereby naturally avoiding the assembly, storage, and factorization of large sparse matrices. For further de-tails and a quantitative comparison between neural operator preconditioners and several classical algebraic preconditioning techniques on moderate-scale academic examples, we refer the reader to [9, 30, Section 4.2]. 
+
+4.2.1 Test on the idealized skulls with fixed and smoothed source field 
+
+Before evaluating network generalizability of the models trained with the six dataset described in Table 4 on the more challenging transcranial ultrasound dataset, we first assess their performance on 1000 idealized skull samples (truncated test idealized skulls introduced in [26]) with some given source fields. In this setting, 12 0 20 40 60 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Solved by CNN-FGMRES
+
+Real part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Image part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameters
+
+Speed of Sound    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Source Term (Real part) 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 2
+> 1
+> 0
+> 1
+> 2
+
+Visualize the final solution of Helmholtz eq. with PML BCs (a) c iid 
+
+∼ U ([1 , 2]) + b iid 
+
+∼ N (0 , 1) 0 20 40 60 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Solved by CNN-FGMRES
+
+Real part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Image part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameters
+
+Speed of Sound    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Source Term (Real part) 
+
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+
+Visualize the final solution of Helmholtz eq. with PML BCs (b) c iid 
+
+∼ TruncIdealSkulls + b iid 
+
+∼ N (0 , 1) 0 20 40 60 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Solved by CNN-FGMRES
+
+Real part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Image part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameters
+
+Speed of Sound    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Source Term (Real part) 
+
+> 7.5
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 7.5
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Visualize the final solution of Helmholtz eq. with PML BCs 
+
+(c) c iid 
+
+∼ U ([1 , 2]) + b iid 
+
+∼ dirac1 0 20 40 60 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Solved by CNN-FGMRES
+
+Real part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Image part    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameters
+
+Speed of Sound    
+
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Source Term (Real part) 
+
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+
+Visualize the final solution of Helmholtz eq. with PML BCs (d) c iid 
+
+∼ TruncIdealSkulls + b iid 
+
+∼ dirac 
+
+Figure 6: Visualize the complex wavefield in real-imag part (upper two plots of each subplot (a) to (d)) and its corresponding velocity c and source term b (lower two plots of each subplot) of four examples solved by CNN-FGMRES (the CNN was trained with dataset D0 ), and ηb = 10 −12 , the four examples are from the test dataset with mixed data (c, b).
+
+the velocity field is given by c iid 
+
+∼ TruncIdealSkulls . For these 1000 realizations of c, which differ from those used during training, we consider the following two configurations of the source term b:1. b iid 
+
+∼ dirac1 : a single nonzero entry of b is set to 1 at the fixed grid location (60 , 32) , while all other entries are zero; 2. b iid 
+
+∼ dirac1_smooth : a smoothed version of b iid 
+
+∼ dirac1 , defined as a localized Gaussian source 
+
+b(x, y) = exp −((x−cx)2+( x−cy )2)/2σ2
+
+, where σ = 2 and (cx, c y ) = (60 , 32) denotes the grid location. 13 With these physical parameter configurations, the numerical results for solving the L linear systems arising from Equation (3) are reported in Table 7 in terms of (Its max , Its avg , Its min ) and the elapsed time ET .#
+
+> Source term
+
+# 
+
+> Domain/Dataset
+
+Method L (Its max , Its avg , Its min ) ET 
+
+b iid 
+
+∼ dirac1 
+
+64 × 64 / GMRES 20 (512, 512, 512) ∗ 
+
+> 20
+
+2142.70s /D0 CNN-FGMRES 20 (79, 72, 67) 21.95s CNN-FGMRES 1000 (89, 72, 66) 810.03s /D1 CNN-FGMRES 20 (47, 40, 33) 17.87s CNN-FGMRES 1000 (51, 40, 32) 306.07s /D2 CNN-FGMRES 20 (83, 74, 70) 18.69s CNN-FGMRES 1000 (93, 76, 67) 877.26s /D3 CNN-FGMRES 20 (46, 40, 35) 13.08s CNN-FGMRES 1000 (50, 40, 32) 295.92s /D4 ⋆ CNN-FGMRES 20 (47, 38, 33) 7.93s CNN-FGMRES 1000 (51, 38, 30) 289.49s /D5 CNN-FGMRES 20 (134, 107, 81) 39.17s CNN-FGMRES 1000 (141, 111, 76) 1696.05s 
+
+b iid 
+
+∼ dirac1_smooth 
+
+64 × 64 / GMRES 20 (512, 512, 512) ∗ 
+
+> 20
+
+2135.96s /D0 CNN-FGMRES 20 (81, 73, 68) 18.10s CNN-FGMRES 1000 (92, 73, 68) 820.14s /D1 CNN-FGMRES 20 (48, 40, 34) 8.14s CNN-FGMRES 1000 (52, 40, 32) 313.74s /D2 CNN-FGMRES 20 (85, 77, 72) 27.15s CNN-FGMRES 1000 (96, 77, 69) 893.96s /D3 CNN-FGMRES 20 (47, 40, 34) 9.11s CNN-FGMRES 1000 (51, 40, 32) 313.31s /D4 ⋆ CNN-FGMRES 20 (45, 36, 33) 7.35s CNN-FGMRES 1000 (52, 38, 31) 295.11s /D5 CNN-FGMRES 20 (137, 110, 84) 37.15s CNN-FGMRES 1000 (142, 111, 76) 1784.98s Table 7: Numerical results shown in Figure 7 in terms of (Its max , Its avg , Its min ) and the GPUs ET on 4 V100 GPUs for L = 20 , or 1000 examples with varying velocity c iid                   
+
+> ∼TruncIdealSkulls , and the fixed source term biid
+> ∼dirac1 ,
+> and its polluted one biid
+> ∼dirac1_smooth with center radial decay Gaussian noise by radius = 5 ,noise_level = 0 .05 .
+> The ηb= 10 −12 and maxIts = 512 without restrat.
+
+As in the previous experiments, the application of the trained CNN-based operator preconditioners en-ables CNN-FGMRES to converge with substantially fewer iterations and lower computational cost than GMRES, which fails to achieve the prescribed accuracy within maxIts. Moreover, the robustness of the proposed approach is maintained when the number of test problems is increased to L = 1000 . The corre-sponding convergence histories for the model trained on dataset D0 are shown in Figure 7 (a)-(b). Among the six trained models, the operator preconditioner trained on dataset D4 exhibits the best performance. This is expected, since the tested velocity fields c iid 
+
+∼ TruncIdealSkulls share structural similarities with those included in dataset D4 . Nevertheless, it is noteworthy that the operator preconditioner trained on the fully random dataset D5 , which contains no particular geometric structure, still provides a significant acceleration of CNN-FGMRES , albeit with somewhat reduced effectiveness. The differences among the six trained preconditioners can be clearly observed in Figure 7 (c), which presents the convergence histories of 14 0 20 40 60 80        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+
+(a) CNN-FGMRES with L = 1000 , b iid 
+
+∼ dirac1 ,
+
+dataset D0 0 100 200 300 400 500        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+> GMRES
+
+(b) CNN-FGMRES , GMRES with L = 20 , b iid 
+
+∼ dirac1 ,
+
+dataset D0 0 20 40 60 80 100 120        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> 20 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+> D3
+> D4
+> D5
+
+(c) CNN-FGMRES with L = 20 , b iid 
+
+∼ dirac1_smooth , and CNN was trained with the six different datasets D0 -D5 
+
+Figure 7: Convergence in terms of ηb = 10 −12 of CNN-FGMRES and GMRES with maxIts = 512 without restrat for L examples with varying velocity c iid 
+
+∼ TruncIdealSkulls from the test dataset and the fixed source term b iid 
+
+∼ dirac1 with fixed grid-point locates at 60 × 32 within 2D domain 64 × 64 , and its polluted one b iid 
+
+∼ dirac1_smooth with center radial decay Gaussian noise by radius = 5 , noise_level = 0 .05 .
+
+In (a)-(b), the presented CNN-FGMRES results are for the CNN-preconditioning trained with dataset D0 ,and b iid 
+
+∼ dirac1 . In (c), it shows corresponding results from the CNN-preconditioning trained with the six different datasets D0 -D5 described in Table 4, and b iid 
+
+∼ dirac1_smooth .
+
+CNN-FGMRES for a set of 20 linear systems. These results indicate that the choice of the training dataset does impact performance on some targed testing cases. This effect becomes even more pronounced in the practical transcranial ultrasound examples presented in the next section. On the other hand, no significant differences are observed between the source field configurations b iid 
+
+∼
+
+dirac1 and b iid 
+
+∼ dirac1_smooth in the numerical results reported in Table 7. To further investigate their 15 effects, we visualize the corresponding wavefields in Figure 8. The smoothed-source configuration produces less localized irregularity near the source location, thereby providing a clearer visualization of both the velocity distribution and the resulting wavefield patterns. 0 20 40 60          
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Complex Wavefield
+> Real part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Imag part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameter
+> Speed of Sound
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Source Term (Real part)
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+(a) b iid 
+
+∼ dirac1 0 20 40 60           
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Complex Wavefield
+> Real part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Imag part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameter
+> Speed of Sound
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Source Term (Real part)
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+
+(b) polluted b iid 
+
+∼ dirac1_smooth 0 20 40 60          
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Complex Wavefield
+> Real part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Imag part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameter
+> Speed of Sound
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Source Term (Real part)
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+(c) b iid 
+
+∼ dirac1 0 20 40 60           
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Complex Wavefield
+> Real part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Imag part
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Physical Parameter
+> Speed of Sound
+> 020 40 60
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Source Term (Real part)
+> 2
+> 1
+> 0
+> 1
+> 2
+> 2
+> 1
+> 0
+> 1
+> 2
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+(d) polluted b iid 
+
+∼ dirac1_smooth 
+
+Figure 8: Visualize the complex wavefield in real-imag part (upper two plots of each subplot (a) to (d)) and its corresponding velocity c and source term b (lower two plots of each subplot) of two examples solved by CNN-FGMRES (the CNN was trained with dataset D0 ), and ηb = 10 −12 , where the two varying 
+
+c iid 
+
+∼ TruncIdealSkulls is from the test dataset, and the fixed b iid 
+
+∼ dirac1 with fixed grid-point locates at 60 × 32 within 2D domain 64 × 64 , and its polluted one b iid 
+
+∼ dirac1_smooth with center radial decay Gaussian noise by radius = 5 , noise_level = 0 .05 .
+
+4.2.2 Application to practical transcranial ultrasound examples 
+
+In this section, we evaluate the trained neural operator preconditioners on four practical adult human head CT scan examples obtained from qure.ai [22]. The dataset is publicly available through Kaggle. 2 Each example is constructed from a transverse CT slice of an adult human skull, yielding a heterogeneous velocity 
+
+c ∈ R512 2
+
+distributed on a 512 × 512 grid. This computational grid is 64 times larger than the 64 × 64 grid used during training, providing a significantly challenging out-of-distribution testing case. Visualizations of 
+
+2https://www.kaggle.com/datasets/crawford/qureai-headct 
+
+16 the four velocity fields are shown in the lower-left panels of Figure 11 (a)-(d). The corresponding source field 
+
+b ∈ R512 2
+
+is modeled as a focused ultrasound transducer represented by a one-dimensional arc, illustrated by the red curve in the lower-right panels of Figure 11 for its visualization. The transducer aperture diameter and radius of curvature are both set to 60 mm, and the source frequency is fixed to 490 kHz. To solve these challenging large-scale problems, restarted GMRES and CNN-FGMRES are employed with restart parameter l = 10 , resulting in a maximum of maxIts = 5120 iterations throughout this section. Furthermore, in addition to GMRES, we also benchmark our approach against the closely related state-of-the-art neural network solver: the learned optimizer proposed by Stanziola et al. in [26]. Specifically, we use their released IterativeSolver (i.e., the learned optimizer) together with the pretrained checkpoint provided in the authors’ GitHub repository 3 and run the learned optimizer solver up to 5120 nonlinear Richardson iterations. Since the downloaded physical parameter pairs (c, b) are loaded directly into CPU memory, both the learned optimizer, GMRES and CNN-FGMRES are executed on the same CPU to avoid unnecessary data transfers between CPU and GPU devices. Specifically, all experiments in this section are performed on the CAIUS cluster, using Intel Skylake compute nodes equipped with 2x 16-core Intel Xeon Gold 6126 processors running at 2.60 GHz and 192 GB of RAM per node. #
+
+Domain/Dataset Method L ηb [Its 1, . . . , Its L] ET 
+
+512 × 512 / GMRES 4 10 −3 [5120 ∗, 4546, 5120 ∗, 5120 ∗] 44967.68s (12.49 hours) 
+
+/D0 ⋆ CNN-FGMRES 4 10 −3 [191, 159, 166, 162] 737.70s (12.30 mins) 
+
+CNN-FGMRES 4 10 −6 [559, 390, 392, 382] 2773.70s (46.23 mins) 
+
+/D1 CNN-FGMRES 4 10 −3 [367, 173, 190, 207] 1278.78s (21.31 mins) 
+
+CNN-FGMRES 4 10 −6 [1217, 347, 359, 417] 4405.26s (73.42 mins) 
+
+/D2 CNN-FGMRES 4 10 −3 [403, 149, 158, 170] 1472.62s (24.54 mins) 
+
+CNN-FGMRES 4 10 −6 [1467, 378, 391, 404] 5265.71s (87.76 mins) 
+
+/D3 CNN-FGMRES 4 10 −3 [395, 198, 216, 240] 1749.17s (29.15 mins) 
+
+/D4 CNN-FGMRES 4 10 −3 [627, 671, 441, 430] 4488.37s (74.81 mins) 
+
+/D5 CNN-FGMRES 4 10 −3 [5120 ∗, 115, 272, 143] 12834.75s (3.57 hours) 
+
+/from [26] Learned optimizer [26] 4 10 −3 [3084, 5120 ∗, 5120 ∗, 5120 ∗] 922.22s (15.37 mins) 
+
+Table 8: Numerical results shown in Figure 9 in terms of Its and the CPUs ET on 2x 16-core Intel Skylake CPUs for the four (i.e., L = 4 ) head CT scans problems with ηb = 10 −3, 10 −6 and maxIts = 5120 with restrat equals 10. 
+
+Table 8 reports the numerical results of GMRES, the learned optimizer and CNN-FGMRES for the four practical transcranial ultrasound examples, measured in terms of the iteration counts Its and CPU elapsed time ET under different prescribed accuracy requirements. Corresponding convergence histories are presented in Figure 9. The conclusions drawn from the previous experiments in terms of comparing CNN-FGMRES to GMRES remain valid for these challenging large-scale test cases. In particular, the trained neural operator preconditioners consistently reduce both the number of iterations and the computational time compared with unpreconditioned GMRES. For instance, CNN-FGMRES with the neural operator preconditioner trained on dataset D0 requires at most 191 Its with around 4 minutes for the most challenging example (i.e., c from CT000112.dcm presented in Figure 9 (a)), and approximately 12 minutes in total to solve all four examples with accuracy ηb = 10 −3. In contrast, GMRES only successfully solves the simplest case (i.e., c from CT000255.dcm presented in Figure 9 (b)), requiring 4546 Its , and fails to reach the prescribed accuracy for other three examples within the maximum iteration limit maxIts. 4 On the other hand, we observed that the learned optimizer proposed in [26] only successfully converges for one example shown in Figure 9 (a)-(b), which is the same test case (i.e., c from CT000112.dcm ) considered in [26, Section 3.3],   
+
+> 3https://github.com/ucl-bug/helmnet/tree/main
+> 4To further illustrate the difficulty of these problems, we note that, even when allowing additional restarts, GMRES requires 14,849 Its and approximately 13.16 hours to solve the most challenging example shown in Figure 9 (a).
+
+17 0 50 100 150 200    
+
+> Iterations
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> b
+> CNN-FGMRES
+> Learned optimizer
+
+(a) CNN-FGMRES (from dataset D0 ) and Learned opti-mizer [26] with L = 4 , maxIts = 200 0 1000 2000 3000 4000 5000    
+
+> Iterations
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> b
+> CNN-FGMRES
+> GMRES
+> Learned optimizer
+
+(b) CNN-FGMRES (from dataset D0 ), GMRES and Learned optimizer [26] with L = 4 , maxIts = 5120 0 100 200 300 400 500 600    
+
+> Iterations
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> b
+> 4 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+> D3
+> D4
+> D5
+
+(c) CNN-FGMRES with L = 4 , and the CNN was trained with the six different datasets D0 -D5 0 100 200 300 400 500 600       
+
+> Iterations
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> b
+> 4 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+
+(d) Counterpart of (c) with the three different datasets 
+
+D0 -D2 and ηb = 10 −6
+
+Figure 9: Convergence in terms of ηb = 10 −3 for (a)-(c), and ηb = 10 −6 for (d) of CNN-FGMRES and GMRES with maxIts = 5120 with restrat equals 10, together with the learned optimizer proposed in [26] with 
+
+maxIts = 200 , 5120 , on four (i.e., L = 4 ) practical head CT scans problems. In (a)-(b), the presented CNN-FGMRES results are for the CNN-preconditioning trained with dataset D0 . In (c), it shows corresponding results from the CNN-preconditioning trained with the six different datasets D0 -D5 described in Table 4. The (d) is the counterpart results of (c) with datasets D0 -D2 and ηb = 10 −6.
+
+reaching a stagnated attainable accuracy of approximately ηb = 10 −4 after 3084 Richardson iterations (noted by a green ∗ in the green curve in Figure 9 (b)). It fails to converge for the remaining three examples (see Figure 9 (a)-(b) or Figure 13 in Appendix A). In contrast, the proposed CNN-FGMRES successfully solves all four examples with substantially fewer iterations and achieves arbitrary prescribed accuracy. The evolution of the complex wavefield predicted by GMRES, the learned optimizer and CNN-FGMRES trained with dataset D0 for the most challenging example with c from CT000112.dcm is presented in Fig-ure 10. The CNN-FGMRES iterates rapidly recover the main wavefield features: the focal region and the corresponding focal pressure are already well established after approximately 21 iterations, while most of 18 0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 1
+
+Real part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+Imag part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 2
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 3
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 11
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 21
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 61
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 190
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 (a) CNN-FGMRES with dataset D0 0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 1
+
+Real part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+Imag part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 2
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 3
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 11
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 21
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 61
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 190
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3
+
+3
+
+2
+
+1
+
+0
+
+1
+
+2
+
+3 (b) GMRES 0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 1
+
+Real part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+Imag part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 2
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 3
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 11
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 21
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 61
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 190
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 
+
+20 
+
+10 
+
+0
+
+10 
+
+20 (c) Learned optimizer [26] 
+
+Figure 10: Evolution of the complex wavefield predicted by the learned optimizer [26], CNN-FGMRES and GMRES at iterations 1, 2, 3, 11, 21, 61, 190 for the transcranial ultrasound example based on the head CT scan c from CT000112.dcm defined 2D domain 512 × 512 .
+
+the fine-scale wavefield structure is captured within about 61 iterations. In contrast, GMRES does not ex-hibit comparable convergence within the same number of iterations. In fact, approximately 4000 iterations are required before the overall wavefield structure becomes discernible. Furthermore, the learned optimizer requires more than 200 iterations before recovering most of the wavefield structure for the same transcranial ultrasound example (see Figure 10 (c) or [26, Figure 13]), and it fails to converge other three examples. 5
+
+This qualitative comparison further highlights the effectiveness and robustness of the proposed neural oper-ator preconditioning strategy in accelerating the convergence of Krylov subspace methods for the Helmholtz equations arising in transcranial ultrasound simulations. Figure 11 provides visualizations of the resulting final complex wavefields together with the corresponding physical parameter configurations. On the other hand, several additional observations can be made. A key finding is that the performance 
+
+5Refer to Figure 12 in Appendix A for the evolution of the complex wavefields predicted by CNN-FGMRES trained on dataset D0 for the other three head CT scan examples. 
+
+19 0 100 200 300 400 500 
+
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Solved by CNN-FGMRES
+
+Real part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Image part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Physical Parameters
+
+Speed of Sound      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Source Term (Real part) 
+
+> 10.0
+> 7.5
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 10.0
+> 7.5
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+
+Visualize the final solution of Helmholtz eq. with PML BCs (a) c is from CT000112.dcm 0 100 200 300 400 500 
+
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Solved by CNN-FGMRES
+
+Real part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Image part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Physical Parameters
+
+Speed of Sound      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Source Term (Real part) 
+
+> 10
+> 5
+> 0
+> 5
+> 10
+> 10
+> 5
+> 0
+> 5
+> 10
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+
+Visualize the final solution of Helmholtz eq. with PML BCs (b) c is from CT000255.dcm 0 100 200 300 400 500 
+
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Solved by CNN-FGMRES
+
+Real part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Image part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Physical Parameters
+
+Speed of Sound      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Source Term (Real part) 
+
+> 10
+> 5
+> 0
+> 5
+> 10
+> 10
+> 5
+> 0
+> 5
+> 10
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+
+Visualize the final solution of Helmholtz eq. with PML BCs 
+
+(c) c is from CT000200.dcm 0 100 200 300 400 500 
+
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Solved by CNN-FGMRES
+
+Real part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Image part      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Physical Parameters
+
+Speed of Sound      
+
+> 0100 200 300 400 500
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+
+Source Term (Real part) 
+
+> 10
+> 5
+> 0
+> 5
+> 10
+> 10
+> 5
+> 0
+> 5
+> 10
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+
+Visualize the final solution of Helmholtz eq. with PML BCs (d) c is from CT000100.dcm 
+
+Figure 11: Visualize four head CT scans on 2D domain 512 × 512 solved by CNN-FGMRES with dataset D0 ,and ηb = 10 −6.
+
+differences among the six trained neural operator preconditioners become significantly more pronounced in these out-of-distribution testing scenarios. For example, comparing the models trained on datasets D0 and 
+
+D1 reveals that increasing the diversity of the source field configurations can substantially improve efficiency, especially when a tighter accuracy requirement of 10 −6 is imposed. Likewise, comparing the results obtained with datasets D0 and D2 highlights the influence of the velocity distributions used during training. The cor-responding differences become increasingly evident as the testing problems depart further from the training configurations. Furthermore, when comparing dataset D1 with datasets D4 and D5 , which rely exclusively on either idealized skull configurations or fully random velocity fields, respectively, the model trained on 
+
+D1 consistently achieves better performance. This suggests that combining structured and heterogeneous training samples can be more beneficial than relying solely on highly specialized or completely randomized datasets. Overall, these results indicate that training on specialized datasets can improve performance on 20 closely related target problems, whereas training on more diverse datasets tends to enhance robustness and generalization across a broader range of scenarios. Among the six models considered, the preconditioner trained on dataset D0 exhibits the best overall performance for these practical transcranial ultrasound simu-lations. A possible explanation is that D0 achieves a favorable balance between specialized idealized skulls and randomized velocity fields while simultaneously incorporating the greatest diversity of source field configura-tions. The convergence histories of CNN-FGMRES with different network preconditoners and convergence threshold ηb are presented in Figure 9 (c)-(d). Up to this point, two important insights can be summarized from the perspective of generalization to practical simulations. First, the composition of the training dataset plays a critical role in determining the ef-fectiveness of learned models, particularly when they are applied to challenging out-of-distribution problems. Second, for scientific machine learning approaches targeting practical applications, training datasets should carefully balance application-specific structures and randomized samples to achieve both specialization and robust generalization. We specially note that, beyond the primary application in transcranial ultrasound, the same trained neural operator preconditioners can also be applied to accelerate simulations in other settings. We refer the reader to Appendix B for their use in simplified models of spherical wave propagation and seismology. 
+
+## 5 Concluding remarks 
+
+In this study, we investigated the use of neural networks trained on mixed datasets as nonlinear precon-ditioners for solving parametric Helmholtz equations with Krylov subspace methods. Six mixed training datasets were considered to construct neural operator preconditioners, with a primary focus on large-scale transcranial ultrasound simulations. A systematic investigation of the training datasets demonstrates that dataset composition plays a critical role in determining the effectiveness and generalization capability of the learned preconditioners. In particular, a suitable balance between application-specific structured sam-ples and randomized samples leads to improved performance on both in-distribution and out-of-distribution problems. The proposed hybrid approach combines the strong generalization capability of neural operator preconditioners with the robustness of classical iterative methods, enabling accelerated solutions of large-scale Helmholtz problems to arbitrary prescribed tolerances. Numerical experiments demonstrate that the proposed neural operator preconditioners consistently accelerate Krylov subspace methods for both idealized and practical head CT scan examples, while remaining effective for other Helmholtz-based applications. Overall, this work highlights the importance of dataset design in scientific machine learning and pro-vides practical guidelines for constructing training datasets for neural operator preconditioners targeting real-world large-scale PDE simulations. More broadly, it demonstrates the potential of integrating learned approximations of inverse PDE operators into established numerical linear algebra algorithms through a matrix-free framework for efficient large-scale simulations. Rather than replacing classical iterative solvers, neural operator preconditioners trained on mixed datasets serve as complementary components that provide strong generalization capability while retaining the flexibility and robustness of Krylov subspace methods. 
+
+## Acknowledgements 
+
+The author would like to thank Victor Michel-Dansac and Killian Lutz from Inria MACARON team and Uni-versité de Strasbourg for the valuable discussions and exchanges regarding the physical parameters settings and numerical experiments considered in Section 4.2.1. The author would also like to express her sincere gratitude to her Ph.D. supervisors, Luc Giraud (Inria Concace team, France) and Paul Mycek (Concace, Cerfacs, France). Research on transcranial ultrasound simulations was initiated during her doctoral studies under their supervision and continued to be developed after graduation. Their encouragement, support, and confidence in the potential of this research direction provided lasting motivation for pursuing the present study. This work is therefore, in many respects, a continuation of ideas and research interests that originated during the author’s Ph.D. 21 References 
+
+[1] M. Alsubaie, W. Liu, L. Gu, O. C. Andronesi, S. M. Perera, and X. Li. “Conditional Denoising Diffusion Model-Based Robust MR Image Reconstruction from Highly Undersampled Data”. In: arXiv:2510.06335 (2025). doi : 10.48550/arXiv.2510.06335 . arXiv: 2510.06335 . url : http://arxiv.org/abs/2510. 06335 .[2] Y. Azulay and E. Treister. “Multigrid-Augmented Deep Learning Preconditioners for the Helmholtz Equation”. In: SIAM Journal on Scientific Computing 45.3 (2023), S127–S151. issn : 1064-8275. doi :
+
+10.1137/21M1433514 . url : https://epubs.siam.org/doi/10.1137/21M1433514 .[3] J.-P. Berenger. “A Perfectly Matched Layer for the Absorption of Electromagnetic Waves”. In: Journal of Computational Physics 114.2 (1994), pp. 185–200. issn : 0021-9991. doi : 10.1006/jcph.1994.1159 .
+
+url : https://www.sciencedirect.com/science/article/pii/S0021999184711594 .[4] C. M. Bishop and H. Bishop. “Autoencoders”. In: Deep Learning: Foundations and Concepts . Cham: Springer International Publishing, 2024, pp. 563–579. isbn : 978-3-031-45468-4. doi : 10.1007/978-3-031-45468-4_19 . url : https://doi.org/10.1007/978-3-031-45468-4_19 .[5] J. Brandstetter, D. E. Worrall, and M. Welling. “Message Passing Neural PDE Solvers”. In: Interna-tional Conference on Learning Representations (ICLR) . 2022. doi : 10.48550/arXiv.2202.03376 .[6] C.-Y. Deng, S.-H. Feng, H.-C. Wang, X.-T. Zhang, P. Jin, Y.-N. Feng, Q.-L. Zeng, Y.-P. Chen, and Y.-Z. Lin. “OpenFWI: Large-scale Multi-structural Benchmark Datasets for Full Waveform Inversion”. In: Advances in Neural Information Processing Systems . Ed. by S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh. Vol. 35. Curran Associates, Inc., 2022, pp. 6007–6020. url : https:// proceedings.neurips.cc/paper_files/paper/2022/file/27d3ef263c7cb8d542c4f9815a49b69b-Paper-Datasets_and_Benchmarks.pdf .[7] N. Dimola, N. R. Franco, and P. Zunino. “Numerical Solution of Mixed-Dimensional PDEs Using a Neural Preconditioner”. In: arXiv:2505.08491 (2025). doi : 10 . 48550 / arXiv . 2505 . 08491 . url :
+
+https://arxiv.org/pdf/2505.08491 .[8] F. Dietrich and W. Schilders. “Scientific machine learning”. In: Math Semesterber 72 (2025), pp. 89– 115. doi : 10.1007/s00591-025-00399-4 .[9] L. Giraud, C. Kruse, P. Mycek, M. Shpakovych, and Y.-F. Xiang. Neural network preconditioning: a case study for the solution of the parametric Helmholtz equation . Technical Report 9593. Inria Centre at the University of Bordeaux, 2025. url : https://inria.hal.science/hal-05157038 .[10] N. J. Higham. Accuracy and stability of numerical algorithms . SIAM, 2002. doi : 10.1137/1.9780898718027 .[11] A. Kopaničáková and G. Karniadakis. “DeepONet Based Preconditioning Strategies for Solving Para-metric Linear Systems of Equations”. In: SIAM Journal on Scientific Computing 47.1 (2025), pp. C151– C181. issn : 1095-7197. doi : 10.1137/24m162861x . url : http://dx.doi.org/10.1137/24M162861X .[12] N. B. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. M. Stuart, and A. Anandkumar. “Neural Operator: Learning Maps Between Function Spaces with Applications to PDEs”. In: Journal of Machine Learning Research 24.89 (2023), pp. 1–97. url : http : / / jmlr . org / papers / v24 / 21 -1524.html .[13] Z. Li, D. Xiao, Z. Lai, and W. Wang. “Neural Preconditioning Operator for Efficient PDE Solves”. In: arXiv:2502.01337 (2025). doi : 10.48550/arXiv.2505.01337 . url : https://arxiv.org/pdf/2502. 01337 .[14] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. “Fourier Neural Operator for Parametric Partial Differential Equations”. In: International Conference on Learning Representations . 2021. url : https://openreview.net/forum?id=c8P9NQVtmnO .[15] W. Liu, M. Trimboli, and X. Li. “AI-Augmented Adaptive Digital Twin Modeling for Brain Tumor Evolution Prediction and Treatment Scheduling”. In: arXiv:2607.13877 (2026). doi : 10.48550/arXiv. 2607.13877 . arXiv: 2607.13877 . url : http://arxiv.org/abs/2607.13877 .22 [16] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. Karniadakis. “Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators”. In: Nature Machine Intelligence 3 (2021), pp. 218–229. doi : 10.1038/s42256-021-00302-5 .[17] N. Kovachki, Z.-Y. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anandkumar. “Neural Operator: Learning Maps Between Function Spaces With Applications to PDEs”. In: Journal of Machine Learning Research (2023). http://jmlr.org/papers/v24/21-1524.html, pp. 1–97. [18] J. Pathak, S. Subramanian, P. Harrington, S. Raja, A. Chattopadhyay, M. Mardani, T. Kurth, D. Hall, Z. Li, K. Azizzadenesheli, P. Hassanzadeh, K. Kashinath, and A. Anandkumar. FourCastNet: A Global Data-driven High-resolution Weather Model using Adaptive Fourier Neural Operators . 2022. arXiv: 2202.11214 . url : https://arxiv.org/abs/2202.11214 .[19] A. F. Psaros, K. Kawaguchi, and G. E. Karniadakis. “Meta-learning PINN loss functions”. In: Jour-nal of Computational Physics 458 (2022), p. 111121. issn : 0021-9991. doi : https://doi.org/10. 1016 / j . jcp . 2022 . 111121 . url : https : / / www . sciencedirect . com / science / article / pii / S0021999122001838 .[20] J. L. Rigal and J. Gaches. “On the Compatibility of a Given Solution With the Data of a Linear System”. In: Journal of the ACM 14.3 (1967), pp. 543–548. doi : 10 . 1145 / 321406 . 321416 . url :
+
+https://doi.org/10.1145/321406.321416 .[21] O. Ronneberger, P. Fischer, and T. Brox. “U-Net: Convolutional Networks for Biomedical Image Seg-mentation”. In: arXiv:1505.04597 (2015). doi : 10.48550/arXiv.1505.04597 . arXiv: 1505.04597 . url :
+
+http://arxiv.org/abs/1505.04597 .[22] S. Chilamkurthy, R. Ghosh, S. Tanamala, M. Biviji, N. G. Campeau, V. K. Venugopal, V. Mahajan, P. Rao, and P. Warier. “Development and validation of deep learning algorithms for detection of critical findings in head CT scans”. In: arXiv:1803.05854 (2018). doi : 10.48550/arXiv.1803.05854 . arXiv: 
+
+1803.05854 . url : http://arxiv.org/abs/1803.05854 .[23] Y. Saad. “A flexible inner-outer preconditioned GMRES algorithm”. In: SIAM Journal Scientific Com-puting 14 (1993), pp. 461–469. [24] Y. Saad and M. Schultz. “GMRES: a generalized minimal residual algorithm for solving nonsymmetric linear systems.” In: SIAM Journal on Scientific and Statistical Computing 7 (1986), pp. 856–869. [25] M. Shpakovych. Neural Network Preconditioning of Large Linear Systems . Technical Report 0518. Inria Centre at the University of Bordeaux, 2023. url : https://inria.hal.science/hal-04254315 .[26] A. Stanziola, S. R. Arridge, B. T. Cox, and B. E. Treeby. “A Helmholtz Equation Solver Using Un-supervised Learning: Application to Transcranial Ultrasound”. In: Journal of Computational Physics 
+
+441 (2021), p. 110430. issn : 00219991. doi : 10 . 1016 / j . jcp . 2021 . 110430 . url : https : / / www . sciencedirect.com/science/article/abs/pii/S0021999121003259 .[27] V. Trifonov, A. Rudikov, O. Iliev, Y. M. Laevsky, and I. Oseledets. “Efficient preconditioning for iterative methods with graph neural networks”. In: AI4X 2025 International Conference . 2025. url :
+
+https://openreview.net/pdf?id=PjDJonBo9T .[28] J. H. Wilkinson. Rounding Errors in Algebraic Processes . Notes on Applied Science 32. Also published by Prentice-Hall, Englewood Cliffs, NJ, USA, 1964. Reprinted by Dover Publications, New York, 1994. London, UK: HMSO, 1963. [29] Y.-F. Xiang. “Solution of Large Linear Systems with a Massive Number of Right-Hand Sides and Ma-chine Learning”. PhD thesis. University of Bordeaux, 2022. url : https://theses.fr/2022BORD0383 .[30] Y.-F. Xiang. Unsupervised convolution neural operator preconditioning for the solution of some hetero-geneous fluid PDEs . Technical Report. Inria Centre at the University of Bordeaux and Inria Center of the University of Lorraine, 2025. url : https://inria.hal.science/hal-04886933v3 .23 A Further results on the four transcranial ultrasound examples 0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 1
+
+Real part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+Imag part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 2
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 3
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 11
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 21
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 61
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 158
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+(a) c is from CT000255.dcm 0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 1
+
+Real part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+Imag part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 2
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 3
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 11
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 21
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 61
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 165
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 (b) c is from CT000200.dcm 0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 1
+
+Real part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+Imag part 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 2
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 3
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 11
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 21
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 61
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+> Iteration 161
+
+0 200 400 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 
+
+10 
+
+5
+
+0
+
+5
+
+10 (c) c is from CT000100.dcm 
+
+Figure 12: Counterpart of Figure 10: Evolution of the complex wavefield predicted by CNN-FGMRES trained with dataset D0 at iterations 1, 2, 3, 11, 21, 61, and 158 for (a) or 165 for (b) 161 for (c) for the other three transcranial ultrasound examples defined 2D domain 512 × 512 .0 25 50 75 100 125 150 175 200 
+
+Iterations 
+
+10 0
+
+10 3
+
+10 6
+
+10 9
+
+10 12 
+
+10 15 
+
+10 18 
+
+b
+
+Learned optimizer convergence results with 200 iterations 
+
+Exp 1: c from CT000112.dcm 
+
+Exp 2: c from CT000255.dcm 
+
+Exp 3: c from CT000200.dcm 
+
+Exp 4: c from CT000100.dcm 
+
+(a) maxIts = 200 Richardson iterations 0 1000 2000 3000 4000 5000 
+
+Iterations 
+
+10 2
+
+10 1
+
+10 4
+
+10 7
+
+10 10 
+
+10 13 
+
+10 16 
+
+b
+
+Learned optimizer convergence results with 5120 iterations 
+
+Exp 1: c from CT000112.dcm 
+
+Exp 2: c from CT000255.dcm 
+
+Exp 3: c from CT000200.dcm 
+
+Exp 4: c from CT000100.dcm (b) maxIts = 5120 Richardson iterations 
+
+Figure 13: Convergence histories of the learned optimizer [26] on the head CT scan examples in Section 4.2.2. 24 B Simplified models of spherical wave propagation and seismology 
+
+This section explores further applications of the same trained CNN-based preconditioner for solving Helmholtz equations arising from other applications, including the simplified models of spherical wave propagation with single or multiple source terms, as well as from idealized seismological settings involving wave propagation in heterogeneous media. To represent these scenarios, we define the source term b following the dirac1_smooth 
+
+and m dirac configurations, where m ≥ 1 ∈ N is an integer. Specifically, m entries of b are set to ±1 at randomly selected grid locations, while all remaining entries are zero. To model spherical wave propagation in a homogeneous medium, we first consider the γ-constant case, in which the wave speed c is spatially con-stant. All entries of c are set to a value γ drawn uniformly at random from the interval [1 , 2] . To mimic more realistic seismological configurations, we construct heterogeneous wave speed fields c with layered structures as shown in the publicly available OpenFWI dataset [6]. In each case, the layers are well aligned, and all elements within a given layer share a constant value sampled uniformly from [α, β ] over the domain. Unless otherwise specified, we take (α, β ) = (1 , 2) . The following configurations are considered: 1. 4layered : c consists of four aligned layers, each with a constant value; 2. 4faulted : c consists of four aligned but discontinuous (faulted) layers, with shifted segments. We refer the reader to the lower-left panel of each subplot of Figure 15 for visualizations of these homogeneous and heterogeneous wave speed fields with layered structures. We note that these configurations are intended as simplified yet representative test cases for assessing the robustness of the proposed method under both homogeneous and heterogeneous wave propagation regimes. The numerical results of GMRES and CNN-FGMRES for the L = 20 linear systems with these physical parameter settings are reported in Table 9. Among the six trained models, CNN-FGMRES with network preconditioner trained under dataset D3 exhabites the best performance for these testing cases. The cor-responding convergence histories for the model trained with dataset D3 are displayed in Figure 14 (a)-(d), while the convergence histories for all six trained models are presented in Figure 14 (e)-(h). The conclusions drawn in the previous numerical sections remain valid in this section. For completeness, Figure 15 provides visualizations of the resulting wavefields under some representative physical parameter configurations. 0 100 200 300 400 500        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+> GMRES
+
+(a) c iid 
+
+∼ γ-constant ,
+
+b iid 
+
+∼ dirac , dataset D3 0 100 200 300 400 500        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+> GMRES
+
+(b) c iid 
+
+∼ γ-constant , b iid 
+
+∼
+
+2 dirac , dataset D3 0 100 200 300 400 500        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+> GMRES
+
+(c) c iid 
+
+∼ 4layered , b iid 
+
+∼
+
+dirac1_smooth , dataset D3 0 100 200 300 400 500        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> CNN-FGMRES
+> GMRES
+
+(d) c iid 
+
+∼ 4faulted , b iid 
+
+∼
+
+dirac1_smooth , dataset D3 0 20 40 60 80 100        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> 20 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+> D3
+> D4
+> D5
+
+(e) Counterpart of (a) with CNN from datasets D0 -D5 0 20 40 60 80 100        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> 20 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+> D3
+> D4
+> D5
+
+(f) Counterpart of (b) with CNN from datasets D0 -D5 0 20 40 60 80        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> 20 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+> D3
+> D4
+> D5
+
+(g) Counterpart of (c) with CNN from datasets D0 -D5 0 20 40 60 80        
+
+> Iterations
+> 10 13
+> 10 11
+> 10 9
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> b
+> 20 CNN-FGMRES (trained with varying Dataset) convergence results
+> D0
+> D1
+> D2
+> D3
+> D4
+> D5
+
+(h) Counterpart of (d) with CNN from datasets D0 -D5 
+
+Figure 14: Convergence in terms of ηb = 10 −12 of CNN-FGMRES and GMRES with maxIts = 512 without restart for L = 20 simplified models of spherical waves and seismology problems. In (a)-(d), the presented CNN-FGMRES results are for the CNN-preconditioning trained with dataset D3 . In (e)-(h), it shows corresponding results from the CNN-preconditioning trained with the six different datasets D0 -D5 described in Table 4. 
+
+25 #Speed of sound #Domain/Dataset Method L (Its max , Its avg , Its min ) ET 
+
+c iid 
+
+∼ γ-constant 
+
+with b iid 
+
+∼ dirac 
+
+64 × 64 / GMRES 20 (512 ∗
+
+> 15
+
+, 510, 497) 2192.18s /D0 CNN-FGMRES 20 (110, 85, 75) 33.96s /D1 CNN-FGMRES 20 (59, 38, 26) 8.05s /D2 CNN-FGMRES 20 (95, 80, 70) 25.30s /D3 ⋆ CNN-FGMRES 20 (38, 33, 29) 6.86s /D4 CNN-FGMRES 20 (62, 52, 28) 11.61s /D5 CNN-FGMRES 20 (80, 48, 27) 11.27s 
+
+c iid 
+
+∼ γ-constant 
+
+with b iid 
+
+∼ 2 dirac 
+
+64 × 64 / GMRES 20 (512 ∗
+
+> 16
+
+, 511, 500) 2130.23s /D0 CNN-FGMRES 20 (106, 85, 71) 23.36s /D1 CNN-FGMRES 20 (57, 37, 29) 10.02s /D2 CNN-FGMRES 20 (95, 83, 73) 22.07s /D3 ⋆ CNN-FGMRES 20 (41, 32, 26) 6.87s /D4 CNN-FGMRES 20 (63, 56, 45) 12.81s /D5 CNN-FGMRES 20 (67, 38, 28) 9.50s 
+
+c iid 
+
+∼ 4layered 
+
+with b iid 
+
+∼ dirac1_smooth 
+
+64 × 64 / GMRES 20 (512, 512, 512) ∗ 
+
+> 20
+
+520.62s /D0 CNN-FGMRES 20 (91, 85, 80) 19.70s /D1 CNN-FGMRES 20 (46, 38, 32) 8.28s /D2 CNN-FGMRES 20 (94, 84, 76) 19.94s /D3 ⋆ CNN-FGMRES 20 (40, 35, 33) 7.06s /D4 CNN-FGMRES 20 (65, 55, 47) 11.84s /D5 CNN-FGMRES 20 (65, 48, 32) 10.18s 
+
+c iid 
+
+∼ 4faulted 
+
+with b iid 
+
+∼ dirac1_smooth 
+
+64 × 64 / GMRES 20 (512, 512, 512) ∗ 
+
+> 20
+
+2379.37s /D0 CNN-FGMRES 20 (92, 85, 78) 19.51s /D1 CNN-FGMRES 20 (43, 38, 32) 7.99s /D2 CNN-FGMRES 20 (94, 84, 76) 19.67s /D3 ⋆ CNN-FGMRES 20 (41, 35, 32) 7.08s /D4 CNN-FGMRES 20 (67, 54, 44) 11.64s /D5 CNN-FGMRES 20 (71, 48, 31) 10.50s 
+
+c iid 
+
+∼ 4layered 
+
+with b iid 
+
+∼ 2 dirac 
+
+64 × 64 / GMRES 20 (512, 512, 512) ∗ 
+
+> 20
+
+818.80s /D0 CNN-FGMRES 20 (92, 86, 77) 20.35s /D1 CNN-FGMRES 20 (47, 38, 33) 8.23s /D2 CNN-FGMRES 20 (93, 82, 74) 19.32s /D3 ⋆ CNN-FGMRES 20 (42, 35, 32) 7.39s /D4 CNN-FGMRES 20 (66, 54, 48) 15.68s /D5 CNN-FGMRES 20 (63, 49, 34) 10.47s 
+
+c iid 
+
+∼ 4faulted 
+
+with b iid 
+
+∼ 2 dirac 
+
+64 × 64 / GMRES 20 (512, 512, 512) ∗ 
+
+> 20
+
+2133.76s /D0 CNN-FGMRES 20 (94, 84, 77) 22.37s /D1 CNN-FGMRES 20 (46, 37, 33) 7.73s /D2 CNN-FGMRES 20 (91, 82, 74) 21.57s /D3 ⋆ CNN-FGMRES 20 (40, 34, 31) 7.47s /D4 CNN-FGMRES 20 (63, 54, 43) 11.64s /D5 CNN-FGMRES 20 (78, 50, 31) 10.63s 
+
+Table 9: Numerical results shown in Figure 14 in terms of (Its max , Its avg , Its min ) and the GPUs ET on 4 V100 GPUs for L = 20 examples with varying wave speed c iid 
+
+∼ γ-constant , and the heterogeneous ones with different types of layered structures, and the random source term b iid 
+
+∼ m dirac and b iid 
+
+∼ dirac1_smooth . The ηb = 10 −12 and 
+
+maxIts = 512 without restrat. 
+
+26 0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Complex Wavefield
+
+Real part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Imag part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Physical Parameter
+
+Speed of Sound 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Source Term (Real part) 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+1.0 
+
+1.2 
+
+1.4 
+
+1.6 
+
+1.8 
+
+2.0 
+
+1.0 
+
+0.8 
+
+0.6 
+
+0.4 
+
+0.2 
+
+0.0 (a) c iid 
+
+∼ γ-constant with b iid 
+
+∼ dirac 0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Complex Wavefield
+
+Real part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Imag part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Physical Parameter
+
+Speed of Sound 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Source Term (Real part) 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+1.0 
+
+1.2 
+
+1.4 
+
+1.6 
+
+1.8 
+
+2.0 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 (b) c iid 
+
+∼ γ-constant with b iid 
+
+∼ 2 dirac 0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Complex Wavefield
+
+Real part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Imag part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Physical Parameter
+
+Speed of Sound 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Source Term (Real part) 
+
+2
+
+1
+
+0
+
+1
+
+2
+
+2
+
+1
+
+0
+
+1
+
+2
+
+1.0 
+
+1.2 
+
+1.4 
+
+1.6 
+
+1.8 
+
+2.0 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+(c) c iid 
+
+∼ 4layered with b iid 
+
+∼ dirac1_smooth 0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Complex Wavefield
+
+Real part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Imag part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Physical Parameter
+
+Speed of Sound 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Source Term (Real part) 
+
+2.0 
+
+1.5 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.0 
+
+1.5 
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+1.0 
+
+1.2 
+
+1.4 
+
+1.6 
+
+1.8 
+
+2.0 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 (d) c iid 
+
+∼ 4faulted with b iid 
+
+∼ dirac1_smooth 0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Complex Wavefield
+
+Real part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Imag part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Physical Parameter
+
+Speed of Sound 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Source Term (Real part) 
+
+0.15 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.15 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+1.0 
+
+1.2 
+
+1.4 
+
+1.6 
+
+1.8 
+
+2.0 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+(e) c iid 
+
+∼ 4layered with b iid 
+
+∼ 2 dirac 0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Complex Wavefield
+
+Real part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Imag part 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+> Physical Parameter
+
+Speed of Sound 
+
+0 20 40 60 
+
+0
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+Source Term (Real part) 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+1.0 
+
+1.2 
+
+1.4 
+
+1.6 
+
+1.8 
+
+2.0 
+
+1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 (f) c iid 
+
+∼ 4faulted with b iid 
+
+∼ 2 dirac 
+
+Figure 15: Visualize spherical waves at (a)-(b) and seismology examples (c)-(f) on 2D domain 64 × 64 solved by CNN-FGMRES with ηb = 10 −12 and dataset D3 .
+
+27

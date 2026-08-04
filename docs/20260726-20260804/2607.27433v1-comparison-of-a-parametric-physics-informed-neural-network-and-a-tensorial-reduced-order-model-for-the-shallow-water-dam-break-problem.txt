@@ -1,0 +1,1043 @@
+Title: Comparison of a Parametric Physics-Informed Neural Network and a Tensorial Reduced-Order Model for the Shallow-Water Dam-Break Problem
+
+URL Source: https://arxiv.org/pdf/2607.27433v1
+
+Published Time: Fri, 31 Jul 2026 00:16:10 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Comparison of a Parametric Physics-Informed Neural Network and a Tensorial Reduced-Order Model for the Shallow-Water Dam-Break Problem 
+
+Anton Myshak ∗ Md Rezwan Bin Mizan † Ilya Timofeyev ‡
+
+Abstract 
+
+We develop two parametric data-driven reduced models: a physics-informed neural network (PINN) and a non-intrusive tensorial reduced-order model (TROM), and apply both approaches to the parametrized one-dimensional shallow-water dam-break problem. Both reduced models do not require time integration and learn a direct solution map from space, time, and dam-break parameters to the physical state. We present a detailed comparison for out-of-sample and extrapolated parameter values. In addition, we demonstrate that it is essential to introduce shock-aware collocation to improve the robustness of the PINN model. 
+
+Keywords: Parametric PINN, Parametric TROM, Reduced-Order Model, Shallow-Water Equa-tions, Dam-Break Problem 
+
+MSC: 65M22, 65M60, 68T07, 35L65 
+
+# 1 Introduction 
+
+Hyperbolic balance laws are ubiquitous in many areas of applied mathematics, including fluid flows. One of the main characteristics of hyperbolic problems is the appearance of sharp transients and discontinuities, which are intrinsic to the dynamics. One of the canonical benchmarks is the one-dimensional (1D) shallow-water dam-break problem (e.g., [50, 53, 9]). Despite its conceptual simplicity, the solution typically develops nonlinear wave interactions, moving fronts, and (depend-ing on wet/dry configurations) sharp transitions (shocks) that are challenging numerically for both classical discretizations and surrogate modeling. Reliable and efficient prediction of such regimes is central to many practical problems, including uncertainty quantification, design and control, and real-time forecasting, motivating the development of reduced models that remain accurate in the presence of transport and shocks [28, 52, 39, 35, 15, 10]. Projection-based reduced-order models (ROMs) (see survey [4] and references therein) consti-tute a well-established approach to accelerating numerical simulations by projecting the state onto a low-dimensional approximation space constructed from high-fidelity snapshots. However, it is known that for transport-dominated problems that contain shocks, the solution manifold often exhibits slow decay of the Kolmogorov n-width [32, 27] and its approximations [14, 8, 13, 21, 2] 
+
+> ∗Dept. of Mathematics, University of Houston, Houston, TX 77204, amyshak@uh.edu
+> †Dept. of Mathematics, University of Houston, Houston, TX 77204, mbinmizan@uh.edu
+> ‡Dept. of Mathematics, University of Houston, Houston, TX 77204, itimofey@cougarnet.uh.edu
+
+1arXiv:2607.27433v1 [math.NA] 29 Jul 2026 computed by greedy POD [7], limiting the efficiency of linear-subspace compression and leading to a loss of fidelity near discontinuities. Consequently, substantial research has focused on ROM vari-ants that mitigate these issues, for instance, through localization, nonlinear manifolds, or feature alignment (e.g., [3, 1, 46, 51, 47]). Recently, a parametric tensor Reduced-Order Model (TROM) was proposed to address some of these issues [30, 31, 40]. This approach combines a low-rank tensor representation of the parameter-to-solution map with localized reduced bases to improve accuracy across regimes. The TROM is particularly suitable for the development of reduced models for parametric problems. In [33] and [34], this approach was successfully applied to the dam-break problem for the shallow-water equations for Newtonian and visco-plastic fluids, respectively. In this paper, we consider the non-intrusive TROM, where solutions for new parameter values are computed directly from the low-rank compressed representation without time integration of the reduced equations. Details are provided in Section 3. In parallel, physics-informed neural networks (PINNs) [44] have emerged as a promising paradigm for constructing differentiable surrogate models by embedding governing equations directly into the learning objective. In their classical form, PINNs optimize a neural network representing the so-lution fields using a composite loss that penalizes violations of the partial differential equations (PDEs) as well as mismatches to initial and boundary data [44]. This hybridization of data and physics has shown a strong potential for learning PDE solution operators from relatively sparse supervision, offering a flexible route to surrogate modeling that is mesh-free in space and time. Nev-ertheless, hyperbolic conservation laws pose additional difficulties: solutions may not be smooth, and, thus, the differential form of the PDE is not valid at discontinuities, which can degrade train-ing stability and shock localization. This has been addressed by introducing various modifications such as conservative PINNs (cPINNs) [22], weak PINNs (wPINNs) and Integral PINNs (IPINNs) [17, 12, 45] that utilize weak formulation of PDEs, variational PINNs (VPINNs) [23, 24] that adopt a Petrov–Galerkin viewpoint by pairing neural-network trial functions with polynomial test spaces. Architectural choices have also been explored; for example, physics-informed attention-based models have demonstrated improved shock-front representation and generalization behavior in hyperbolic settings [48]. Recently, PINNs have been applied to free-surface flows governed by the SWEs, motivated by the need for fast surrogates in forecasting and scenario exploration. Recent studies developed PINNs for SWEs in one and two spatial dimensions, including dam-break scenarios [5, 42, 37]. These studies also discuss practical issues such as stabilization, loss weighting, and the trade-off between smoothness and accuracy relative to shock-capturing numerical schemes. However, these studies primarily address fixed PDE instances or individual forward scenarios rather than learning a single parametric surrogate over a family of dam-break initial conditions. Thus, while they support the feasibility of physics-informed learning for SWE dynamics, they do not resolve the parametric generalization problem studied here. This work constructs and compares two parametric reduced-order models for the one-dimensional shallow-water dam-break problem: a physics-informed neural network (PINN) and a non-intrusive tensorial reduced-order model (TROM). Both models are constructed using the same high-fidelity dataset and evaluated using consistent metric across dry-bed, wet-bed, and near-dry-bed regimes, following benchmark settings used in previous ROM studies [11, 29, 36, 41, 57, 58] and recent TROM work [33]. We compare their predictive accuracy for the water depth and the discharge, their performance in parameter interpolation and extrapolation, and their respective offline and online computational costs. An important component of the study is the construction of a robust 2parametric PINN for this shock-dominated problem. Through ablation experiments, we demon-strate that shock-aware collocation, residual scaling, and PDE gating substantially improve the ac-curacy and robustness of the PINN. Overall, the comparison identifies the complementary strengths and limitations of the two approaches for parametric hyperbolic problems. The rest of the paper is organized as follows. Section 2 introduces the shallow-water model and the parametrized dam-break setup. Sections 3 and 4 give an overview of the tensorial Reduced-Order Model (TROM) and parametric Physics-Informed Neural Networks (PINNs). The numerical results for the interpolation and extrapolation in the parameter space are presented in Sections 5 and , respectively. Ablation studies for the PINN model are presented in Section 7. The discussion and conclusions are presented in Section 8. 
+
+# 2 Methods and Setup 
+
+In this section, we briefly outline the dam-break problem for the shallow-water equations and the numerical method. 
+
+2.1 Governing equations 
+
+We consider the one-dimensional shallow water equations (SWEs), posed on a spatial interval Ω := [0 , L ] and time interval [0 , T ]. The equations can be written as a system of conservation laws 
+
+∂tU + ∂xF(U) = 0, (x, t ) ∈ Ω × (0 , T ], (1) with 
+
+U(x, t ; μ) := 
+
+h(x, t ; μ)
+
+q(x, t ; μ)
+
+
+
+, F(U) = 
+
+ qq2
+
+h + 12 gh 2
+
+ ,
+
+where h(x, t ; μ) ≥ 0 denotes the water depth, q(x, t ; μ) = h(x, t ; μ) u(x, t ; μ) is the discharge (momentum), u is the depth-averaged velocity, and g > 0 is the gravitational acceleration. Here μ
+
+is a vector of parameters describing the initial conditions and F(U) is the flux function. The system in (1) is a strictly hyperbolic system for h > 0; solutions may develop discontinuities (shocks) even from smooth initial data. Consequently, the relevant notion of solution is that of a (weak) entropy solution; see, e.g., [53] for a detailed discussion. 
+
+Parametrized dam-break initial data. We study a parametrized dam-break configuration with a depth discontinuity located at xdam = L/ 2. The parameter vector is μ := ( hL, h R) ∈P ⊂ R2, where hL and hR denote the upstream and downstream depths, respectively, and satisfy 
+
+hL > h R ≥ 0. Thus, the initial dam condition is 
+
+h(x, 0; μ) = 
+
+(
+
+hL, x < x dam ,hR, x ≥ xdam , u(x, 0; μ) = 0 , (2) which implies q(x, 0; μ) = 0. The case hR = 0 is commonly referred to as the dry-bed dam-break problem and yields a solution dominated by a rarefaction wave, while the case hR > 0 is the wet-bed dam-break problem and is more challenging due to the presence of a downstream shock for all hR > 0 and for all t > 0. 3Although the solution of the wet-bed case converges uniformly to the solution of the dry-bed case on finite time intervals [0 , T ] such that xdam + 2 cT < L with c = √gh L, ∂h/∂h R ∼ O(h−1/2 
+
+> R
+
+) in a small interval near the shock for small hR (see discussion in [33] Appendix A). This complicates the use of projection-based reduction techniques whose performance depends on the smoothness of the parametric solution manifold. We consider a standard benchmark setup with L = 100, boundary conditions 
+
+∂xh(0 , t ; μ) = ∂xu(0 , t ; μ) = ∂xh(L, t ; μ) = ∂xu(L, t ; μ) = 0 , t ∈ (0 , T ], (3) and parameter domain [hmin  
+
+> L
+
+, h max  
+
+> L
+
+] × [hmin  
+
+> R
+
+, h max  
+
+> R
+
+] = [10 , 28] × [0 , 8] . (4) 
+
+Parametric solution operator and learning objective. Let UFOM (x, t ; μ) denote the high-fidelity (reference) solution of (1). The main goal of this paper is to examine two types of surrogate data-driven models for the parameter-to-solution map 
+
+S : (x, t, μ) 7 → UFOM (x, t ; μ), (x, t ) ∈ Ω × [0 , T ], μ ∈ P .
+
+The first model is a parametrized physics-informed neural network Nθ := ( hθ(x, t ; μ), u θ(x, t ; μ)) where θ are trainable weights. This model should be consistent with the induced conservative quantity qθ := hθuθ. The surrogate should provide accurate predictions for previously unseen parameter values μ and times t (with particular interest in generalization within the training parameter domain). The learning problem is therefore to approximate S on Ω × [0 , T ] × P while respecting the governing PDE (1), initial condition (2), boundary condition (3), and admissibility constraint h(x, t ) ≥ 0. The second model is a non-intrusive tensorial reduced-order model (TROM). Unlike neural net-works, this model does not require any iterative training, but it is still a data-driven model since it requires a dataset generated by numerical simulations of the high-fidelity model. The TROM uses a reduced representation which is obtained by performing a higher-order singular value decomposition (HOSVD) of the full snapshot matrix, nonlinear interpolation in parameter space, and reconstruc-tion of the solution matrix from the reduced tensor representation. Essentially, this model learns the parameter-to-solution map S by computing the Tucker reduced tensor representation during the offline phase. 
+
+2.2 Numerical Method for the Full-Order Model 
+
+We use a Local Lax-Friedrichs finite-volume discretization to discretize the SWE in space. The semi-discrete scheme becomes 
+
+ddt Ui(t) = − Fi+1/2 − Fi−1/2
+
+∆x , i = 1 , . . . , N 
+
+with 
+
+Fi+1/2 = F(Ui) + F(Ui+1 )2 − λi+1/2
+
+2 (Ui+1 − Ui) ,
+
+with λi+1/2 = max 
+
+
+
+|ui| + √gh i, |ui+1 | + pgh i+1 
+
+
+
+and ∆ x = L/N , where N is the number of discrete points within the domain. For time-stepping, we use the Euler discretization with the 4time-step ∆ t satisfying the CFL condition max i λi+1/2 ∆t/ ∆x < 1. We use two ghost cells U0 = U1
+
+and UN +1 = UN to satisfy the boundary conditions. It is known that the above discretization belongs to the class of strong stability preserving methods [49, 20, 19]. The scheme is also height-positivity-preserving. Thus, the non-negativity of the water depth hi is preserved at the discrete level for all times. 
+
+2.3 Dataset construction 
+
+In [33], a high-resolution parameter mesh with 221 parameter values was used to generate the training data. To test data efficiency, we reduce the number of parameter instances to ( NL ×NR) = (5 × 13) with sampled parameter values 
+
+P1 = {10 , 14 .5, 19 , 23 .5, 28 },
+
+P2 = {0, 0.1363 , 0.5359 , 1.1716 , 2, 2.9647 , 4, 5.0353 , 6, 6.8284 , 7.4641 , 7.8637 , 8}. (5) Therefore, the total sampled parameter set P = P1 × P 2 contains NLNR = 65 sampled parameter values. We integrate the full-order model (FOM) with the time-step ∆ t = 10 −4 to a final time T = 2 .5and store snapshots at times tk = k∆ts, k = 1 , . . . , N T with ∆ ts = 0 .1. We use Nx = 402, which includes two ghost points (one on each boundary) for implementing the boundary conditions. For each parameter value μ(m), m = 1 , . . . , N LNR, we store fields h(m)(xi, t k) and u(m)(xi, t k) with 
+
+i = 1 , . . . , N x and k = 1 , . . . , N T . These snapshots can be combined into a fourth-order tensor, as discussed in Section 3. Figure 1 illustrates representative space–time structure in the generated FOM trajectories for a dry-bed case ( hL, h R) = (19 , 0) and a wet-bed case ( hL, h R) = (19 , 2). The depth profiles h(t, x )(top row) for t = 0 , 0.5, 1, 2.5 highlight the qualitative difference between regimes: the dry-bed solution is dominated by a rarefaction wave that spreads from the dam location, whereas the wet-bed solution exhibits a persistent downstream shock for all t > 0. The corresponding discharge profiles q(t, x ) = h(t, x )u(t, x ) (bottom row) depict the local flow rate (volume flux per unit width) and highlight where the solution carries significant momentum. 50                                  
+
+> 5
+> 10
+> 15
+> depth  h
+> dry-bed: hL= 19.0, hR= 0.0
+> t0.00
+> t0.50
+> t1.00
+> t2.50
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> depth  h
+> wet-bed: hL= 19.0, hR= 2.0
+> t0.00
+> t0.50
+> t1.00
+> t2.50
+> 020 40 60 80 100
+> x
+> 0
+> 20
+> 40
+> 60
+> 80
+> discharge  q
+> t0.00
+> t0.50
+> t1.00
+> t2.50
+> 020 40 60 80 100
+> x
+> 0
+> 20
+> 40
+> 60
+> 80
+> discharge  q
+> t0.00
+> t0.50
+> t1.00
+> t2.50
+
+Figure 1: Representative FOM snapshots (depth h(t, x ) and discharge q(t, x )) for a dry-bed and a wet-bed choice of parameters ( hL, h R) = (19 , 0) (left) and ( hL, h R) = (19 , 2) (right), at times 
+
+t = 0 , 0.5, 1.0, 2.5. Top part - water depth h(t, x ), Bottom part - discharge q(t, x ). 
+
+Train/validation/test splits. We design splits to probe generalization in both parameter and time, including IC interpolation/extrapolation and time interpolation/extrapolation. Precise split definitions are provided in Section 4. 
+
+# 3 Tensorial reduced-order Model 
+
+In this section, we present the non-intrusive Tensorial Reduced-Order Model (TROM); additional details can be found in [6]. As we discussed in Section 2.3, the solution of the full-order model depends on parameters μ(m) ∈ R2 and we consider the parameter grid P defined in (5). Using the full-order model, we generate solution snapshots {h(m)(xi, t k), u (m)(xi, t k)}, where μ(m) ∈ R2 is a particular parameter value from (5). For each field variable ϕ ∈ { h, u }, these snapshots can be organized into a fourth-order tensor 
+
+Qϕ ∈ RNx×NL×NR×NT ,
+
+where the first mode corresponds to the spatial discretization ( Nx = 402), modes 2 and 3 correspond to the parameter dimensions ( NL = 5 and NR = 13), and the last mode corresponds to time (NT = 25). Next, the Tucker decomposition [54] can be used to develop a compressed tensor format. In particular, the tensor Qϕ can be represented as 
+
+Qϕ ≈ fQϕ = Gϕ ×1 V(x) 
+
+> ϕ
+
+×2 V(L) 
+
+> ϕ
+
+×3 V(R) 
+
+> ϕ
+
+×4 V(T ) 
+
+> ϕ
+
+, (6) 6where Gϕ ∈ R ˜Nx× ˜NL× ˜NR× ˜NT is the core tensor and V(k) 
+
+> ϕ
+
+∈ RNk × ˜Nk are factor matrices with 
+
+k ∈ { x, L, R, T }. Here ” · × n · ” denotes the mode-n product of a tensor with a matrix (see, e.g., [26] for a review of tensor algebra). The tuple ( ˜Nx, ˜NL, ˜NR, ˜NT ) represents the multilinear rank of the tensor fQϕ. The Tucker format allows independent compression ratios for each mode, and orthonormality of the factor matrices ensures numerical stability and direct error control. The Higher-Order SVD (HOSVD) [16] can be used to compute the Tucker decomposition by performing the SVD of each mode-n unfolding independently and selecting the truncation rank for each mode. The multilinear ranks ˜Nk with k ∈ { x, L, R, T } are selected using a criterion based on the singular value decay: ˜Nk = min 
+
+(
+
+r :
+
+Pri=1 σi,k 
+
+PNk 
+
+> i=1
+
+σi,k 
+
+≥ 1 − ϵ
+
+)
+
+, (7) where σi,k are the singular values of the k-mode unfolding of Qϕ. We use ϵ = 10 −3 as a threshold for all modes. The multilinear ranks obtained from the truncated HOSVD using the energy criterion above are ( ˜Nx, ˜NL, ˜NR, ˜NT ) = (94 , 4, 5, 21) . For the non-intrusive TROM, solution snapshots for a new parameter value μ∗ ∈ R2 are constructed directly from the low-order representation (6) without any time integration (see also [34]). First, interpolation coefficients for the new parameter values are computed using cubic spline interpolation on the grid Pk
+
+χk(μ∗
+
+> k
+
+) = interp. coefficients( Pk, μ ∗
+
+> k
+
+), k = 1 , 2.
+
+The vector χk ∈ RNk contains the interpolation coefficients corresponding to the parameter value 
+
+μ∗ 
+
+> k
+
+on the grid Pk. Next, the Tucker tensor from (6) is contracted along all parameter modes with the interpolation vectors: 
+
+Cϕ(μ∗) = Gϕ ×2
+
+
+
+V(L)⊤ 
+
+> ϕ
+
+χ1(μ∗
+
+> 1
+
+)
+
+
+
+×3
+
+
+
+V(R)⊤ 
+
+> ϕ
+
+χ2(μ∗
+
+> 2
+
+)
+
+
+
+. (8) This yields the low-dimensional matrix Cϕ(μ∗) ∈ R ˜Nx× ˜NT . The solution is then reconstructed via 
+
+Xϕ(μ∗) = V(x) 
+
+> ϕ
+
+Cϕ(μ∗)
+
+
+
+V(T )
+
+> ϕ
+
+⊤
+
+∈ RNx×NT ,
+
+where the k-th column of Xϕ(μ∗) approximates ϕ(x, t k; μ∗). 
+
+# 4 Parametric Physics-Informed Neural Network 
+
+Recall from Section 2 that the parametric solution operator maps ( x, t, μ) ∈ Ω × [0 , T ] × P to the state of the flow. Here, Ω = [0 , L ] and P ⊂ R2 is the parameter domain. Accordingly, we seek a neural network approximation Nθ of the form 
+
+Nθ : R4 → R2, Nθ : ( x, t, μ) 7 → (hθ(x, t ; μ), u θ(x, t ; μ)) ,
+
+where θ denotes the trainable network parameters. Additional details about the PINN presented in this Section can be found in [38]. Rather than feeding μ = ( hL, h R) directly into the network, we use the equivalent parameteri-zation ¯h := hL + hR
+
+2 , γ := hL − hR
+
+hL + hR + ε , ε > 0, ¯μ := ( ¯h, γ ) (9) 7where ε ≪ 1 is a regularization parameter. Thus, the actual network input and output are 
+
+z := ( x, t, ¯μ) = ( x, t, ¯h, γ ) ∈ R4, Nθ(z) = 
+
+hθ(z)
+
+uθ(z)
+
+
+
+∈ R2.
+
+This reparameterization separates the mean water-depth scale ¯h from the relative jump magnitude 
+
+γ. Empirically, this provides a more balanced description of the regime space and is natural for dam-break problems. 
+
+Network architecture We approximate the parametric solution map by a fully connected feed-forward neural network without skip connections or residual blocks. The network with K hidden layers is defined recursively by 
+
+a(0) = z, (10) 
+
+a(k+1) = σ
+
+
+
+W (k)a(k) + b(k)
+
+, k = 0 , . . . , K − 2, (11) 
+
+Nθ(z) = W (K−1) a(K−1) + b(K−1) , (12) where W (k) and b(k) are the trainable weights and biases of layer k, and σ is the hidden-layer acti-vation function. Throughout this work, we use the sigmoid linear unit (SiLU) activation function 
+
+σ(x) = x sigmoid( x) = x/ (1 + e−x). The SiLU activation is smooth and non-polynomial, which is advantageous in PINNs because the PDE residual requires repeated differentiation of the network output with respect to the input coordinates. Compared with piecewise-linear activations, smooth activations produce smooth derivatives and therefore more stable automatic-differentiation-based residuals. All linear layers are initialized with Xavier normal initialization [18]. If a fully connected layer has weight matrix W , then each entry is initialized as Wij ∼ N (0 , 2/(m + n)) . This initializa-tion is designed to keep activation magnitudes at a reasonable scale across layers and to improve optimization stability in deep feed-forward networks. Biases are initialized to zero. 
+
+Physics-informed residual Although the network predicts the primitive variables ( hθ, u θ), the governing equations from Section 2 are enforced through the conservative form of the PDE, using the induced discharge qθ = hθuθ. Then the two strong-form residuals are 
+
+R1(x, t ; μ) := ∂thθ + ∂x(hθuθ), (13) 
+
+R2(x, t ; μ) := ∂t(hθuθ) + ∂x
+
+
+
+hθu2 
+
+> θ
+
++ 12 gh 2
+
+> θ
+
+
+
+. (14) These residuals are exactly the mass and momentum residuals corresponding to the conservative shallow-water system when expressed through the primitive variables. In practice, the derivatives in (13)–(14) are computed by automatic differentiation in PyTorch, by differentiating the network outputs with respect to the input coordinates x and t using autograd .This formulation keeps the exposition consistent with the rest of the paper: the network predicts (h, u ), training data are stored in ( h, u ), and only the induced conservative quantity q = hu is formed internally when the governing equations require it. 84.1 Training data and collocation sets 
+
+Training uses four types of information: (1) supervised solution snapshots, (2) collocation points for PDE residual enforcement, (3) boundary points for enforcing the boundary conditions, and (4) points at t = 0 for enforcing the initial condition. First, let 
+
+Ddata = {(xi, t i, μ i, h i, u i)}Nd
+
+> i=1
+
+denote supervised solution snapshots generated by the reference finite-volume solver. These points are sampled from multiple dam-break regimes in the training set. The spatial and parametric coordinates of boundary points extracted from these snapshots form the set 
+
+Dbc = {(xbc  
+
+> k
+
+, t bc  
+
+> k
+
+, μ bc  
+
+> k
+
+)}Nbc 
+
+> k=1
+
+,
+
+where xbc  
+
+> k
+
+∈ [0 , L ]. These points are used to enforce the zero-gradient boundary condition. In addition, we construct the initial-condition set 
+
+Dic = {(xic 
+
+> m
+
+, 0, μ ic 
+
+> m
+
+, h ic 
+
+> m
+
+, u ic 
+
+> m
+
+)}Nic 
+
+> m=1
+
+,
+
+where the targets are defined analytically by 
+
+hic  
+
+> m
+
+=
+
+(
+
+hL, xic  
+
+> m
+
+< L/ 2,hR, xic  
+
+> m
+
+≥ L/ 2, uic  
+
+> m
+
+= 0 .
+
+Second, let 
+
+Dcol = {(x(f ) 
+
+> j
+
+, t (f ) 
+
+> j
+
+, μ (f ) 
+
+> j
+
+)}Nf
+
+> j=1
+
+denote collocation points for enforcing the PDE residual. These points are sampled in the interior of the space-time-parameter domain. Depending on the experiment, collocation may be sampled uniformly or with a shock-aware strategy. In all cases, the method itself is unchanged: the PDE residual is penalized at collocation points, while data and boundary mismatches are penalized at supervised points. 
+
+Shock-aware collocation strategy. For wet-bed regimes, strong-form PDE residuals are most difficult to enforce in a narrow neighborhood of the moving shock, where the entropy solution is non-smooth and not classically differentiable. Because strong-form PINNs rely on pointwise spatial and temporal derivatives, PDE enforcement in this region becomes particularly difficult due to high gradients. To avoid over-penalizing the network in this region, we optionally replace uniform collocation sampling in x by a shock-aware strategy that excludes a small band around the shock. Thus, we first estimate the location of the shock, xsh (t; μ), from the reference FOM dataset (see Appendix A). Given the estimated shock position, we then define a spatial exclusion region for collocation points 
+
+Bexcl (t; μ) := {x ∈ Ω : |x − xsh (t; μ)| < w excl } , (15) where wexcl > 0 is a parameter that defines the exclusion half-width. The spatial collocation points for the PDE residual are then sampled from x ∼ Unif(Ω \ Bexcl (t; μ)) . Consequently, no collocation points are placed inside the excluded shock core Bexcl .For dry-bed or near-dry regimes, shock exclusion is disabled. Specifically, if hR < ε dry for a prescribed threshold εdry > 0, then x is sampled uniformly on the full spatial domain Ω. This design reflects the fact that the dry-bed problem is dominated by a rarefaction structure rather than a persistent downstream shock of the wet-bed type. Values of parameters are reported at the end of the next section. 94.2 Loss function 
+
+The loss function is a weighted sum 
+
+L(θ) = λdata Ldata + λpde Lpde + λbc Lbc + λic , Lic + λnn Lnn , (16) where Ldata is the supervised data loss, Lpde is the PDE residual loss, Lbc is the boundary-condition loss, Lic is the initial-condition loss, and Lnn is an optional non-negativity penalty for the depth. 
+
+Data loss. The data loss is computed using 
+
+Ldata = 1
+
+NdNdX
+
+> i=1
+
+h
+
+ℓh
+
+
+
+e(h)
+
+> i
+
+
+
++ λuℓu
+
+
+
+e(u)
+
+> i
+
+i 
+
+, e(h) 
+
+> i
+
+= hθ,i − hi
+
+σh
+
+, e(u) 
+
+> i
+
+= uθ,i − ui
+
+σu
+
+, (17) where σh = StdDev( hi), σu = StdDev( ui) computed over the entire training dataset {(hi, u i)}, and the scalar λu > 0 balances the velocity contribution relative to the depth contribution. Here, ℓh, ℓ u
+
+denote either | · | or ( ·)2, depending on the experiment. 
+
+PDE residual loss. The PDE residual (13)–(14) is penalized at chosen collocation points. Since the two residual components may differ substantially in magnitude, especially during early training, we rescale them component-wise before aggregation: 
+
+eRi = Ri/s i, (18) where si are exponential-moving-average root-mean-square (EMA-RMS) scales (see Appendix A). Hence, the strong-form PDE loss is 
+
+Lpde = 1
+
+NfNf
+
+X
+
+> j=1
+
+wj
+
+h
+
+ψ  eR1(z(f ) 
+
+> j
+
+; θ) + ψ  eR2(z(f ) 
+
+> j
+
+; θ)i
+
+, (19) where wj ∈ (0 , 1] is a point-dependent gating weight used to downweight strong-form residual enforcement in regions where the solution is less regular, such as near steep gradients or very small predicted depths. Details are presented in Appendix A. The penalty function ψ in (19) is either the quadratic penalty ψ(r) = r2 or the Charbonnier penalty ψ(r) = √r2 + ε2, with ε = 10 −5, which behaves like |r| for large residuals but remains smooth near zero. This makes it a differentiable approximation to the absolute value and can improve optimization stability when residual outliers occur. 
+
+Boundary loss. At the left and right boundaries, we impose a zero-gradient Neumann condition on the primitive variables, 
+
+∂xhθ = 0 , ∂xuθ = 0 , x ∈ [0 , L ].
+
+The corresponding boundary loss is 
+
+Lbc = 1
+
+Nbc 
+
+> Nbc
+
+X
+
+> k=1
+
+" ∂xhθ(zbc  
+
+> k
+
+)
+
+σh
+
+2
+
++ λu
+
+ ∂xuθ(zbc  
+
+> k
+
+)
+
+σu
+
+2#
+
+. (20) The spatial derivatives are evaluated using automatic differentiation. This term stabilizes the learned solution near the edges of the spatial domain and ensures consistency with the reference trajectories used in training. 10 Initial-condition loss. The initial dam-break state is imposed explicitly using the analytically constructed dataset Dic . The corresponding loss is 
+
+Lic = 1
+
+Nic 
+
+> Nic
+
+X
+
+> m=1
+
+
+
+ℓh
+
+ hθ(zic 
+
+> m
+
+) − hic 
+
+> m
+
+σh
+
+
+
++ λuℓu
+
+ uθ(zic 
+
+> m
+
+) − uic 
+
+> m
+
+σu
+
+ 
+
+,
+
+where the penalty functions ℓh and ℓu are chosen consistently with the supervised data loss. This term enforces the discontinuous initial depth profile and the initially stationary velocity field directly at (t=0). 
+
+Non-negativity penalty. Physical admissibility requires h ≥ 0. The implementation therefore supports an additional penalty term that penalizes negative depth predictions on supervised points 
+
+Lnn = 1
+
+NdNdX
+
+> i=1
+
+max(0 , −hθ,i ).
+
+Optimization. The network is trained by minimizing (16) with Adam optimizer [25]. We also implemented a cosine-annealing learning-rate schedule and gradient clipping to control occasional large updates. In addition, the PDE, boundary-condition, and initial-condition weights are ramped up during the early training epochs. This warm-up strategy is designed to avoid forcing the network too aggressively toward the physics term before it has learned a reasonable coarse representation of the data. Such staged weighting can improve optimization stability for parametric hyperbolic problems, where the residual landscape may be highly nonuniform across regimes and times. 
+
+Final training configuration. The final model is a fully connected parametric PINN with four-dimensional input ( x, t, ¯h, γ ), where ( ¯h, γ ) is a transformation of μ in (9). The network has five hidden layers of width 120, SiLU activation, and a two-dimensional output for ( h, u ). The network is trained for 20 ,000 epochs with Adam using learning rate 10 −3. A cosine scheduler is used with Tmax = 20000 and ηmin = 10 −5, and gradients are clipped at 1 .0. The final loss weights are λdata = 1 .0, λ pde = 0 .3, λ bc = 0 .6, λ ic = 1 .0, λ nn = 0 .01 , with an additional velocity weight λu = 5 .0. The supervised data and initial-condition terms use L1-type penalties, while the PDE residual and boundary-condition terms use L2-type penalties. The PDE, boundary-condition, and initial-condition weights are initialized at 10% of their final values and increased linearly to their target values over the first quarter of training. For strong-form residual enforcement, we use N train colloc = 80 000 , N val colloc = 20 000 collocation points. Shock-aware collocation is enabled with exclusion width wexcl = 2 .5. EMA-RMS residual scaling is used with β = 0 .99 and εscale = 10 −8.The PDE gating parameters are set to α = 8 .0, hmin = 0 .05, and wmin = 0 .05. The model contains 58 922 trainable parameters. As an example, one training run was performed on a MacBook Pro equipped with an Apple M1 Max chip with 10 CPU cores and 64 GB of unified memory. Training for 20,000 epochs took approximately 20 hours. Training was executed on CPU using 10 PyTorch threads 11 5 Numerical Results 
+
+To quantify our results, we use relative L2 errors for h(x, t ) and q(x, t ). In particular, we define 
+
+εPred  
+
+> h
+
+(t; μ) = hPred (t; μ) − hFOM (t; μ) 2
+
+∥hFOM (t; μ)∥2
+
+, εPred  
+
+> q
+
+(t; μ) = qPred (t; μ) − qFOM (t; μ) 2
+
+∥qFOM (t; μ)∥2
+
+, (21) where hFOM and qFOM stand for high-fidelity solutions of the full-order model, and hPred and qPred 
+
+denote reduced model predictions using TROM or PINN. We consider six representative parameter regimes (hL, h R) = (12 , 0) , (12 , 7) , (15 , 4) , (18 , 0) , (26 , 0.14) , (26 , 7) (22) evaluated at t ∈ { 0.5, 1, 1.5, 2}. These cases include both dry-bed and wet-bed settings and are used to compare qualitative field predictions against the FOM simulations. All parameter regimes in (22) are out-of-sample with respect to the parameter pairs used for training. Table 1: Relative L2 Errors in (21) for the TROM and the PINN predictions at time t = 1. 
+
+μ εTROM  
+
+> h
+
+εPINN  
+
+> h
+
+εTROM  
+
+> q
+
+εPINN 
+
+> q
+
+(12, 0) 1.4027 × 10 −3 5.4675 × 10 −3 1.1859 × 10 −2 3.9763 × 10 −2
+
+(12, 7) 4.0641 × 10 −3 2.6847 × 10 −3 4.1335 × 10 −2 2.1433 × 10 −2
+
+(15, 4) 3.2675 × 10 −3 2.2192 × 10 −3 1.9264 × 10 −2 5.2237 × 10 −3
+
+(18, 0) 3.5761 × 10 −4 6.2927 × 10 −3 2.8654 × 10 −3 4.5741 × 10 −2
+
+(26, 0.14) 5.6640 × 10 −3 1.3638 × 10 −2 3.3705 × 10 −2 7.4206 × 10 −2
+
+(26, 7) 6.0776 × 10 −3 1.3684 × 10 −3 2.9323 × 10 −2 4.0108 × 10 −3
+
+Table 2: Relative L2 Errors in (21) for the TROM and the PINN predictions at time t = 2. 
+
+μ εTROM  
+
+> h
+
+εPINN  
+
+> h
+
+εTROM  
+
+> q
+
+εPINN 
+
+> q
+
+(12, 0) 2.5749 × 10 −3 6.4073 × 10 −3 1.5302 × 10 −2 3.5960 × 10 −2
+
+(12, 7) 1.1370 × 10 −2 2.9693 × 10 −3 8.1167 × 10 −2 2.0705 × 10 −2
+
+(15, 4) 9.3945 × 10 −3 1.8408 × 10 −3 3.7016 × 10 −2 3.5931 × 10 −3
+
+(18, 0) 7.2675 × 10 −4 7.8462 × 10 −3 4.1002 × 10 −3 4.1392 × 10 −2
+
+(26, 0.14) 1.5224 × 10 −2 2.4257 × 10 −2 6.0324 × 10 −2 9.6247 × 10 −2
+
+(26, 7) 2.0034 × 10 −2 1.7574 × 10 −3 6.4883 × 10 −2 3.1429 × 10 −3
+
+We depict a comparison of the water depth h(x, t ; μ) and the discharge q(x, t ; μ) in Figures 2, 3 and 4, 5, respectively. 12 Figure 2: Comparison of h(x, t ; μ) from the FOM simulations and predictions of the PINN (left column) and the TROM (right column) for μ = (12 , 0) , (12 , 7) , (15 , 4) (top to bottom) at time 
+
+t = 2. 13 Figure 3: Comparison of h(x, t ; μ) from the FOM simulations and predictions of the PINN (left column) and the TROM (right column) for μ = (18 , 0) , (26 , 0.14) , (26 , 7) (top to bottom) at time 
+
+t = 2. 14 Figure 4: Comparison of q(x, t ; μ) from the FOM simulations and predictions of the PINN (left column) and the TROM (right column) for μ = (12 , 0) , (12 , 7) , (15 , 4) (top to bottom) at time 
+
+t = 2. 15 Figure 5: Comparison of q(x, t ; μ) from the FOM simulations and predictions of the PINN (left column) and the TROM (right column) for μ = (18 , 0) , (26 , 0.14) , (26 , 7) (top to bottom) at time 
+
+t = 2. Both reduced models provide accurate predictions across all six parameter regimes and repro-duce the shock location with good accuracy. The largest discrepancies usually occur near the moving discontinuities, where small errors in both profiles can produce noticeable pointwise differ-ences. Nevertheless, the relative L2 errors remain low overall, consistent with the close agreement between the predicted and the FOM profiles of h(x, t ) and q(x, t ) at t = 2 shown in Figures 2–5. The most challenging case for both models is the near-dry-bed regime μ = (26 , 0.14), for which both methods exhibit larger errors, particularly in the vicinity of the shock. A clear regime-dependent trend is also observed: the TROM is generally more accurate for the dry-bed cases, whereas the parametric PINN consistently achieves lower errors in the wet-bed regimes. 16 A well-known limitation of deep neural networks is their spectral bias (or Frequency Principle) [43, 56, 55], when the low-frequency (large-scale) components of a target function (the solution map in our case) are learned earlier and more rapidly than high-frequency components, making sharp gradients and discontinuities more difficult to approximate accurately. To further assess the performance of the parametric PINN model, we depict the magnitude of the spectra of the predicted water depth h(x, t = 2) in Figure 6. To this end, we first remove the linear trend connecting the boundary values, ( h(0 , t ), h (L, t )) = ( hL, h R), and then compute the magnitude of the fast Fourier transform. The largest spectral discrepancies occur at high wavenumbers, particularly for the dry-bed and near-dry-bed regimes, which contain the sharpest solution features. Among the tested cases, μ = (26 , 0.14) presents the greatest challenge for reproducing high-frequencies of the solution; here the spectra in the predicted solution decays faster that the spectra in the reference FOM solution. For all other cases, the predicted spectra agree well with the reference FOM over a broad range of wavenumbers, indicating that the proposed parametric PINN captures not only the pointwise solution profiles but also their spectra. Thus, our model substantially mitigates the effects of spectral bias for larger values of the parameter hR, while challenges remain in accurately reproducing the higher frequencies of dry-bed and near-dry-bed regimes. Tables 1 and 2 indicate that the relative errors for both the water depth and the discharge remain of the same order in most cases, although some increase with time. In addition, the relative errors for the discharge are slightly larger and more regime-dependent than those for the water depth, reflecting the greater sensitivity of q = hu to local mismatches near the shock front. Similar to the water-depth errors, the dry-bed and near-dry regimes remain the most challenging, while the wet-bed cases achieve the lowest discharge errors. 17 Figure 6: Fourier-amplitude spectra of the water-depth profiles at t = 2 for μ = (12 , 0) (top left), (12,7) (top right), (15,4) (middle left), (18,0) (middle right), (26,0.14) (bottom left), (26,7) (bottom right). Overall, these results demonstrate that the proposed parametric PINN is capable of learning the parameter-to-solution map with high accuracy across a diverse range of dam-break configurations. Despite the challenges posed by hyperbolic dynamics and moving discontinuities, it achieves low relative errors and accurate shock localization, making it a robust and competitive surrogate model for parametrized shallow-water flows. For the dam-break problem, a right-propagating shock forms when hR > 0, whereas the dry-bed case is characterized by a moving rarefaction wave. Since the shock propagation speed increases as hR decreases, the shock exits the computational domain by t = 2 .5 for the near-dry-bed regime 18 μ = (26 , 0.14). Figure 7 shows the predictions of the PINN and the TROM for the near-dry-bed regime μ = (26 , 0.14) at time t = 2 .5. Although the training data cover the time interval up to t = 2 .5, neither model accurately captures the FOM solution at time t = 2 .5 near the right boundary in this regime. However, the discrepancies are localized near the right boundary, and both models accurately predict the solution over the rest of the computational domain. 
+
+Figure 7: Comparison of the water-depth profiles h(x, t ) (top) and discharge profiles q(x, t ) (bottom) at t = 2 .5 predicted by the PINN (left column) and TROM (right column) for μ = (26 , 0.14). Our results indicate that both models reproduce the FOM simulations with high accuracy for parameter regimes within the training domain. The errors of both the PINN and TROM are primarily localized near moving fronts, while the global wave structure and low-to-intermediate spectral information are preserved. The dry-bed and near-dry-bed configurations are the most challenging for both models, with the discharge being more sensitive than the water depth. In addition, both models face difficulties when predicting FOM solutions at times when the shock exits the computational domain. 
+
+# 6 Extrapolation experiments 
+
+To further assess the performance of the parametric PINN and the TROM, we consider the extrap-olation benchmark, where we evaluate the accuracy of both models for parameter values outside of the training range ( hL, h R) ∈ [10 , 28] × [0 , 8] for P = P1 × P 2 with parameters for the training mesh 
+
+P1, P2 in (5). This test highlights how well each model generalizes beyond the training regime. 19 Specifically, we consider six parameter values ( hL, h R) = (9 , 4) , (20 , 8.5), (29 , 4), (32 , 4), (29 , 8.5), and (32 , 10) and predict the solution at time t = 2. Note that the value hR = 4 is inside the training range for hR, but the corresponding values for hL are outside of [10 , 28]. Figures 8 and 9 compare profiles for h(x, t ) and Table 3 presents relative L2 errors at the final time t = 2. Profiles for the discharge q(x, t ) follow a similar trend and are not presented here for brevity. Table 3: Relative L2 Errors in (21) for the TROM and the PINN parameter extrapolation predic-tions at time t = 2. 
+
+μ εTROM  
+
+> h
+
+εPINN  
+
+> h
+
+εTROM  
+
+> q
+
+εPINN 
+
+> q
+
+(9,4) 1.28 × 10 −2 6.87 × 10 −3 6.73 × 10 −2 2.3 × 10 −2
+
+(20,8.5) 7.25 × 10 −3 2.88 × 10 −3 3.36 × 10 −2 0.91 × 10 −2
+
+(29,4) 1.97 × 10 −2 2.58 × 10 −3 6.35 × 10 −2 0.35 × 10 −2
+
+(32,4) 6.79 × 10 −2 5.64 × 10 −3 2.06 × 10 −1 0.59 × 10 −2
+
+(29,8.5) 1.37 × 10 −2 3.64 × 10 −3 4.76 × 10 −2 0.71 × 10 −2
+
+(32,10) 4.92 × 10 −2 9.46 × 10 −3 1.65 × 10 −1 1.74 × 10 −2
+
+Overall, the performance of both models in the extrapolation regime is good; both models reproduce the large-scale solution structure and correctly track the propagating shock. However, the parametric PINN provides more accurate predictions in the vicinity of the shock and consistently yields lower relative errors than the TROM for all extrapolation cases considered here. In particular, for hL > 28, the TROM prediction develops an artificial bump near the shock location, as seen in the middle and bottom rows of Figure 8 and the bottom row of Figure 9. This localized artifact becomes more pronounced as the extrapolation distance in hL increases, whereas the PINN preserves a more accurate representation of the front. These results indicate that both models are able to predict solutions for parameter values outside the training range, but the parametric PINN model provides more accurate extrapolations, particularly for larger values of hL.The spectral plots for the PINN model (not shown here for brevity) indicate that it accurately reproduces the low- and intermediate-wavenumbers, while the remaining mismatch is concentrated primarily in the high-wavenumber tail. Thus, even outside the training domain in parameter space, the learned PINN model continues to capture the dominant scales of the flow with good accuracy. 20 Figure 8: Comparison of h(x, t ; μ) in FOM simulations and predictions of PINN (left column) and TROM (right column) for μ = (9 , 4) , (29 , 4) , (32 , 4) (top to bottom) at time t = 2. 21 Figure 9: Comparison of h(x, t ; μ) from the FOM simulations and predictions of the PINN (left column) and the TROM (right column) for μ = (20 , 8.5) , (29 , 8.5) , (32 , 10) (top to bottom) at time 
+
+t = 2. 
+
+# 7 Ablation Study 
+
+As discussed in Section 4, the design of the PINN model involves several nontrivial choices, some of which are specific to hyperbolic conservation laws. In this section, we perform a controlled, one-at-a-time ablation study around a fixed reference configuration to assess the effect of individual design choices. The goal is to identify which design decisions are crucial to the performance of the PINN model under the training and evaluation setup considered in this paper. As the reference configuration, we use the model described in Section 4, with two minor modifications introduced 22 to reduce the training time: fewer training epochs and a longer ramp-up period. Each ablation then turns off one parameter relative to this reference configuration, while the rest of the setup is kept unchanged. Table 4 reports the mean space-time relative L2 errors for h and q over a Monte Carlo benchmark consisting of M C = 99 parameter instances μ = ( hL, h R). To construct the benchmark, we first discretize the parameter domain P defined in (4) using 20 values of hL and 25 values of hR, resulting in a tensor-product set of 500 candidate parameter instances. We then sample M C instances uniformly without replacement from this set. The same sampled benchmark set is used to evaluate all ablation configurations. For a field y ∈ { h, q }, the space-time relative L2 error corresponding to a parameter instance μ is defined as 
+
+EyL2 (μ) = 
+
+R T
+
+> 0
+
+R 
+
+> Ω
+
+|ypred (x, t ; μ) − yref (x, t ; μ)|2 dx dt 
+
+1/2
+
+R T
+
+> 0
+
+R 
+
+> Ω
+
+|yref (x, t ; μ)|2 dx dt 
+
+1/2 .
+
+The corresponding Monte Carlo means and the aggregate score are 
+
+EyL2 = 1
+
+M C 
+
+> M C
+
+X
+
+> i=1
+
+EyL2 (μi), y ∈ { h, q }, S := 12
+
+
+
+EhL2 + EqL2
+
+
+
+. (23) The aggregate errors above are used as a ranking statistic for the ablation study. Table 4: Controlled ablation study around the reference PINN configuration. Each row modifies one component of the baseline while keeping the remaining setup fixed. Reported values are the aggregate errors defined in (23). 
+
+Variant Change from baseline EhL2 EqL2 S
+
+Baseline reference configuration 1.358 × 10 −2 3.629 × 10 −2 2.494 × 10 −2
+
+No PDE λpde = 0 1.528 × 10 −2 3.904 × 10 −2 2.716 × 10 −2
+
+Reduced q weight λu = 1 1.306 × 10 −2 4.138 × 10 −2 2.722 × 10 −2
+
+No ramp-up λpde , λbc , and λic are constant 1.264 × 10 −2 3.464 × 10 −2 2.364 × 10 −2
+
+L1 PDE loss L2 → L1 in PDE term 2.122 × 10 −2 4.052 × 10 −2 3.087 × 10 −2
+
+Shock-aware off uniform collocation 4.031 × 10 −2 1.165 × 10 −1 7.839 × 10 −2
+
+PDE gate off no residual gating 2.142 × 10 −2 5.253 × 10 −2 3.697 × 10 −2
+
+No residual scaling EMA scaling removed 2.603 × 10 −2 6.092 × 10 −2 4.347 × 10 −2
+
+The dominant trend in Table 4 is that the largest degradation occurs when shock-aware col-location (see Eq. (15)) is removed. Replacing the shock-aware strategy with uniform collocation increases the aggregate score from 2 .494 × 10 −2 to 7 .839 × 10 −2, more than tripling the baseline value. The degradation is significant for both fields, but is especially pronounced for the discharge 
+
+q, whose mean relative error rises from 3 .629 ×10 −2 to 1 .165 ×10 −1. It shows that careful treatment of the moving front region is essential for obtaining good accuracy, especially for the discharge q.The next most important components are PDE gating (see Eq. (28)) and residual scaling (see Eq. (18)). Disabling the soft PDE gate increases the aggregate score to 3 .697 ×10 −2, while removing EMA residual scaling yields 4 .347 × 10 −2. Both changes degrade h and q, with a particularly clear effect on the discharge variable. Taken together, these results indicate that, once the collocation 23 points are placed in a shock-aware manner, the way the strong-form residual is weighted and balanced remains critical. In other words, this ablation study shows that both (i) where (in space) the PDE is enforced and (ii) how it is enforced are important. Removing the PDE loss altogether also worsens performance, increasing the aggregate score from 2.494 × 10 −2 to 2 .716 × 10 −2. This confirms that physics-informed supervision provides measurable benefit even in the presence of substantial paired training data. However, the increase in error is much smaller than for the shock-aware, gating, and residual-scaling ablations. This suggests that the main challenge for this shock-dominated benchmark is not the inclusion of a PDE loss in itself, but rather enforcing that PDE loss remains meaningful near shocks. The discharge weighting parameter λu (see eqs. (17) and (20)) also has a visible effect. Reducing it from 5 to 1 leaves the mean depth error nearly unchanged, but increases the mean discharge error from 3 .629 × 10 −2 to 4 .138 × 10 −2. This is consistent with the observation made throughout the paper that predicting q is more difficult than predicting h, and that the discharge component benefits from additional emphasis during optimization. By contrast, removing ramp-up produces only a small change in the aggregate score. However, it appears to act more as a stabilizing or preventive training choice, which may still be useful in practice even if its direct effect on the aggregate error is limited in this sweep. Overall, the ablation study shows that the most important components of the present train-ing design are those related to shock-aware collocation, PDE gating, and residual scaling. By comparison, removing the PDE term or changing the discharge weight leads to a more moder-ate degradation, while removing ramp-up has little effect on the reported aggregate metric. For this benchmark, the main gains therefore come from approaches that improve how the residual is enforced near sharp fronts. 
+
+# 8 Conclusion 
+
+Fast and accurate parametric reduced-order models are important for a broad range of practical applications, including inverse problems, shape optimization, and digital twins. Such applica-tions often require efficient evaluation of the underlying physical system across many parameter configurations. Developing reduced models for unified representation of parametric solutions is a challenging task because the behavior of solutions can change drastically for different parameter values, even for parameters in the training dataset. In this paper, we compared and contrasted two parametric reduced models—the PINN and the TROM. Both models were constructed using the same dataset and evaluated at the same parameter values. Neither model requires time integration during online evaluation, allowing solutions at any given time to be reconstructed rapidly. In our simulations, both models were more than two orders of magnitude (approximately 500 to 700 times) faster than the full-order model at t = 2. Moreover, the inference cost of either model is essentially independent of the queried time t, since neither approach uses time stepping to predict the solution. This substantial acceleration potentially allows the efficient treatment of realistic, computationally demanding problems. Both the TROM and the PINN perform well in the interpolation cases considered here, pro-ducing small relative errors overall, with the largest discrepancies concentrated near the moving shock. The TROM is more accurate in the dry-bed regime. Both models perform comparably in the challenging near-dry-bed regime at hR = 0 .14, where they exhibit some loss of accuracy near the moving shock. In contrast, the PINN performs better in the wet-bed regimes with larger values 24 of hR considered here. In addition, the PINN mitigates the effects of spectral bias and accurately reproduces the spectral information in most cases, with the largest discrepancies in the Fourier spectra occurring in the near-dry-bed regime hR = 0 .14. Overall, the near-dry-bed regime with 
+
+hR = 0 .14 remains the most challenging for both models because of the sharp, small-scale features associated with the propagating shock. In addition, both models encounter difficulties when the shock exits the computational domain [0 , L ], as occurs in the near-dry-bed regime μ = (26 , 0.14) at t = 2 .5. Although t = 2 .5 is included in the training dataset, neither model accurately reproduces the solution profile near the right boundary x = L. Away from the right boundary, however, both the water depth and the discharge are predicted accurately. One possible strategy for mitigating this limitation is to initialize a short-time FOM simulation using the reduced-model prediction at an earlier time, thereby resolving the shock as it exits the computational domain. A more demanding test of a reduced model is its ability to generalize to parameter regimes outside the range represented in the training data. Demonstrating predictive accuracy under such conditions extends the model’s applicability for parameter values outside of the training range and increases its value for practical use. The PINN performs better in the extrapolation regimes consid-ered here. This result is consistent with the construction of the TROM, which relies on interpolation (in parameter space) among nearby solutions in the training dataset to approximate the solution at a new parameter value. Because interpolation-based approximations can lose accuracy outside the sampled parameter domain, this limitation naturally carries over to the TROM when it is applied outside of the training range. While the PINN reproduces the solutions with high accuracy in all extrapolation cases, the TROM exhibits larger discrepancies, concentrated primarily near the shock front. If predictions outside the initial training range are required, the extrapolation performance of the TROM can be improved by augmenting the training set with full-order solutions at selected new parameter values and updating the low-rank representation. To compare the offline stages of the two approaches, we first note that the TROM can efficiently handle large datasets generated on fine parameter grids. In contrast, PINN training is more com-putationally intensive and requires iterative batch processing of solution samples. Consequently, its training cost can grow substantially with the size of the dataset. In addition, the offline stage of the TROM is considerably faster than PINN training. In our experiments, the low-rank TROM representation was computed in approximately one minute, whereas training the PINN required several hours. The offline phase of the TROM consists of computing a low-rank representation of the full snapshot tensor, and the singular-value threshold in (7) is the only parameter controlling rank selection. In contrast, the PINN has several tunable hyperparameters and requires shock tracking and shock-aware collocation during training. The complexity of the PINN construction described in this paper reflects the challenges inherent in approximating hyperbolic problems with shocks. The ablation study further demonstrates that shock-aware collocation, PDE gating, and resid-ual scaling are essential components of the proposed PINN framework. Removing any of these components substantially increases the prediction errors, whereas removing the PDE loss itself produces a smaller degradation. These results indicate that, for shock-dominated problems, where and how the strong-form residual is enforced may be more important than simply including it in the loss function. One of the major advantages of PINNs is their ability to work with incomplete or irregularly sampled data in parameter space. In contrast, TROMs requires a rectangular tensor-product grid 25 in parameter space and therefore do not readily support local parameter grid refinement or irreg-ular parameter domains. This restriction follows directly from the tensor representation of the full snapshot dataset. When data are missing, modern tensor-completion methods can be incorporated into a TROM framework; however, they increase computational complexity and introduce an addi-tional source of approximation error. The requirement that TROMs use rectangular tensor-product grids can lead to very large datasets, particularly for high-resolution or high-dimensional parameter discretizations. PINNs are more flexible in this respect because they can be trained using solution snapshots sampled nonuniformly or irregularly in parameter space. Incorporating new data into a PINN is relatively straightforward because an existing model can be efficiently updated through transfer learning or fine-tuning. In contrast, TROMs rely on rectangular tensor-product grids, so a single additional FOM solution generally cannot be incorporated directly. Expanding the parameter grid may require additional FOM simulations to complete the new tensor. Both TROMs and PINNs can be extended to two- and three-dimensional problems. However, extending TROMs is relatively straightforward; see, for example, [33, 34]. In contrast, extending PINNs is more challenging because of the higher computational cost of neural-network training and the possible need to track multidimensional shocks. These questions will be investigated in future work. Both models favor a sufficiently regular dependence of the solution on the parameters. This dependence is explicit in the TROM, which interpolates between neighboring solutions in parameter space, and is also embedded in the PINN through its smooth neural-network representation. Near the dry-bed limit hR = 0, however, the solution depends rapidly and non-smoothly on hR: the wet-bed regime hR > 0 contains a propagating shock, whereas the dry-bed regime hR = 0 is dominated by a rarefaction wave. This loss of parametric regularity potentially explains why the near-dry-bed regime hR = 0 .14 is particularly challenging for both models. Overall, the two reduced-order modeling frameworks considered here should be viewed as com-plementary rather than competing approaches. This study highlights the strengths and potential limitations of each approach when applied to hyperbolic problems. TROMs offer a fast and rel-atively straightforward construction when solution data are available on a structured parameter grid, whereas PINNs provide greater flexibility in handling irregularly sampled data and extrapo-lating beyond the training regime. These advantages come with different costs: TROMs rely on compressed tensor-product representations, while PINNs require substantially more computational effort and careful training to capture shock-dominated dynamics. The choice between the two approaches should therefore depend on the available data, the structure of the parameter domain, and the intended application. Combining elements of both frameworks may provide a promising direction for developing more accurate, flexible, and efficient reduced-order models for complex hyperbolic systems. 
+
+# A PINN Design 
+
+Estimating shock position. For each regime μ = ( hL, h R) and time t, we estimate a dominant shock location xsh (t; μ) from the reference FOM snapshots. Let 
+
+y(·, t ; μ) ∈ { h(·, t ; μ), u (·, t ; μ)}
+
+26 be the chosen indicator field on the uniform spatial grid {xi}Nx
+
+> i=1
+
+. We first apply a moving-average filter, 
+
+eyi := 1
+
+m
+
+> (m−1) /2
+
+X
+
+> k=−(m−1) /2
+
+yi+k,
+
+where m ≥ 3 is an odd window size. We then approximate the spatial derivative by finite differences: (∂x ey)i ≈
+
+eyi+1 − eyi
+
+∆x , i = 1 ,
+
+eyi+1 − eyi−1
+
+2∆ x , 2 ≤ i ≤ Nx − 1,
+
+eyi − eyi−1
+
+∆x , i = Nx,
+
+where ∆ x is the spatial mesh size. The shock location is then defined as the grid point at which the gradient magnitude is maximal over an interior subset Ω int ⊂ Ω, i.e., 
+
+xsh (t; μ) ≈ xi∗ , i∗ ∈ arg max 
+
+> xi∈Ωint
+
+|(∂x ey)i| ,
+
+where Ω int excludes a small boundary buffer near x = 0 and x = L in order to avoid boundary artifacts. This produces shock-position estimates at the discrete snapshot times stored in the FOM dataset. Since collocation times are sampled continuously in [0 , T ], the shock location at an arbi-trary time t is obtained by interpolating between the neighboring discrete shock-position estimates. 
+
+PDE Residual Rescaling. Recall PDE residual scaling in equation (18). At training iteration 
+
+n, we first compute the batch RMS values 
+
+r(n) 
+
+> i, rms
+
+:= 
+
+ 1
+
+NfNf
+
+X
+
+> j=1
+
+Ri(z(f ) 
+
+> j
+
+; θ(n))2 + εscale 
+
+
+
+> 1/2
+
+, (24) and then update the running scales according to 
+
+s(n) 
+
+> i
+
+= βs (n−1)  
+
+> i
+
++ (1 − β) r(n)
+
+> i, rms
+
+, s(1)  
+
+> i
+
+:= r(1) 
+
+> i, rms
+
+, (25) where β ∈ (0 , 1) is the EMA parameter and εscale > 0 is a small constant for numerical stability. 
+
+PDE residual gating. For the j-th collocation point we define 
+
+wgrad  
+
+> j
+
+= exp 
+
+
+
+−α ∂xhθ(x(f ) 
+
+> j
+
+, t (f ) 
+
+> j
+
+; μ(f ) 
+
+> j
+
+)
+
+
+
+, (26) and 
+
+w(h) 
+
+> j
+
+= min 
+
+(
+
+1, max 
+
+(
+
+0, hθ(x(f ) 
+
+> j
+
+, t (f ) 
+
+> j
+
+; μ(f ) 
+
+> j
+
+) − hmin 
+
+hmin 
+
+)) 
+
+, (27) where α > 0 controls sensitivity to steep gradients and hmin > 0 defines a small-depth threshold. Then, the final gate is 
+
+wj = max 
+
+n
+
+wmin , w grad  
+
+> j
+
+w(h)
+
+> j
+
+o
+
+, (28) where wmin ∈ (0 , 1) is a prescribed lower bound. Thus, PDE residual enforcement is weakened near sharp fronts and near-dry regions, while remaining nonzero everywhere else. 27 References 
+
+[1] D. Amsallem, M. J. Zahr, and C. Farhat , Nonlinear model order reduction based on local reduced-order bases , International Journal for Numerical Methods in Engineering, 92 (2012), pp. 891–916. [2] M. Bachmayr and A. Cohen , Kolmogorov widths and low-rank approximations of paramet-ric elliptic PDEs , Mathematics of Computation, 86 (2017), pp. 701–724. [3] J. Barnett and C. Farhat , Quadratic approximation manifold for mitigating the Kol-mogorov barrier in nonlinear projection-based model order reduction , Journal of Computational Physics, 464 (2022), p. 111348. [4] P. Benner, S. Gugercin, and K. Willcox , A survey of projection-based model reduction methods for parametric dynamical systems , SIAM Review, 57 (2015), pp. 483–531. [5] A. Bihlo and R. O. Popovych , Physics-informed neural networks for the shallow-water equations on the sphere , Journal of Computational Physics, 456 (2022), p. 111024. [6] M. R. Bin Mizan , Parametric Low-Rank Model Reduction for Nonlinear Fluid Systems , Ph.D. dissertation, University of Houston, 2026. [7] P. Binev, A. Cohen, W. Dahmen, R. DeVore, G. Petrova, and P. Wojtaszczyk ,
+
+Convergence rates for greedy algorithms in reduced basis methods , SIAM Journal on Mathe-matical Analysis, 43 (2011), pp. 1457–1472. [8] A. Buffa, Y. Maday, A. T. Patera, C. Prud’homme, and G. Turinici , A priori conver-gence of the greedy algorithm for the parametrized reduced basis method , ESAIM: Mathematical Modelling and Numerical Analysis, 46 (2012), pp. 595–603. [9] O. Castro-Orgaz and H. Chanson , Ritter’s dry-bed dam-break flows: Positive and negative wave dynamics , Environmental Fluid Mechanics, 17 (2017), pp. 665–694. [10] J. Chan , Entropy stable reduced order modeling of nonlinear conservation laws , Journal of Computational Physics, 423 (2020), p. 109789. [11] T.-J. Chang, H.-M. Kao, K.-H. Chang, and M.-H. Hsu , Numerical simulation of shallow-water dam break flows in open channels using smoothed particle hydrodynamics , Journal of Hydrology, 408 (2011), pp. 78–90. [12] A. Chaumet and J. Giesselmann , Improving weak PINNs for hyperbolic conservation laws: Dual norm computation, boundary conditions and systems , The SMAI Journal of Computa-tional Mathematics, 10 (2024), pp. 373–401. [13] A. Cohen and R. DeVore , Kolmogorov widths under holomorphic mappings , IMA Journal of Numerical Analysis, 36 (2016), pp. 1–12. [14] A. Cohen, R. DeVore, and C. Schwab , Convergence rates of best N-term Galerkin ap-proximations for a class of elliptic sPDEs , Foundations of Computational Mathematics, 10 (2010), pp. 615–646. 28 [15] R. Crisovan, D. Torlo, R. Abgrall, and S. Tokareva , Model order reduction for parametrized nonlinear hyperbolic problems as an application to uncertainty quantification ,Journal of Computational and Applied Mathematics, 348 (2019), pp. 466–489. [16] L. De Lathauwer, B. De Moor, and J. Vandewalle , A multilinear singular value de-composition , SIAM Journal on Matrix Analysis and Applications, 21 (2000), pp. 1253–1278. [17] T. De Ryck, S. Mishra, and R. Molinaro , wPINNs: Weak physics informed neural networks for approximating entropy solutions of hyperbolic conservation laws , SIAM Journal on Numerical Analysis, 62 (2024), pp. 811–841. [18] X. Glorot and Y. Bengio , Understanding the difficulty of training deep feedforward neural networks , in Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics, vol. 9 of JMLR Workshop and Conference Proceedings, 2010, pp. 249–256. [19] S. Gottlieb, D. Ketcheson, and C.-W. Shu , Strong stability preserving Runge-Kutta and multistep time discretizations , World Scientific, 2011. [20] S. Gottlieb, C.-W. Shu, and E. Tadmor , Strong stability-preserving high-order time discretization methods , SIAM Review, 43 (2001), pp. 89–112. [21] J. S. Hesthaven, G. Rozza, and B. Stamm , Certified Reduced Basis Methods for Parametrized Partial Differential Equations , Springer, 2016. [22] A. D. Jagtap, E. Kharazmi, and G. E. Karniadakis , Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems , Computer Methods in Applied Mechanics and Engineering, 365 (2020), p. 113028. [23] E. Kharazmi, Z. Zhang, and G. E. Karniadakis , Variational physics-informed neural networks for solving partial differential equations , 2019. [24] , hp-VPINNs: Variational physics-informed neural networks with domain decomposition ,Computer Methods in Applied Mechanics and Engineering, 374 (2021), p. 113547. [25] D. P. Kingma and J. Ba , Adam: A method for stochastic optimization , in International Conference on Learning Representations (ICLR), 2015. arXiv:1412.6980. [26] T. G. Kolda and B. W. Bader , Tensor decompositions and applications , SIAM Review, 51 (2009), pp. 455–500. [27] T. Lassila, A. Manzoni, A. Quarteroni, and G. Rozza , Generalized reduced basis meth-ods and N-width estimates for the approximation of the solution manifold of parametric PDEs ,in Analysis and Numerics of Partial Differential Equations, A. Bonito, R. H. Nochetto, A. Quar-teroni, and F. Saleri, eds., Springer, Milan, 2013, pp. 307–329. [28] R. J. LeVeque , Finite Volume Methods for Hyperbolic Problems , Cambridge University Press, 2002. [29] I. Magdalena and M. F. E. Pebriansyah , Numerical treatment of finite difference method for solving dam break model on a wet-dry bed with an obstacle , Results in Engineering, 14 (2022), p. 100382. 29 [30] A. V. Mamonov and M. A. Olshanskii , Interpolatory tensorial reduced order models for parametric dynamical systems , Computer Methods in Applied Mechanics and Engineering, 397 (2022), p. 115122. [31] , Tensorial parametric model order reduction of nonlinear dynamical systems , SIAM Jour-nal on Scientific Computing, 46 (2024), pp. A1850–A1878. [32] J. M. Melenk , On n-widths for elliptic problems , Journal of Mathematical Analysis and Applications, 247 (2000), pp. 272–289. [33] M. R. B. Mizan, M. A. Olshanskii, and I. Timofeyev , A parametric tensor ROM for the shallow water dam break problem , Computers & Fluids, 309 (2026), p. 107005. [34] M. R. B. Mizan, I. Timofeyev, and M. A. Olshanskii , Reduced-order modeling of pa-rameterized visco-plastic shallow flows , arXiv.2605.06526, (2026). [35] M. A. H. Mojamder, Z. Xu, M. Wang, and I. Timofeyev , Parametrization of subgrid scales in long-term simulations of the shallow-water equations using machine learning and convex limiting , Fluids, 11 (2026). [36] D. K. Muchiri, J. N. Hewett, M. Sellier, M. Moyers-Gonzalez, and J. Monnier ,
+
+Numerical simulations of dam-break flows of viscoplastic fluids via shallow water equations ,Theoretical and Computational Fluid Dynamics, 38 (2024), pp. 557–581. [37] K. Mumtaz, M. W. Nadeem, A. Khan, and Z. Lakdawala , Investigating the use of physics informed neural networks for dam-break scenarios , PLOS ONE, 20 (2025), p. e0332694. [38] A. Myshak , Machine Learning for Data-Driven and Simulated Problems of Fluid Dynamics, https://hdl.handle.net/10657/21501 , Ph.D. dissertation, University of Houston, 2026. [39] M. Ohlberger and S. Rave , Reduced basis methods: Success, limitations and future chal-lenges , 2015. [40] M. A. Olshanskii and L. G. Rebholz , Approximating a branch of solutions to the Navier– Stokes equations by reduced-order modeling , Journal of Computational Physics, 524 (2025), p. 113728. [41] S.-H. Peng , 1D and 2D numerical modeling for solving dam-break flow problems using finite volume method , Journal of Applied Mathematics, 2012 (2012), p. 489269. [42] X. Qi, G. A. M. de Almeida, and S. Maldonado , Physics-informed neural networks for solving flow problems modeled by the 2D shallow water equations without labeled data , Journal of Hydrology, 636 (2024), p. 131263. [43] N. Rahaman, A. Baratin, D. Arpit, F. Draxler, M. Lin, F. Hamprecht, Y. Bengio, and A. Courville , On the spectral bias of neural networks , in International conference on machine learning, PMLR, 2019, pp. 5301–5310. [44] M. Raissi, P. Perdikaris, and G. E. Karniadakis , Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations , Journal of Computational Physics, 378 (2019), pp. 686–707. 30 [45] M. P. Rajvanshi and D. I. Ketcheson , Integral PINNs for hyperbolic conservation laws ,in ICLR 2024 Workshop on AI4DifferentialEquations in Science, 2024. [46] J. Reiss, P. Schulze, J. Sesterhenn, and V. Mehrmann , The shifted proper orthogonal decomposition: A mode decomposition for multiple transport phenomena , SIAM Journal on Scientific Computing, 40 (2018), pp. A1322–A1344. [47] D. Rim, B. Peherstorfer, and K. T. Mandli , Manifold approximations via transported subspaces: Model reduction for transport-dominated problems , SIAM Journal on Scientific Com-puting, 45 (2023), pp. A170–A199. [48] R. Rodriguez-Torrado, P. Ruiz, L. Cueto-Felgueroso, M. C. Green, T. Friesen, S. Matringe, and J. Togelius , Physics-informed attention-based neural network for hy-perbolic partial differential equations: application to the Buckley–Leverett problem , Scientific Reports, 12 (2022), p. 7557. [49] C.-W. Shu and S. Osher , Efficient implementation of essentially non-oscillatory shock-capturing schemes , Journal of Computational Physics, 77 (1988), pp. 439–471. [50] J. J. Stoker , Water Waves: The Mathematical Theory with Applications , Dover Publications, 2019. [51] T. Taddei , A registration method for model order reduction: data compression and geometry reduction , SIAM Journal on Scientific Computing, 42 (2020), pp. A997–A1027. [52] E. F. Toro , Riemann Solvers and Numerical Methods for Fluid Dynamics: A Practical In-troduction , Springer, 3 ed., 2009. [53] , Computational Algorithms for Shallow Water Equations , Springer, 2 ed., 2024. [54] L. R. Tucker , Some mathematical notes on three-mode factor analysis , Psychometrika, 31 (1966), pp. 279–311. [55] Z.-Q. J. Xu, Y. Zhang, and T. Luo , Overview frequency principle/spectral bias in deep learning , Communications on Applied Mathematics and Computation, 7 (2025), pp. 827–864. [56] J. Zhi-Qin, J. Xu, L. Tao, X. Yanyang, and M. Zheng , Frequency principle: Fourier analysis sheds light on deep neural networks , Communications in Computational Physics, 28 (2020), pp. 1746–1767. [57] J.-M. Zokagoa and A. Soula¨ ımani , A POD-based reduced-order model for free surface shal-low water flows over real bathymetries for Monte-Carlo-type applications , Computer Methods in Applied Mechanics and Engineering, 221–222 (2012), pp. 1–23. [58] C. Zoppou and S. Roberts , Numerical solution of the two-dimensional unsteady dam break ,Applied Mathematical Modelling, 24 (2000), pp. 457–475. 31

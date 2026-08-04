@@ -1,0 +1,812 @@
+Title: Perturbative-NeuSA: A Structured Spectral Framework for Time-Dependent PDEs
+
+URL Source: https://arxiv.org/pdf/2607.24345v1
+
+Published Time: Tue, 28 Jul 2026 01:55:46 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Perturbative-NeuSA: A Structured Spectral Framework for Time-Dependent PDEs 
+
+# Xianli Zhu, Jia Yin ∗
+
+School of Mathematical Sciences, Fudan University Shanghai, China 
+
+25210180115@m.fudan.edu.cn , jiayin@fudan.edu.cn 
+
+Abstract 
+
+Neural spectral PDE solvers often learn an entire unresolved vector field even when an inexpensive approximate model can already capture most of the trajectory. Here we introduce Perturbative-NeuSA, a residual formulation that decomposes the target solution into a low-fidelity background and a high-resolution perturbation, so that only the unresolved dynam-ics is learned. Starting from the exact perturbation equation, the method combines a fixed spectral operator, a background-dependent correction, the background defect in the target PDE, and an optional neural closure. This construction makes the roles of physical structure and neural closure separately mea-surable. Across 2D Burgers, Klein–Gordon, and heteroge-neous 2D wave equations, the deterministic structured solver outperforms the trained NeuSA baseline while requiring no neural-network training. The largest gains occur on Burgers, where the deterministic correction reduces training and ex-trapolation errors by factors of 24 and 44, respectively. In addition, a Klein–Gordon sweep over seven background res-olutions shows that the effect of the closure is conditional: it improves a poor background by 3.6 times, becomes neutral at intermediate resolutions, and degrades a well-resolved back-ground. For the wave equation, however, the closure provides an additional 18% reduction when the remaining residual is interface-localized. Multi-initial-condition diagnostics further show that the useful closure regime depends on the initial-condition spectrum and can disappear in extrapolation when structured correction already captures the dominant Burg-ers dynamics. Perturbative-NeuSA therefore reframes neural closure as a conditional, diagnosable correction governed by background fidelity, residual organization, and compatibility with the closure model. 
+
+# Introduction 
+
+Physics-informed neural networks (PINNs) enforce partial differential equations through a training objective rather than a conventional time-stepping scheme (Raissi, Perdikaris, and Karniadakis 2019). Their mesh-free representation is flexi-ble, but in time-dependent problems these methods remain vulnerable to low-frequency bias (Xu et al. 2020; Wang, Yu, and Perdikaris 2022), violations of temporal causality (Wang, Sankaran, and Perdikaris 2024), and poor extrapolation be-yond the training interval (Kim et al. 2021). Related neural-operator models also face out-of-distribution extrapolation 
+
+> ∗
+
+Corresponding author. 
+
+challenges (Zhu et al. 2023). Neuro-Spectral Architectures (NeuSA) address part of this difficulty by projecting the target PDE onto a spectral basis and evolving the resulting coef-ficients with a Neural ODE (Chen et al. 2018; Bizzi et al. 2025). A linearized spectral operator initializes the coeffi-cient vector field, while a multilayer perceptron learns the nonlinear, heterogeneous, or otherwise unresolved dynamics beyond that prior. However, for nonlinear equations, this residual can still contain terms that are already identifiable from the PDE and a coarse trajectory. NeuSA’s fixed prior only contains a state-independent linear operator, leaving the network to re-construct the full state-dependent residual. Classical defect-correction methods take a different route: they compute an inexpensive approximate trajectory, evaluate its defect in the target equation, and solve for a correction (Böhmer, Hemker, and Stetter 1984). This motivates a narrower role for the neu-ral closure. The analytically identifiable residual should be exposed first, while a neural closure should model only the terms that remain unresolved. 
+
+Motivation. If an inexpensive background already tracks most of the trajectory, training a neural closure on the full vector field unnecessarily spends model capacity on terms that can be computed explicitly. To address this, we decom-pose h = hbg +eh, represent the background defect explicitly, and restrict the learned target to the higher-order and other-wise unresolved perturbation terms. We instantiate this idea on three PDEs: 2D Burgers: ∂tq = ν∆q − (q · ∇ )q,
+
+Klein–Gordon: ut = v, vt = uxx − m sin u, 
+
+Heterogeneous wave: ut = v, vt = c2(y)∆ u. 
+
+For the Klein–Gordon equation, for example, expand-ing −m sin u around the background gives the first-order term −m cos( ubg )eu. After separating the fixed linear term −meu, the background-dependent correction becomes 
+
+−m[cos( ubg ) − 1] eu.We implement this principle by decomposing the full state as 
+
+h(t) = hbg (t) + eh(t), (1) where hbg is generated by a low-fidelity background opera-tor and eh is a perturbation represented at the target spec-arXiv:2607.24345v1 [cs.LG] 27 Jul 2026 tral resolution. The resulting perturbation equation sepa-rates three structured contributions: a fixed linear operator, a background-dependent correction, and the defect of the background in the target PDE. An optional neural term with weight ε models higher-order or unresolved effects. We call this structured perturbative framework Perturbative-NeuSA (P-NeuSA). Figure 1 summarizes its construction. This hierarchy makes the ablation directly interpretable. The gap between the background and P-NeuSA with ε =0 measures the contribution of the analytical correction, whereas the gap between P-NeuSA with ε = 0 and P-NeuSA with ε > 0 measures the marginal value of the neural closure. This work makes three contributions: 
+
+• First, we propose P-NeuSA to reduce the burden of learn-ing the full state-dependent PDE residual by separating a low-fidelity background, a structured high-resolution cor-rection, and an optional learned closure. The formulation covers nonlinear truncated backgrounds for Burgers and Klein–Gordon and a smoothed-coefficient background for heterogeneous wave propagation. 
+
+• Second, we show that P-NeuSA can outperform NeuSA even in its deterministic form, before adding any neural closure ( ε = 0 ). Across three PDEs, the largest improve-ments occur for the Burgers equation, where P-NeuSA reduces training and extrapolation errors by factors of 24 and 44, respectively. 
+
+• Third, rather than assuming that neural closure is uni-formly beneficial, we identify when it is beneficial through resolution, multi-initial-condition, and residual-localization studies, showing that closure gains depend on the spectrum resolved by the background and the or-ganization of the remaining residual, while the Burgers ablation reveals structure-dominated regimes in which the tested closure is not consistently beneficial. 
+
+# Related Work 
+
+Physics-informed neural solvers. PINNs represent a so-lution with a coordinate network and penalize violations of the governing equation (Raissi, Perdikaris, and Karniadakis 2019). Gradient-enhanced objectives, quadratic residual net-works, sinusoidal features, transformers, and causal training improve particular failure modes (Bu and Karpatne 2021; Yu et al. 2022; Zhao, Ding, and Prakash 2024; Wang, Sankaran, and Perdikaris 2024; Wong et al. 2024). Nevertheless, these approaches still optimize a global function approximator for the solution or its residual. In contrast, our method preserves an explicit time integrator and measures the marginal value of a learned vector-field correction after a low-fidelity trajec-tory and its analytical correction are provided. 
+
+Spectral and Neural ODE formulations. Neural spec-tral methods shift the learning problem to basis coefficients, where spatial derivatives become structured algebraic op-erators (Du, Chalapathi, and Krishnapriyan 2024). NeuSA combines this representation with Neural ODE integration and a fixed linear prior (Chen et al. 2018; Bizzi et al. 2025). Our method retains NeuSA’s causal coefficient dy-namics and fixed linear prior, and augments them with a task-specific background trajectory, its defect, and a background-dependent correction. The Jacobian along this trajectory is evaluated pseudo-spectrally, shifting the learned target from the full state-dependent residual to the unresolved higher-order or coefficient-mismatch terms left after the structured perturbation correction. 
+
+Classical correction and reduced models. Perturba-tion expansions, multigrid, preconditioning, and projection-based model reduction share the broader strategy of replacing a difficult problem with a structured approximation or an eas-ier auxiliary problem (Bender and Orszag 1999; Briggs, Hen-son, and McCormick 2000; Saad 2003; Benner, Gugercin, and Willcox 2015). Our formulation follows the same struc-tural principle, but targets a time-dependent spectral Neu-ral ODE. Empirically, we introduce a four-level comparison among the background solver, structured perturbative correc-tion, learned closure, and NeuSA, together with resolution and multi-initial-condition studies that identify when learn-ing the remaining correction is beneficial. 
+
+# Perturbative Spectral Formulation 
+
+Spectral state. We represent each PDE by a first-order state 
+
+h. For second-order equations, h = ( u, v ) with v = ∂tu.Let T map a physical-space field to its retained spec-tral coefficients, bh = T h, and let T −1 denote the in-verse transform (Boyd 2001). For basis functions {bk}Mk=1 ,
+
+h(t, x ) ≈ PMk=1 bhk(t)bk(x). Here x is the spatial coordi-nate, k indexes retained modes, and {bhk}Mk=1 denote spectral coefficients. NeuSA integrates 
+
+dbhdt = bF0(bh) + εF θ (bh, t ), (2) where bF0 is a fixed linear prior, Fθ is a neural vector field with parameters θ, and ε ≥ 0 is the neural-closure weight. 
+
+Low-fidelity background operator. Let Ffull be the target first-order PDE operator. We first compute a background trajectory 
+
+∂thbg = Fbg (hbg ), (3) where Fbg is chosen to be cheaper, smoother, or lower-resolution than Ffull .
+
+Exact perturbation equation. Define the perturbation by 
+
+eh = h − hbg . Differentiating this identity and substituting 
+
+∂th = Ffull (h) and ∂thbg = Fbg (hbg ) into Eq. (1) gives the exact perturbation equation 
+
+∂teh = Ffull (hbg + eh) − Fbg (hbg ). (4) Thus the full PDE is rewritten in terms of the perturbation eh,where the background supplies the reference trajectory, and the perturbation equation corrects both the background de-fect and the unresolved high-resolution dynamics. Expanding 
+
+Ffull (hbg + eh) around hbg yields 
+
+∂teh = Leh + Cex (t)eh + rbg (t) + R2(t, eh), (5) where L denotes the state-independent linear operator of the target PDE, which NeuSA encodes as a fixed spectral prior, Figure 1: Perturbative-NeuSA separates a low-fidelity background solve from a high-resolution perturbation solve. Setting ε = 0 
+
+gives a deterministic structured solver. Setting ε > 0 adds a learned residual correction. 
+
+Cex (t) = JFfull (hbg ) − L with JFfull denoting the Jacobian of the full operator, rbg = Ffull (hbg ) − Fbg (hbg ), and R2
+
+contains second- and higher-order perturbation terms. The defect rbg is essential whenever the background does not satisfy the full PDE itself. In implementation, we denote the structured background-dependent operator by Cbg . For Burg-ers and Klein–Gordon, Cbg = Cex . For the heterogeneous wave equation, Cbg uses a smoothed coefficient approxima-tion, so the remaining coefficient mismatch is included in the unresolved perturbation term 
+
+Rrem (t, eh) =  Cex (t) − Cbg (t)eh + R2(t, eh). (6) For Burgers and Klein–Gordon, Cbg = Cex and hence 
+
+Rrem = R2.
+
+Structured correction and neural closure. Define the spectral linear operator and background defect by bL =
+
+T LT −1 and brbg = T rbg , respectively. The implemented perturbation dynamics are 
+
+dbehdt = bLbeh + T
+
+h
+
+Cbg (t)eh
+
+i
+
++ brbg (t) + εF θ (beh, t ). (7) With ε = 0 , Eq. (7) is a deterministic nonautonomous linear correction at the target resolution. With ε > 0, the closure approximates Rrem (t, eh) and any unresolved numerical ef-fects. 
+
+Training loss. Let bGθ denote the right-hand side of Eq. (7). Learned variants roll out the current perturbation trajectory and minimize a physical-space residual between the model right-hand side and the exact perturbation right-hand side: 
+
+Lpert =
+
+> Nt
+
+X
+
+> i=1
+
+T −1 bGθ (ti, behi)
+
+− Ffull (hbg ,i + ehi) + Fbg (hbg ,i ) 22, (8) where i = 1 , . . . , N t indexes sampled training times, hbg ,i =
+
+hbg (ti), ehi = eh(ti), and the norm is the discrete physical-grid ℓ2 norm over all physical-grid points and the relevant state variables at time ti.
+
+Three PDE instantiations. Table 1 summarizes the task-specific background operators and structured corrections. For 2D Burgers with velocity q = ( q1, q 2) and viscosity ν,
+
+∂teq = ν∆eq − (qbg · ∇ )eq − (eq· ∇ )qbg + rbg + R2, (9) with R2 = −(eq · ∇ )eq.For Klein–Gordon with nonlinearity coefficient m, ut = v
+
+and vt = uxx − m sin u. Choosing L(eu, ev) = ( ev, euxx − meu)
+
+gives Cbg eh = (0 , −m[cos( ubg ) − 1] eu).For the heterogeneous wave equation with exact wave speed cexact (y), vt = c2exact (y)∆ u. The background uses a smoothed profile cbg . In the three-layer experiment, 
+
+cexact (y) = c(y; 1000) and cbg (y) = c(y; sbg ), where 
+
+c(y; s) = 1 + 0 .25 sigmoid( s(y − 0.5)) + 0 .25 sigmoid( s(y − 1.0)) ,
+
+sigmoid( z) = (1 + e−z )−1.
+
+Using the unit-speed wave operator as the fixed part L, the implemented structured operator is Cbg eh = (0 , [c2bg −1]∆ eu),while rbg contains (0 , [c2exact − c2bg ]∆ ubg ). The residual tar-get also includes the remaining coefficient-mismatch term 
+
+(0 , [c2exact − c2bg ]∆ eu) and numerical interface effects. Full derivations are provided in the supplement. 
+
+Closure error trade-off. Equation (5) makes the closure trade-off explicit. With ε = 0 , the structured solver leaves the local modeling error Rrem (t, eh). Adding the closure changes the remaining error to Rrem (t, eh) − εF θ (beh, t ), but also in-troduces estimation, optimization, and extrapolation errors. When the perturbation is large, Rrem can provide a measur-able closure-training signal, although the first-order model is then less accurate. When the perturbation is small, the closure target can fall below the scale of initialization and optimization noise. Thus, adding Fθ need not improve the solver monotonically. 
+
+Implementation. Background trajectories are computed once with fourth-order Runge–Kutta (RK4) integration and cached. Linear interpolation supplies background values at RK4 substeps of the perturbation solver. Products with 
+
+Cbg (t) are evaluated pseudo-spectrally: coefficients are transformed to the physical grid, multiplied by the cached background-dependent field, and projected back. For the Klein–Gordon and wave equations, the neural closure mod-ifies only ∂tev because ∂t eu = ev is exact. For Burgers, it modifies both velocity derivatives. Algorithm 1 summarizes background precomputation, optional closure training, and final reconstruction. 
+
+Pre-closure diagnostics. After the deterministic struc-tured rollout and before closure training, we evaluate the residual coefficients. Let behstr ,i denote the perturbation co-efficients produced by the structured-only rollout at time ti.We define 
+
+bRstr ,i = bF ex pert (ti, behstr ,i ) − bG0(ti, behstr ,i ), (10) where bF ex pert is the exact right-hand side of Eq. (4) and bG0
+
+is Eq. (7) with Fθ ≡ 0. We use the shorthand bF ex pert ,i =
+
+bF ex pert (ti, behstr ,i ) and define the normalized residual magni-tude by ρi = ∥ bRstr ,i ∥2/∥ bF ex pert ,i ∥2. For the heterogeneous wave problem, we additionally measure the fraction of struc-tured residual energy concentrated near coefficient inter-faces. Let Rphys str (x, t i) be the inverse transform of the resid-ual component entering ∂tev. For the three-layer wave profile, define the material-interface set by Γ = {(x, y ) ∈ Ω : y =0.5 or y = 1 .0} and let Ωδ = {x ∈ Ω : dist( x, Γ) ≤ δ}. The interface residual fraction is 
+
+Λδ =
+
+P
+
+> i
+
+R 
+
+> Ωδ
+
+|Rphys str (x, t i)|2 dx 
+
+P
+
+> i
+
+R 
+
+> Ω
+
+|Rphys str (x, t i)|2 dx . (11) Here Ω is the physical domain, and Γ contains the tran-sition locations of the wave-speed coefficient. Thus Λδ is close to one when the residual energy is concentrated near material interfaces and close to zero when little residual en-ergy lies in that interface band; Λ0.1 uses a band of width 
+
+0.1 around the interfaces. We compute these diagnostics along the structured-only rollout and aggregate them over the time window used for the corresponding closure study. These quantities require one structured rollout but no closure optimization. 
+
+Error View and Expected Regimes 
+
+Let A(t) = L + Cbg (t) and let Φ( t, τ ) denote its evolution operator. Let estr (t) be the error of the structured pertur-bation relative to the exact perturbation around the same background. Variation of constants gives the local error rep-resentation 
+
+estr (t) ≈
+
+Z t
+
+> 0
+
+Φ( t, τ )Rrem (τ, eh(τ )) dτ + enum (t), (12) where enum collects time discretization, interpolation, and spectral projection errors. The closure model replaces the integrand by Rrem (τ, eh(τ )) − εF θ (beh(τ ), τ ) and adds op-timization and generalization errors. Equation (12) sepa-rates the structured remainder, numerical error, and learned-correction error, which is the organization used in the regime experiments below. This decomposition suggests three regimes. With a poor background, eh is large and the neglected remainder is mea-surable, but the first-order approximation can itself be in-accurate. A neural closure may reduce the error without eliminating the limits of the first-order model. At interme-diate fidelity, A(t)eh + rbg captures most of the correction, while a learnable remainder may persist. For high-fidelity backgrounds in the Burgers and Klein–Gordon equations, 
+
+Rrem (t, eh) = R2(t, eh) = O(∥eh∥2) for smooth nonlinear-ities. Since the structured terms have already removed the leading-order perturbation response, the remaining closure target can be comparable to optimization and initialization errors in the learned vector field. In this regime, the learned closure may provide little benefit and can degrade extrap-olation. The wave problem provides a useful counterpoint because sharp-interface and discretization residuals can re-main organized enough for the chosen closure to learn, even when the structured error is small. Thus, closure utility de-pends not only on residual magnitude, but also on how well the residual’s spatial and spectral structure matches the clo-sure model. 
+
+# Experiments 
+
+Protocol. We test our methods on 2D Burgers, 1D Klein– Gordon, and a heterogeneous 2D wave equation. For Burgers and Klein–Gordon, the background operator Fbg is a non-linear spectral solver retaining mc modes per spatial dimen-sion. For wave, Fbg uses a smoothed wave-speed coefficient. The perturbation is evolved at the target spectral resolution 
+
+M = 201 , so mc < M for the truncated backgrounds. Ta-ble 2 uses three seeds for P-NeuSA ( ε > 0); NeuSA uses seven seeds for the 2D tasks and three for Klein–Gordon. Background and P-NeuSA ( ε = 0 ) results are determinis-tic. All entries in Table 2 use the relative discrete ℓ2 error 
+
+Erel = ∥upred − uref ∥ℓ2 /∥uref ∥ℓ2 , where u stacks all re-ported field values at the sampled spatial points and output Task Low-fidelity operator Fbg Structured correction Main unresolved effect 2D Burgers Truncated nonlinear solve Background-linearized advection Quadratic advection Klein–Gordon Truncated nonlinear solve −m[cos( ubg ) − 1] eu Higher-order sine remainder 2D wave Smoothed-coefficient wave solve [c2bg − 1]∆ eu Coefficient/interface residual 
+
+Table 1: Task-specific background operators under the common perturbative decomposition. 
+
+Algorithm 1 Perturbative Spectral Solver 
+
+Require: initial state h0, Ffull , Fbg , basis, ε 
+
+> 1:
+
+Integrate Eq. (3) and cache hbg (ti). 
+
+> 2:
+
+Evaluate rbg (ti) at the cached times.  
+
+> 3:
+
+Initialize eh0 = h0 − hbg (0) . 
+
+> 4:
+
+if ε > 0 then  
+
+> 5:
+
+for Adam optimization steps do  
+
+> 6:
+
+Roll out Eq. (7) over the training times with current 
+
+θ. 
+
+> 7:
+
+Evaluate the physical-space perturbation residual in Eq. (8).  
+
+> 8:
+
+Update θ with Adam.  
+
+> 9:
+
+end for  
+
+> 10:
+
+end if  
+
+> 11:
+
+Roll out Eq. (7) at the target resolution with trained θ, or with Fθ ≡ 0 when ε = 0 . 
+
+> 12:
+
+Return h(ti) = hbg (ti) + eh(ti).times in the indicated interval. For Burgers, we compute this error separately for q1 and q2 and average the two values. Thus, its two table rows differ only in their evaluation in-tervals. For closure studies, we take G = Estr /E cl , where 
+
+Estr and Ecl are the P-NeuSA ( ε = 0 ) and P-NeuSA ( ε > 0)errors, respectively. Thus, G > 1 indicates that the neural closure improves the deterministic P-NeuSA variant. Further details on reference solvers, initial conditions, hyperparame-ters, complete tables, baselines, and visualizations are given in the supplement. 
+
+Task configurations. For 2D Burgers on [0 , 4] 2, we use pe-riodic boundaries, ν = 0 .01 , a nonlinear Fourier background with mc = 51 , training on t ∈ [0 , 1] , and evaluation through 
+
+t = 2 . Klein–Gordon solves utt = uxx − 10 sin u on [−4, 4] 
+
+with Gaussian displacement whose peak amplitude is ap-proximately 4, zero initial velocity, and variable background resolution mc over t ∈ [0 , 3] . The wave experiment solves 
+
+utt = c2exact (y)∆ u on [−2, 2] 2, with cexact (y) = c(y; 1000) 
+
+and a smoothed background cbg (y) = c(y; sbg ); the canon-ical setting uses sbg = 50 and t ∈ [0 , 2] . Initial conditions, basis choices, optimization settings, and reference discretiza-tions are detailed in the supplement. 
+
+Background correction. This experiment tests whether the structured perturbation itself improves a low-fidelity background before adding a neural closure. Table 2 shows that the correction reduces the background error by factors of 26 .5 on the Burgers equation, 2.9 on the Klein–Gordon equation, and 2.1 on the wave equation. The P-NeuSA errors are evaluated on the reconstructed field obtained by adding the high-resolution perturbation correction to the background trajectory. 
+
+Comparison with NeuSA. P-NeuSA ( ε = 0 ) is more ac-curate than NeuSA on all three tasks. For Burgers, it gives 24 times lower training error and 44 times lower extrapolation error. A 1000-step NeuSA control, rather than the canonical 200 steps, decreases these errors to 0.0145 ± 0.0014 and 
+
+0.0723 ± 0.0080 , still 5.8 and 18.5 times above determin-istic P-NeuSA. The Klein–Gordon and wave reductions are 
+
+34 .5% and 85 .5% , respectively. 
+
+Burgers extrapolation. This test separates in-interval residual fitting from time extrapolation. Although P-NeuSA (ε > 0) slightly reduces the training-interval relative ℓ2 er-ror from 0.0025 to 0.0019 , its extrapolation error rises to 
+
+0.0186 . In contrast, P-NeuSA ( ε = 0 ) remains at 0.0039 ,while NeuSA reaches 0.1731 . The correction produced by the neural closure therefore improves in-interval fitting but does not preserve this benefit beyond the training horizon. Thus, a lower training residual does not necessarily imply stable time extrapolation. 
+
+Klein–Gordon sweep protocol. We sweep Klein–Gordon background resolution mc ∈ { 31 , 51 , 63 , 67 , 71 , 75 , 101 }.At each resolution, the neural weight used for confirmation is selected from ε ∈ { 0.1, 0.5, 1.0} in a single-seed selection sweep and then confirmed with three seeds. The resulting P-NeuSA ( ε > 0) entry is therefore the best-confirmed closure within this finite candidate set; the selected weights are listed in the Supplementary Material. 
+
+Regime-map results. At mc = 31 , neural correction im-proves the structured result from 3.37 × 10 −2 to 9.39 × 10 −3
+
+by a factor of 3.6. The gain then decreases as the back-ground resolution increases: the improvement factor is 1.14 
+
+at mc = 51 , is approximately one from mc = 63 to 71 , and drops below one at mc = 75 and mc = 101 , where the clo-sure slightly degrades the structured result. Nonlinear spec-tral broadening partly explains this trend: mc = 51 retains only 65 .5% of the energy in sin( ubg ), whereas mc = 101 
+
+retains 99 .4% .
+
+Regime-map interpretation. The structured correction reduces background error by factors of 2.9–33 .8 at all resolu-tions. Closure utility, however, declines from a clear benefit at mc = 31 , through changes comparable to seed varia-tion at mc = 63 –71 , to slight but consistent degradation at 
+
+mc = 101 .
+
+Spectral origin of the transition. Although the initial state is well represented at mc = 51 , its nonlinear forcing is not. Let a denote the amplitude of its dominant mode. For a ≈ 4,Task Background P-NeuSA (ε = 0 )P-NeuSA (ε > 0) NeuSA 2D Burgers, [0 , 1] 0.0666 0.0025 0.0019 ± 0.0002 0.0600 ± 0.0226                                              
+
+> 2D Burgers, (1 ,2] 0.0455 0.0039 0.0186 ±0.0029 0.1731 ±0.0302
+> Klein–Gordon, mc= 101 ,[0 ,3] 1 .67 ×10 −35.81 ×10 −46.35 ×10 −4±1.4×10 −68.87 ×10 −4±4.7×10 −5
+> 2D wave, [0 ,2] 0.0265 0.0124 0.010085 ±3.3×10 −50.0855 ±0.0306
+
+Table 2: Canonical cross-task comparison using the windowed relative ℓ2 metric defined in the protocol. P-NeuSA ( ε = 0 )is the deterministic structured variant, while P-NeuSA ( ε > 0) includes the learned neural closure. P-NeuSA ( ε > 0) entries report mean ± standard deviation over three seeds. NeuSA uses seven seeds for the two 2D tasks and three for Klein–Gordon; deterministic entries have no seed variation. Bold marks the lowest mean error in each row. In P-NeuSA ( ε > 0), we use ε = 1 .0
+
+for Burgers, 0.5 for Klein–Gordon, and 0.5 for wave. 
+
+Figure 2: Operating-regime diagnostics for the optional neural closure. Gain is G = Estr /E cl . For Klein–Gordon, candidate closure weights are screened in a finite preliminary sweep and the selected settings are confirmed with multiple seeds. Wave and Burgers use fixed task-specific weights, ε = 0 .5 and 1.0, respectively. (a) Family-mean Klein–Gordon gains across background resolutions. The solid curves represent Gaussian displacement with zero or sinusoidal velocity, multi-bump displacement, and sine-mixture displacement; the dashed curve extends the sine-mixture study to mc = 17 , 21 , 25 . (b) Wave mean gain versus the interface-band residual fraction Λ0.1. Horizontal and vertical error bars denote standard deviations over four family-level values, each averaged over two initial conditions; the reported correlation uses all 24 initial-condition–background-sharpness pairs. (c) Burgers mean gains over 24 configurations. direct projection shows that modes 1–51 and 1–101 retain 
+
+65 .5% and 99 .4% of the energy in sin( a cos φ), respectively. Effective background resolution must therefore capture the spectrum generated by the nonlinearity, not only that of the initial condition. The complete harmonic analysis is provided in the Supplementary Material. 
+
+Multi-initial-condition test. Figure 2(a) shows that the useful closure regime depends on the initial-condition spec-trum. At mc = 31 , the closure helps the Gaussian and multi-bump families but not the sine-mixture family. At mc = 51 ,aggregate training/extrapolation gains are 0.56 /0.49 , with only the Gaussian family with sinusoidal velocity showing a local training benefit. For the sine-mixture family, the tran-sition occurs between mc = 21 and 25 . Complete results are given in the Supplementary Material. 
+
+Residual organization. Figure 2(b) compares closure gain with interface localization across eight initial conditions and 
+
+sbg ∈ { 50 , 100 , 200 }. Each of the 24 initial-condition and background-sharpness pairs is one statistical unit, with clo-sure errors averaged over three neural seeds. As sbg increases, mean Λ0.1 decreases from 0.948 to 0.441 and 0.049 , while mean G decreases from 3.65 to 1.02 and approximately 1.00 .The normalized residual magnitude does not track this trend. Across all 24 units, Λ0.1 correlates with log G (Pearson 
+
+r = 0 .847 , p = 1 .75 × 10 −7). These results indicate that residual organization is more informative about closure util-ity than residual magnitude alone. Family-level results and additional statistics are reported under “Wave Background Fidelity and Residual Diagnostics” in the Supplementary Material. 
+
+Burgers multi-initial-condition ablation. All 24 Burg-ers configurations have G < 1. Figure 2(c) reports mean training, short-extrapolation, and long-extrapolation gains of 
+
+0.469 , 0.415 , and 0.257 , respectively. The canonical result is consistent with this trend: the closure increases extrapolation error from 0.0039 to 0.0186 . Complete configurations and per-case gains are given in the Supplementary Material. 
+
+Coordinate-network baselines. Among the physics-informed neural network (PINN), quadratic residual network (QRes), first-layer sine network (FLS), and PINNsFormer baselines, QRes is the strongest on all three tasks, but its er-rors remain 10–32 times larger than those of P-NeuSA with 
+
+ε = 0 . Complete training protocols, errors, and times are reported in the Supplementary Material. 
+
+Computational cost. For P-NeuSA with ε = 0 , the com-plete deterministic evaluation takes 0.59 seconds for Klein– Gordon, 17 .65 seconds for 2D Burgers, and 5.95 seconds for wave on two CPU threads. These totals include background precomputation, the ODE rollout, and field reconstruction. NeuSA neural optimization takes 716 , 329 , and 1513 sec-onds, respectively, on one NVIDIA A30. Because the CPU and GPU measurements use different hardware, we report them as stage-specific wall-clock costs rather than normal-ized speedups. The full breakdown is provided under “Com-putational Cost” in the Supplementary Material. 
+
+# Discussion and Limitations 
+
+Structured-correction regime. Perturbative-NeuSA is best interpreted as a defect-correction method in spectral coordinates. The method rewrites the target PDE around a background trajectory without changing the governing equa-tion. The background supplies the reference trajectory, while Eq. (5) corrects both its operator mismatch and its high-resolution response. This distinction explains why the final error can be substantially lower than the background error. The construction follows the coarse-model-plus-correction logic of multigrid and preconditioned iteration while evolv-ing a time-dependent spectral correction. 
+
+Regimes for neural closure. The experiments show that neural closure has a conditional role rather than a uniform benefit. When the background is too coarse, the residual can be large enough to provide a training signal, but the first-order perturbation model may also be less accurate. When the background is too accurate, the remaining higher-order target can become too small to fit reliably. Between these cases, the structured terms may already capture most of the useful correction. The multi-initial-condition results show that this balance depends on the spectrum generated by the initial state and the PDE, not on a fixed mode threshold. The wave problem gives a case where closure remains useful: residuals localized near interfaces are associated with clo-sure gains even after the structured solver has reduced the total error. The experiment on the Burgers equation gives the opposite case. Across the tested multi-initial-condition settings, the closure is not consistently beneficial and sub-stantially worsens the canonical extrapolation result. 
+
+Factors governing closure utility. The regime map should be read as a task-dependent diagnostic rather than a universal rule based on mode count. The experiments identify three op-erational factors. First, effective background fidelity depends on the spectrum generated by both the PDE and the initial state. Second, residual organization is associated with how well the unresolved error aligns with the closure model, as illustrated by the wave interface diagnostic. Third, closure-model compatibility matters: residual magnitude alone does not determine whether the tested MLP closure can fit the remaining target reliably. The spectral-energy calculation for 
+
+sin( u) and the wave interface-energy diagnostic probe differ-ent mechanisms behind this regime dependence, but neither provides a task-independent threshold. 
+
+Limitations. This study has five main limitations. First, it considers three smooth benchmark PDEs. Shocks and strongly localized features may require different bases and background solvers, or stabilization strategies. Second, the method assumes that a computationally inexpensive and dy-namically useful background operator is available. Third, we use MLP closures rather than architectures tailored to small perturbation targets. Fourth, the closure weights in the Klein–Gordon regime map are selected from a finite pre-liminary sweep and reported with three-seed confirmation; adaptive weight selection is left for future work. Fifth, the multi-initial-condition diagnostics use designed families, and the Burgers ablation is representative rather than exhaustive over closure architectures and optimization schedules. These results therefore establish task-dependent trends, not univer-sal thresholds. 
+
+Availability. Code, trained models, and reference data will be released upon publication. 
+
+# Conclusion 
+
+Perturbative-NeuSA recasts neural spectral PDE solving as a perturbation problem around a low-fidelity background tra-jectory. By separating the background solve, the structured high-resolution correction, and the optional learned closure, the method makes it possible to measure how much improve-ment comes from analytical structure and how much comes from learning. Across the PDEs studied here, the structured correction provides the dominant gain and can outperform NeuSA even with ε = 0 , before any neural closure is trained. The results support a conditional view of neural closure. Closure is useful when the remaining residual is measur-able and contains structure that the closure model can repre-sent. The multi-initial-condition studies show that this regime shifts with the spectrum generated by the initial state and the PDE. The wave diagnostics show an association between closure gains and interface-localized residuals, whereas the Burgers ablation shows that the same closure can provide no net benefit and can worsen extrapolation when the structured correction already captures the dominant dynamics. Neural spectral solvers should therefore be evaluated using final er-rors together with background fidelity, residual organization, and closure-model compatibility. References 
+
+Bender, C. M.; and Orszag, S. A. 1999. Advanced Mathe-matical Methods for Scientists and Engineers I: Asymptotic Methods and Perturbation Theory . Springer. Benner, P.; Gugercin, S.; and Willcox, K. 2015. A survey of projection-based model reduction methods for parametric dynamical systems. SIAM Review , 57(4): 483–531. Bizzi, A.; Moreira, L.; Marques, M.; Mendonça, L.; de Oliveira, C.; Balestro, V.; dos Santos Fernandez, L.; Yukimura, D.; Petrov, P.; Pereira, J.; Novello, T.; and Nis-senbaum, L. 2025. Neuro-Spectral Architectures for Causal Physics-Informed Networks. In Belgrave, D.; Zhang, C.; Lin, H.; Pascanu, R.; Koniusz, P.; Ghassemi, M.; and Chen, N., eds., Advances in Neural Information Processing Systems ,volume 38, 54419–54449. Curran Associates, Inc. Böhmer, K.; Hemker, P. W.; and Stetter, H. J. 1984. The Defect Correction Approach. In Böhmer, K.; and Stetter, H. J., eds., Defect Correction Methods: Theory and Applica-tions , volume 5 of Computing Supplementum , 1–32. Springer Vienna. Boyd, J. P. 2001. Chebyshev and Fourier Spectral Methods .Dover, second edition. Briggs, W. L.; Henson, V. E.; and McCormick, S. F. 2000. AMultigrid Tutorial . SIAM, second edition. Bu, J.; and Karpatne, A. 2021. Quadratic Residual Networks: A New Class of Neural Networks for Solving Forward and Inverse Problems in Physics Involving PDEs. In Proceedings of the 2021 SIAM International Conference on Data Mining (SDM) , 675–683. Chen, R. T. Q.; Rubanova, Y.; Bettencourt, J.; and Duve-naud, D. K. 2018. Neural ordinary differential equations. In Advances in Neural Information Processing Systems , vol-ume 31, 6571–6583. Du, Y.; Chalapathi, N.; and Krishnapriyan, A. S. 2024. Neu-ral spectral methods: Self-supervised learning in the spectral domain. In The Twelfth International Conference on Learn-ing Representations .Glorot, X.; and Bengio, Y. 2010. Understanding the diffi-culty of training deep feedforward neural networks. In Teh, Y. W.; and Titterington, M., eds., Proceedings of the Thir-teenth International Conference on Artificial Intelligence and Statistics , volume 9 of Proceedings of Machine Learning Re-search , 249–256. PMLR. Kim, J.; Lee, K.; Lee, D.; Jhin, S. Y.; and Park, N. 2021. DPM: A Novel Training Method for Physics-Informed Neu-ral Networks in Extrapolation. Proceedings of the AAAI Conference on Artificial Intelligence , 35(9): 8146–8154. Kingma, D. P.; and Ba, J. 2015. Adam: A method for stochas-tic optimization. In 3rd International Conference on Learn-ing Representations (ICLR) .Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.; Chanan, G.; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.; Desmaison, A.; Kopf, A.; Yang, E.; DeVito, Z.; Raison, M.; Tejani, A.; Chilamkurthy, S.; Steiner, B.; Fang, L.; Bai, J.; and Chintala, S. 2019. PyTorch: An imperative style, high-performance deep learning library. In Advances in Neural Information Processing Systems , volume 32, 8024–8035. Poli, M.; Massaroli, S.; Yamashita, A.; Asama, H.; Park, J.; and Ermon, S. 2021. TorchDyn: Implicit Models and Neural Numerical Methods in PyTorch. In Physical Reasoning and Inductive Biases for the Real World at NeurIPS 2021 .Raissi, M.; Perdikaris, P.; and Karniadakis, G. E. 2019. Physics-informed neural networks: A deep learning frame-work for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Compu-tational Physics , 378: 686–707. Saad, Y. 2003. Iterative Methods for Sparse Linear Systems .SIAM, second edition. Wang, S.; Sankaran, S.; and Perdikaris, P. 2024. Respect-ing causality for training physics-informed neural networks. 
+
+Computer Methods in Applied Mechanics and Engineering ,421: 116813. Wang, S.; Yu, X.; and Perdikaris, P. 2022. When and why PINNs fail to train: A neural tangent kernel perspective. Jour-nal of Computational Physics , 449: 110768. Wong, J. C.; Ooi, C. C.; Gupta, A.; and Ong, Y.-S. 2024. Learning in sinusoidal spaces with physics-informed neural networks. IEEE Transactions on Artificial Intelligence , 5(3): 985–1000. Xu, Z.-Q. J.; Zhang, Y.; Luo, T.; Xiao, Y.; and Ma, Z. 2020. Frequency principle: Fourier analysis sheds light on deep neural networks. Communications in Computational Physics , 28(5): 1746–1767. Yu, J.; Lu, L.; Meng, X.; and Karniadakis, G. E. 2022. Gradient-enhanced physics-informed neural networks for forward and inverse PDE problems. Computer Methods in Applied Mechanics and Engineering , 393: 114823. Zhao, Z.; Ding, X.; and Prakash, B. A. 2024. PINNsFormer: A transformer-based framework for physics-informed neu-ral networks. In The Twelfth International Conference on Learning Representations .Zhu, M.; Zhang, H.; Jiao, A.; Karniadakis, G. E.; and Lu, L. 2023. Reliable extrapolation of deep neural operators in-formed by physics or sparse observations. Computer Methods in Applied Mechanics and Engineering , 412: 116064. Supplementary Material 
+
+# Complete Perturbation Derivations 
+
+General first-order system 
+
+Let the target dynamics be ∂th = Ffull (h) and the back-ground satisfy ∂thbg = Fbg (hbg ). With h = hbg + eh,
+
+∂teh = Ffull (hbg + eh) − Fbg (hbg ) (1) 
+
+= JFfull (hbg )eh + rbg + R2(t, eh), (2) where JFfull (hbg ) = DF full (hbg ) is the Jacobian of the target vector field evaluated at the background and 
+
+rbg = Ffull (hbg ) − Fbg (hbg ). Splitting the Jacobian as 
+
+JFfull (hbg ) = L + Cex (t) gives the formulation used for Burgers and Klein–Gordon. The wave experiment uses a smoothed-coefficient structured operator, as detailed below. 
+
+2D Burgers 
+
+For the velocity field q = ( q1, q 2),
+
+∂tq + ( q · ∇ )q = ν∆q. (3) Substitution of q = qbg + eq gives 
+
+∂teq = ν∆eq − (qbg · ∇ )eq − (eq · ∇ )qbg 
+
+− (eq · ∇ )eq + rbg , (4) with 
+
+rbg = ν∆qbg − (qbg · ∇ )qbg − ∂tqbg . (5) The structured solver retains the first three perturbation terms and rbg . The quadratic term is omitted when ε = 0 and is part of the learned target when ε > 0.
+
+Klein–Gordon 
+
+The equation 
+
+ut = v, vt = uxx − m sin u (6) is decomposed as u = ubg + eu and v = vbg + ev. Taylor expansion gives 
+
+eut = ev + rbg ,u , (7) 
+
+evt = euxx − m cos( ubg )eu + rbg ,v + R2(t, eu). (8) For the consistent first-order background used here, 
+
+rbg ,u = vbg − ∂tubg = 0 ,rbg ,v = ubg ,xx − m sin( ubg ) − ∂tvbg . (9) We use 
+
+L(eu, ev) = ( ev, euxx − meu), (10) 
+
+Cbg (eu, ev) = (0 , −m[cos( ubg ) − 1] eu). (11) The remainder is 
+
+R2(t, eu) = −m [sin( ubg + eu) − sin( ubg ) − cos( ubg )eu] .
+
+(12) 
+
+Heterogeneous 2D wave equation 
+
+For 
+
+ut = v, vt = c2exact (y)∆ u, (13) the background uses cbg (y). Taking the homogeneous wave operator as L gives the exact Jacobian correction 
+
+L(eu, ev) = ( ev, ∆eu), (14) 
+
+Cex (eu, ev) = (0 , [c2exact − 1]∆ eu). (15) The implementation uses the smoothed-coefficient structured operator 
+
+Cbg (eu, ev) = (0 , [c2bg − 1]∆ eu), (16) and the background defect 
+
+rbg = (0 , [c2exact − c2bg ]∆ ubg ). (17) The target equation is linear in the state, so there is no Tay-lor remainder. The residual target for the closure therefore contains the remaining coefficient-mismatch perturbation 
+
+(0 , [c2exact − c2bg ]∆ eu) together with discretization, interpo-lation, and unresolved sharp-interface effects. 
+
+# Experimental Protocol 
+
+Common settings. The target spectral resolution is M =201 modes per spatial dimension and all Neural ODE trajec-tories use fourth-order Runge–Kutta (RK4) integration. The task-specific P-NeuSA closure architectures are summarized in Table 12. These closures use ReLU activations, Xavier initialization (Glorot and Bengio 2010), Adam optimiza-tion (Kingma and Ba 2015), learning-rate decay γ = 0 .999 ,and gradient clipping with maximum norm 1.0. Their canoni-cal results use seeds 42 , 43 , and 44 . NeuSA uses LeakyReLU, the default PyTorch linear-layer initialization, Adam with 
+
+γ = 0 .999 , and no gradient clipping. Its results use seeds 
+
+42 –48 for the two 2D tasks and 42 –44 for Klein–Gordon. 
+
+2D Burgers. The domain is [0 , 4] 2 with periodic bound-aries, ν = 0.01 , q1,0 = sin( πx ) sin( πy ), and q2,0 =cos( πx ) cos( πy ). Training covers [0 , 1] and extrapolation covers (1 , 2] . The nonlinear background uses mc = 51 
+
+modes per dimension. P-NeuSA ( ε > 0) uses 500 optimiza-tion steps, learning rate 10 −3, and ε = 1 .0. The canonical NeuSA baseline uses 200 steps, learning rate 5 × 10 −3, and model weight 0.1. An additional NeuSA control uses 1000 steps with otherwise identical settings to test whether a longer training budget narrows the error gap to P-NeuSA ( ε = 0 ). 
+
+Klein–Gordon. The domain is [−4, 4] with zero Dirich-let boundaries, m = 10 , and sine basis. The initial condi-tion is u0 = (2 πσ 2)−1/2 exp[ −x2/(2 σ2)] with σ = 0 .1
+
+and v0 = 0. The canonical trajectory and regime map use t ∈ [0 , 3] . P-NeuSA uses 1000 steps and learning rate 10 −2, whereas NeuSA uses 1000 steps, learning rate 
+
+2 × 10 −2, and model weight 0.1. The regime map considers 
+
+mc ∈ { 31 , 51 , 63 , 67 , 71 , 75 , 101 } and ε ∈ { 0.1, 0.5, 1.0}.The canonical mc = 101 configuration uses ε = 0 .5.2D wave. The physical evaluation domain is [−2, 2] 2. The cosine representation is defined on [−4, 4] 2 to reduce bound-ary artifacts, and the temporal domain is t ∈ [0 , 2] . The Gaussian initial condition has σ = 0 .1 and zero initial ve-locity. The exact wave-speed profile uses sigmoid sharpness 
+
+s = 1000 . The background uses s = 50 . NeuSA uses 2000 steps, learning rate 10 −2, and model weight 1.0. The pertur-bative model uses 1000 steps, learning rate 5 × 10 −3, and 
+
+ε = 0 .5.
+
+Multi-initial-condition diagnostics. The Klein–Gordon study trains on t ∈ [0 , 3] and evaluates extrapolation on 
+
+t ∈ (3 , 5] . It uses four families: Gaussian displacement with zero velocity, Gaussian displacement with sinusoidal velocity, multi-bump displacement, and sine-mixture dis-placement. Each family contains three initial conditions. Their parameterized formulas are given below under “Initial-Condition Families.” The main grid uses mc ∈ { 31 , 75 , 101 }
+
+with ε ∈ { 0.1, 1.0, 0.5}, respectively, and closure seeds 
+
+{0, 1, 2, 3, 4}. An additional mc = 51 , ε = 0 .1 run uses the same 12 initial conditions and seeds. The targeted sine-mixture study uses mc ∈ { 5, 9, 13 , 17 , 21 , 25 } and ε = 0 .1;the final operating-regime analysis reports the multi-seed confirmation at mc ∈ { 17 , 21 , 25 } with seeds {0, 1, 2, 3, 4}.The wave study uses t ∈ [0 , 2] and centered Gaussian, off-center Gaussian, multi-pulse, and cosine-field initial condi-tions, with two instances per family, background sharpness 
+
+sbg ∈ { 50 , 100 , 200 }, fixed task-specific weight ε = 0 .5,and closure seeds {0, 1, 2}.The Burgers multi-initial-condition ablation uses t ∈
+
+[0 , 3] , with training on [0 , 1] , short extrapolation on (1 , 2] ,and long extrapolation on (2 , 3] . It uses one representative ini-tial condition from each of the low-Fourier, medium-Fourier, and vortex-like families, viscosities ν ∈ { 0.01 , 0.02 }, mc ∈{31 , 51 , 75 , 101 }, fixed task-specific weight ε = 1 .0, three closure seeds {0, 1, 2}, and 500 optimization steps. Residual diagnostics are computed from the deterministic structured rollout before any closure training. For the two-component Burgers field q = ( q1, q 2), errors over a sample set W use the componentwise average 
+
+Eavg (W) = 12
+
+> 2
+
+X
+
+> j=1
+
+∥qj, pred − qj, ref ∥ℓ2(W)
+
+∥qj, ref ∥ℓ2(W)
+
+. (18) The canonical main-text comparison and Table 1 use 
+
+Eavg (W) directly, stacking every spatial point and output time in the indicated window W. Thus, q1 and q2 receive equal weight independently of their reference energies. The multi-initial-condition extrapolation diagnostic instead eval-uates the same componentwise average at each output time before averaging over the short and long extrapolation win-dows. 
+
+Reference solutions. Klein–Gordon uses a pseudo-spectral RK4 solution (Boyd 2001) with ∆x = 0 .04 and 
+
+∆t = 0 .001 , evaluated at 201 spatial points and 201 out-put times. Burgers uses pseudo-spectral RK4 on t ∈ [0 , 2] 
+
+with ∆x = ∆ y = 0 .02 and internal step ∆t = 0 .001 ,evaluated on a 201 × 201 spatial grid at 401 output times separated by 0.005 . Wave reference data use eighth-order fi-nite differences in space and second-order time integration with ∆x = ∆ y = 0 .01 and ∆t = 0 .001 , evaluated on a 
+
+101 × 101 spatial grid at 201 output times. 
+
+# Full Numerical Results 
+
+The first tables report the canonical task-level comparisons; the subsequent tables report the operating-regime diagnos-tics. 
+
+# Nonlinear Spectral Broadening 
+
+For an approximately single-frequency state with amplitude 
+
+a,
+
+sin( a cos φ) = 2 
+
+> ∞
+
+X
+
+> n=0
+
+(−1) nJ2n+1 (a) cos((2 n+1) φ). (19) Here Jk is the Bessel function of the first kind. At a Klein– Gordon peak amplitude of approximately 4, the nonlinear term occupies substantially more modes than the initial con-dition. Direct spectral analysis shows that modes 1–51 con-tain 65 .5% of the energy in sin( u0), modes 1–75 contain 
+
+97 .5% , and modes 1–101 contain 99 .4% . By comparison, modes 1–51 already contain 99 .6% of the energy in u0, and modes 1–101 contain effectively all of it. Thus, mc = 51 can resolve the initial state while omitting a substantial part of the spectrum generated by the nonlinear forcing. The background resolution must therefore be selected from the spectral sup-port of the nonlinear term, not from the initial condition alone. This contrast explains the large background defect at 
+
+mc = 51 and its rapid reduction by mc = 101 .Method Relative ℓ2 [0 , 1] Relative ℓ2 (1 , 2] Relative ℓ2 [0 , 2] 
+
+Background 0.0666 0.0455 0.0640 
+
+P-NeuSA ( ε = 0 ) 0.0025 0.0039 0.0028 
+
+P-NeuSA ( ε > 0) 0.0019 ± 0.0002 0.0186 ± 0.0029 0.0073 ± 0.0011 
+
+NeuSA 0.0600 ± 0.0226 0.1731 ± 0.0302 0.0866 ± 0.0222 
+
+Table 1: Canonical 2D Burgers results. Each column reports the component-averaged relative ℓ2 error after stacking all spatial points and output times in the indicated interval. The P-NeuSA ( ε > 0) row reports three seeds, and NeuSA reports seven. 
+
+mc Background P-NeuSA ( ε = 0 ) P-NeuSA ( ε > 0) Ratio 31 2.92 × 10 −1 3.37 × 10 −2 9.39 × 10 −3 ± 2.6 × 10 −3 3.60 
+
+51 6.60 × 10 −2 1.95 × 10 −3 1.71 × 10 −3 ± 8.4 × 10 −5 1.14 
+
+63 2.30 × 10 −2 1.15 × 10 −3 1.15 × 10 −3 ± 1.3 × 10 −7 1.00 
+
+67 1.61 × 10 −2 1.07 × 10 −3 1.09 × 10 −3 ± 3.5 × 10 −5 0.98 
+
+71 1.15 × 10 −2 1.00 × 10 −3 1.00 × 10 −3 ± 7.7 × 10 −8 1.00 
+
+75 8.32 × 10 −3 9.27 × 10 −4 9.62 × 10 −4 ± 4.6 × 10 −7 0.96 
+
+101 1.67 × 10 −3 5.81 × 10 −4 6.35 × 10 −4 ± 1.4 × 10 −6 0.91 
+
+Table 2: Klein–Gordon regime map. The P-NeuSA ( ε > 0) column reports the best-confirmed closure within the finite ε sweep. Ratio is P-NeuSA ( ε = 0 ) relative ℓ2 error divided by selected P-NeuSA ( ε > 0) relative ℓ2 error. Values above one indicate that the neural closure improves on the deterministic variant.         
+
+> mc31 51 63 67 71 75 101 Selected ε0.1 0.1 1.0 0.1 1.0 1.0 0.5
+
+Table 3: Closure weights used in the confirmed Klein– Gordon regime map. At each background resolution, the weight is selected from {0.1, 0.5, 1.0} by the preliminary sweep before the reported three-seed evaluation.                             
+
+> Method Relative ℓ2Opt. time (s) NeuSA 0.0855 ±0.0306 1513 ±117
+> Background 0.0265 —P-NeuSA ( ε= 0 )0.0124 —P-NeuSA ( ε= 0 .1)0.010106 ±6.2×10 −53010
+> P-NeuSA ( ε= 0 .5)0.010085 ±3.3×10 −53059
+
+Table 4: Canonical heterogeneous 2D wave comparison. P-NeuSA neural rows use three seeds and NeuSA uses seven. Optimization time is measured on one NVIDIA A30. Burgers setting Train Extrap. (1 , 2] Long (2 , 3] 
+
+Low Fourier 0.542 0.533 0.366 
+
+Medium Fourier 0.330 0.370 0.242 
+
+Vortex-like 0.534 0.341 0.163 
+
+Overall 0.469 0.415 0.257 
+
+Table 5: Mean Burgers gain G over 24 configurations in the 500-step multi-initial-condition ablation: three initial condi-tions, two viscosities, and four background resolutions, each with three closure seeds. Errors use the componentwise av-erage defined in the experimental protocol.                           
+
+> Initial-condition family mc= 31 mc= 51 mc= 75 mc= 101
+> Gaussian, zero v2.31 0.25 0.37 0.39
+> Gaussian, sinusoidal v4.08 1.12 0.42 0.53
+> Multi-bump 5.35 0.69 0.46 0.42
+> Sine mixture 0.41 0.18 0.23 0.19
+
+Table 6: Mean Klein–Gordon training gain G over three initial conditions and five closure seeds per family. The mc =51 column pairs each closure run with the corresponding deterministic P-NeuSA baseline.                           
+
+> Initial-condition family mc= 31 mc= 51 mc= 75 mc= 101
+> Gaussian, zero v1.42 0.24 0.48 0.38
+> Gaussian, sinusoidal v2.21 0.90 0.62 0.60
+> Multi-bump 2.22 0.65 0.56 0.40
+> Sine mixture 0.35 0.16 0.32 0.25
+
+Table 7: Mean Klein–Gordon extrapolation gain G on t ∈
+
+(3 , 5] over three initial conditions and five closure seeds per family. The mc = 51 column pairs each closure run with the corresponding deterministic P-NeuSA baseline. 
+
+mc Training gain Extrapolation gain 17 3.16 1.61 
+
+21 1.22 1.35 
+
+25 0.61 0.59 
+
+Table 8: Targeted sine-mixture low-resolution study, aver-aged over three initial conditions with multi-seed closure con-firmation for mc = 17 , 21 , 25 . Training gain uses t ∈ [0 , 3] 
+
+and extrapolation gain uses t ∈ (3 , 5] .Initial-Condition Families 
+
+Klein–Gordon. Let ψk(x) = sin[ kπ (x + 4) /8] and 
+
+g(A, μ, σ ; x) = A exp[ −(x − μ)2/(2 σ2)] . The Gaussian-displacement families use either zero velocity or a sinusoidal velocity in the first sine mode: 
+
+(u0, v 0) = ( g(A, μ, σ ; x), 0) , (20) 
+
+(u0, v 0) = ( g(A, μ, σ ; x), αψ 1(x)) . (21) The multi-bump family superposes three Gaussian displace-ments and uses zero velocity: 
+
+(u0, v 0) = 
+
+> 3
+
+X
+
+> r=1
+
+g(Ar , μ r , σ r ; x), 0
+
+!
+
+. (22) The sine-mixture family represents both displacement and velocity by eight sine modes: 
+
+(u0, v 0) = 
+
+> 8
+
+X
+
+> k=1
+
+akψk(x),
+
+> 8
+
+X
+
+> k=1
+
+bkψk(x)
+
+!
+
+. (23) For the first two families, A ∈ [2 , 5] , μ ∈ [−1.5, 1.5] , and 
+
+σ ∈ [0 .08 , 0.25] , with α ∈ [−0.5, 0.5] for the second. For the multi-bump family, Ar ∈ [0 .8, 2.5] , μr ∈ [−2.5, 2.5] ,and σr ∈ [0 .08 , 0.20] . The sine-mixture coefficients have standard deviation k−2 and are jointly rescaled so that 
+
+max x |u0(x)| ∈ [2 , 5] .
+
+Heterogeneous wave equation. The centered- and off-center-Gaussian families share 
+
+uG0 = A exp 
+
+
+
+− (x − x0)2 + ( y − y0)2
+
+2σ2
+
+
+
+. (24) The centered family fixes (x0, y 0) = (0 , 0) , whereas the off-center family samples (x0, y 0) ∈ [−1, 1] 2. The multi-pulse family superposes three Gaussian pulses: 
+
+uMP 0 =
+
+> 3
+
+X
+
+> r=1
+
+Ar exp 
+
+
+
+− (x − xr )2 + ( y − yr )2
+
+2σ2
+
+> r
+
+
+
+. (25) Let K = {(kx, k y ) : 0 ≤ kx, k y ≤ 5, (kx, k y )̸ = (0 , 0) }.The cosine-field family combines the modes in K with ran-dom phases: 
+
+u0 = X
+
+> k∈K
+
+ak cos   π 
+
+> 8
+
+[kx(x + 4) + ky (y + 4)] + θk
+
+ . (26) All families use v0 = 0 . Gaussian amplitudes lie in [0 .8, 1.2] ,widths in [0 .18 , 0.35] , and off-center locations in [−1, 1] 2;multi-pulse amplitudes lie in [0 .3, 0.8] , widths in [0 .15 , 0.35] ,and locations in [−1.5, 1.5] 2. Cosine coefficients have stan-dard deviation (1 + k2 
+
+> x
+
++ k2 
+
+> y
+
+)−1, random phases, and are rescaled to unit peak amplitude. 
+
+2D Burgers. Let ϕk = π 
+
+> 2
+
+(kxx + ky y) + θk. The low- and medium-Fourier families use the same random Fourier form, 
+
+q0 = X
+
+> k
+
+ak sin ϕk, X
+
+> k
+
+bk cos ϕk
+
+!
+
+, (27) but retain modes with |kx|, |ky | ≤ 3 and 5, respectively. Their coefficients have standard deviation (1 + k2 
+
+> x
+
++ k2 
+
+> y
+
+)−2.The vortex-like family constructs a divergence-free velocity field from a streamfunction, q0 = ( ∂y ψ, −∂xψ), where ψ
+
+is a random sine series over k2 
+
+> x
+
++ k2 
+
+> y
+
+≤ 16 . Each field is normalized so that mean( q21,0 + q22,0) = 0 .5.
+
+# Multi-Initial-Condition Diagnostics 
+
+We define closure gain as G = Estr /E cl , so values above one indicate improvement over P-NeuSA ( ε = 0 ). Tables 6 and 7 show that the absolute background resolution does not determine closure utility across Klein–Gordon initial con-ditions. At mc = 31 , the closure helps three families but degrades the sine-mixture family. At mc = 51 , the aggregate training and extrapolation gains over all 12 initial conditions are 0.56 and 0.49 . The only family with a training gain above one is Gaussian displacement with sinusoidal velocity, and its extrapolation gain remains below one. At mc = 75 and 
+
+101 , all family means are below one. All 24 Burgers configurations have G < 1. The closest case is the low-Fourier initial condition with ν = 0 .02 and 
+
+mc = 31 , whose training, short extrapolation, and long ex-trapolation gains are 0.953 , 0.954 , and 0.894 .
+
+# Wave Background Fidelity and Residual Diagnostics 
+
+Background construction. The framework requires a low-fidelity operator, not a single universal type of approximation. Burgers and Klein–Gordon are nonlinear, and their principal background error is unresolved nonlinear spectral broaden-ing. A truncated nonlinear solve therefore tests the intended correction mechanism. The wave benchmark is linear in the state. If the back-ground used the exact sharp coefficient and only fewer modes, the closure target would be dominated by projection error rather than coefficient mismatch. We instead smooth the ma-terial interfaces from sharpness s = 1000 to s = 50 . The perturbation then corrects a coefficient mismatch between the smoothed background profile and the sharp target wave-speed profile while retaining the same decomposition: 
+
+rbg = (0 , [c2exact − c2bg ]∆ ubg ). (28) 
+
+Residual diagnostics. We vary sbg ∈ { 50 , 100 , 200 } to examine how background fidelity changes the residual pre-sented to the neural closure. We use the closure gain G =
+
+Estr /E cl , the interface residual fraction Λ0.1, and the nor-malized residual magnitude ρi = ∥ bRstr ,i ∥2/∥ bF ex pert ,i ∥2. Here 
+
+Λ0.1 is the fraction of physical-space residual energy within distance 0.1 of the wave-speed interfaces. The mean gain across eight initial conditions decreases from 3.65 at sbg = 50 to 1.02 at sbg = 100 and approx-imately 1.00 at sbg = 200 . The corresponding mean frac-tions of residual energy within distance 0.1 of a wave-speed interface are 0.948 , 0.441 , and 0.049 , whereas the mean nor-malized residual magnitudes are 0.106 , 0.097 , and 0.327 .Residual magnitude therefore does not preserve the gain or-dering. These results indicate that residual localization is a useful diagnostic for closure benefit in this benchmark. sbg Mean gain Mean Λ0.1 Mean ρi
+
+50 3.65 0.948 0.106 
+
+100 1.02 0.441 0.097 
+
+200 1.00 0.049 0.327 
+
+Table 9: Wave residual diagnostics across background sharp-ness levels. All three reported quantities are averaged over the eight initial conditions. For the initial-condition-level correlation analysis, one sta-tistical unit is defined by an initial condition and a background sharpness value. The closure error is first averaged over the three neural seeds within each unit, whereas the structured error and Λ0.1 are deterministic. The eight initial conditions and three background sharpness values therefore give n = 24 
+
+analysis units; repeated neural seeds are not treated as inde-pendent observations. Across these units, Λ0.1 and log G are strongly associated: Pearson r = 0 .847 (p = 1 .75 × 10 −7,bootstrap 95% CI [0 .764 , 0.912] ) and Spearman ρS = 0 .887 
+
+(p = 7 .80 × 10 −9, bootstrap 95% CI [0 .729 , 0.940] ). By contrast, normalized residual magnitude and log G do not show a significant linear association (Pearson r = −0.293 ,
+
+p = 0 .165 ). 
+
+Additional solution visualizations. Figure 1 shows 2D Burgers; Figure 2, Klein–Gordon; and Figure 3, the hetero-geneous wave equation. 
+
+# Coordinate-Network Baselines 
+
+We evaluate the physics-informed neural network (PINN), quadratic residual network (QRes), first-layer sine network (FLS), and PINNsFormer baselines used by NeuSA. Klein– Gordon runs use 10,000 Adam steps; Burgers and wave use 20,000 steps. The learning rate is 10 −3, and each entry aver-ages three seeds. 
+
+# Computational Cost 
+
+Table 11 reports the wall-clock breakdown for the canonical NeuSA and P-NeuSA configurations. 
+
+# Reproducibility Notes 
+
+Reported error bars are standard deviations across the stated number of seeds. The code release will include task configu-rations, execution scripts, reference-data generation, metric extraction, and figure-generation scripts. Main neural exper-iments use one NVIDIA A30 GPU with 24 GB of device memory and two CPU threads on a host with Intel Xeon Gold 6226R processors and 1 TB of memory. Determin-istic CPU experiments and the standalone three-task cost benchmark use two CPU threads on the same host. The soft-ware environment is Ubuntu 22.04.4 LTS with Linux 5.15.0-179, NVIDIA driver 580.159.03, Python 3.10.16, PyTorch 2.5.1 (Paszke et al. 2019) built for CUDA 12.1, cuDNN 9.1.0, and TorchDyn 1.0.6. No standalone CUDA compiler toolkit was used. The implementation uses TorchDyn’s NeuralODE interface (Poli et al. 2021) and explicit RK4 integration. The release will preserve the exact experiment directories used to generate every reported table cell. Equation Model Relative ℓ2 Training time (s) Klein–Gordon PINN 1.32 × 10 −1 ± 3.06 × 10 −2 2389 ± 39 
+
+QRes 1.84 × 10 −2 ± 9.26 × 10 −3 2364 ± 22 
+
+FLS 1.24 × 10 −1 ± 4.73 × 10 −2 2430 ± 43 
+
+PINNsFormer 7.71 × 10 −1 ± 2.37 × 10 −1 5899 ± 27 
+
+2D Burgers PINN 1.82 × 10 −1 ± 5.29 × 10 −2 2734 ± 33 
+
+QRes 7.10 × 10 −2 ± 1.57 × 10 −3 2884 ± 22 
+
+FLS 1.97 × 10 −1 ± 5.06 × 10 −2 2834 ± 15 
+
+PINNsFormer 1.05 ± 1.10 × 10 −1 5821 ± 84 
+
+2D wave PINN 5.74 × 10 −1 ± 1.79 × 10 −1 1840 ± 7
+
+QRes 1.28 × 10 −1 ± 3.15 × 10 −2 1903 ± 23 
+
+FLS 6.46 × 10 −1 ± 1.98 × 10 −1 1856 ± 33 
+
+PINNsFormer 1.06 ± 1.63 × 10 −1 3830 ± 29 
+
+Table 10: PINN-family baselines. Times are measured on one NVIDIA A30. 
+
+Equation Method Background precomp. Neural optimization ODE rollout Reconstruction Stage sum Klein–Gordon NeuSA — 715 .6 ± 1.4 0 .351 ± 0.008 — 716 .0 ± 1.4
+
+P-NeuSA ( ε = 0 ) 0.10 — 0.49 0.001 0.59 
+
+P-NeuSA ( ε > 0) 0.10 1700 1.27 — 1701 .37 
+
+2D Burgers NeuSA — 328 .9 ± 23 .2 0 .690 ± 0.020 — 329 .6 ± 23 .2
+
+P-NeuSA ( ε = 0 ) 4.22 — 13 .00 0.420 17 .65 
+
+P-NeuSA ( ε > 0) 4.22 4662 6.50 — 4672 .72 
+
+2D wave NeuSA — 1513 ± 117 0 .378 ± 0.040 — 1514 ± 117 
+
+P-NeuSA ( ε = 0 ) 1.05 — 4.38 0.510 5.95 
+
+P-NeuSA ( ε > 0) 1.05 3059 2.28 — 3062 .33 
+
+Table 11: Wall-clock seconds. Deterministic timings are medians of three runs after one warm-up on two Intel Xeon Gold 6226R CPU threads. They reproduce the canonical relative ℓ2 errors for all three tasks. Background timings for P-NeuSA ( ε > 0) use the same independently timed background operator. Neural optimization and neural-model rollout are measured on one NVIDIA A30. NeuSA uses seven seeds for the two 2D tasks and three for Klein–Gordon; P-NeuSA uses three seeds. Stage sum is the sum of the measured entries in that row. Reconstruction was not separately instrumented for neural methods and is therefore not included in their stage sums. 
+
+Model Conditioning and input Hidden architecture Predicted output Klein–Gordon closure Time and both perturbation-state coefficient vectors Two hidden layers of width 4M = 804 , with bias ∂tev coefficients Burgers closure Time and the coupled two-component perturbation state Two transpose-network branches, widening factor 
+
+2, no additional hidden blocks, no bias Both ∂t eqj fields Wave closure Displacement perturbation co-efficients; no explicit time input One row/column transpose network, widening fac-tor 2, no additional hidden blocks, no bias 
+
+∂tev coefficients PINN Space–time coordinates Four width-512 hidden layers with tanh activations Physical field values QRes Space–time coordinates Width 256 ; one input quadratic block and four quadratic residual blocks Physical field values FLS Space–time coordinates Four width-512 hidden layers; sine activation in the first layer and tanh thereafter Physical field values PINNsFormer Space–time coordinate se-quences Model dimension 32 , one encoder and decoder layer, two attention heads, feed-forward width 256 ,and two width-512 output layers Physical field values 
+
+Table 12: Neural architectures used in the reported experiments. Here M = 201 is the target spectral resolution. The Burgers branches share the coupled state input but predict the two velocity derivatives separately. The wave closure is state-dependent but not explicitly time-conditioned. Figure 1: 2D Burgers q1-component visualization for P-NeuSA ( ε = 0 ). The top row shows the reference solution, the middle row shows the P-NeuSA prediction, and the bottom row shows |q1,pred − q1,ref | at each selected time. 
+
+Figure 2: Klein–Gordon comparison at selected time snapshots. The top row compares P-NeuSA ( ε = 0 ), NeuSA, and the reference solution, while the bottom row reports their pointwise absolute errors relative to the reference. Figure 3: Heterogeneous wave P-NeuSA ( ε = 0 ) visualization. The top row shows the reference solution, the middle row shows the P-NeuSA prediction, and the bottom row shows the pointwise absolute error at each selected time.

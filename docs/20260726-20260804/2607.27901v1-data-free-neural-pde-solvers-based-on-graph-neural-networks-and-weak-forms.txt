@@ -1,0 +1,531 @@
+Title: Data-free neural PDE solvers based on Graph Neural Networks and weak forms
+
+URL Source: https://arxiv.org/pdf/2607.27901v1
+
+Published Time: Fri, 31 Jul 2026 00:54:01 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# DATA -FREE NEURAL PDE SOLVERS BASED ON GRAPH NEURAL 
+
+# NETWORKS AND WEAK FORMS 
+
+Mikel M. Iparraguirre, Ic´ ıar Alfaro, David Gonz´ alez, El´ ıas Cueto 
+
+Keysight-UZ Chair of the Spanish National Strategy on AI Aragon Institute of Engineering Research Universidad de Zaragoza, Spain 
+
+{mikel.martinez,iciar,gonzal,ecueto }@unizar.es 
+
+# ABSTRACT 
+
+We present a physics-informed, data-free neural solver for partial differential equations, built on a graph neural network architecture that utilises message passing. By relying on the weak form of the problem, we use gradients of finite-element shape functions (which are therefore polynomials) rather than automatic differentiation operators to compute the residuals of the equation from the displacements predicted by the network itself. Our approach generalises to previously unseen load cases and geometries, achieving easily convergence errors in the residuals of less than 1% and being capable of scaling up to models of considerable size and arbitrary geometries. To ensure compliance with the laws of physics and provide guarantees regarding the inference, it is possible to use the residual itself as an error indicator for the inference, and thus perform a refinement at the testing stage if the residual tolerance set in advance by the user is not met. Examples are provided to demonstrate the performance of the proposed method. This results in a method that avoids the costly process of obtaining, curating and storing high-fidelity synthetic data for training the neural network. Whilst this is not unique to our method, it is the first time it has been combined with a geometric machine learning technique capable of providing the necessary geometric bias to overcome the well-known difficulties of physics-informed neural networks. 
+
+# 1 Introduction 
+
+The emergence of data-driven methods in computational mechanics has brought about a revolution in the way we view numerical methods and their requirements. In just a few years—less than a decade—there has been spectacular progress in the development of methodologies for practically all the governing equations of known physics and, in particular, of engineering [1]. Traditionally, these methods are trained using synthetic data derived from high-fidelity simulations, which are in turn carried out using modern finite element, finite difference or finite volume software. However, now that the aforemen-tioned methods of scientific machine learning have advanced rapidly and demonstrated their robustness (although they have yet to reach full maturity) and, above all, their tremendous speed of inference, the industry has begun to realise that the data required for training is, in fact, expensive to obtain, curate and store. This is why interest has begun to grow across various sectors in methods that do not require data for training. In itself, this possibility is not new, as the method largely responsible for our community’s enthusiasm for machine learning—physics-informed neural networks—does not necessarily require data (though it can be incorporated if desired) for training [2]. Finite Element Methods, FEM, when applied to non-linear problems, typically rely on Newton-Raphson (NR) or equivalent iterative solvers, where the objective is to find the displacement field u that satisfies the equilibrium (force arXiv:2607.27901v1 [cs.CE] 30 Jul 2026 M.M. Iparraguirre et al. balance) equation 
+
+R(u) = f ext − f int (u) = 0,
+
+together with the applied Dirichlet boundary conditions. Since the internal force vector f int (u) is in general a non-linear function of u, the equation cannot be solved directly. Instead, we usually linearise the residual R(u) around a known state uk using a first-order Taylor expansion, 
+
+R(uk + δu) ≈ R(uk) + ∂R
+
+∂u uk
+
+δu = 0.
+
+The gradient of the residual is given by the tangent stiffness matrix (i.e., KT = − ∂R 
+
+> ∂u
+
+), which is derived from kinematics and the constitutive model. Implicit approaches to non-linear problems require iterative strategies: each load step must be divided into smaller steps, and within each step, multiple NR iterations are required to achieve convergence. These iterations become a major bottleneck in computational mechanics simulations. It is not only the resolution of a non-linear problem that involves multiple iterations to arrive at the solution. Often, problems such as those arising from optimisation, inverse problems, etc., require the solution of models that are only slightly different from one another but which, when repeated hundreds or thousands of times, end up incurring a tremendous computational cost. Traditionally, it was said that the industry was prepared to tolerate problems whose solution would take a night (from the moment an engineer runs a calculation at the end of the working day until they receive the solution upon arriving at work the following morning). This is no longer acceptable in an industry that is increasingly driven by market demands to develop competitive products in a fraction of the time previously required to do so. In this context, data-driven methods have emerged as an appealing alternative for many-query problems. By learn-ing from simulation data, machine learning models effectively map input parameters (such as geometry, boundary conditions, or material properties) directly to the corresponding solution fields. Once trained, the model can predict unseen queries in a single forward pass based on the learned priors. This represents a paradigm shift that eliminates the costly iterations of high-fidelity solvers. These powerful regression capabilities are due to the non-linearity of deep learning models, which can perform regressions with spatial and temporal resolutions for which the finite ele-ment method (FEM) would currently take an unacceptably long time. Nevertheless, despite their fast inference, pure data-driven models suffer from two critical limitations. First, the costs of acquiring offline data, which consist of per-forming a large number of finite element simulations to construct the training dataset. Second, from a methodological perspective, purely data-driven models lack the rigorous physical constraints that ensure physical laws are satisfied during inference. Complying with certain fundamental laws of physics, such as Galilean invariance, requires the use of techniques such as data augmentation, which ultimately comes at a prohibitive cost. Our approach combines the regression capabilities of deep learning with the physical guarantees of conventional finite element methods. The network is trained without simulation data by minimising a physics-based loss derived from the residual of the governing partial differential equation. During training, our method simultaneously solves a family of PDE-constrained query problems and finds the best-fitting network parameters. Once trained, it enables near-instant inference on unseen queries in a single forward pass. Our contributions are as follows: • A physics-based loss , derived from the predicted displacements and the weak formulation, that combines PDE residuals, negative Jacobian penalties to prevent mesh inversion, and boundary condition terms. • An autodifferentiation-free scalable method , that employs shape function gradients instead of autograd op-erators, and a MeshGraphNet-Transformer architecture to efficiently handle 3D meshes and varying boundary conditions and geometries [3]. • A test-time adaptive framework . We use the residual from the differential equation as an indicator of the error made, so that even during inference, if the residual value is deemed unacceptable, the network’s training can be refined to achieve a result that is considered acceptable. 
+
+# 2 Related Work 
+
+Most scientific machine learning approaches can be categorised into three pillars: (i) the target strategy, which defines the input–output relationship; (ii) the spatial representation, which determines the model architecture; and (iii) the supervision paradigm, which defines the loss function. In the target strategy, the current literature on solid mechanics simulation is dominated by autoregressive approaches that focus on discrete, sequential time evolution, in which the model acts as a temporal integrator [4]. However, Neural Operators (e.g., FNO, GNO, DeepONet) [5, 6, 7, 8, 9] focus on continuous-domain regression, without requiring, for instance, integration over time, thereby avoiding the typical error accumulation of autoregressive models by directly mapping the solution to a given target physical state t. In this work, we adopt the this last strategy. 2M.M. Iparraguirre et al. In the spatial representation, various works have developed architectures that introduce geometric biases by exploit-ing mesh representations of simulation data, such as Graph Neural Networks (GNNs) [10, 11]. One of the major advantages of mesh-based architectures is their ability to handle varying geometries and boundary conditions, as in-teractions propagate through the mesh via a message-passing algorithm. In solid mechanics, MeshGraphNet (MGN) [12] stands out allowing to process node, edge, and contact attributes that encode physical information through learn-able Message-Passing Neural Networks (MPNNs). However, standard MPNNs are susceptible to the under-reaching problem, struggling to efficiently propagate long-range spatial interactions across large meshes within a number of message-passing iterations [13]. While multi-scale and hierarchical variants have been introduced to mitigate this bottleneck, scaling to large computational domains remains a significant challenge [14, 15, 16, 17]. Whilst it is true that there are earlier architectures that utilise both a graph network and the weak form of the problem, the aforemen-tioned limitations of the message-passing mechanism prevent the examples considered from accommodating complex meshes, which do not exceed a few dozen elements in 3D [18]. As an alternative, Transformer architectures have emerged as a scalable alternative to mesh-based models. This point-cloud approach is capable of handling large industrial-scale meshes by capturing long-range node interactions. For instance, the Transolver [19] and Transolver++ [20] architectures combine a spatial slicing technique with an efficient physics-attention mechanism to handle varying geometries scaling to large meshes [21, 22]. However, the limitations of architectures based on the use of Transformers for learning about dynamic phenomena are also well known [23]. Blending strengths from both worlds, MeshGraphNet-Transformer (MGN-T) [3] leverages MPNN blocks as local geometric processors and a physics-attention transformer as a global processor, enabling mesh-based architectures to scale effectively to industrial-sized problems. This is the architecture chosen in this work. From a supervision perspective, purely data-driven models offer no guarantee that physical laws will be satisfied during inference, as they lack rigorous physical constraints. To improve physical consistency, several works have incorporated soft physical constraints into the training loss in different flavours, such as thermodynamic constraints, conservation laws or constitutive law restrictions [24, 25, 26, 27, 28, 29]. Also, structure-preserving models enforce symmetries and energy conservation as hard constraints [26, 30, 31]. Despite the benefits of incorporating these inductive biases, the methods still rely on data and do not guarantee exact physics satisfaction during inference. To address the data-generation bottleneck, Physics-Informed Neural Networks (PINNs) integrate governing differen-tial equations directly into the neural network’s loss function [2]. This supervision strategy relies on the satisfaction of the PDE in strong form, calculated via automatic differentiation, evaluated at collocation points. While pioneer-ing this strong-form paradigm, it introduces severe optimisation challenges, often leading to training pathologies due to unbalanced backpropagated gradients between the PDE residual and boundary-condition losses [32, 33], coupled with the inherent ill-conditioning of the underlying differential operators [33]. Beyond optimisation, PINNs also face challenges in solving solid mechanics problems because their Euclidean solution space struggles to represent complex geometries. In other words, they lack of a proper geometric bias [34]. Energy-minimisation approaches, such as the Deep Ritz Method (DRM), the Deep Energy Method (DEM) or Varia-tional PINNs (VPINNs) [35, 36, 37], address these limitations by leveraging the variational (weak) formulation of the governing equations through the minimisation of the total potential energy. More recently, these variational principles have been combined with advanced neural architectures for many-query problems. For instance, the Physics-Informed MeshGraphNet (PI-MGN) integrates a MeshGraphNet architecture with physics-informed losses for thermal process simulations [38]. Similarly, TensorGalerkin [39] employs a weak-form formulation to train a neural PDE solver for three-dimensional linear elasticity under small deformations, while WINIO [40] combines the weak formulation with FNOs and demonstrates the effectiveness of physics-based losses. Despite eliminating the need to compute unstable high-order spatial derivatives through AD, existing weak-form approaches remain restricted to relatively simple con-stitutive settings (small deformations or linear materials) and continue to face challenges when applied to complex, irregular engineering geometries. In this work, we address these limitations by solving fast inference problems in three-dimensional space by taking non-linear elasticity as a model problem and considering a neo-Hookean material as a benchmark. Our proposed method relies on shape functions rather than automatic differentiation operators, enabling stable training scaling to larger meshes and more complex geometries than previous methods. Notably, we provide a test-time adaptive approach to guarantee the physical consistency of solutions that employs the residual as an error indicator. The structure of the paper is as follows. In Section 3 we analyse a number of concepts which, although familiar to most potential readers of this paper, ensure that the paper stands on its own. In Section 4 we present the basic ingredients of the proposed methodology. The examples considered are described in detail in Section 5. Finally, in Section 6 we provide the results that demonstrate the performance of the just developed method. The article concludes with a discussion of the advantages and limitations of the method, as well as future work aimed at its further development. 3M.M. Iparraguirre et al. 
+
+# 3 Background 
+
+We consider a hyperelastic material whose equilibrium under quasi-static conditions is described by the principle of minimum total potential energy: among all kinematically admissible displacement fields satisfying the Dirichlet boundary conditions, the physical displacement field is the one that minimises the functional [41]: 
+
+Π( u) = 
+
+Z
+
+> Ω
+
+Ψ( F (u)) dΩ −
+
+Z
+
+> Ω
+
+f · u dΩ,
+
+with Ψ( F (u)) a stored strain energy function or elastic potential. For the integration of the potential energy, the domain Ω is discretised into a finite element mesh. The continuous displacement field is approximated by piece-wise polynomial (here, linear, for simplicity) shape functions, 
+
+u(X) ≈ uh(X) = 
+
+> Nn
+
+X
+
+> i=1
+
+Ni(X) ui,
+
+where Nn is the total number of mesh nodes, Ni is the shape function associated to node i, and ui is node i’s displacement vector. The superscript h applied to any quantity indicates the finite element approximation to that quantity. Consequently, the deformation gradient F is approximated, with the help of the shape function gradients 
+
+∇Ni, as 
+
+F = ∂x
+
+∂X = I + H ≈ F h = I +
+
+> Nn
+
+X
+
+> i=1
+
+ui ⊗ ∇ Ni.
+
+The total potential energy is then approximated by adding up the contributions of all the finite elements, 
+
+Πh(u) = 
+
+> Ne
+
+X
+
+> e=1
+
+Z
+
+> Ωe
+
+Ψ( F h) dΩ −
+
+> Ne
+
+X
+
+> e=1
+
+Z
+
+> Ωe
+
+f · uh dΩ,
+
+where Ne is the number of finite elements and Ωe denotes the domain of element e. The discrete equilibrium problem is therefore expressed as 
+
+u = arg min 
+
+> u∈U h
+
+Πh(u),
+
+where Uh is the finite-dimensional space of admissible displacement fields defined by the mesh. 
+
+3.1 Application to compressible Neo-Hookean materials 
+
+All the examples to be presented involve a neo-Hookean material. We consider this to be a sufficiently general material, which in no way limits the scope of the conclusions to be presented later. For completeness, we describe its compressible version in detail. Neo-Hookean material models describe a particular nonlinear stress–strain response of hyperelastic materials undergoing finite deformations. In our case, the strain energy density function is assumed to be of the type 
+
+Ψ = μ
+
+2 (tr( C) − 3) − μ ln J + λ
+
+2 (ln J)2,
+
+where λ and μ are the Lam´ e constants, C is the right Cauchy-Green tensor, C = F T F and J = det (F ) the Jacobian of the transformation, measuring volume change. The strain energy potential can be differentiated so as to provide its conjugate stress measure, leading to the second Piola-Kirchhoff tensor (PK2), 
+
+S = 2 ∂Ψ( C)
+
+∂C = μ  I − C−1 + λ(ln J) C−1.
+
+Alternate stress measures can be derived, such as the first Piola-Kirchhoff tensor P , often referred to as PK1, and the Cauchy stress tensor σ,
+
+P = F S ; σ = J−1P F T .
+
+4M.M. Iparraguirre et al. 
+
+3.2 Nodal Residuals 
+
+We adopt a total Lagrangian description of motion, which derives the internal nodal forces, f int , from the reference configuration Ω0 [42]. Integrating the elemental stress tensor P e over the reference volume yields the elemental internal nodal forces, 
+
+f e 
+
+> int
+
+=
+
+Z
+
+> Ω0
+
+P : ∇N dΩ0 ≈ V e ∇N e P e. (1) These elemental contributions are then assembled by summing the contributions from all elements connected to each node, e ∈ E (i), to obtain the nodal residual forces, 
+
+Ri = X
+
+> e∈E (i)
+
+f e
+
+> int ,i
+
+. (2) In our approach, we use the residual R to evaluate any given predicted ˆu. The solution is deemed acceptable when the normalised maximum residual satisfies: 
+
+rmax = Rmax 
+
+Ravg 
+
+≤ 0.01 , (3) where Rmax is the maximum norm of force residual across all unconstrained degrees of freedom, and Ravg represents the spatial average of the internal nodal forces. To ensure numerical robustness against localised boundary anomalies, 
+
+Ravg is computed exclusively over active nodes satisfying ∥Ri∥ > ϵR max , where the threshold filter is set to ϵ = 10 −5.
+
+# 4 Methodology 
+
+The proposed framework includes: (i) a neural operator structure that provides with a scale-independent approximation to the flow map of the problem; (ii) a spatial representation based on a hybrid MGN–T architecture; and (iii) a supervision paradigm, defined by a physics-informed, data-free loss function. 
+
+4.1 Target strategy: continuous regression 
+
+As continuous regressor, for any given prescribed displacement ubc and graph G(V, E ) with nodes V and edges E,the model predicts the corresponding displacement field in a single forward pass ˆu = MGN-T (( V, E ), ubc ; θ), see Fig. 1. To ensure consistency, strain and stress tensors are directly computed from the predicted displacement using the equations described in Section 3. 
+
+4.2 Spatial Representation: MGN-T 
+
+The MeshGraphnet-Transformer (MGN-T) architecture [3] follows an encoder-processor-decoder framework, com-bining graph based inductive biases with global attention to efficiently model complex solid mechanics problems (see Figure 2). The domain is represented by a graph G(V, E ) from which node and edge attributes ( ϵV , ϵEM ) are de-rived to encode spatial and physical information such as boundary conditions and mesh connectivity. This allows the network to naturally adapt to different geometries and varying loading conditions. Node attributes are defined as 
+
+ϵV = ( ni, ubc ), where ni is the node type and ubc is the dirichlet prescribed displacements, whereas edge attributes, 
+
+ϵEM = ( Xi − Xj , || Xi − Xj || ), are relative distances between connected nodes in the reference configuration X.MGN-T exploits message-passing neural networks (MPNN) blocks to capture local geometric interactions and en-force mesh connectivity, particularly useful for unstructured adaptative meshes, updating node and edge attributes in the latent space. The pre-processor absorbs boundary conditions and local interactions before the global update, while the refinement block reinforces geometric consistency. This local updates provide the architecture with a local bias which standard transformer approaches lack, required for accurate mechanics simulations. In order to overcome under-reaching and successfully model long-range dependencies, the local MPNN are comple-mented with a Transformer processor based on physics-attention. A slicing mechanism projects the original mesh of N
+
+nodes onto the physics tokens P in the latent space ( N ≫ P ). To enable sharper projections a learnable temperature τ
+
+dynamically adjusts the weights w to project each node to the P tokens. In addition, Guble-Softmax reparametrization trick is used to sample w. A 4-head multi-head attention mechanics over the physical tokens P is used as physics-attention to update the tokens in the latent space. Once updated, the physical tokens are projected back to the mesh 5M.M. Iparraguirre et al. 
+
+Figure 1: Sketch of the proposed method. Given a finite element mesh (top row, left), this is modelled as a graph neural network structure which, during training, will propose the set of nodal displacement vectors. From these, the loss functional is calculated, comprising one term associated with the boundary conditions and another associated with the residual at each node. To calculate the latter (the box in the bottom row), the various strain measures required will be calculated from the nodal displacements using the finite element method, and their conjugate stress measures will be determined using the constitutive equations. This will enable the residual to be determined, which is the quantity to be minimised by backpropagation. 
+
+Figure 2: Illustration of MGN-T architecture and physics post-processing. nodes. By combining local updates with global updates, MGN-T provides an efficient and robust scalable mesh-based architecture for solid mechanics simulation in many query problems with varying geometry and boundary conditions. In this work, we employ this architecture to predict the displacement field solution to the PDE-constraint problem for 3D complex geometries. 
+
+4.3 Supervision strategy 
+
+To clarify the performance of our data-free approach, we contrast the proposed physics-informed loss function (Section 4.3.1) against a standard data-driven supervised loss (Section 4.3.2). 
+
+4.3.1 Physics-informed loss 
+
+Based on the weak formulation of solid mechanics, the proposed physics loss Lphys couples two nodal-level met-rics—the equilibrium force residual LR and the boundary condition penalty Lbc —with an element-level inverted penalty Lneg J :
+
+Lphys = log (1 + LR) + λ1Lneg J + λ2Lbc , (4) 6M.M. Iparraguirre et al. where λ1 and λ2 are scalar weighting hyperparameters. The optimisation problem for training the data-free neural operator is formally stated as: 
+
+θ∗ = arg min 
+
+> θ
+> Q
+
+X
+
+> q=1
+
+Lphys (ˆ u(q), θ),
+
+where θ are the parameters of the fitting model, ˆu(q) is the predicted displacement field for each data set in the training set q ∈ Q, minimised by the physics loss Lphys .All sub-terms in the loss are directly derived from the displacement field ˆu and finite-element shape functions, N (see Figure 1). The sub-terms are described below, with detailed pseudo-code in Appendix A: • Residual forces ( LR): Computes the out-of-equilibrium force residual across all unconstrained degrees of freedom, denoted by Nfree :
+
+LR =
+
+> Nfree
+
+X
+
+> i=1
+
+∥Ri∥22.
+
+where Ri is the nodal residual defined in Eq. (2). To improve training stability, we apply the logarithmic transformation log(1 + LR), to mitigate the excessively large residuals in early training stages. The +1 offset prevents undefined non-positive arguments and ensures that when LR ≪ 1, the loss behaves similarly to a standard L2 error norm. • Boundary conditions ( Lbc ): Enforces kinematic constraints by minimising the mean squared error across all prescribed displacement degrees of freedom, Nbc :
+
+Lbc = 1
+
+Nbc 
+
+> Nbc
+
+X
+
+> i=1
+
+∥ubc  
+
+> i
+
+− ˆubc  
+
+> i
+
+∥22.
+
+• Negative Jacobians ( Lneg J ): Penalises non-physical element inversion during large deformations. It explic-itly filters out valid, non-negative element volumes: 
+
+Lneg J =
+
+> Ne
+
+X
+
+> e=1
+
+∥ max(0 , −Je)∥22,
+
+where Je is the determinant of the Jacobian matrix of element e, and Ne is the total number of elements. 
+
+4.3.2 Data-Driven Loss 
+
+For comparison, a standard data-driven framework is also considered, that minimises the mean-squared discrepancy between the predicted ˆui and ground-truth ui displacements across all nodes N :
+
+Ldata = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥ui − ˆui∥2. (5) This formulation penalises deviations based on Euclidean distance. Given that the data generated satisfy the equilib-rium condition, this benchmark serves as an indicator of equilibrium and will enable us to compare the effectiveness of the proposed architecture with that of a more traditional one. 
+
+# 5 Numerical Examples 
+
+Three numerical examples are presented: an homogeneous stress problem on a cube, and two problems on intricate geometries: a perforated cube and a plate. For all examples, a set of queries Q defines the regression range in terms of loading scenarios and geometries. To assess the performance of the proposed approach, we first validate the model against the patch test on a cube. As comparisons with commercial solvers are often difficult to make due to their proprietary and closed nature, the patch test allows us to compare between data-driven and physics-informed approaches. The remaining examples are solved and directly evaluated through the convergence of the residual, see Eq. (3). 7M.M. Iparraguirre et al. 
+
+5.1 Homogeneous traction on a cube 
+
+A 3D neo-Hookean cube under pure traction-compression states is considered. A total of 100 different loading cases comprise the queries Q, all sharing the same geometry and Dirichlet boundary conditions. The bottom side is con-strained along z-axis, while the left and right sides along x-axis and y-axis, respectively. The top surface has a prescribed displacement sampled from uz ∈ [−10 , 10] . The remaining sides are free.     
+
+> (a) Test query (b) σVM (ˆ u)(c) R(ˆ u)
+
+Figure 3: Test prediction for unseen loading case for the homogeneous traction on a cube. a) problem statement, where blue nodes represent constrained sides and red arrows prescribed load. b) σvM derived from predicted ˆu. c) Corresponding nodal residuals. The cube has dimensions 20 × 20 × 20 units and is discretised using 156 nodes and tetrahedral elements (see Figure 3). 
+
+5.2 Intricate geometries 
+
+Two geometries are described: a perforated cube and a plate. The perforated cube consists of a 3D cube with several extrusions and perforations, whereas the plate represents an industrial component geometry. These are also discretised using tetrahedral elements with an adaptive mesh, consisting of 1K and 2.5K nodes, respec-tively. Each query consists of a different loading curve comprising uniform imposed displacements and a ramp along different axes, with amplitude in [−10 , 10] . A total of 200 queries are defined; see Figure 4. 
+
+# 6 Experiments 
+
+The neo-Hookean material is described by Lam´ e’s constants λ = 40 and μ = 0 .01 . Models are trained with the Adam optimiser and a cosine-annealed learning scheduler from lr = 10 −4 to lr = 10 −6 on a single RTX 4090 GPU [43, 44]. To assess the performance of the method, we analyse the convergence criterion on the residual Rmax for physical consistency and displacement error RMSE( u, ˆu) for similarity between prediction and ground truth solution. To prevent over-fitting, the family of query problems Q associated with each numerical example is randomly parti-tioned into training, validation, and test sets containing 70%, 15%, and 15% of the queries, respectively. 
+
+6.1 Physics-informed vs. data-driven learning 
+
+This section compares the results obtained when training our architecture using a loss function informed by physics or one based solely on data. Both strategies are compared on the homogeneous traction cube problem. Two training strategies are conducted. First, the proposed physics-informed learning strategy, where the model is trained on the physics loss Lphys , requires no data. Second, a supervised learning approach, in which the model is 8M.M. Iparraguirre et al. 
+
+Figure 4: Test predictions for unseen loading cases for perforated cube geometry. Top: Prescribed displacements. Bottom: colour map of the predicted von Mises stress σvM . Blue dots indicate prescribed displacements. trained on the Ldata , data is required. As shown in Figure 6, the strategies perform better on their own metric of training (physics-informed learning has better force residual errors than supervised learning, vice versa for the data-driven errors), as expected. Nevertheless, achieving low similarity errors does not guarantee physical consistency, showing that data loss can rapidly yield a close-to-solution answer but might fail to fulfil the physical principles. Notice that this scenario is ideal for data-driven training, as the data has no computational noise since it comes from the analytical solution. Unlike the data-driven setting, where the equilibrium solution u is known, the physics-informed approach jointly optimises both, the predicted solution ˆu, which is constrained to satisfy equilibrium at each element of the query set, and the network parameters θ. Although this requires solving a more challenging optimisation problem, the resulting model learns a better set of network parameters than the data-driven approach at the same training cost (see Figure 7). Since the proposed model is trained as a neural operator, it can be evaluated for arbitrary prescribed displacements within the training domain, enabling continuous dense loading input ubc ∈ [−10 , 10] . Figure 8 compares the perfor-mance of both strategies in terms of energy and errors. The non-linearity and non-symmetry in traction-compression of the neo-Hookean material are captured by both models; however, physics-informed strategy achieves better conver-gence and energy errors. The proposed physics-informed strategy outperforms standard supervised techniques in terms of physical consistency, avoids the hassle of generating data from FEM simulations, and demonstrates the benefits of directly minimising equilibrium rather than a data-loss proxy. 
+
+6.2 Intricate geometries 
+
+In this section, we assess the generalisation capabilities to unseen loading cases and different, complex geometries. As no data is required, the goal is not just to solve all the training cases, but also to provide physically consistent solutions at inference. For instance, Figure 4 shows predictions for unseen loading test cases for the perforated cube example, and Figure 5 presents the prediction for an unseen loading case on the plate geometry. To assess the capability to generalise to unseen geometries, a new geometry is considered, consisting of an additional through-hole and a rectangular extrusion on the left side for the perforated Cube. For comparison, the displacement field is obtained through finite element simulation. Figure 9 top, left, shows the displacement field together with the corresponding force residual. Despite the geometric modification, the model achieves an overall relative RMSE below 5% in displacements, with the largest errors and force residuals concentrated around the regions most affected by the geometric changes. 9M.M. Iparraguirre et al. 
+
+> (a)
+> (b)
+
+Figure 5: Test predictions for unseen loading cases for the plate geometry. (a) Colour maps represent von Mises stress 
+
+σvM . (b) Norm of the nodal residuals ∥R∥.
+
+rmax RRMSE( ˆu)
+
+10 −6
+
+10 −4
+
+10 −2
+
+> Error
+
+Ldata 
+
+Lphys 
+
+Figure 6: Comparison of the obtained residual norms and RRMSE displacement errors for unseen test loading cases. Blue boxes represent inferences when trained on Lphys and red ones on Ldata .As shown, the used architecture handles varying mesh resolutions and complex topologies. These results demonstrate the ability of the proposed approach to solve unseen loading cases and geometries, maintaining equilibrium. 10 M.M. Iparraguirre et al. 0 5000 10000 15000     
+
+> Training step
+> 10 −1
+> 10 1
+> 10 3
+> 10 5
+> 10 7
+> ℒ𝑅
+> 05000 10000 15000
+> Training step
+> 10 −2
+> 10 −1
+> 10 0
+> ℒdata
+> ℒphy ℒdata
+
+Figure 7: Comparison of the physics-informed strategy (red) vs the data-driven (blue) strategy, monitoring evaluation errors. Evolution during training for three different seed initialisations; the shaded area represents the standard error. Left: force balance error LR. Right: data similarity error Ldata .−5 0 5
+
+𝑢 𝐵𝐶 
+
+> 0
+> 100000
+> 200000
+> Energy [J]
+
+Physics vs Data-Driven   
+
+> FEM
+> ℒphy
+> ℒdata
+> −505
+
+𝑢 𝐵𝐶 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Energy Error (J)
+
+Energy Error   
+
+> −505
+
+𝑢 𝐵𝐶  
+
+> 0.01
+> 0.10
+> 1.00
+> 𝑟 max
+> ×10 −1
+
+Residual Error 
+
+Figure 8: Comparison at inference for continuous input ubc ∈ [−10 , 10] . From left to right: Total potential energy for given displacement, energy error and convergence error. 
+
+6.3 Test-time refinement 
+
+During inference, the residual is used as an error indicator for physical consistency. This allows us to implement a test-time refinement strategy to ensure high-fidelity results: whenever a candidate solution ˆu yields a residual that exceeds our residual tolerance, the model undergoes back-propagation to minimise the physics loss until the convergence criteria are met (see Figure 9). This procedure can be applied to a single query or batches. Initially, the zero-shot prediction exhibits a force residual above the convergence threshold. However, test-time refinement improves physical consistency, reducing both force residuals below the convergence threshold and displacement errors to a relative RMSE below 3%. For a batch of new queries consisting of unseen geometries and loading cases, Figure 10 shows how the model achieves convergence after refinement in approximately 10% of the original training iterations. This procedure can be fully automated once the user has selected the residual value they consider sufficient, or it can be left to the user’s discretion, who may choose to refine the solution as they see fit. Furthermore, the force residual provides a natural indicator distinguishing between a query lying in the interpolation regime or one in the extrapolation regime, giving true insights into the model’s domain capabilities. Our approach also enables continuous learning, as new queries and geometries can be progressively incorporated to extend the regression domain. 11 M.M. Iparraguirre et al. 
+
+Figure 9: Test-time refinement example for an unseen geometry. The first two figures, top left, show the displacement field ˆu and the residuals rmax obtained by direct inference from the new geometry, which results from a modification of the training geometry. If the magnitude of the maximum residual is deemed excessive, backpropagation can be invoked again to force the method to provide a more accurate solution (top right, refined displacement field ˆuref that causes residuals below tolerance). The bottom row shows the error fields in displacement relative to the reference finite element solution without refinement (left) and with refinement (right). Highlighted with red arrows are the major geometry changes with respect to train geometry. train test 
+
+10 −3
+
+10 −2
+
+> rmax
+> (a) Seen geometry
+
+zero-shot refinement 
+
+10 −3
+
+10 −2
+
+> rmax
+> (b) Unseen geometry
+
+Figure 10: Convergence residuals rmax for the perforated cube example. The dashed line represents convergence tolerance. a) Seen geometry: train and test queries b) Unseen geometry: test-time and refinement. 
+
+# 7 Limitations 
+
+The current implementation has been accomplished by employing 3D tetrahedral linear elements with a single inte-gration point. Although the formulation is completely general, the incorporation of higher-order elements is within the scope of future work. Regarding material properties, only hyperelastic neo-Hookean materials have been studied, as a representative example of elastic materials undergoing large deformations. No path-dependent materials (involving e.g. plasticity or damage) have been tested. Further work will expand to different constitutive laws. Finally, although the present study considers homogeneous materials, the proposed formulation is by no means re-stricted to this setting. 
+
+# 8 Conclusion 
+
+In this work, we introduced an end-to-end trainable, physics-informed learning framework for 3D solid mechanics problems undergoing large deformations, without requiring training data. Based on the weak formulation of the equi-librium problem, we solve complex geometries for nonlinear solid mechanics problems in the quasi-static regime. The proposed physical loss function guides neural network training without requiring form data, by coupling equilibrium 12 M.M. Iparraguirre et al. force residuals and kinematic boundary condition enforcement with a negative Jacobian penalty to prevent element inversion under severe deformations. Furthermore, the use of an architecture based on graph neural networks and message passing lends the resulting method a geometric bias, the importance of which is amply demonstrated by the existing literature on the subject. Our findings provide strong evidence that training deep learning models with direct physical supervision yields higher solution quality than data-driven training at a similar computational cost. At inference time, the trained model acts as a continuous neural operator, providing solutions for unseen loading cases and geometries near-instantaneously without requiring traditional time-consuming Newton–Raphson iterations. By directly embedding finite element equations into the loss function, our approach provides solutions with rigorous physical guarantees at inference time, enabling test-time refinement to correct them in just a few training steps. By combining the rapid regression capabilities of the MGN-T architecture with the strict physical guarantees of traditional numerical solvers, this paradigm marks a definitive shift away from purely data-driven learning toward physically consistent AI. 
+
+# Acknowledgements 
+
+The authors acknowledge the support of the Spanish Ministry of Science and Innovation, AEI/10.13039/501100011033 (grant no. PID2023-147373OB-I00). The authors also acknowledge the support of the Ministry for Digital Transformation and the Civil Service, through the ENIA 2022 Chairs for the creation of the university-industry chairs in Artificial Intelligence, through grant TSI-100930-2023-1. Funded by the European Union. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for them. This work is supported by ERC grant PHYSIA 101264273. 
+
+# References 
+
+[1] Francisco J Mont´ ans, El´ ıas Cueto, and Klaus-J¨ urgen Bathe. Machine learning in computer aided engineering. In 
+
+Machine Learning in Modeling and Simulation: Methods and Applications , pages 1–83. Springer, 2023. [2] M. Raissi, P. Perdikaris, and G.E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Compu-tational Physics , 378:686–707, 2019. [3] Mikel M Iparraguirre, Iciar Alfaro, David Gonzalez, and Elias Cueto. Meshgraphnet-transformer: Scalable mesh-based learned simulation for solid mechanics. arXiv preprint arXiv:2601.23177 , 2026. [4] Alvaro Sanchez-Gonzalez, Jonathan Godwin, Tobias Pfaff, Rex Ying, Jure Leskovec, and Peter Battaglia. Learn-ing to simulate complex physics with graph networks. In Hal Daume III and Aarti Singh, editors, Proceedings of the 37th International Conference on Machine Learning , volume 119 of Proceedings of Machine Learning Research , pages 8459–8468. PMLR, 13–18 Jul 2020. [5] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. [6] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear op-erators via deeponet based on the universal approximation theorem of operators. Nature Machine Intelligence ,3(3):218–229, 2021. [7] Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song, and Jun Zhu. Gnot: A general neural operator transformer for operator learning. In International conference on machine learning , pages 12556–12569. PMLR, 2023. [8] Karn Tiwari, Niladri Dutta, N M Anoop Krishnan, and Prathosh A P. Latent mamba operator for partial differ-ential equations, 2025. arXiv:2505.19105. [9] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed deeponets, 2021. 13 M.M. Iparraguirre et al. [10] Peter W. Battaglia, Jessica B. Hamrick, Victor Bapst, Alvaro Sanchez-Gonzalez, Vinicius Zambaldi, Mateusz Malinowski, Andrea Tacchetti, David Raposo, Adam Santoro, Ryan Faulkner, Caglar Gulcehre, Francis Song, Andrew Ballard, Justin Gilmer, George Dahl, Ashish Vaswani, Kelsey Allen, Charles Nash, Victoria Langston, Chris Dyer, Nicolas Heess, Daan Wierstra, Pushmeet Kohli, Matt Botvinick, Oriol Vinyals, Yujia Li, and Razvan Pascanu. Relational inductive biases, deep learning, and graph networks, 2018. arXiv:1806.01261. [11] Daniele Di Lorenzo, Victor Champaney, Chady Ghnatios, Elias Cueto, and Francisco Chinesta. Physics-informed and graph neural networks for enhanced inverse analysis. Engineering Computations , 42(7):2427–2455, 2025. [12] Tobias Pfaff, Meire Fortunato, Alvaro Sanchez-Gonzalez, and Peter W. Battaglia. Learning mesh-based simula-tion with graph networks, 2021. arXiv:2010.03409. [13] Lucas Tes´ an, Mikel M Iparraguirre, David Gonz´ alez, Pedro Martins, and El´ ıas Cueto. On the under-reaching phenomenon in message passing neural pde solvers: Revisiting the cfl condition. Computer Methods in Applied Mechanics and Engineering , 449:118476, 2026. [14] Yingxue Zhao, Qianyi Chen, Haoran Li, Haosu Zhou, Hamid Reza Attar, Tobias Pfaff, Tailin Wu, and Nan Li. Recurrent u-net-based graph neural network (rugnn) for accurate deformation predictions in sheet material forming. Advanced Engineering Informatics , 69:104021, 2026. [15] Bo Lei, Victor M Castillo, and Yeping Hu. M4gn: Mesh-based multi-segment hierarchical graph network for dynamic simulations. arXiv preprint arXiv:2509.10659 , 2025. [16] Yadi Cao, Menglei Chai, Minchen Li, and Chenfanfu Jiang. Efficient learning of mesh-based physical simulation with bsms-gnn, 2026. arXiv:2210.02573. [17] Xu Han, Han Gao, Tobias Pfaff, Jian-Xun Wang, and Li-Ping Liu. Predicting physics in mesh-reduced space with temporal attention, 2022. arXiv:2201.091133. [18] Han Gao, Matthew J Zahr, and Jian-Xun Wang. Physics-informed graph neural galerkin networks: A unified framework for solving pde-governed forward and inverse problems. Computer Methods in Applied Mechanics and Engineering , 390:114502, 2022. [19] Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. Transolver: A fast transformer solver for pdes on general geometries. In International Conference on Machine Learning , 2024. [20] Huakun Luo, Haixu Wu, Hang Zhou, Lanxiang Xing, Yichen Di, Jianmin Wang, and Mingsheng Long. Tran-solver++: An accurate neural solver for pdes on million-scale geometries, 2025. arXiv:2502.02414. [21] Corey Adams, Rishikesh Ranade, Ram Cherukuri, and Sanjay Choudhry. Geotransolver: Learning physics on irregular domains using multi-scale geometry aware physics attention transformer, 2026. arXiv:2512.20399. [22] Benedikt Alkin, Maurits Bleeker, Richard Kurle, Tobias Kronlachner, Reinhard Sonnleitner, Matthias Dorfer, and Johannes Brandstetter. Ab-upt: Scaling neural cfd surrogates for high-fidelity automotive aerodynamics simulations via anchored-branched universal physics transformers, 2025. arXiv:2502.09692. [23] Gregory Duth´ e, Nikolaos Evangelou, Wei Liu, Ioannis G Kevrekidis, and Eleni Chatzi. A mechanistic analysis of transformers for dynamical systems. arXiv preprint arXiv:2512.21113 , 2025. [24] Samuel Greydanus, Misko Dzamba, and Jason Yosinski. Hamiltonian neural networks. Advances in neural information processing systems , 32, 2019. [25] Miles Cranmer, Sam Greydanus, Stephan Hoyer, Peter Battaglia, David Spergel, and Shirley Ho. Lagrangian neural networks. arXiv preprint arXiv:2003.04630 , 2020. [26] Quercus Hern´ andez, Alberto Bad´ ıas, David Gonz´ alez, Francisco Chinesta, and El´ ıas Cueto. Structure-preserving neural networks. Journal of Computational Physics , 426:109950, 2021. [27] Elias Cueto and Francisco Chinesta. Thermodynamics of learning physical phenomena. Archives of Computa-tional Methods in Engineering , 30(8):4653–4666, 2023. [28] Carlos Bermejo, Alberto Bad´ ıas, David Gonz´ alez, and El´ ıas Cueto. Meshgraphnets informed locally by thermo-dynamics for the simulation of flows around arbitrarily shaped objects. Advanced Modeling and Simulation in Engineering Sciences , 12(1):27, 2025. [29] Elsayed S. Elsayed, Abedulgader Baktheer, and Fadi Aldakheel. Physics-based machine learning for modeling cyclic damage evolution. Proceedings in Applied Mathematics and Mechanics , 26(1):e70071, 2026. [30] J. S. Hesthaven, C. Pagliantini, and N. Ripamonti. Structure-preserving model order reduction of hamiltonian systems, 2021. arXiv:2109.12367. [31] Marco David and Florian Mehats. Symplectic learning for hamiltonian neural networks. Journal of Computa-tional Physics , 494:112495, December 2023. 14 M.M. Iparraguirre et al. [32] Rajat Arora, Pratik Kakkar, Biswadip Dey, and Amit Chakraborty. Physics-informed neural networks for mod-eling rate- and temperature-dependent plasticity, 2022. arXiv:2201.08363. [33] Pratik Rathore, Weimu Lei, Zachary Frangella, Lu Lu, and Madeleine Udell. Challenges in training pinns: A loss landscape perspective, 2024. arXiv:2402.0186. [34] Haolin Li, Yuyang Miao, Zahra Sharif Khodaei, and M. H. Aliabadi. Finite-pinn: A physics-informed neural network with finite geometric encoding for solid mechanics, 2025. arXi:2412.0945. [35] Weinan E and Bing Yu. The deep ritz method: A deep learning-based numerical algorithm for solving variational problems, 2017. [36] Vien Minh Nguyen-Thanh, Xiaoying Zhuang, and Timon Rabczuk. A deep energy method for finite deformation hyperelasticity. European Journal of Mechanics-A/Solids , 80:103874, 2020. [37] Jan Niklas Fuhg, Craig M. Hamel, Kyle Johnson, Reese Jones, and Nikolaos Bouklas. Modular machine learning-based elastoplasticity: Generalization in the context of limited data. Computer Methods in Applied Mechanics and Engineering , 407:115930, 2023. [38] Tobias Wuerth, Niklas Freymuth, Clemens Zimmerling, Gerhard Neumann, and Luise Kaerger. Physics-informed meshgraphnets (pi-mgns): Neural finite element solvers for non-stationary and nonlinear simulations on arbitrary meshes. Computer Methods in Applied Mechanics and Engineering , 429:117102, 2024. [39] Shizheng Wen, Mingyuan Chi, Tianwei Yu, Ben Moseley, Mike Yan Michelis, Pu Ren, Hao Sun, and Siddhartha Mishra. Learning, solving and optimizing pdes with tensorgalerkin: an efficient high-performance galerkin assembly algorithm, 2026. [40] Bokai Zhu, Qinghui Zhang, and Timon Rabczuk. Wino: A weak-form physics informed neural operator for hyperelasticity on variable domains, 2026. arXiv:2605.24651. [41] Olgierd Cecil Zienkiewicz and Robert Leroy Taylor. The finite element method for solid and structural mechan-ics . Elsevier, 2005. [42] Ted Belytschko, Wing Kam Liu, Brian Moran, and Khalil Elkhodary. Nonlinear finite elements for continua and structures . John wiley & sons, 2014. [43] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization, 2017. arXiv:1412.6980. [44] Ilya Loshchilov and Frank Hutter. Sgdr: Stochastic gradient descent with warm restarts, 2017. arXiv:1608.03983. 15 M.M. Iparraguirre et al. 
+
+# A Pseudo-code algorithm 
+
+Algorithm 1 physics-informed loss via Tensor Contraction and Scatter-Add 
+
+Input: node displacement ˆu, elements E, prescribed ubc , gradients ∇N , volumes V , Dirichlet mask ΓD
+
+Output: nodal force residual LR, boundary condition Lbc and non-inverted elements Lneg J
+
+1: Loss boundary conditions: 
+
+Lbc ← 1
+
+> Nbc
+
+PNbc  
+
+> i=1
+
+∥ubc  
+
+> i
+
+− ˆui∥22
+
+2: Dirichlet conditions Enforcement: 
+
+ˆu[Γ D ] ← ubc [Γ D ]ˆue ← ˆu[E] %% (Ne, ne, 3) 
+
+He ← einsum eai,eaj →eij (ˆ ue, ∇N e) %% (Ne, ne, 3) 
+
+F e ← I + He
+
+3: Loss Negative Jacobians: 
+
+Je ← det( F e) %% (e, ip) 
+
+Lneg J = PNe 
+
+> e=1
+
+∥ max(0 , −Je)∥22
+
+4: Constitutive Model: 
+
+Ce ← F ⊤ 
+
+> e
+
+F e %% (Ne, 3, 3) 
+
+Se ← μ(I − C−1 
+
+> e
+
+) + λ log( Je)C−1
+
+> e
+
+P e ← F eSe
+
+5: Element internal forces: 
+
+f e ← einsum eai,eji →ej (∇Ne, P e) · Ve %% (Ne, ne, 3) 
+
+6: Node residual Assembly: 
+
+Initialize R ← 0
+
+R ← scatter add( f e, E) %% (Nfree , 3) 
+
+7: Loss Residual: 
+
+Remove constrained DOFs: R ← R ⊙ (1 − ΓD )
+
+LR ← 1
+
+> N
+
+PNi=1 ∥Ri∥22
+
+8: Return LR, Lbc , Lneg J
+
+16

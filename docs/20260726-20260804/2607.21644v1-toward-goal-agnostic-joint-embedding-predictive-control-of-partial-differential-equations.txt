@@ -1,0 +1,337 @@
+Title: Toward Goal-Agnostic Joint-Embedding Predictive Control of Partial Differential Equations
+
+URL Source: https://arxiv.org/pdf/2607.21644v1
+
+Published Time: Mon, 27 Jul 2026 00:04:47 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Toward Goal-Agnostic Joint-Embedding Predictive Control of Partial Differential Equations 
+
+## Jonathan Gallagher †
+
+## University of Waterloo 
+
+## jonathan.gallagher@uwaterloo.ca 
+
+## Roberto Guglielmi 
+
+## University of Waterloo 
+
+## roberto.guglielmi@uwaterloo.ca 
+
+> †
+
+Corresponding author 
+
+## July 27, 2026 
+
+Abstract 
+
+We present a goal-agnostic control framework for partial differential equations (PDEs) built around an end to end joint-embedding predictive architecture (JEPA). A lightweight 2D ViT encoder and action-conditioned latent dynamics are trained offline without a reward or downstream goal, frozen, and reused by a model-predictive path integral (MPPI) controller. We find that when available, the control objective is better applied to an explicit physical observable (provided injectivity) than to minimizing raw Euclidean distance ( L2) in the learned latent space. For a learned linear kinetic-energy (KE) probe on frozen latent rollouts we can reproduce the control of held-out trajectories with R2 = 0 .989 , while requiring no change to the underlying world model. On the PDE Control Gym 2D Navier–Stokes benchmark, using KE-probe planning improves the matched 50-episode native reward from −12 .08 ± 0.86 for latent-L2 planning to 
+
+−10 .90 ± 0.91 (95% CI), while lowering last-quarter velocity-field RMSE from 0.0765 to 0.0692 . Across three intentionally withheld, dissimilar, aperiodic targets, KE planning lowers late field RMSE by 53% 
+
+relative to latent-L2 planning ( 0.0220 versus 0.0469 ), winning all 30 paired episodes. The same frozen model also supports controls targeting stabilization around a steady configuration via direct regulation of KE achieving 2.7% mean relative error. While the latent probe is brittle to measurement noise and missing pixels, we believe the results support the claim that latent dynamics can remain both dynamic and goal-agnostic while calibrated observables (granted they guarantee unique continuation) may be a better objective for state control. 
+
+# 1 Introduction 
+
+Partial differential equations (PDE) arise in many applications, ranging from climate modeling, biological processes, to chemical process monitoring. Developing control strategies for PDE-systems can be challenging, as the states are high dimensional, and the relationships between quantities often nonlinear. As such, the evaluation of candidate control-sequences often requires computationally costly numerical simulation, typically precluding online planning and control. Extant methods for PDE control, such as model based control, learned surrogate control, or reinforcement learning approaches, have been applied with varying degrees of success. Classical model based controllers require problem specific analysis, or otherwise clever construction of reduced order models (ROMs) [ 6]. Learned surrogate approaches introduce neural networks as approximations of the evolution operator for system dynamics [ 18 , 19 , 26 ], but quite often the surrogate is trained on the task of state space forward-simulation and optimized against a specific objective, inheriting the challenges of full state reconstruction and requiring retraining when objectives change [ 35 , 37 ]. Reinforcement learning has demonstrated excellent performance on well defined tasks [ 7, 10 , 28 , 32 ], but suffers from the need to carefully select the reward function, which limits the ability to generalize. Joint-embedding predictive architectures (JEPAs) instead focus on learning how applied actions map between elements of a learned latent space or "World Model". This is done without necessitating state reconstruction of any kind [ 1]. Recent work in latent world modeling has used such reconstruction-free features for zero-shot planning primarily in visual domains [ 39 ], while exisiting latent PDE work indicates 1arXiv:2607.21644v1 [cs.LG] 21 Jul 2026 that compressed dynamics may accelerate both simulation and inverse optimization [37]. We believe JEPA-style latent world models offer unique benefits for PDE problems. Training with random masking can potentially enable an encoder to consume both full and incomplete fields while still mapping to the same latent representation. All the while, an action-conditioned latent predictor enables goal-independent model-predictive control. The learned dynamics model remains agnostic to the run-time goal, since changing this objective at the time of deployment does not require retraining either the encoder or predictor. Latent planning is attractive for many reasons: its computational efficiency, and goal agnosticism being the two most obvious. Unfortunately, a latent representation trained for predictability and action sensitivity is not automatically a calibrated metric space. It is well known that L2 distance between embeddings can distort both the scale and ordering of physical field error. As such, we use temporal straightening to improve the latent rollout geometry [ 33 ], but our experiments show that regularization alone does not suffice to solve this issue entirely. Instead, we fit a lightweight readout for a physical state observable and form the tracking error after that readout, in physical units. Our observable is chosen carefully to guarantee unique continuation, and we observe that this controller substantially improves clean closed-loop tracking without retraining or decoding the world model. Recent work using joint-embedding world models has explored planning in visual manipulation, navigation, locomotion, and aerial domains [ 2 , 24 , 29 , 38 , 39 ]. To our knowledge, a JEPA-like joint-embedding world model has yet to be applied to the closed-loop control of PDE systems. This work aims to demonstrate the potential for joint-embedding architectures in PDE control, showing that a goal-independent, joing-embedding with a downstream predictor can be a uniquely dynamic controller, capable of natively supporting multiple PDE-control objectives. We validate this framework in the PDE Control Gym two-dimensional Navier–Stokes environment [ 4]. We train masked joint-embedding dynamics, enforce non-collapse with VICReg [ 3], add temporal straightening and Delta-JEPA-like latent action decoding [38], and use MPPI with the frozen backbone [36]. 
+
+Our Contributions: 
+
+1. To our knowledge, we introduce the first implementation of closed-loop PDE-control using a joint-embedding latent world model, capable of learning action-conditioned dynamics independently of the downstream control task. 2. We introduce an observable-aligned controller: a cheap to train linear probe estimates kinetic energy from predicted latents, and MPPI evaluates tracking error in that physical scalar rather than using raw latent distance. 3. On the PDE Control Gym benchmark, this improves both native reward and velocity-field RMSE over the controller using latent-L2 cost. Across three distinct aperiodic signals, it reduces late field RMSE by 53% ,with improvement in all 30 paired episodes. 4. We reuse one frozen checkpoint and one five-step latent horizon for time-dependent tracking, fixed-field stabilization, and kinetic energy control, ever working in state space or performing task-specific fine tuning. 
+
+# 2 Goal-Agnostic Control Formulation 
+
+## 2.1 Dynamics learned without a goal 
+
+Let a controlled field evolve as Ut+1 = F (Ut, a t). We learn an encoder Eθ and action-conditioned latent predictor gϕ entirely from offline state transitions, without providing a reward, reference trajectory, equilibrium, or physical observable. After training, the encoder and action-conditioned predictor remain frozen, while the MPPI planner supplies sets of candidate action sequences, whose effect on the latent state are able to be probed through gϕ. This allows for a goal to be specified within the MPPI planner at the time of deployment, without touching the weights in either Eθ , or gϕ.
+
+## 2.2 Deployment-time goal interfaces 
+
+The flexibility of the planning machinery supports arbitrary control objectives. We study three: 21. Control Gym Action Penalized Tracking. A target sequence supplied as encoded states z⋆t+1: t+H or physical observations q⋆t+1: t+H can be tracked while making action-penalty tradeoffs, achieving comparable performance to RL baselines without being trained in a cost-aware manner. 2. Time-dependent tracking. A target sequence can be supplied either as encoded states z⋆t+1: t+H or as a time-dependent physical observable q⋆t+1: t+H .3. Fixed-target stabilization. A specified state configuration is supplied and encoded only once. The encoded latent z⋆ is treated as a constant target against which controls are evaluated, resulting in an equilibrium objective. Only the user-specified cost changes between these tasks, meaning the action-conditioned latent dynamics model and MPPI optimizer are otherwise unchanged. 
+
+## 2.3 PDE Control Gym benchmark 
+
+We evaluate our model using the PDE Control Gym two-dimensional Navier–Stokes environment at the configuration used by its published examples [ 4 ]. The domain is a unit square, discretized with ∆x = ∆ y = 0 .05 
+
+into a 21 × 21 grid. The simulator uses ∆t = 10 −3, horizon T = 0 .2, viscosity ν = 0 .1, density 1, and 2000 pressure iterations. The observation is the velocity field Ut = ( ut, v t) ∈ R21 ×21 ×2. A scalar action at ∈ [0 , 4] 
+
+sets a controllable Dirichlet condition (in the positive x direction) along the upper boundary. The reference benchmark reward is 
+
+rt = − 12HW ∥Ut − U ⋆t ∥22 − γ
+
+2 (at − aref  
+
+> t
+
+)2, (1) where H = W = 21 the resolution, γ = 0 .1 the action penalty, and aref  
+
+> t
+
+= 2 , the reference velocity against which actions are measured. We report cumulative native reward, state-space RMSE, and action total variation (TV). Our controller acts once per two native solver steps, so 99 macro actions cover 198 of the benchmark’s 199 scored native steps. 
+
+## 2.4 Masked observations 
+
+When training our encoder (lightweight ViT), state observations are randomly masked. Any state has probability 0.15 that it is fully observed; otherwise the masked fraction is sampled uniformly on the range 
+
+[0 .3, 0.9] . The masks are selected from either contiguous rectangles, random pixels, or row strips with respective probabilities 0.5, 0.3, and 0.2. At evaluation, the current measurement is either fully observed, corrupted by zero-mean Gaussian noise with standard deviation equal to 5–15% of each velocity channel’s recent RMS, or missing 5–25% of its pixels at random. The goal field is always fully specified, where any target is interpreted as a specified objective, not a sensor measurement. An example of the masking protocol is shown in Figure 1. 
+
+# 3 Goal-Agnostic JEPA Control Framework 
+
+## 3.1 Masked latent dynamics 
+
+Let Eθ denote a masked field encoder and let zt = Eθ (Ut, m t). The encoder is a compact two-dimensional vision transformer with 256-dimensional output, 3 × 3 patches, four transformer blocks, and four attention heads. The predictor gϕ consumes a history of four latent states and their actions, then auto-regressively rolls out twelve latent steps at stride two. The predictor consists of a two-layer MLP with 512 hidden units per layer, trained to predict latent residuals rather than full states. For a given training sample the encoder is given two tasks. First, it must encode the masked history, after which it must encode a second unmasked sequence containing the future fields. 
+
+zctx  
+
+> t−K+1: t
+
+= Eθ (Ut−K+1: t, m ), zreal  
+
+> t:t+12
+
+= Eθ (Ut:t+12 , 1).
+
+The predictor is then tasked with rolling forward from zctx , where the unmasked zreal values are the latent targets. In this setup, rollout gradients may flow through the predictor, the masked-history encoder branch, 3Figure 1: Masking protocol: contiguous rectangles, random pixels, and row strips, each shown hiding roughly 60% of the field. Grey denotes masked (zero-filled) pixels. and the unmasked-future encoder branch. The loss is thus 
+
+Lroll = 112 
+
+> 12
+
+∑
+
+> h=1
+
+∥ˆzt+h − zreal 
+
+> t+h
+
+∥22. (2) We employ both VICReg variance and covariance penalties to discourage collapse [ 3 ], together with a temporal straightening loss that discourages latent trajectories from being unnecessarily circuitous. An auxiliary decoder dψ is tasked with reconstructing the applied action from adjacent displacements in the unmasked, encoded real sequence (not from predicted rollout displacements), 
+
+L∆a = 112 
+
+> 12
+
+∑
+
+> h=1
+
+∥dψ (zreal  
+
+> t+h
+
+− zreal 
+
+> t+h−1
+
+) − at+h−1∥22, (3) following the action-sensitivity motivation of Delta-JEPA [ 38 ]. The temporal-straightening penalty is likewise evaluated on the unmasked, encoded real sequence, not on the predicted rollout path. The full composite loss is 
+
+Ltotal = Lroll + λvar Lvar + λcov Lcov + λstr Lstr + λ∆a L∆a (4) with weights λvar = 1 .0, λcov = 1 .0, λstr = 0 .1, and λ∆a = 10 . No decoder maps latent state z back to the field U . The full training process is summarized in Figure 2. 
+
+## 3.2 Latent MPPI 
+
+Given a candidate action sequence A = ( a0, . . . , a H−1), the frozen predictor produces ˆzt+1: t+H . MPPI samples 512 action sequences for three iterations and executes the first action of the exponentially weighted plan [ 36 ]. Conventional latent-space tracking uses 
+
+Jlat (A) = α ∑
+
+> h∈T
+
+∥ˆzt+h − z⋆t+h∥22 + λaH−1∑
+
+> h=0
+
+(ah − 2) 2, (5) where T is the scored rollout tail. Boundary effects propagate through the domain, so later predicted states more clearly distinguish candidate controls. Our observable-aligned alternative fits a scalar probe qω on frozen predictor-rollout latents and instead uses 
+
+Jq (A) = β ∑
+
+> h∈T
+
+[qω (ˆ zt+h) − q⋆t+h
+
+]2 + λaH−1∑
+
+> h=0
+
+(ah − 2) 2. (6) 4Figure 2: Joint-embedding training process, in which ground-truth and partially masked observations are encoded and rolled forward before their latents are compared. For kinetic energy tracking, qω = ˆkω and q⋆t+h = k(U ⋆t+h), meaning for a fixed target, we aim to stabilize around a constant q⋆.All tasks share H = 5 latent steps (ten native steps), score all five rollout states, and initialize with a nominal control action aref = 2 . The tracking-only latent configuration uses (α, λ a) = (1 , 0) . The native-reward comparison uses (0 .05 , 0.05) for latent-L2 and (β, λ a) = (1 , 0.05) for KE where alpha is a hyperparameter, tuned to best approximate the scale of the true reference penalty. For the three-signal aperiodic suite we use (β, λ a) = (1 , 0) and TKE = 0 .004 . Since no other cost term is active, this is equivalent to having MPPI temperature (β, T ) = (25 , 0.1) . The conventional latent-L2 baseline retains T = 0 .1.As written, equation (5) implicitly assumes that Euclidean displacement in the learned representation ranks candidate actions like physical field error. While this kind of joint-embedding training naturally seems to encourage predictable, action-conditioned features, it does not directly enforce isometry. Equation (6) intentionally asks less of the representation. The learned probe estimates the value of one observable making the comparison to the target downstream, and in physically calibrated units. 
+
+# 4 Experimental Protocol 
+
+## 4.1 Offline data and optimization 
+
+The offline training dataset contains 6930 trajectories, each consisting of 200 velocity fields and 199 corre-sponding actions. We use an ≈ 92 /8 train validation split, with 6306 trajectories assigned to training and 624 left for validation. Candidate actions are explicitly constrained to the range [0 , 4] . The training dataset combines exploratory initial conditions, counterfactual branches where candidate signals are rolled out before splitting into several potential cases, and piece-wise constant samples. The evaluation targets are the control gym benchmark reference and three custom aperiodic pulse sequences. The established aperiodic sample triplet is specifically audited for distance from the training dataset. (Section 5.1.2). Our model is first trained for 50,000 optimizer steps with a batch size 128, learning rate 3 × 10 −4, weight decay 10 −2, a 2000-step warmup, cosine decay. We then fine tune for 50,000 steps at a reduced peak learning rate of 6 × 10 −5 and a half-cosine decay to zero. The resulting model is the single world model behind every result in this paper. Model training curves are shown in Figure 4. For all closed-loop control results, we present an average taken over ten spatially constant random initial velocity conditions sampled on (−5, 5) .For the published-benchmark reward comparison, we extend this protocol to 50 random initial conditions to match the published count in Control Gym. All aggregate result figures depict 95% CI unless stated otherwise. 5Figure 3: Composition of the offline training corpus, where (a) denotes the categories of control actions, (b) the dataset composition, and (c) the initial conditions. 6Figure 4: Training and validation diagnostics over the full 0–100k schedule. The action decoder remains accurate, rollout losses continue to decrease, and the validation latent effective rank grows throughout the continuation. 75 Goal-Agnostic Control Results 
+
+We organize results by control objective at deployment. We first consider a direct comparison of control discovery using raw latent-L2 versus observable KE costs. Between examples, only the cost function and its scalar weight(s) are changed. We report reconstructed velocity-field RMSE independently of the planner cost so that it can be demonstrated that KE tracking indeed establishes improved flow tracking in state space. 
+
+## 5.1 Time-dependent target trajectories 
+
+5.1.1 PDE Control Gym benchmark 
+
+We first sweep the KE scale β with the benchmark action-reference penalty fixed at the papers chosen 
+
+λa = 0 .05 on ten matched clean episodes. Figure 5 shows a smooth control-effort frontier. The latent-L2
+
+convention lies inside this frontier: at the reward-oriented choice β = 1 , KE planning improves both mean reward ( −11 .78 versus −12 .78 ) and late field RMSE ( 0.0699 versus 0.0771 ). At β = 100 , it reaches late field RMSE 0.0111 , 46% below even the latent tracking-only configuration’s 0.0206 , despite fighting the action penalty. 10 0 10 1 10 2   
+
+> KE tracking scale
+> 24
+> 22
+> 20
+> 18
+> 16
+> 14
+> 12
+> 10
+> cumulative native reward
+> = 1
+> (a) Control-effort trade-off
+> KE-probe cost
+> latent-L2cost
+> 10 010 110 2
+> KE tracking scale
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> 0.07
+> 0.08
+> 0.09
+> last-quarter field RMSE  = 1
+> (b) Physical tracking accuracy
+
+Figure 5: Clean linear-reference KE cost-scale screen over ten matched episodes (mean and 95% CI). The action-reference weight remains 0.05 . Dashed lines and blue bands show the matched latent-L2 mean and 95% CI. The circled β = 1 operating point is used for the 50-episode benchmark comparison. Table 1: Clean linear-reference results. Reward is higher when less negative; parentheses give the planner tracking scale and action-reference weight. Reward intervals are 95% CIs. The first four rows use ten matched episodes; the reward-oriented rows use the 50-episode benchmark protocol. 
+
+Controller episodes reward late field RMSE target replay (oracle) 10 −18 .192 ± 1.367 0.00390 constant 2.5 10 −10 .877 ± 1.410 0.05441 latent-L2 MPPI (1 , 0) 10 −22 .011 ± 1.371 0.02057 KE-probe MPPI (100 , 0.05) 10 −21 .228 ± 2.005 0.01109 
+
+latent-L2 MPPI (0 .05 , 0.05) 50 −12 .084 ± 0.857 0.07650 KE-probe MPPI (1 , 0.05) 50 −10 .901 ± 0.911 0.06917 
+
+8The 50-episode confirmation uses seeds 0–49 and reruns the latent baseline on the identical seeds. KE improves reward by 1.18 ± 0.20 paired points (95% CI), with higher reward in 49 of 50 episodes, and lowers late field RMSE in all 50. Table 2: Native-reward comparison on the default linear target. Published values are PDE Control Gym Table 3 means over 50 episodes [ 4]; ours is the reward-matched mean over 50 seeded episodes. Published agents act every solver step, whereas our macro action is held for two steps, so the ranking is contextual.              
+
+> Method reward episodes PPO −5.370 50 Model-based optimization −7.931 50
+> Masked-JEPA-MPC, KE probe (ours) −10 .901 50 Masked-JEPA-MPC, latent-L2(ours) −12 .084 50 SAC −17 .829 50
+
+The observable-aligned controller improves native reward by 6.928 relative to the published SAC anchor and lies 2.970 behind the published model-based optimizer. Published agents act every solver step whereas our action is held for two steps, so this ranking is not final. Nevertheless, we show that a world model trained without any reward supervision or field reconstruction can achieve competitive performance on an arbitrary control task. 
+
+5.1.2 Three distinct aperiodic targets 
+
+We next replace the benchmark reference by three deterministic aperiodic maneuvers composed of Gaussian pulses with unequal timing, sign, amplitude, and width. The signals consist of an up down up triplet, a staggered multiscale sequence, and an alternating asymmetric sequence. All remain within the actuator range 
+
+[0 , 4] , and their pairwise action RMSEs range from 0.844 to 0.993 . The simplest of the three signals can be shown as provably outside of the training dataset, by comparing it against all 6306 training action sequences, we can show a nearest-training-trajectory action RMSE of 0.311 (Figure 6). 
+
+Figure 6: Action-space out-of-distribution audit for the aperiodic triplet. Left: the frozen triplet schedule and its nearest training action trace (RMSE 0.311 ). Right: empirical CDF of RMSE distances from the pulse and from a period-0.1 cosine comparator to all 6,306 training traces; dotted lines mark the nearest-trace distances. Here the controlled responses occupy a narrow family on which KE and field error move closely together. As Figure 7 and Table 3 show, KE-probe planning drastically improves upon, and corrects nearly all of the phase lag observed when using latent-L2 planning. Across the (3 × 10) 30 matched episodes, it lowers late field RMSE by 53 .0% (0.02204 versus 0.04687 ), demonstrating a measurable improvement across all 30 episodes. The individual late-RMSE reductions are 58 .2% , 49 .9% , and 50 .6% for the triplet, staggered, and alternating signals, shown in Figure 7. 9Figure 7: Clean tracking of three aperiodic targets over ten matched initial conditions per signal (mean with 95% confidence bands). Columns show the triplet, staggered multiscale, and alternating asymmetric targets. The top row compares target and achieved KE after the first ten native steps; the bottom row compares the target-generating and executed boundary controls. Target controls are shown only for evaluation and are not supplied to MPPI. KE-probe planning follows their turning points, whereas latent-L2 planning exhibits phase lag. Table 3: Three aperiodic targets over ten seeded initial conditions each with clean observations. The pooled rows weight all 30 episodes equally.                                                   
+
+> Signal Controller reward late field RMSE final field RMSE late KE RMSE action TV Triplet latent-L2−16 .787 0.04872 0.02476 0.05097 14.017 KE probe −16 .044 0.02037 0.01110 0.02083 14.847 Staggered latent-L2−14 .502 0.04963 0.04048 0.04730 14.617 KE probe −14 .721 0.02486 0.00980 0.02646 16.777 Alternating latent-L2−13 .963 0.04224 0.03812 0.03845 14.402 KE probe −14 .970 0.02088 0.01330 0.02006 15.990 Pooled latent-L2−15 .084 0.04687 0.03445 0.04557 14.345 KE probe −15 .245 0.02204 0.01140 0.02245 15.871
+
+10 The two MPPI costs have essentially equal pooled native reward ( −15 .245 versus −15 .084 ). KE planning uses 10 .6% greater action total variation, consistent with the sharper control reversals visible in the bottom row of Figure 7. The gain is therefore specifically a physical-tracking result, not a reward claim. Purely for the sake of visualizing the field agreement, we reconstructed the first aperiodic signal and apply both the generating (oracle) and learned (JEPA) control, the results are shown in Figure 8. 
+
+Figure 8: Aperiodic pulse reconstruction for case A: Up-down-up triplet, where both the learned and true trajectory can be shown to bear significant similarity, reflecting the accuracy with which the generating control was able to be recovered. 11 5.2 Fixed kinetic-energy regulation 
+
+Kinetic energy per unit mass is defined as 
+
+k(U ) = 12HW 
+
+∑
+
+> i,j
+
+(u2 
+
+> ij
+
++ v2
+
+> ij
+
+). (7) A ridge map fitted on frozen predictor-rollout latents, without changing any JEPA weight, achieves held-out 
+
+R2 = 0 .9891 . The trajectory-tracking experiments above use this same readout with a time-varying target. Here we hold the requested KE fixed to test scalar regulation. 
+
+Figure 9: Derived-quantity control with a rollout-latent kinetic-energy probe. From ten random initial conditions, MPPI drives kinetic energy toward the scalar target k⋆ = 0 .232 (left) and converges to a mean action of 2.49 , close to the true equilibrium action 2.5 (right). Over the last 50 native steps, the controller has 2.66% mean pointwise relative error, while the constant action-reference at 2.0 has 37 .7% error. Our observable-aligned controller is shown to match the generating constant while discovering the holding action from the scalar energy target alone. Its mean steady action is 
+
+2.491 ± 0.044 across episodes, closely recovering the target equilibrium action of 2.5.
+
+## 5.3 Limitation: probe fragility under corrupted observations 
+
+The observable-aligned tracking gains above are full-state observation results. This qualification is important: the kinetic energy probe is demonstrably unresilient to corrupted measurements as implemented. We diagnose that failure using the fixed-KE task. Gaussian noise is drawn per step with standard deviation equal to 5,
+
+10 , or 15% of each velocity channel’s recent RMS; fixed random-pixel masks remove 5, 15 , or 25% of pixels. Corruptions affect only the controller’s measurement, while the simulator and target remain clean. Each cell uses the same ten seeds. The fixed-field latent goal provides context rather than a headline robustness claim: its steady RMSE rises from 0.022 clean to 0.082 at 15% noise. The probe-defined KE interface is much more brittle. Its clean 
+
+2.7% relative error jumps to 46 –64% under noise and 60 –85% under missing pixels, with a large steady-action bias. The ridge probe is fit on clean rollout latents, and corrupted measurements evidently shift the encoded state off the manifold on which the probe is calibrated. Robustness is therefore task dependent, while the frozen dynamics can accept masked or incomplete measurements, the learned downstream readout must also be calibrated. As such, we do not claim robustness to partial or corrupted observations for the KE controller. A short corruption diagnostic is deferred to Appendix B. 
+
+# 6 Discussion 
+
+The experiments demonstrate the potential for JEPA world models to serve as goal-agnostic, flexible controllers for PDE problems. We show that the learned latent representation need not itself be the task metric, as JEPA can be relied upon primarily to supply action-conditioned state evolution. For our use case, where kinetic 12 energy determines state exactly, a small readout can lead to a landscape where the control objective is better defined. This separation of task ant latent representation preserves the claim of goal independence while avoiding the stronger and unnecessary assumption that raw latent Euclidean distance is metric preserving. Changing the cost from minimizing L2 distance to KE moves the same predictor from −12 .08 to −10 .90 
+
+mean reward in the 50-episode comparison. Across each of the aperiodic signals, the KE objective substantially improves control discovery, removing a phase lag present under latent-L2 and halves late field error in all 30 matched episodes. These gains indicate that the earlier bottleneck was the geometry of the cost function at least as much as the structure of the world model itself. Across a broad class of problems, kinetic energy is not to be considered a substitute for physical field distance. We infer that our approacah succeeds here because a single scalar boundary actuator (confined to positive values only!) restricts the evaluated trajectories to a narrow response family where the map from state to kinetic energy is actually injective. Velocity-field RMSE is therefore retained as an independent evaluation metric, and the result should not be extrapolated to multi-actuator or topologically distinct flows without further observables. We do however see this as potentially positive evidence toward the claim that for well understood systems, controlling a carefully selected observable which is known to guarantee unique continuation may prove a generalizable approach to overcoming the shortcomings of L2 distance. Our second proposed limitation is the requirement for full state observation. Since our probe is fitted on clean rollout latents it fails when noise or missing pixels move the current-state encoding even slightly away from the true embedding. Our observable-aligned planning in its current form thus trades an uncalibrated latent metric for an explicit readout that must itself be made robust. Training readouts on corrupted latents, adding uncertainty quantification or other robustness measures offer avenues for natural extension. Every experiment still uses the same five-step latent rollout. No task-wise horizon tuning is needed for the reported results, although longer horizons could alter individual operating points. The central comparison is unchanged: the encoder, predictor, and MPPI optimizer are held fixed while only the deployment-time cost interface changes. 
+
+# 7 Related Work 
+
+Planning in a learned latent space predates the introduction of joint-embedding architectures. For example, Embed-to-Control learns locally linear latent dynamics for control from raw images [ 34 ]; World Models [ 12 ]and PlaNet [ 13 ] either plan or learn behaviors inside learned latent dynamics, with Dreamer extending to latent imagination [ 14 ] and PETS establishing sampling-based MPC over learned probabilistic dynamics [ 8]. Closest to our work are TD-MPC and TD-MPC2, which run MPPI over a reconstruction-free latent dynamics model trained with a latent consistency loss [ 15 , 16 ], however in both cases latent spaces are shaped by task rewards and value learning, whereas a joint-embedding approahc like ours is trained explicitly with no task signal at all. MuZero also plans in a value-equivalent latent space without reconstruction [ 30 ]. Our contribution transfers this latent-planning recipe to PDE dynamics while keeping the representation goal-agnostic. JEPAs learn by predicting target embeddings rather than reconstructing inputs [ 1, 22 ], generally combining masked prediction with vision transformers [ 9, 17 ] and EMA target encoders [ 11 ]. For end to end models such as ours, additional anti-collapse measures must be taken, VICReg supplies explicit variance and covariance regularization against collapse [ 3]. DINO-WM demonstrates that pretrained non-generative visual features can support zero-shot planning [ 39 ]; V-JEPA 2 post-trains an action-conditioned predictor on robot interaction data and plans manipulation from image goals [ 2 ]; LeWorldModel learns an end-to-end JEPA for manipulation, navigation, and locomotion tasks [ 24 ]; SkyJEPA extends JEPA world models to long-horizon quadrotor control [ 29 ].Delta-JEPA target the complementary control problem of action-insensitive latent dynamics by decoding actions from latent differences [ 38 ]. While existing work establish JEPA world modeling as a promising avenue for visual and robotic domains, to our knowledge, ours is the first to apply a JEPA world model to closed-loop PDE control explicitly. Learned PDE surrogates commonly evolve either full fields or compressed states. Differentiable-solver control [ 18 ], operator-learning control [ 19 ], PINN-based optimal control [ 26 ], and diffusion-based control [ 35 ]optimize actions through a surrogate coupled to a full state-space objective, while neural operators have shown promise in learning the gain computations of PDE backstepping directly [ 5]. LE-PDE proposes a 13 latent-evolution approach that targets both accelerated simulation and inverse optimization [ 37 ]. Closest in spirit to our setting are Koopman and reduced-order methods performing control in a learned low-dimensional spaces. Examples of this include deep Koopman embeddings [ 23 ], Koopman-based MPC [ 21 , 27 ], SINDy-MPC [ 20 ], latent MPC of unsteady fluid flows [ 25 ], and deep-ROM latent feedback control [ 31 ]. Our focus differs from existing latent evolution works by adopting the JEPA / World Modeling framework, removing the field decoder entirely and fully separating the learned dynamics from the deployment goal. 
+
+# 8 Conclusion 
+
+Goal-agnostic joint-embedding control separates learning action-conditioned dynamics from control objectives. From our observations, the strongest results are achieved when the control objective can be described deterministically in terms of an explicit physical observable rather than raw latent distance. We find that a rank-one KE probe improves performance for the linear-reference reward, field RMSE, reduces time-dependent tracking error by 53% across three aperiodic targets relative to latent-L2 alone. The same checkpoint and short-horizon planner retain fixed-field stabilization as a separate goal interface. While KE results are not able to be generalized across settings, and the clean-calibrated probe is brittle under corrupted observations, we believe a properly prescribed observable, if capable of being faithfully reconstructed from the latent space could transfer the benefits found in our work. Our experiments show that reconstruction-free latent dynamics are nonetheless a powerful substrate for control, while a carefully selected physics probe can supply a better control objective, even if state control is the primary goal. The practical lesson is not that every PDE should be controlled by energy, but that JEPA world models are capable of achieving competitive control results for PDE in a goal agnostic setting, and furthermore that if available, control through a calibrated observable (provided it provides uniqueness) can improve state space tracking. 14 A Hyperparameter Summary 
+
+Table 4: Principal model and planner settings. 
+
+Component setting value Encoder latent dimension / patch / depth / heads 256 /3/4/4
+
+Predictor history / training rollout / stride 4/12 /2 native steps Predictor hidden layers / delta prediction [512 , 512] / yes Masking full-observation probability 0.15 
+
+Masking masked-ratio range / pattern weights [0 .3, 0.9] / [0 .5, 0.3, 0.2] 
+
+Training steps / batch / learning rate 50 ,000 /128 /3 × 10 −4
+
+Training continuation steps / peak LR 50 ,000 /6 × 10 −5
+
+VICReg variance / covariance / γ 1/1/0.4
+
+Straightening weight 0.1
+
+Action decoder weight 10 
+
+MPPI samples / iterations / noise 512 /3/0.6
+
+MPPI horizon / tail / base temperature 5/5/0.1
+
+MPPI latent α/λ a (tracking / reward) 1/0 / 0.05 /0.05 
+
+MPPI KE (β, λ a, T ) (aperiodic / reward) (1 , 0, 0.004) / (1 , 0.05 , 0.1) 
+
+MPPI KE linear scale screen β ∈ [0 .25 , 200] 
+
+15 B Corrupted-Observation Diagnostic 
+
+Figure 10: Secondary corruption diagnostic over ten matched episodes. Fixed-field stabilization remains usable across most conditions, whereas the clean-calibrated kinetic energy probe fails under both measurement noise and missing pixels (mean ± 95% CI). 16 References 
+
+[1] Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and Nicolas Ballas. Self-supervised learning from images with a joint-embedding predictive architecture. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2023. URL https: //arxiv.org/abs/2301.08243 .[2] Mahmoud Assran, Adrien Bardes, David Fan, Quentin Garrido, Russell Howes, et al. V-JEPA 2: Self-supervised video models enable understanding, prediction and planning. arXiv preprint arXiv:2506.09985 , 2025. URL 
+
+https://arxiv.org/abs/2506.09985 .[3] Adrien Bardes, Jean Ponce, and Yann LeCun. VICReg: Variance-invariance-covariance regularization for self-supervised learning. In International Conference on Learning Representations , 2022. URL https://arxiv.org/ abs/2105.04906 .[4] Luke Bhan, Yuexin Bian, Miroslav Krstic, and Yuanyuan Shi. PDE Control Gym: A benchmark for data-driven boundary control of partial differential equations. arXiv preprint arXiv:2405.11401 , 2024. URL https: //arxiv.org/abs/2405.11401 .[5] Luke Bhan, Yuanyuan Shi, and Miroslav Krstic. Neural operators for bypassing gain and control computations in PDE backstepping. IEEE Transactions on Automatic Control , 69:5310–5325, 2024. URL https://arxiv.org/ abs/2302.14265 .[6] Steven L. Brunton and Bernd R. Noack. Closed-loop turbulence control: Progress and challenges. Applied Mechanics Reviews , 67(5):050801, 2015. doi: 10.1115/1.4031175. [7] Michele Alessandro Bucci, Onofrio Semeraro, Alexandre Allauzen, Guillaume Wisniewski, Laurent Cordier, and Lionel Mathelin. Control of chaotic systems by deep reinforcement learning. Proceedings of the Royal Society A ,475(2231):20190351, 2019. doi: 10.1098/rspa.2019.0351. [8] Kurtland Chua, Roberto Calandra, Rowan McAllister, and Sergey Levine. Deep reinforcement learning in a handful of trials using probabilistic dynamics models. In Advances in Neural Information Processing Systems ,2018. URL https://arxiv.org/abs/1805.12114 .[9] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations , 2021. URL https://arxiv.org/abs/2010.11929 .[10] Amir-massoud Farahmand, Saleh Nabi, and Daniel N. Nikovski. Deep reinforcement learning for partial differential equation control. In 2017 American Control Conference , pages 3120–3127, 2017. doi: 10.23919/ACC.2017.7963427. [11] Jean-Bastien Grill, Florian Strub, Florent Altché, Corentin Tallec, Pierre H. Richemond, Elena Buchatskaya, Carl Doersch, Bernardo Avila Pires, Zhaohan Daniel Guo, Mohammad Gheshlaghi Azar, Bilal Piot, Koray Kavukcuoglu, Rémi Munos, and Michal Valko. Bootstrap your own latent: A new approach to self-supervised learning. In 
+
+Advances in Neural Information Processing Systems , 2020. URL https://arxiv.org/abs/2006.07733 .[12] David Ha and Jürgen Schmidhuber. World models. arXiv preprint arXiv:1803.10122 , 2018. URL https: //arxiv.org/abs/1803.10122 .[13] Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James Davidson. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning , 2019. URL 
+
+https://arxiv.org/abs/1811.04551 .[14] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. In International Conference on Learning Representations , 2020. URL https://arxiv. org/abs/1912.01603 .[15] Nicklas Hansen, Xiaolong Wang, and Hao Su. Temporal difference learning for model predictive control. In 
+
+International Conference on Machine Learning , 2022. URL https://arxiv.org/abs/2203.04955 .[16] Nicklas Hansen, Hao Su, and Xiaolong Wang. TD-MPC2: Scalable, robust world models for continuous control. In International Conference on Learning Representations , 2024. URL https://arxiv.org/abs/2310.16828 .
+
+17 [17] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked autoencoders are scalable vision learners. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2022. URL https://arxiv.org/abs/2111.06377 .[18] Philipp Holl, Vladlen Koltun, and Nils Thuerey. Learning to control PDEs with differentiable physics. In 
+
+International Conference on Learning Representations , 2020. URL https://arxiv.org/abs/2001.07457 .[19] Rakhoon Hwang, Jae Yong Lee, Jin Young Shin, and Hyung Ju Hwang. Solving PDE-constrained control problems using operator learning. In Proceedings of the AAAI Conference on Artificial Intelligence , pages 4504–4512, 2022. URL https://arxiv.org/abs/2111.04941 .[20] Eurika Kaiser, J. Nathan Kutz, and Steven L. Brunton. Sparse identification of nonlinear dynamics for model predictive control in the low-data limit. Proceedings of the Royal Society A , 474(2219):20180335, 2018. doi: 10.1098/rspa.2018.0335. [21] Milan Korda and Igor Mezić. Linear predictors for nonlinear dynamical systems: Koopman operator meets model predictive control. Automatica , 93:149–160, 2018. doi: 10.1016/j.automatica.2018.03.046. [22] Yann LeCun. A path towards autonomous machine intelligence, 2022. URL https://openreview.net/forum? id=BZ5a1r-kVsf . OpenReview preprint, version 0.9.2. [23] Bethany Lusch, J. Nathan Kutz, and Steven L. Brunton. Deep learning for universal linear embeddings of nonlinear dynamics. Nature Communications , 9:4950, 2018. doi: 10.1038/s41467-018-07210-0. [24] Lucas Maes, Quentin Le Lidec, Damien Scieur, Yann LeCun, and Randall Balestriero. LeWorldModel: Stable end-to-end joint-embedding predictive architecture from pixels. arXiv preprint arXiv:2603.19312 , 2026. URL 
+
+https://arxiv.org/abs/2603.19312 .[25] Jeremy Morton, Antony Jameson, Mykel J. Kochenderfer, and Freddie Witherden. Deep dynamical modeling and control of unsteady fluid flows. In Advances in Neural Information Processing Systems , 2018. URL 
+
+https://arxiv.org/abs/1805.07472 .[26] Saviz Mowlavi and Saleh Nabi. Optimal control of PDEs using physics-informed neural networks. Journal of Computational Physics , 473:111731, 2023. URL https://arxiv.org/abs/2111.09880 .[27] Sebastian Peitz and Stefan Klus. Koopman operator-based model reduction for switched-system control of PDEs. 
+
+Automatica , 106:184–191, 2019. doi: 10.1016/j.automatica.2019.05.016. [28] Jean Rabault, Miroslav Kuchta, Atle Jensen, Ulysse Réglade, and Nicolas Cerardi. Artificial neural networks trained through deep reinforcement learning discover control strategies for active flow control. Journal of Fluid Mechanics , 865:281–302, 2019. doi: 10.1017/jfm.2019.62. [29] Pratyaksh Rao, Wancong Zhang, Randall Balestriero, Yann LeCun, and Giuseppe Loianno. Skyjepa: Learning long-horizon world models for zero-shot sim-to-real control of quadrotors, 2026. URL https://arxiv.org/abs/ 2606.23444 .[30] Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, Timothy Lillicrap, and David Silver. Mastering Atari, Go, chess and shogi by planning with a learned model. Nature , 588:604–609, 2020. doi: 10.1038/s41586-020-03051-4. [31] Matteo Tomasetto, Francesco Braghin, and Andrea Manzoni. Latent feedback control of distributed systems in multiple scenarios through deep learning-based reduced order models. arXiv preprint arXiv:2412.09942 , 2024. URL https://arxiv.org/abs/2412.09942 .[32] Siddhartha Verma, Guido Novati, and Petros Koumoutsakos. Efficient collective swimming by harnessing vortices through deep reinforcement learning. Proceedings of the National Academy of Sciences , 115(23):5849–5854, 2018. doi: 10.1073/pnas.1800923115. [33] Ying Wang, Oumayma Bounou, Gaoyue Zhou, Randall Balestriero, Tim G. J. Rudner, Yann LeCun, and Mengye Ren. Temporal straightening for latent planning, 2026. URL https://arxiv.org/abs/2603.12231 .[34] Manuel Watter, Jost Tobias Springenberg, Joschka Boedecker, and Martin Riedmiller. Embed to control: A locally linear latent dynamics model for control from raw images. In Advances in Neural Information Processing Systems , 2015. URL https://arxiv.org/abs/1506.07365 .
+
+18 [35] Long Wei, Peiyan Hu, Ruiqi Feng, Haodong Feng, Yixuan Du, Tao Zhang, Rui Wang, Yue Wang, Zhi-Ming Ma, and Tailin Wu. DiffPhyCon: A generative approach to control complex physical systems. In Advances in Neural Information Processing Systems , 2024. URL https://arxiv.org/abs/2407.06494 .[36] Grady Williams, Nolan Wagener, Brian Goldfain, Paul Drews, James M. Rehg, Byron Boots, and Evangelos A. Theodorou. Information theoretic MPC for model-based reinforcement learning. In 2017 IEEE International Conference on Robotics and Automation , pages 1714–1721, 2017. doi: 10.1109/ICRA.2017.7989202. URL 
+
+https://ieeexplore.ieee.org/document/7989202 .[37] Tailin Wu, Takashi Maruyama, and Jure Leskovec. Learning to accelerate partial differential equations via latent global evolution. arXiv preprint arXiv:2206.07681 , 2022. URL https://arxiv.org/abs/2206.07681 .[38] Zhenghao Zhang, Yuanxiang Wang, Zhenyu Guan, Yujia Yang, Bingkang Shi, Tianyu Zong, Hongzhu Yi, Guoqing Chao, Xingchen Chen, Tiankun Yang, Chenxi Bao, Tao Yu, Jingjing Zhou, and Jungang Xu. Delta-JEPA: Learning action-sensitive world models via latent difference decoding. arXiv preprint arXiv:2606.31232 , 2026. URL https://arxiv.org/abs/2606.31232 .[39] Gaoyue Zhou, Hengkai Pan, Yann LeCun, and Lerrel Pinto. DINO-WM: World models on pre-trained visual features enable zero-shot planning. arXiv preprint arXiv:2411.04983 , 2024. URL https://arxiv.org/abs/2411. 04983 .
+
+19

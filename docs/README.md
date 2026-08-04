@@ -1,100 +1,106 @@
-<div class="dpr-home-notice-card">
-  <h3 class="dpr-home-notice-title">🚀 Start Here</h3>
-  <ul class="dpr-home-notice-list">
-    <li><a href="#/tutorial/README">使用教程</a></li>
-  </ul>
+<div class="dpr-home-notice-card dpr-home-panel">
+  <div class="dpr-home-notice-header dpr-home-panel-header">
+    <h3 class="dpr-home-notice-title">公告与更新</h3>
+    <a class="dpr-home-notice-tutorial" href="#/tutorial/README">使用教程 <span aria-hidden="true">›</span></a>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-07-20">07.20</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">反馈功能上线</strong>
+      <span class="dpr-home-notice-entry-summary">新增反馈功能，欢迎大家踊跃反馈各种建议，我们会第一时间查看并协调处理。</span>
+    </div>
+  </div>
+  <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-07-19">07.19</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">首页新增社区统计</strong>
+      <span class="dpr-home-notice-entry-summary">现在可以看到今天看论文的人数和项目加入人数。</span>
+    </div>
+  </div>
+  <div class="dpr-home-site-stats" data-dpr-site-stats hidden aria-live="polite">
+    <span>今天有 <strong class="dpr-home-site-stat-value" data-dpr-daily-readers>--</strong> 人在看论文</span>
+    <span class="dpr-home-site-stat-separator" aria-hidden="true">·</span>
+    <span>昨天有 <strong class="dpr-home-site-stat-value" data-dpr-yesterday-readers>--</strong> 人在看论文</span>
+    <span class="dpr-home-site-stat-separator" aria-hidden="true">·</span>
+    <span>已有 <strong class="dpr-home-site-stat-value" data-dpr-fork-count>--</strong> 人加入 Daily Paper Reader</span>
+    <span class="dpr-home-history">
+      <button type="button" class="dpr-home-history-trigger" data-dpr-history-trigger aria-label="查看最近 14 天阅读趋势"><span aria-hidden="true">🔍</span></button>
+      <span class="dpr-home-history-popover" data-dpr-history-popover role="tooltip">
+        <span class="dpr-home-history-header">近 14 天阅读趋势</span>
+        <span class="dpr-home-history-meta">
+          <span data-dpr-history-range>--</span>
+          <span>峰值 <strong data-dpr-history-peak>--</strong></span>
+        </span>
+        <span class="dpr-home-history-chart" data-dpr-history-chart></span>
+      </span>
+    </span>
+  </div>
 </div>
 
-## 每次日报
-- 最新运行日期：2026-07-27
-- 运行时间：2026-07-27 22:02:06 UTC
-- 运行状态：成功
-- 本次总论文数：23
-- 精读区：10
-- 速读区：13
+<div class="dpr-home-dashboard-grid">
+<section class="dpr-home-dashboard-card dpr-home-report-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">2026-07-26 ~ 2026-08-04</span>
+      <h3 class="dpr-home-dashboard-title">今日汇总</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">共 37 篇</strong>
+  </div>
+  <dl class="dpr-home-dashboard-stats">
+    <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>24</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
+  </dl>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-04 03:15:05 UTC<br>状态：成功</p>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-brief-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">合并后生成</span>
+      <h3 class="dpr-home-dashboard-title">今日简报</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">AI</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<p>今日共扫描37篇论文，精读24篇、速读13篇，核心聚焦LLM智能体自我进化与科学方程发现两大方向。最值得关注的是满分论文《SkillMentor》提出盲点诊断式自我进化机制，以及《MOT-SR》用多目标工具增强科学方程发现；此外可留意8分速读中关于振动非平衡可压缩流神经网络闭合模型、PDE控制的联合嵌入预测方法。普通读者建议优先精读两篇满分论文，后续可追踪工具增强与自监督方法在科学计算中的交叉应用。</p>
+  </div>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-deep-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">今日累计</span>
+      <h3 class="dpr-home-dashboard-title">精读推荐</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">24 篇</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SkillMentor: LLM Agent Self-Evolution via Learning Blind-Spot Diagnosis">SkillMentor: LLM Agent Self-Evolution via Learning Blind-Spot Diagnosis</span></li><li><span class="dpr-home-dashboard-paper-title" title="MOT-SR: Multi-Objective Tool-Augmented Scientific Equation Discovery with Large Language Models">MOT-SR: Multi-Objective Tool-Augmented Scientific Equation Discovery with Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Extending Fourier Neural Operators for Modeling Parameterized and Coupled PDEs">Extending Fourier Neural Operators for Modeling Parameterized and Coupled PDEs</span></li></ul>
+  </div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>10</strong></span><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span></div>
+</section>
+<section class="dpr-home-dashboard-card dpr-home-skim-card">
+  <div class="dpr-home-dashboard-header">
+    <div>
+      <span class="dpr-home-dashboard-kicker">今日累计</span>
+      <h3 class="dpr-home-dashboard-title">速读推荐</h3>
+    </div>
+    <strong class="dpr-home-dashboard-count">13 篇</strong>
+  </div>
+  <div class="dpr-home-dashboard-body">
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A physics-assisted deep neural network-based closure framework for velocity gradient dynamics in compressible flows with vibrational non-equilibrium">A physics-assisted deep neural network-based closure framework for velocity gradient dynamics in compressible flows with vibrational non-equilibrium</span></li><li><span class="dpr-home-dashboard-paper-title" title="Toward Goal-Agnostic Joint-Embedding Predictive Control of Partial Differential Equations">Toward Goal-Agnostic Joint-Embedding Predictive Control of Partial Differential Equations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Variance-Reduced Q-Learning over Static and Time-Varying Networks">Variance-Reduced Q-Learning over Static and Time-Varying Networks</span></li></ul>
+  </div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>9</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>4</strong></span></div>
+</section>
+</div>
 
-### 今日简报（AI）
-今日精选23篇论文，精读聚焦行为智能体工程化与多智能体强化学习新框架。最值得关注的是Skillware（9.0）提出的软件本体与工程生命周期，以及CHMAS（9.0）的层级耦合多智能体方法。建议优先从精读论文入手，深入理解行为智能体持久化与多智能体协同机制。
-- 详情：[/202607/27/README](/202607/27/README)
-
-### 精读区论文标签
-1. [Skillware: A Software Ontology and Engineering Lifecycle for Persistent Behavioral Artifacts](/202607/27/2607.18970v1-skillware-a-software-ontology-and-engineering-lifecycle-for-persistent-behavioral-artifacts)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：引入持久智能体技能的软件本体和工程生命周期
-2. [CHMAS: A Coupled Hierarchical Framework for Multi-Agent Reinforcement Learning](/202607/27/2607.19555v1-chmas-a-coupled-hierarchical-framework-for-multi-agent-reinforcement-learning)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：用于多智能体强化学习的耦合分层框架，包含技能学习与迁移
-3. [Workflow-Localized Mechanism Learning: Attribution-Guided Repair and Knowledge Reuse for Structured Agent Skills](/202607/27/2607.20999v1-workflow-localized-mechanism-learning-attribution-guided-repair-and-knowledge-reuse-for-structured-agent-skills)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：通过归因与复用实现工作流局部化以改进智能体技能
-4. [Searching the Space of Feed-Forward Neural-Network Weight-Update Rules with Fixed Depth Symbolic Regression](/202607/27/2607.21855v1-searching-the-space-of-feed-forward-neural-network-weight-update-rules-with-fixed-depth-symbolic-regression)  
-   标签：评分：9.0/10、query:sr
-   evidence：用符号回归发现神经网络权重更新规则
-5. [Generalized Neural Operator for Parametric and Boundary-Value Problems](/202607/27/2607.21932v1-generalized-neural-operator-for-parametric-and-boundary-value-problems)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：提出广义神经算子用于PDE，讨论PINN和物理约束
-6. [Energy Manifold Natural Gradient Descent: Riemannian Optimization for Neural PDE Solvers](/202607/27/2607.22004v1-energy-manifold-natural-gradient-descent-riemannian-optimization-for-neural-pde-solvers)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：提出面向物理信息神经PDE求解器的黎曼优化方法
-7. [Learning on the Job: Continual Learning from Deployment Feedback for Frozen-Weights Agents](/202607/27/2607.22157v1-learning-on-the-job-continual-learning-from-deployment-feedback-for-frozen-weights-agents)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：智能体从部署反馈中持续学习
-8. [Latent PDE mapping for efficient physics-informed learning across geometries with limited data](/202607/27/2607.22215v1-latent-pde-mapping-for-efficient-physics-informed-learning-across-geometries-with-limited-data)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：物理信息神经网络用于跨几何体偏微分方程求解
-9. [Physics-Informed Neural Network for Modeling the Dynamic Behavior of Grid-Forming Converters](/202607/27/2607.22327v1-physics-informed-neural-network-for-modeling-the-dynamic-behavior-of-grid-forming-converters)  
-   标签：评分：9.0/10、query:physics-ml
-   evidence：物理信息神经网络用于变流器动力学
-10. [Skill Self-Play: Pushing the Frontier of LLM Capability with Co-Evolving Skills](/202607/27/2607.22529v1-skill-self-play-pushing-the-frontier-of-llm-capability-with-co-evolving-skills)  
-   标签：评分：9.0/10、query:cfd-agent
-   evidence：通过自我博弈共进化智能体技能以提升LLM能力
-
-### 速读区论文标签
-1. [Physics-constrained machine learning for decoding multi-nanobubble configurations in graphene](/202607/27/2607.17866v1-physics-constrained-machine-learning-for-decoding-multi-nanobubble-configurations-in-graphene)  
-   标签：评分：8.0/10、query:physics-ml
-   evidence：物理约束机器学习
-2. [Physical Self-Supervised Learning: IMU Sensing without Manual Labels](/202607/27/2607.18361v1-physical-self-supervised-learning-imu-sensing-without-manual-labels)  
-   标签：评分：8.0/10、query:physics-ml
-   evidence：物理自监督学习利用物理约束进行IMU感知
-3. [AGENTS4GEOS: agentic platform for open-source multi-physics simulation](/202607/27/2607.18557v1-agents4geos-agentic-platform-for-open-source-multi-physics-simulation)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：用于GEOS多物理模拟的AI代理平台
-4. [Integrating Deep Learning and Contraction Theory for Robust Nonlinear State Estimation via Unsupervised Scientific Machine Learning](/202607/27/2607.19926v1-integrating-deep-learning-and-contraction-theory-for-robust-nonlinear-state-estimation-via-unsupervised-scientific-machine-learning)  
-   标签：评分：8.0/10、query:physics-ml
-   evidence：基于物理约束的无监督科学机器学习求解PDE
-5. [EvoDRC: A Self-Evolving Agentic Framework for Automated DRC Violation Repair](/202607/27/2607.20019v1-evodrc-a-self-evolving-agentic-framework-for-automated-drc-violation-repair)  
-   标签：评分：8.0/10、query:cfd-agent
-   evidence：用于DRC修复中技能进化的自进化智能体框架
-6. [Reward-Driven LLM Agent Workflows: Synthesizing POMDP Routing and Self-Correction for Autonomous Decision-Making](/202607/27/2607.17038v1-reward-driven-llm-agent-workflows-synthesizing-pomdp-routing-and-self-correction-for-autonomous-decision-making)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：利用POMDP路由和自我修正奖励模型的智能体技能发展
-7. [HACO: Hedged Agent Computing for Reliable LLM Systems](/202607/27/2607.19215v1-haco-hedged-agent-computing-for-reliable-llm-systems)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：通过运行时对冲提升智能体技能
-8. [Knowledge-Centric Self-Improvement](/202607/27/2607.19592v1-knowledge-centric-self-improvement)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：知识中心自我改进提升智能体技能
-9. [Dreamer-CPC: Message Learning with World Models for Decentralized Multi-agent Reinforcement Learning](/202607/27/2607.19809v1-dreamer-cpc-message-learning-with-world-models-for-decentralized-multi-agent-reinforcement-learning)  
-   标签：评分：7.0/10、query:cfd-agent
-   evidence：基于世界模型的多智能体强化学习技能发展
-10. [Otap:Structure-Aware Optimal Transport for Evaluating Planning and Execution in Agent Trajectories](/202607/27/2607.17082v1-otapstructure-aware-optimal-transport-for-evaluating-planning-and-execution-in-agent-trajectories)  
-   标签：评分：6.0/10、query:cfd-agent
-   evidence：基于最优传输的智能体轨迹结构感知评估
-11. [Adapting Embedding Models for Agent Capability Retrieval](/202607/27/2607.17347v1-adapting-embedding-models-for-agent-capability-retrieval)  
-   标签：评分：6.0/10、query:cfd-agent
-   evidence：在开放市场中适应检索模型以搜索智能体能力
-12. [MagicSelector: Joint Optimization for Agent Tool Selection via Counterfactual Decomposition and Progressive Reranking](/202607/27/2607.17751v1-magicselector-joint-optimization-for-agent-tool-selection-via-counterfactual-decomposition-and-progressive-reranking)  
-   标签：评分：6.0/10、query:cfd-agent
-   evidence：联合优化智能体工具选择以提升技能
-13. [Towards Agentic Agent-based Models: Feasibility, Performance, and Statistical Model Checking](/202607/27/2607.17948v1-towards-agentic-agent-based-models-feasibility-performance-and-statistical-model-checking)  
-   标签：评分：6.0/10、query:cfd-agent
-   evidence：基于LLM驱动的智能体增强ABM仿真
-
-
-<div class="dpr-home-promo-card">
-  <h3 class="dpr-home-promo-title">💬 社区与支持</h3>
-  <ul class="dpr-home-promo-list">
-    <li>欢迎 Star / Fork / Issue / PR</li>
-    <li>QQ群：583867967（欢迎交流，已有：1151人）</li>
-  </ul>
+<div class="dpr-home-promo-card dpr-home-panel">
+  <div class="dpr-home-panel-header">
+    <h3 class="dpr-home-promo-title">社区与支持</h3>
+  </div>
+  <p class="dpr-home-promo-copy">欢迎通过 Star、Fork、Issue 或 PR 一起完善 Daily Paper Reader。</p>
+  <div class="dpr-home-promo-meta">
+    <span>QQ群 <strong>583867967</strong></span>
+    <span class="dpr-home-promo-separator" aria-hidden="true">·</span>
+    <span>已有 <strong>1,491</strong> 人参与交流</span>
+  </div>
 </div>

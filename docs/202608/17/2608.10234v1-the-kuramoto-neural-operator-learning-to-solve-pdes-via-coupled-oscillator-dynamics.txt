@@ -1,0 +1,1366 @@
+Title: The Kuramoto Neural Operator: Learning to Solve PDEs via Coupled Oscillator Dynamics
+
+URL Source: https://arxiv.org/pdf/2608.10234v1
+
+Published Time: Wed, 12 Aug 2026 00:22:51 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+## BRAIn Lab 
+
+# The Kuramoto Neural Operator: Learning to Solve PDEs via Coupled Oscillator Dynamics 
+
+Petr Badolia 1, Leonid Obukhov 1, Dmitry Bylinkin 1, Aleksandr Beznosikov 1,2 
+
+> 1
+
+Basic Research of Artificial Intelligence Laboratory (BRAIn Lab) 
+
+> 2
+
+Innopolis University Operator learning is a rapidly advancing area of computational science. It is particularly well suited to problems where a partial differential equation (PDE) must be solved repeatedly under varying physical configurations. Most existing architectures represent the solution operator in a fixed basis. While this as-sumption is well aligned with global structures, it is less suitable for phenomena governed by local interactions in physical space. We explore an alternative perspective motivated by the observation that the continuum limit of coupled oscillator systems can describe a broad class of PDEs. Building on this idea, we introduce the Kuramoto Neural Operator (KNO), which represents the solution through the evolution of a latent field of interacting oscillators. Across a diverse collection of PDE benchmarks, KNO achieves strong predictive performance, with improvements over competing approaches. Our experimental evaluation also includes an extensive ablation study that quantifies the contribution of each architectural component incorporated into KNO. Furthermore, we show that the model’s prediction error is closely linked to the collective dynamics of the latent oscillators. It varies systematically with their degree of synchronization, providing insights into the underlying mechanisms. 
+
+1 Introduction 
+
+A large class of problems in modern physics and engineering can be formulated as solving partial differential equations (PDEs) that govern the evolution of fields distributed over space and time. Numerical algorithms, including finite-difference [LeVeque, 2007], finite-element [Ciarlet, 2002], finite-volume [Moukalled et al., 2015], and spectral methods [Canuto et al., 2006], remain the standard tools for accurate simulation of such systems. However, in many practical settings such as mesh optimization, inverse modeling, and real-time forecasting, the same PDE must be solved repeatedly under varying configurations [Ashton et al., 2024]. Running a solver from scratch for each instance quickly becomes a major computational bottleneck [Kovachki et al., 2023]. Neural operators [Kovachki et al., 2023] are deep learning architectures that address this issue. They learn a mapping between function spaces directly from data. A trained operator approximates the solution for a new PDE with a single forward pass, at a fraction of the cost of running a classical solver [Li et al., 2023b]. Among neural operator architectures, a prominent line of work represents the target solution operator in a fixed, analytically motivated basis [Li et al., 2020; Cao et al., 2024; Lu et al., 2021]. Such operators impose a global coupling across all spatial locations. While this approach represents smooth, large-scale structure efficiently, it smears out sharp or spatially localized features, such as steep fronts, discontinuities, and moving interfaces [Liu et al., 2026]. Instead of engineering a more expressive fixed basis, one can model the dynamics that generate the solution. In many PDEs, it has fewer effective degrees of freedom than the discretized state space [Kochkov et al., 2020; Fresca et al., 2021]. A low-dimensional trajectory is then enough to reconstruct the full field. Such an approach targets the mechanism that produces the output, not its appearance in a prescribed set of modes. This raises the question: 1arXiv:2608.10234v1 [cs.CE] 10 Aug 2026 can operator learning be formulated as learning the latent dynamics itself, rather than a representation in a fixed basis? 
+
+Interacting oscillator systems provide a natural candidate for such latent dynamics. Indeed, wave equations can be interpreted as continuum limits of coupled oscillators [Torre, 2014]. Oscillatory structure also appears in Schr¨ odinger-type [Sacchetti, 2020] and transport dynamics [Gupta et al., 2012]. More generally, recent studies demonstrate that, in the continuum limit, large ensembles of interacting oscillators converge to nonlinear, nonlocal evolution equations [Medvedev, 2018]. Furthermore, oscillatory structure supplies a built-in measure of synchro-nization, equivalent to a discrete Dirichlet energy density. Such a quantity can potentially serve as an indicator of prediction reliability that is unavailable in traditional neural operator architectures. These findings suggest that oscillator-based dynamics provide a meaningful inductive bias for neural operator architectures. Motivated by this perspective, we introduce the Kuramoto Neural Operator (KNO) , which represents the latent state of the neural operator as a field of interacting oscillatory units evolving directly over the physical domain. The resulting multi-layer architecture may be interpreted as a sequence of learned evolution operators acting on this latent dynamical system. By repeatedly alternating local interaction and nonlinear evolution, KNO constructs a latent representation capable of capturing both local transport phenomena and long-range dependencies. Finally, the latent state is decoded into the target function space to approximate the underlying PDE solution operator. 
+
+Contributions 
+
+• We propose a novel perspective on neural operators, in which PDE solution operators are modeled through the hidden evolution of a coupled field of oscillators in physical space. Based on this idea, we introduce the Kuramoto Neural Operator as a concrete instantiation. • We show that the proposed inductive bias is particularly effective on wave-dominated, oscillatory, and transport-dominated neural operator benchmarks. • We conduct ablation studies to isolate the contributions of the principal components, as well as a series of experiments aimed at investigating the properties of the proposed architecture. • We identify a correlation between prediction error and the degree of oscillator synchronization. Because this relationship holds locally, it lets us localize prediction error and flag the regions where it concentrates, without any auxiliary probe or learned decoder. 
+
+2 Preliminaries 
+
+Neural Operators. Given input and output function spaces A(D; Rda ) and U(D; Rdu ) defined over a domain 
+
+D ⊂ Rd, the goal of a neural operator is to approximate 
+
+G† : A → U , a 7 → u, 
+
+where u = G†(a) denotes the solution corresponding to input a, by a parametric map Gθ ≈ G † learned from data 
+
+{(ai, u i)}Ni=1 [Kovachki et al., 2023]. We employ a finite-dimensional discretization of the domain. Let {xj }kj=1 ⊂ D be a set of k collocation points. The input function a is represented by its pointwise evaluations a = ( a(x1), . . . , a (xk)) ∈ Rk×da , and analogously for the output u. The learning problem then becomes 
+
+min 
+
+> θ
+
+"
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+Gθ(ai) − ui 2
+
+#
+
+.
+
+In this formulation, a desirable property is discretization-invariance. One set of parameters should be shared across mesh resolutions, including those not seen during training. 2Kuramoto system. The classic Kuramoto model [Kuramoto, 1984] describes the dynamics of M coupled phase oscillators: 
+
+˙ψi = ωi + KM
+
+> M
+
+X
+
+> j=1
+
+sin( ψj − ψi), i = 1 , . . . , M, 
+
+where ψi ∈ [0 , 2π) is the phase of the i-th oscillator, ωi ∈ R is its natural frequency drawn from some distribution, and K ≥ 0 is the global coupling strength. This formulation naturally extends to arbitrary dimensions q ∈ Sn−1. By replacing the rotational term ωi with an arbitrary skew-symmetric matrix Ωi and generalizing the uniform all-to-all coupling to an arbitrary coupling kernel Kij ≥ 0, we obtain the following generalized model [Chandra et al., 2019]: 
+
+˙qi = Ω iqi + Proj qi
+
+X
+
+> j
+
+Kij qj
+
+ , (1) where Proj qi denotes projection onto the tangent space of the sphere at qi.
+
+3 Related Work 
+
+Neural Operators. One of the earliest neural operator architectures is DeepONet [Lu et al., 2021], which represents a solution operator as an inner product between embeddings of the input function and the evaluation coordinate. The Fourier Neural Operator [Li et al., 2020] instead parametrizes the mapping in the frequency domain, and has since been extended in many directions [Wen et al., 2022; Li et al., 2023a; Liu et al., 2025], including variants that swap the Fourier transform for other integral transforms [Cao et al., 2024; Liu et al., 2026; Lu et al., 2026]. Closer to our setting, several methods move beyond a fixed basis. The Latent Field Model [Kochkov et al., 2020] encodes the physical state into a low-dimensional, spatially local latent representation, evolves it in time with a learned derivative network, and decodes back to physical space only at the final step. FNO-DEQ [Marwah et al., 2023] instead represents the steady-state solution implicitly, as the fixed point of a weight-tied FNO obtained by root-finding rather than by unrolling a fixed number of layers. In both cases, the latent evolution is learned and carries no explicit physical structure, while the latent states provide no signal of prediction reliability. 
+
+The Kuramoto model. The Kuramoto model [Kuramoto, 1984] is a canonical model for studying synchroniza-tion and collective behavior. Despite its simplicity, the model exhibits a rich repertoire of dynamical behavior, shaped by the coupling structure between oscillators [Medvedev, 2018]. Beyond the classical phase model, a broad literature generalizes Kuramoto dynamics by replacing scalar phases with vector-valued states on higher-dimensional manifolds. The most studied case places oscillators on the unit sphere, with further extensions to hyperbolic spaces, Stiefel manifolds, and Lie groups [Chandra et al., 2019; Ja´ cimovi´ c, 2024; Lipton et al., 2021; Lohe, 2009; Markdahl et al., 2021]. These results show that Kuramoto-type dynamics can describe systems with internal degrees of freedom on structured state spaces, motivating their use as a model of internal evolution in PDE systems. Only recently have Kuramoto-inspired dynamical systems begun to attract attention in machine learning. Existing works remain relatively few and have primarily focused on applications such as image processing [Miyato et al., 2025; Song et al., 2026; Xiao et al., 2026]. These studies suggest that synchronization dynamics may provide a useful computational mechanism beyond their traditional applications. 
+
+4 Methodology 
+
+Overview. KNO follows the standard neural operator template: a pointwise lifting, a stack of latent layers, and a pointwise projection. Additionally, several integration stages are also performed within each layer. We index 3(a) 
+
+a(x) Lift    
+
+> Stimulus encoder
+> q(0) ∼ U (Sn−1)
+
+KNO layer 1
+
+KNO layer 2 · · · KNO layer L
+
+Proj u(x)
+
+> h(0)
+> s(0)
+> h(1)
+> q(1)
+> s(1)
+> h(L)
+
+(b)     
+
+> Outer stages t= 0 , . . . , T l−1
+> hl
+> ql
+> sl
+> ql,t
+> sl,t
+
+. . . . . . 
+
++    
+
+> Inner integration steps r= 0 , . . . , R −1
+
+Rotation Coupling 
+
++ Projected step 
+
+...  
+
+> q(r)
+> l,t q(r+1)
+> l,t
+
+...
+
+> Stimulus feedback
+
+Decoder 
+
+> ∆hql,t +1
+> sl,t +1
+
+. . . . . . 
+
+> hl+1
+> ql+1
+> sl+1
+
+Figure 1: KNO architecture. (a) The input is lifted pointwise to a feature field h (blue); the oscillators q (green) are initialized at random on the sphere, and the stimulus s (orange) is initialized from a band-limited projection of 
+
+h. Next, L KNO layers jointly evolve the triple (h, q, s ), and a pointwise projection produces the output. (b) Inside layer l, the feature field hl is resampled to the canonical grid and conditions the dynamics. Each of the Tl stages integrates the projected Kuramoto update (3) for R integration steps and then refreshes the stimulus through the readout gl,t in (4). The final oscillator state is decoded and added to the feature field as a residual correction according to (5). layers by l = 0 , . . . , L − 1, stages by t = 0 , . . . , T l − 1, and integration steps by r = 0 , . . . , R − 1. Let us further denote a feature grid associated with layer l and a fixed canonical grid as Sl and Sc, respectively. Figure 1 shows a schematic overview of the architecture. Throughout the network, the model maintains three interacting latent objects: a feature field hl : Sl → Rc, which stores the current representation of the solution; an oscillator field ql,t : Sc → (Sn−1)M , which carries the latent dynamics; and a stimulus field sl,t : Sc → RM n , through which the feature and oscillator pathways exchange information. The three fields evolve at different rates: the oscillator field q is updated at every inner step, the stimulus s once per stage, and the feature field h once per layer. 
+
+Oscillator state. The latent state at each point x ∈ Sc consists of M oscillators {ql,t,m (x)}Mm=1 ⊂ Sn−1, stored jointly as a field with M n channels. On each forward pass, initial oscillators are sampled independently and uniformly on the sphere by normalizing standard Gaussian vectors. 
+
+Stimulus. The stimulus is a persistent external conditioning signal. At the beginning of the network, it is initialized from a band-limited projection of the lifted input via a convolutional encoder: 
+
+s0,0 = Encoder ( RS0→Sc [Π ≤kh0]) ,
+
+4where Π≤k retains the Fourier coefficients within a centered low-frequency window, RS0→Sc is the spectral resam-pling operator. It is implemented by cropping or zero-padding Fourier coefficients. 
+
+Canonical latent grid. The oscillator and stimulus fields are represented on the fixed canonical grid Sc. At the beginning of layer l, the feature field is transferred from its current grid Sl to Sc using hcl = RSl→Sc [hl]. The conditioning field hcl is held fixed throughout the oscillator dynamics of layer l. Since the evolution of ql,t,m and 
+
+sl,t is always evaluated on Sc, its computational cost is decoupled from the input resolution. 
+
+Local coupling. KNO replaces the kernel Kij in (1) with a learned mapping. At integration step r, it concate-nates the current oscillator field q(r) 
+
+> l,t
+
+with the conditioning field hcl and passes the result through a convolutional block. The block’s output is concatenated with its original input, and a pointwise MLP then maps this represen-tation to M n message channels of cl,t (q(r) 
+
+> l,t
+
+, h cl ).
+
+Rotation and latent dynamics. Let q(0)  
+
+> l,t
+
+denote the oscillator state at the beginning of stage t. At each integration step r, the learnable skew-symmetric matrix Ωl,t,m is applied to corresponding oscillator m. The resulting rotation is then combined with the oscillator interaction and the stimulus. Thus, denoting cl,t,m ≡
+
+cl,t (q(r) 
+
+> l,t
+
+, h cl )m and dropping arguments for brevity, the force driving inner update r for the m-th oscillator is 
+
+Fl,t,m = cl,t,m + sl,t,m + Ω l,t,m q(r)
+
+> l,t,m
+
+. (2) Terms in (2) are represented as fields with M n channels, corresponding to one n-dimensional force vector per oscillator. 
+
+Projected step. At integration step r, KNO first projects the oscillator field onto the tangent space at the current state: 
+
+v(r) 
+
+> l,t,m
+
+= Proj q(r)
+
+> l,t,m
+
+h
+
+Fl,t,m 
+
+
+
+q(r) 
+
+> l,t
+
+, h cl , s l,t 
+
+i 
+
+.
+
+It then takes an Euler step along this tangent vector and retracts the result oscillator-wise onto the sphere using 
+
+q(r+1)  
+
+> l,t,m
+
+= N
+
+
+
+q(r) 
+
+> l,t,m
+
++ γl,t v(r)
+
+> l,t,m
+
+
+
+, (3) where N (z) = z/∥z∥, the learned scalar update coefficient γl,t is shared across all integration steps of the current stage. After R integration steps, the oscillator state at the beginning of the next stage is defined by ql,t +1 = q(R) 
+
+> l,t
+
+.
+
+Stimulus feedback. After the R integration steps, the stimulus is refreshed by an exponential moving average: 
+
+sl,t +1 = αlsl,t + (1 − αl) gl,t (ql,t +1 ) , (4) where αl = σ(al) ∈ (0 , 1) is a learned layer-specific retention coefficient shared across the outer stages of layer l.Following the norm-based readout of [Miyato et al., 2025], gl,t applies a learned pointwise expansion to ql,t +1 ,reshapes the expanded channels into groups, takes their Euclidean norms, adds a learned bias, and applies a lightweight convolutional postprocessor. Thus, the stimulus provides persistent feedback from the current oscillator state while retaining information injected at earlier stages. 
+
+KNO layer. At each layer l, each stage t consists of R weight-tied updates from (3), followed by one stimulus refresh from (4). The parameters (cl,t , g l,t , γ l,t , Ωl,t ) are specific to the stage, while the retention coefficient αl is shared across all stages of layer l.After all Tl outer stages, a layer-specific pointwise decoder maps the terminal oscillator state to a feature correction. It is then transferred from the canonical grid Sc to the feature grid Sl+1 and added residually: 
+
+hl+1 = RSl→Sl+1 [hl] + RSc→Sl+1 [Decoder l (ql,T l )] . (5) 5The oscillator and stimulus states are carried into the next layer without reinitialization as ql+1 ,0 = ql,T l and 
+
+sl+1 ,0 = sl,T l , respectively. 
+
+5 Positioning Relative to AKOrN 
+
+AKOrN [Miyato et al., 2025] is the closest architectural precedent for the latent dynamics of KNO. Both represent hidden states via sphere-valued oscillators, evolve them through iterative Euler updates with tangent-projected interactions and oscillator-wise normalization, and read them out through a rotation-invariant, norm-based map. AKOrN, however, targets discrete perception, where the oscillator readout feeds directly into the next layer, whereas KNO adapts the same primitive to operator learning. The main architectural differences follow from this shift. Firstly, the coupling in KNO is feature-conditioned. Rather than receiving information only as a fixed additive stimulus, KNO concatenates the oscillator field with the feature field hcl before the local convolution. This lets the current solution features modulate the interactions directly. Secondly, KNO keeps the feature field separate from the persistent oscillator and stimulus fields and uses two pathways. Within a layer, the readout feeds back into the dynamics through the stimulus (4). Across layers, a separate decoder maps the oscillator state into a residual feature update (5). There are also numerous smaller differences between KNO and AKOrN. A detailed description of the KNO archi-tecture is provided in Appendix E. 
+
+6 Experiments 
+
+Table 1: Relative L2 errors on benchmark PDEs (lower is better). The best result in each row is bold and the second best is underlined; ties at the displayed precision are marked jointly. Task Split KNO (ours) FNO RNO ConvFNO DeepONet UNet CNO FNO-WT FNO-DEQ AKOrN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+
+> Poisson ID 0.0074 ±0.0008 0.0632 ±0.0008 0.0645 ±0.0013 0.0524 ±0.0177 0.1846 ±0.0000 0.0101 ±0.0005 0.0034 ±0.0001 0.0602 ±0.0014 0.0639 ±0.0039 0.0641 ±0.0003
+> OOD 0.0189 ±0.0086 0.0510 ±0.0063 0.0486 ±0.0013 0.0584 ±0.0137 0.1277 ±0.0000 0.0412 ±0.0202 0.0071 ±0.0019 0.0565 ±0.0023 0.0596 ±0.0031 0.0632 ±0.0066
+> Wave ID 0.0032 ±0.0012 0.0218 ±0.0005 0.0164 ±0.0001 0.0171 ±0.0005 0.0470 ±0.0021 0.0293 ±0.0001 0.0127 ±0.0005 0.0146 ±0.0002 0.0140 ±0.0006 0.0186 ±0.0007
+> OOD 0.0137 ±0.0002 0.0277 ±0.0007 0.0215 ±0.0001 0.0231 ±0.0004 0.0517 ±0.0014 0.0339 ±0.0007 0.0198 ±0.0005 0.0208 ±0.0002 0.0203 ±0.0006 0.0242 ±0.0006
+> Allen–Cahn ID 0.0013 ±0.0001 0.0043 ±0.0001 0.0032 ±0.0001 0.0028 ±0.0004 0.2784 ±0.0054 0.0175 ±0.0004 0.0101 ±0.0004 0.0050 ±0.0006 0.0042 ±0.0003 0.0283 ±0.0016
+> OOD 0.0251 ±0.0056 0.0347 ±0.0061 0.0307 ±0.0044 0.0450 ±0.0285 0.4917 ±0.0175 0.0370 ±0.0006 0.0862 ±0.0256 0.0325 ±0.0046 0.0349 ±0.0035 0.1454 ±0.0190
+> Cont. translation ID 0.0007 ±0.0000 0.0031 ±0.0001 0.0031 ±0.0001 0.0022 ±0.0000 0.0155 ±0.0002 0.0026 ±0.0004 0.0017 ±0.0001 0.0024 ±0.0001 0.0024 ±0.0001 0.0064 ±0.0004
+> OOD 0.0042 ±0.0004 0.0159 ±0.0129 0.0270 ±0.0056 0.0068 ±0.0008 0.9724 ±0.0393 0.0361 ±0.0119 0.0061 ±0.0005 0.0045 ±0.0009 0.0045 ±0.0008 0.0083 ±0.0006
+> Disc. translation ID 0.0120 ±0.0006 0.0169 ±0.0004 0.0173 ±0.0004 0.0160 ±0.0004 0.1184 ±0.0017 0.0207 ±0.0002 0.0143 ±0.0002 0.0158 ±0.0003 0.0157 ±0.0003 0.0140 ±0.0001
+> OOD 0.0123 ±0.0008 0.0208 ±0.0005 0.0686 ±0.0054 0.0191 ±0.0023 0.9181 ±0.0280 0.1144 ±0.0306 0.0178 ±0.0009 0.0174 ±0.0012 0.0180 ±0.0007 0.0144 ±0.0002
+> Darcy ID 0.0141 ±0.0013 0.0389 ±0.0011 0.0336 ±0.0005 0.0490 ±0.0070 0.2810 ±0.0135 0.0394 ±0.0030 0.0182 ±0.0005 0.0263 ±0.0009 0.0300 ±0.0018 0.0374 ±0.0052
+> OOD 0.0201 ±0.0010 0.0466 ±0.0008 0.0375 ±0.0004 0.0590 ±0.0034 0.1929 ±0.0056 0.0536 ±0.0059 0.0241 ±0.0005 0.0330 ±0.0001 0.0366 ±0.0020 0.0428 ±0.0047
+> Navier–Stokes ID 0.0950 ±0.0023 0.1181 ±0.0025 0.1505 ±0.0019 0.1219 ±0.0071 0.2674 ±0.0040 0.1587 ±0.0015 0.1121 ±0.0019 0.1169 ±0.0014 0.1432 ±0.0009 0.1923 ±0.0051
+> OOD 0.3899 ±0.1141 0.1867 ±0.0015 0.3534 ±0.0086 0.3469 ±0.0152 0.6245 ±0.0339 0.7759 ±0.0431 0.2109 ±0.0028 0.1883 ±0.0017 0.2094 ±0.0034 0.6414 ±0.1710
+> Airfoil ID 0.0112 ±0.0001 0.0105 ±0.0001 0.0116 ±0.0003 0.0119 ±0.0004 0.0162 ±0.0001 0.0118 ±0.0002 0.0102 ±0.0002 0.0104 ±0.0002 0.0101 ±0.0001 0.0192 ±0.0005
+> OOD 0.0212 ±0.0011 0.0188 ±0.0005 0.0216 ±0.0002 0.0210 ±0.0009 0.0286 ±0.0002 0.0213 ±0.0004 0.0196 ±0.0004 0.0183 ±0.0001 0.0181 ±0.0007 0.0286 ±0.0009
+
+6.1 Setup 
+
+Benchmark and evaluation protocol. We evaluate KNO on the Representative PDE Benchmark [Raonic et al., 2023]. The suite contains two-dimensional operator-learning problems spanning elliptic, hyperbolic, parabolic, transport, and incompressible-flow regimes. Each task is formulated as a supervised map between full fields sampled on a uniform grid. Unless stated otherwise, the input and target fields have the same spatial resolution, and all models are trained and evaluated on identical data splits. Each task provides out-of-distribution (OOD) and in-distribution (ID) data. The OOD split is generated under a task-specific shift, such as different forcing parameters, coupling strengths, or geometric configurations. Neither ID nor OOD test samples enter architecture, hyperparameter, or checkpoint selection. Detailed task definitions, dataset sizes, and OOD shifts are provided in Appendix C. All models are trained for 500 epochs with AdamW using a learning rate of 10 −3. The primary evaluation metric 6is the sample-averaged relative L2 error, a standard choice for operator learning [Wu et al., 2026]: 
+
+E (θ; F) = 1
+
+|F| 
+
+X
+
+> (a,u )∈F
+
+∥G θ(a) − u∥2
+
+∥u∥2
+
+, (6) where the norms are taken over all spatial locations and output channels. Reported results are the mean and standard deviation of the ID or OOD test errors over three seeds. For each task and each architecture, we select the best model using the same two-stage, validation-only protocol. Empirical analysis is conducted on a Linux server utilizing an NVIDIA TESLA A100 with 80 GB of GPU memory. Complete selection budgets, optimization schedule, normalization procedure, and implementation details are given in Appendix F. 
+
+Baselines. We compare KNO against 9 baselines: FNO [Li et al., 2020], its weight-tied and deep-equilibrium variants FNO-WT and FNO-DEQ [Marwah et al., 2023], RNO [Liu et al., 2026], ConvFNO [Liu et al., 2025], CNO [Raonic et al., 2023], DeepONet [Lu et al., 2021], UNet [Ronneberger et al., 2015], and a direct adaptation of AKOrN to operator learning. Together, these baselines cover the principal design axes against which we isolate the contribution of the oscillator dynamics. Architectural and implementation details are provided in Appendix D. 
+
+6.2 Benchmark Results 
+
+Table 1 establishes KNO as one of the strongest methods across the suite. It ranks best or second on 7 and 6 of the 
+
+8 ID and OOD tasks, respectively. Its advantages are clearest on PDEs with pronounced local spatial structure. On all 5 of these tasks, KNO ranks first both in and out of distribution. On Poisson , KNO ranks second on both splits. Unlike other PDEs, Poisson is a fixed linear map from forcing to solution. Such a stationary structure is well matched by hierarchical convolutions, which explains the superiority of CNO. In Darcy , by contrast, the coefficient field changes the operator itself, making the map nonlinear and spatially adaptive, which may explain why KNO stays competitive there despite both problems being elliptic. 
+
+Airfoil is instead dominated by geometry and boundary effects, for which uniform canonical-grid latent dynamics may provide a less appropriate inductive bias. Similarly, despite achieving the best ID result on Navier–Stokes ,KNO degrades under the combined resolution and geometry shift in the OOD split. Overall, KNO provides a broadly effective inductive bias for operator learning, while its limitations are concentrated in settings dominated by irregular geometry or substantial structural distribution shifts. 
+
+6.3 Ablations 
+
+We separate the ablations by the architectural question they address. All tables report ID-test relative L2 at validation-selected checkpoints, mean ± standard deviation over three seeds. 
+
+Dynamic components and controls. Starting from the full architecture, we remove the local coupling, the rotation or the persistent stimulus. We also consider a no-oscillator control that retains iterative latent refinement while replacing the oscillator-valued state with an unconstrained feature field.  
+
+> Table 2: Dynamic-component ablations. Lower is better.
+
+Variant Allen–Cahn Darcy 
+
+KNO 0.00134 ± 0.00007 0.0141 ± 0.0013 
+
+KNO w/o coupling 0.00217 ± 0.00010 0.0639 ± 0.0013 
+
+KNO w/o rotation 0.00208 ± 0.00012 0.0472 ± 0.0011 
+
+KNO w/o stimulus 0.00184 ± 0.00010 0.0156 ± 0.0015 
+
+No oscillator 0.01888 ± 0.02100 0.0818 ± 0.0259 
+
+Table 2 demonstrates that local cou-pling and rotation are the dominant components, while the stimulus provides a smaller additional benefit. The no-oscillator control performs substantially worse and is less stable across seeds, showing that repeated computation alone does not recover the structured oscillator-inspired dynamics of KNO. 7Geometry of the update. We compare the complete projected-and-retracted update with three alternatives: normalization without tangent projection (KNO w/o proj.), tangent projection without normalization (KNO w/o norm.), and an unconstrained Euclidean update (KNO w/o both). These controls separate the roles of the individual integration operations from that of constraining the latent state to the sphere.  
+
+> Table 3: Geometric ablations. Lower is better.
+
+Variant Allen–Cahn Darcy 
+
+KNO 0.00134 ± 0.00007 0.0141 ± 0.0013 
+
+KNO w/o proj. 0.00139 ± 0.00002 0.0143 ± 0.0007 
+
+KNO w/o norm. 0.14795 ± 0.00349 18 .8719 ± 10 .8946 
+
+KNO w/o both 0.00127 ± 0.00015 0.0187 ± 0.0072 
+
+Table 3 reveals that retraction by nor-malization is the most essential oper-ation. Removing the tangent projec-tion while retaining normalization leaves performance almost unchanged on both tasks. By contrast, applying the tangent projection without retracting the state causes a severe loss of accuracy, because the discretized trajectory is no longer kept on the manifold for which the projected vector field is defined. The unconstrained Euclidean update performs comparably to the spherical update on Allen–Cahn . On Darcy ,however, the Euclidean parameterization degrades both the mean accuracy and its stability across seeds. Thus, while the spherical constraint is not strictly necessary for Allen–Cahn , it provides a more robust inductive bias across tasks. 
+
+6.4 Robustness 
+
+In this subsection, we examine the sensitivity of KNO to the number and dimension of the oscillators. Additional studies of robustness can be found in Appendix A.                                  
+
+> Table 4: Oscillator-count sweep on Allen–Cahn at fixed n= 4 .Lower is better.
+> MAllen–Cahn MAllen–Cahn
+> 10.00196 ±0.00015 16 0.00134 ±0.00007
+> 20.00177 ±0.00026 32 0.00160 ±0.00020
+> 40.00158 ±0.00013 64 0.00174 ±0.00020
+> 80.00143 ±0.00001
+
+Number of oscillators. Table 4 varies the number of oscillators M while fixing their dimension at n = 4 . All other archi-tectural choices are kept fixed. Performance improves up to M = 16 
+
+and then deteriorates, showing that the gain cannot be explained by increasing the latent-channel budget or model capac-ity alone. 
+
+Dimension of oscillators. Table 5 varies the oscillator dimension n while keeping the total oscillator-channel budget M n fixed. This changes how the latent budget is partitioned between the number of oscillators and their dimensions.                                 
+
+> Table 5: Oscillator-dimension sweep on Allen–Cahn at fixed M n = 64 .Lower is better.
+> nAllen–Cahn nAllen–Cahn
+> 10.05962 ±0.00005 16 0.00145 ±0.00010
+> 20.02108 ±0.00706 32 0.00149 ±0.00010
+> 40.00134 ±0.00007 64 0.00172 ±0.00039
+> 80.00144 ±0.00020
+
+Very low-dimensional oscillators perform substantially worse. In particular, n = 1 
+
+corresponds to the degenerate sphere S0
+
+and leaves no continuous directional de-gree of freedom for the oscillator dynam-ics. The configurations with 4 ≤ n ≤ 32 
+
+obtain broadly similar errors. At n = 64 ,both the mean error and its variability in-crease, suggesting that assigning the entire channel budget to a single high-dimensional oscillator is not beneficial. 
+
+6.5 Collective Dynamics and Prediction Error 
+
+Analysis protocol. In this section, we examine how the predictive behavior of KNO is reflected in its collective oscillator dynamics. Flattening the nested layer, stage, and integration step structure of Section 4, we index the 8oscillator trajectory by a single cumulative update r = 0 , . . . , PL−1
+
+l=0 TlR, where r = 0 is the random initialization and each increment is one weight-tied step. For a spatial neighborhood N (x), define 
+
+D(r)loc (x) = 12M |N (x)|
+
+MX
+
+m=1 
+
+X
+
+y∈N (x)
+
+q(r)
+
+m (x) − q(r)
+
+m (y) 22 .
+
+Large values of Dloc indicate local loss of coherence. Up to a constant determined by the neighborhood convention, 
+
+Dloc /(∆ x)2 is a discrete Dirichlet-energy density of the latent spherical field, where ∆x denotes the spacing of Sc.For each sample i and each integration step r, we average the local incoherence map over oscillator states, and compare the resulting D(r)
+
+i against the ground truth gradient magnitude Gi = ∥∇ ui∥2 and local absolute error 
+
+Ei = E[|bui − ui|]. For Gi and Ei, we compute within-sample spatial Spearman rank correlations [Kendall and Gibbons, 1962], denoted as ρG and ρE , respectively. We additionally treat the final-depth local incoherence as a ranking score against a binary top-10% highest-error label within the valid domain. We use the area under the corresponding precision–recall curve ( AP ) and the probability that a positive pixel outranks a random negative one ( AUROC ). AP is more sensitive to the quality of the top of the ranking than AUROC . For Airfoil , all spatial statistics are restricted to fluid cells after removing a one-cell margin around the solid airfoil and a four-cell outer border. Target Random q0 Layer 1 Layer 2 Layer 3 Layer 4 Norm. error Target Random q0 Layer 2 Layer 4 Layer 6 Layer 8 Norm. error Target Random q0 Layer 1 Layer 2 Layer 3 Layer 4 Norm. error Target Random q0 Layer 1 Layer 2 Layer 3 Layer 4 Norm. error Target Random q0 Layer 2 Layer 4 Layer 6 Layer 8 Norm. error Target Random q0 Layer 1 Layer 2 Layer 3 Layer 4 Norm. error 
+
+Figure 2: Spatial formation of local incoherence across KNO depth. Top/bottom rows show OOD/ID examples chosen closest to the median checkpoint-averaged relative L2 error. Each panel shows the target, the 
+
+q0-averaged Dloc at initialization and at the indicated layer outputs, and the normalized final error. Translation panels overlay the target u=0 .5 contour; Airfoil panels overlay the airfoil boundary. 0 8 16 24 32 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Spatial Spearman
+
+Airfoil ID     
+
+> 0816 24 32 0.0 0.2 0.4 0.6 0.8 1.0
+
+Discontinuous Translation ID         
+
+> 04812 16 20 24 28 32 0.0 0.2 0.4 0.6 0.8 1.0
+
+Continuous Translation ID     
+
+> 0816 24 32
+> Cumulative Kuramoto update
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Spatial Spearman
+
+Airfoil OOD     
+
+> 0816 24 32
+> Cumulative Kuramoto update
+> 0.0 0.2 0.4 0.6 0.8 1.0
+
+Discontinuous Translation OOD         
+
+> 04812 16 20 24 28 32
+> Cumulative Kuramoto update
+> 0.0 0.2 0.4 0.6 0.8 1.0
+
+Continuous Translation OOD  
+
+> GE
+
+Figure 3: Depthwise formation of geometry and error alignment. Curves show median within-sample ρ(r)
+
+G
+
+and ρ(r)
+
+E ; lines and bands are the mean and standard deviation over three checkpoints. 9Results. Initially, local incoherence is diffuse and uninformative. However, through the KNO layers, it develops into a low-background representation concentrated near the transported interface on translation tasks and near the airfoil surface and surrounding high-gradient flow structures on Airfoil (see Figure 2). These structures are formed by the learned dynamics rather than inherited from the random initialization.     
+
+> Table 6: Final-depth local-incoherence statistics. AUROC /AP : top-10% -error-pixel ranking (random AP = 0 .1).
+
+Task Split ρG ρE AUROC AP 
+
+Disc. translation ID 0.676 ± 0.027 0.605 ± 0.196 0.951 ± 0.010 0.782 ± 0.022 
+
+OOD 0.646 ± 0.035 0.645 ± 0.167 0.951 ± 0.006 0.782 ± 0.018 
+
+Cont. translation ID 0.933 ± 0.015 0.899 ± 0.011 0.949 ± 0.008 0.630 ± 0.038 
+
+OOD 0.815 ± 0.011 0.862 ± 0.020 0.945 ± 0.006 0.590 ± 0.028 
+
+Airfoil ID 0.562 ± 0.071 0.364 ± 0.056 0.815 ± 0.012 0.356 ± 0.041 
+
+OOD 0.528 ± 0.071 0.424 ± 0.033 0.833 ± 0.004 0.378 ± 0.026 
+
+At final depth, Dloc is positively aligned with target geometry and local error on all three tasks, both for ID and OOD splits (Table 6). Continuous Translation has the strongest domain-wide correlations. Discontinuous Translation has a lower ρG, reflecting its thin jump set, but a comparable error relation and the highest AP :its error is concentrated in a narrow band that is captured by the strongest Dloc values. Airfoil is more difficult because neither target gradients nor prediction error are confined to a single transported interface. Nevertheless, 
+
+Dloc achieves an AUROC 0.815 on ID and 0.833 on OOD. Figure 3 confirms that these relations are constructed by the learned dynamics: ρE is essentially zero at r = 0 on every task and split. On the translation tasks, geometry-controlled error alignment appears early and then remains stable or grows through depth. On Airfoil , the signal forms later, emerging clearly by the third layer and remaining stable through the final output. Thus, the recurrent Kuramoto updates transform an initially random oscillator field into a task-specific geomet-ric representation. It acts as an architecture-native local error-risk signal that retains useful localization under distribution shift. Additional experiments on collective dynamics are given in Appendix B. 
+
+7 Conclusion 
+
+We introduced the Kuramoto Neural Operator, which models a solution operator through the evolution of a latent field of coupled spherical oscillators. Across eight PDE benchmarks, KNO ranks first or second on most ID and OOD tasks, with its strongest results on wave propagation, reaction–diffusion, translation, and heterogeneous elliptic flow. Ablations show that local coupling and rotational dynamics provide the largest gains, with a smaller additional benefit from the persistent stimulus; the spherical parameterization may not be essential on some tasks, but stabilizes overall performance. The recurrent dynamics turn an initially random oscillator field into a task-adapted representation of solution geometry, and its local incoherence localizes prediction errors, remaining informative under distribution shift without an auxiliary probe or learned uncertainty head. 
+
+8 Limitations 
+
+KNO evolves on a uniform grid. It is therefore less suited to problems dominated by irregular geometry, which is visible in our experiments on the Airfoil task. At the opposite end of the spectrum, KNO offers little advantage on simple linear operators, whose solution is a global smoothing of the input and is already captured well by standard convolutional models. 10 We have also restricted ourselves to a principled architectural design and have not explored several more advanced mechanisms, for instance, attention-based coupling. We expect that a more thorough investigation of each individ-ual component of KNO could yield further gains and, in particular, help address the tasks dominated by irregular geometry. Finally, the present evaluation is limited to two-dimensional, grid-based operators from a single benchmark suite. Establishing how KNO behaves on unstructured domains, high-dimensional problems, and long-horizon temporal rollout remains an open direction. 
+
+References 
+
+Donald G Anderson. Iterative procedures for nonlinear integral equations. Journal of the ACM (JACM) , 12(4): 547–560, 1965. Neil Ashton, Charles Mockett, Marian Fuchs, Louis Fliessbach, Hendrik Hetmann, Thilo Knacke, Norbert Schon-wald, Vangelis Skaperdas, Grigoris Fotiadis, Astrid Walle, et al. Drivaerml: High-fidelity computational fluid dynamics dataset for road-car external aerodynamics. arXiv preprint arXiv:2408.11969 , 2024. Claudio Canuto, M Youssuff Hussaini, Alfio Quarteroni, and Thomas A Zang. Spectral methods , volume 285. Springer, 2006. Qianying Cao, Somdatta Goswami, and George Em Karniadakis. Laplace neural operator for solving differential equations. Nature Machine Intelligence , 6(6):631–640, 2024. Sarthak Chandra, Michelle Girvan, and Edward Ott. Continuous versus discontinuous transitions in the d-dimensional generalized kuramoto model: Odd d is different. Physical Review X , 9(1):011002, 2019. Philippe G Ciarlet. The finite element method for elliptic problems . SIAM, 2002. Stefania Fresca, Luca Dede’, and Andrea Manzoni. A comprehensive deep learning-based approach to reduced order modeling of nonlinear time-dependent parametrized pdes. Journal of Scientific Computing , 87(2):61, 2021. Zhengyang Geng, Xin-Yu Zhang, Shaojie Bai, Yisen Wang, and Zhouchen Lin. On training implicit models. 
+
+Advances in neural information processing systems , 34:24247–24260, 2021. Shamik Gupta, Max Potters, and Stefano Ruffo. One-dimensional lattice of oscillators coupled through power-law interactions: Continuum limit and dynamics of spatial fourier modes. Physical Review E—Statistical, Nonlinear, and Soft Matter Physics , 85(6):066201, 2012. Vladimir Ja´ cimovi´ c. Kuramoto oscillators and swarms on manifolds for geometry informed machine learning. 
+
+Available at SSRN 4865439 , 2024. Maurice George Kendall and Jean Dickinson Gibbons. Rank correlation methods. 1962. Dmitrii Kochkov, Alvaro Sanchez-Gonzalez, Jamie Alexander Smith, Tobias Joachim Pfaff, Peter Battaglia, and Michael Brenner. Learning latent field dynamics of pdes. In Third Workshop on Machine Learning and the Physical Sciences (NeurIPS 2020) , 2020. Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research , 24(89):1–97, 2023. Yoshiki Kuramoto. Chemical turbulence. In Chemical oscillations, waves, and turbulence , pages 111–140. Springer, 1984. 11 Randall J LeVeque. Finite difference methods for ordinary and partial differential equations: steady-state and time-dependent problems . SIAM, 2007. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research , 24(388):1–26, 2023a. Zongyi Li, Nikola Kovachki, Chris Choy, Boyi Li, Jean Kossaifi, Shourya Otta, Mohammad Amin Nabian, Maxim-ilian Stadler, Christian Hundt, Kamyar Azizzadenesheli, et al. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36:35836–35854, 2023b. Max Lipton, Renato Mirollo, and Steven H Strogatz. The kuramoto model on a sphere: Explaining its low-dimensional dynamics with group theory and hyperbolic geometry. Chaos: An Interdisciplinary Journal of Nonlinear Science , 31(9), 2021. Chaoyu Liu, Davide Murari, Lihao Liu, Yangming Li, Chris Budd, and Carola-Bibiane Sch¨ onlieb. Enhancing fourier neural operators with local spatial features. arXiv preprint arXiv:2503.17797 , 2025. Shouyi Liu, Xiaokang Yang, and Yuntian Chen. Riesz neural operator for solving partial differential equations. In 
+
+The Fourteenth International Conference on Learning Representations , 2026. URL https://openreview.net/ forum?id=Vjw7q1quNt .MA2539317 Lohe. Non-abelian kuramoto models and synchronization. Journal of Physics A: Mathematical and Theoretical , 42(39):395101, 2009. Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3): 218–229, 2021. Wenbin Lu, Yihan Chen, Junnan Xu, Wei Li, Junwei Zhu, and Jianwei Zheng. Solving partial differential equations via radon neural operator. Advances in Neural Information Processing Systems , 38:157027–157067, 2026. Johan Markdahl, Daniele Proverbio, La Mi, and Jorge Goncalves. Almost global convergence to practical synchro-nization in the generalized kuramoto model on networks over the n-sphere. Communications Physics , 4(1):187, 2021. Tanya Marwah, Ashwini Pokle, J Zico Kolter, Zachary Lipton, Jianfeng Lu, and Andrej Risteski. Deep equilibrium based neural operators for steady-state pdes. Advances in Neural Information Processing Systems , 36:15716– 15737, 2023. Georgi S Medvedev. The continuum limit of the kuramoto model on sparse random graphs. arXiv preprint arXiv:1802.03787 , 2018. Takeru Miyato, Sindy L¨ owe, Andreas Geiger, and Max Welling. Artificial kuramoto oscillatory neurons. In 
+
+International Conference on Learning Representations , volume 2025, pages 44278–44322, 2025. Fadl Moukalled, Luca Mangani, and Marwan Darwish. The finite volume method. In The finite volume method in computational fluid dynamics: An advanced introduction with OpenFOAM® and Matlab , pages 103–135. Springer, 2015. Bogdan Raonic, Roberto Molinaro, Tim De Ryck, Tobias Rohner, Francesca Bartolucci, Rima Alaifari, Siddhartha Mishra, and Emmanuel De B´ ezenac. Convolutional neural operators for robust and accurate learning of pdes. 
+
+Advances in Neural Information Processing Systems , 36:77187–77200, 2023. 12 Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image seg-mentation. In International Conference on Medical image computing and computer-assisted intervention , pages 234–241. Springer, 2015. Andrea Sacchetti. Derivation of the tight-binding approximation for time-dependent nonlinear schr¨ odinger equa-tions. In Annales Henri Poincar´ e, volume 21, pages 627–648. Springer, 2020. Yue Song, Andy Keller, Sevan Brodjian, Takeru Miyato, Yisong Yue, Pietro Perona, and Max Welling. Kuramoto orientation diffusion models. Advances in Neural Information Processing Systems , 38:4047–4076, 2026. Charles G Torre. 05 the continuum limit and the wave equation. Continuum , 1:1–2004, 2014. Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M Benson. U-fno—an enhanced fourier neural operator-based deep-learning model for multiphase flow. Advances in Water Resources , 163:104180, 2022. Haixu Wu, Minghao Guo, Zongyi Li, Zhiyang Dou, Mingsheng Long, Kaiming He, and Wojciech Matusik. Geopt: Scaling physics simulation via lifted geometric pre-training. arXiv preprint arXiv:2602.20399 , 2026. Mingqing Xiao, Yansen Wang, Dongqi Han, Caihua Shan, and Dongsheng Li. Kuramoto oscillatory phase encoding: Neuro-inspired synchronization for improved learning efficiency. arXiv preprint arXiv:2604.07904 , 2026. 13 Appendix  
+
+> Supplementary Materials for The Kuramoto Neural Operator: Learning to Solve PDEs via Coupled Oscillator Dynamics
+
+A Robustness 
+
+We complement the oscillator-count and oscillator-dimension studies in Section 6.3 with additional analyses of integration depth, parameterized depth, random initialization, and resolution transfer. Unless stated otherwise, all tables report ID-test relative L2 errors at validation-selected checkpoints, mean ± standard deviation over three seeds. 
+
+A.1 Number of Integration Steps per Stage 
+
+Table 7 varies the number R of weight-tied integration steps within a stage of KNO. The vector-field parameters are shared across these steps. Increasing R therefore changes the integration depth without introducing additional parameters.                                         
+
+> Table 7: Integration step sweep on Allen–Cahn . Lower is better.
+> RAllen–Cahn RAllen–Cahn
+> 10.00172 ±0.00019 80.00132 ±0.00009
+> 20.00146 ±0.00004 12 0.00128 ±0.00014
+> 30.00138 ±0.00002 16 0.00127 ±0.00008
+> 40.00134 ±0.00007 32 0.00121 ±0.00004
+> 60.00132 ±0.00011 64 0.00117 ±0.00003
+
+The error decreases sharply as R grows from 1 to 3, falling from 0.00172 ±0.00019 
+
+to 0.00138 ± 0.00002 . Beyond this range, the gains diminish substantially. Indeed, the settings 4 ≤ R ≤ 32 produce val-ues that lie within seed-to-seed variability. Thus, even a small number of integration steps is sufficient to reach an accurate la-tent trajectory. 
+
+A.2 Number of Stages per Layer 
+
+Table 8 varies the number T of independently parameterized Kuramoto stages in each KNO layer.                
+
+> Table 8: Stage count sweep on Allen– Cahn . Lower is better.
+> TAllen–Cahn
+> 10.00148 ±0.00007
+> 20.00134 ±0.00007
+> 30.00129 ±0.00010
+> 40.00128 ±0.00005
+
+We set (T0, T 1, T 2, T 3) = ( T, T, T, T ) and keep the number of integration steps within each stage fixed. Unlike increasing R, increasing T introduces additional vector fields and therefore increases both the parameter count and the depth of the parameterized dynamics. Additional parameterized depth improves accuracy, but the gains saturate rapidly. The largest reduction occurs between T = 1 and T = 2 , whereas the results for T = 3 and T = 4 are indistinguishable relative to their seed-to-seed variability. This suggests that the number of stages within a layer should not be chosen to be too large during tuning, same as the number of integration steps within a stage. 
+
+A.3 Number of Layers                
+
+> Table 9: Layer-count sweep on Allen– Cahn . Lower is better.
+> LAllen–Cahn
+> 10.00199 ±0.00027
+> 20.00150 ±0.00002
+> 40.00134 ±0.00007
+> 60.00138 ±0.00013
+
+Table 9 varies the number L of KNO layers while keeping the remaining ar-chitectural and optimization settings fixed. Increasing L adds independently parameterized feature updates and extends the latent oscillator trajectory across the network. Increasing the depth from 1 to 2 layers substantially reduces the error, and 
+
+4 layers also provide improvement. Further extending the network to 6 lay-ers yields no additional gain and slightly increases seed-to-seed variability. 14 Consequently, as with the oscillator dimensionality and count, there exists a trade-off in the number of layers beyond which the optimization becomes increasingly difficult, leading to dimin-ishing performance gains. 
+
+A.4 Sensitivity to Random Initialization 
+
+We evaluate sensitivity to the random oscillator initialization on the Allen–Cahn ID-test set. For the selected seed-0 checkpoint, we run inference on 64 samples using 16 independent realizations of oscillator field initialization 
+
+q0. The mean relative pointwise standard deviation of the prediction is 1.30 × 10 −4, and the mean pairwise relative prediction disagreement is 1.86 × 10 −4. The standard deviation of the dataset-level relative L2 error across initializations is only 1.25 × 10 −6, compared with a mean error of 1.22 × 10 −3. Averaging predictions over the 16 initializations reduces the relative L2 error by only 0.59% . Thus, although q0 is sampled randomly, its effect on the prediction is negligible, and the trained operator is effectively deterministic at the scale of its prediction error. 
+
+A.5 Zero-Shot Resolution Transfer 32 2 64 2 128 2 256 2 512 2    
+
+> Evaluation resolution 10 2
+> 4 × 10 3
+> 6 × 10 3
+> 2 × 10 2
+> Mean relative  L2 error
+> Poisson
+> CNO KNO training resolution
+
+Figure 4: Zero-shot resolution transfer on Poisson .Curves show mean relative L2 error and shaded regions show one standard deviation. We display KNO and the strongest competitor. The dashed line marks the train-ing resolution. 32 2 64 2 128 2 256 2 512 2   
+
+> Evaluation resolution 10 3
+> 10 2
+> 10 1
+> 10 0
+> Mean relative  L2 error
+> Airfoil
+> FNO-DEQ KNO training resolution
+
+Figure 5: Zero-shot resolution transfer on Airfoil .Curves show mean relative L2 error and shaded regions show one standard deviation. We display KNO and the strongest competitor. The dashed line marks the train-ing resolution. In this section, we evaluate zero-shot transfer on Poisson and Airfoil , two benchmarks on which KNO does not lead at the training resolution in Table 1. Each model is evaluated on the same family of solutions at multiple grid sizes without finetuning. On Poisson , we provide a comparison with CNO, the only architecture that beats KNO at the 64 2 training grid. KNO achieves lower error at every evaluated off-grid resolution. Notably, the gap between KNO and CNO widens as the evaluation resolution moves farther away from the training resolution. Thus, although KNO is not the strongest fixed-resolution solver for this linear elliptic operator, its canonical-grid dynamics transfer more robustly across discretizations. On Airfoil , the KNO curve suffers less than 12% relative change across resolutions. FNO-DEQ attains a lower benchmark error at the native resolution, but exhibits severe instability on finer grids. Taken together, these results separate fixed-resolution accuracy from resolution robustness. KNO is substantially more stable under resolution change on both problems. It retains a stable approximation under substantial varia-tions of grid size. 15 B Resolution Transfer of Local Error Localization 
+
+The zero-shot experiments in Appendix A.5 test whether KNO retains predictive accuracy away from the training discretization. We now ask whether the local-incoherence signal analyzed at the training resolution in Section 6.5, including its spatial formation in Figure 2 and its depthwise statistics in Figure 3, also transfers across resolu-tions. This is a strictly post-hoc, probe-free analysis. The KNO parameters are frozen, and no resolution-specific calibration or learned error predictor is introduced. 
+
+B.1 Protocol 
+
+We analyze Continuous Translation , Discontinuous Translation , and Airfoil at resolutions 32 2, 64 2, 128 2, 256 2, and 
+
+512 2. We use 64 samples for each translation task and 32 samples for Airfoil , evaluated with the same three validation-selected checkpoints as in the main experiments. Each field is averaged over 4 independent oscillator initializations q0.The oscillator dynamics remain on the fixed 32 × 32 canonical grid at every input resolution. We therefore compute the final-depth local incoherence Dloc on this grid and transfer the native-grid target gradient and absolute prediction-error maps to the canonical grid by area resampling. The translation masks exclude two canonical cells at each outer boundary. For Airfoil , we retain fluid cells only, remove a one-cell margin around the solid body, and exclude a 4-cell outer border, exactly as in Section 6.5. For each field, we report the within-field Spearman correlations of final Dloc with target-gradient magnitude and local absolute error, denoted by ρG and ρE . We also rank the top-10% highest-error pixels using Dloc and report 
+
+AUROC and average precision ( AP ). Statistics are summarized by the median over fields within each checkpoint and then by the mean ± population standard deviation over the three checkpoints. Because this experiment uses paired resolution-transfer subsets rather than the complete ID test splits, its native-resolution rows are not replacements for Table 6.                                                                                                                                                                                                          
+
+> Table 10: Resolution transfer of final-depth local incoherence. AUROC and AP evaluate the ranking of the top-10%
+> local-error pixels; random AP is approximately 0.1. All entries are mean ±standard deviation over three checkpoints. Task Resolution ρGρEAUROC AP
+> Cont. translation 32 20.922 ±0.020 0.896 ±0.004 0.953 ±0.011 0.619 ±0.058 64 2(train) 0.932 ±0.015 0.900 ±0.012 0.966 ±0.010 0.747 ±0.072 128 20.936 ±0.012 0.919 ±0.013 0.954 ±0.011 0.609 ±0.065 256 20.937 ±0.011 0.921 ±0.015 0.954 ±0.011 0.606 ±0.065 512 20.937 ±0.011 0.923 ±0.015 0.954 ±0.011 0.608 ±0.070
+> Disc. translation 32 20.643 ±0.024 0.578 ±0.019 0.942 ±0.006 0.676 ±0.018 64 2(train) 0.659 ±0.029 0.591 ±0.197 0.951 ±0.009 0.781 ±0.024 128 20.693 ±0.024 0.572 ±0.194 0.960 ±0.008 0.803 ±0.021 256 20.689 ±0.026 0.575 ±0.191 0.963 ±0.006 0.813 ±0.019 512 20.671 ±0.024 0.576 ±0.187 0.963 ±0.006 0.814 ±0.019
+> Airfoil 32 20.749 ±0.013 0.227 ±0.062 0.839 ±0.046 0.348 ±0.073 64 20.728 ±0.028 0.224 ±0.120 0.834 ±0.039 0.399 ±0.128 128 2(train) 0.700 ±0.054 0.303 ±0.185 0.830 ±0.006 0.359 ±0.074 256 20.682 ±0.067 0.319 ±0.199 0.835 ±0.010 0.352 ±0.074 512 20.678 ±0.077 0.326 ±0.204 0.840 ±0.008 0.355 ±0.071
+
+16 25 26 27 28 29            
+
+> Evaluation resolution 0.0 0.2 0.4 0.6 0.8
+> G Airfoil Cont. translation Disc. translation 2526272829
+> Evaluation resolution 0.0 0.2 0.4 0.6 0.8
+> E
+> Airfoil Cont. translation Disc. translation 2526272829
+> Evaluation resolution 0.5 0.6 0.7 0.8 0.9 AUROC  Random Airfoil Cont. translation Disc. translation 2526272829
+> Evaluation resolution 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 AP
+> Random Airfoil Cont. translation Disc. translation
+
+Figure 6: Resolution dependence of final-depth local-incoherence statistics. Curves and bands show the mean and standard deviation over three checkpoints. The local-risk ranking remains informative throughout the evaluated range, although AP changes in a task-dependent manner. 
+
+B.2 Quantitative Results 
+
+Table 10 and Figure 6 summarize the resolution dependence of the final-depth localization statistics. The local-incoherence ranking remains informative at every evaluated resolution. Across all task–resolution pairs, AUROC 
+
+is at least 0.830 .The clearest example is Cont. Translation . From 64 2 to 512 2, ρE increases from 0.900 to 0.923 , while AUROC 
+
+changes only from 0.966 to 0.954 . AP decreases from 0.747 on the training grid to approximately 0.61 off-grid. The most extreme residual pixels are therefore localized less sharply, despite the stable domain-wide monotone relation. 
+
+Disc. translation shows the complementary behavior. AUROC improves from 0.951 to 0.963 and AP from 
+
+0.781 to 0.814 between 64 2 and 512 2. The residual is concentrated around a thin transported jump set, which is represented more sharply on finer grids. The mean ρE remains near 0.58 across resolutions, but its large checkpoint-to-checkpoint standard deviation shows that domain-wide rank correlation is less stable than the top-error-region metrics on this task. Accordingly, AUROC and AP provide the cleaner measure of transferred localization for a narrow discontinuity. For Airfoil , the high-error ranking is stable across resolutions: AUROC stays between 0.830 and 0.840 , while AP 
+
+stays near 0.35 . The error correlation increases slightly from 0.303 to 0.326 , but the large checkpoint variability precludes interpreting this difference as a systematic improvement. The more robust conclusion is that the near-body and wake-associated risk ranking persists across resolution, whereas a single domain-wide monotone relation explains the error less consistently than on the translation tasks. 17 Figure 7 shows representative examples of the target, local absolute error, and final-depth Dloc .32 2            
+
+> Target Norm. Error Final Dloc
+> 64 2(train)
+> 128 2
+> 256 2
+> 512 232 2
+> Target Norm. Error Final Dloc
+> 64 2(train)
+> 128 2
+> 256 2
+> 512 232 2
+> Target Norm. Error Final Dloc
+> 64 2
+> 128 2(train)
+> 256 2
+> 512 2
+
+Figure 7: Examples of local incoherence across resolution change. Rows correspond to Continuous Trans-lation , Discontinuous Translation , and Airfoil , and groups within each row show representative examples at the evaluated resolutions. Within each resolution group, columns show the target, local absolute error, and final-depth 
+
+Dloc . Translation panels overlay the transported interface, while Airfoil panels overlay the solid boundary. Error and Dloc color limits are shared across resolutions within each task row to make changes in concentration and spatial support visually comparable. For Continuous Translation , Dloc forms a wider and less sharply peaked halo around the interface off-grid, consistent with the lower off-grid AP. For Discontinuous Translation , the incoherence band around the jump set becomes thinner and more concentrated at finer resolutions, consistent with the improv-ing AUROC and AP . For Airfoil , the near-body and wake-associated structure of Dloc remains visually stable across resolutions, consistent with the nearly constant AUROC and AP .
+
+B.3 Formation of Localization through Depth 
+
+Figure 8 shows that the resolution-robust signal is not inherited from the random initialization. At r = 0 , Dloc 
+
+has essentially zero correlation with local error on every task and grid. On the translation tasks, ρE then grows through successive KNO updates along nearly overlapping trajectories across resolutions. For example, on Cont. Translation at 512 2, it evolves from approximately zero at initialization to 0.466 , 0.676 , 0.800 , and 0.923 at the selected outputs after layers 2, 4, 6, and 8, respectively. The final localization is therefore constructed by the learned dynamics in a manner that is largely insensitive to the evaluation grid. On Airfoil , the depthwise evolution is less monotone. Geometry alignment forms early, while error alignment appears later and varies more strongly between checkpoints. This matches the distinction observed at final depth: the latent field consistently identifies structured near-body regions, but the residual is not governed by a single transported interface. Figure 9 provides the resolution-transfer counterpart of the depthwise maps in Figure 2. 
+
+B.4 Interpretation 
+
+This section shows that local incoherence transfers robustly as a spatial risk ranking across resolutions. Overall, final-depth Dloc acts as a resolution-robust local error-risk field. Its broad spatial ranking survives zero-shot changes of the input and output grid without a learned uncertainty head or resolution-specific recalibration. At the same time, the variation of AP and the checkpoint dependence of ρE on Airfoil show that resolution robustness of 18 0 5 10 15 20 25 30 Cumulative Kuramoto update 0.0 0.2 0.4 0.6 0.8             
+
+> E
+> Cont. translation
+> Resolution 32 64 (train) 128 256 512 0510 15 20 25 30 Cumulative Kuramoto update 0.0 0.2 0.4 0.6 0.8
+> E
+> Disc. translation
+> Resolution 32 64 (train) 128 256 512 0510 15 20 25 30 Cumulative Kuramoto update 0.1
+> 0.0 0.1 0.2 0.3 0.4 0.5
+> E
+> Airfoil
+> Resolution 32 64 128 (train) 256 512
+
+Figure 8: Depthwise formation of error alignment under resolution transfer. Curves show the median within-field Spearman correlation between D(r)loc and local absolute error; lines and bands are the mean and standard deviation over checkpoints. The initialization is uninformative, while task-specific localization emerges through the learned updates at every resolution. Continuous translation         
+
+> Target D(0) loc
+> L1
+> Layer output
+> L4
+> Layer output
+> L7
+> Layer output Final Dloc Norm. Error
+> Discontinuous translation
+> L1 L2 L3
+> Airfoil
+> L1 L2 L3
+
+Figure 9: Formation of local incoherence at 256 2. Rows show representative samples from Continuous Trans-lation , Discontinuous Translation , and Airfoil . Columns show the target, local incoherence at initialization D(0) loc ,selected intermediate layer outputs, final Dloc , and normalized local absolute error. Through depth, the initially diffuse incoherence becomes concentrated around the transported interface on the translation tasks and around the airfoil surface and nearby flow structures on Airfoil . White contours mark the target interface on the translation tasks and the solid boundary on Airfoil . The Dloc color scale is shared across depth within each row. localization should not be conflated with universal calibration of error magnitude or of the most extreme residual pixels. 
+
+C Task Specifications 
+
+All experiments use the Representative PDE Benchmark Dataset [Raonic et al., 2023]. The training, validation, in-distribution (ID) test, and out-of-distribution (OOD) test splits are fixed before model selection and shared across all architectures and random seeds. Table 11 summarizes the dataset sizes, resolutions, and scaling conventions, 19 while Table 12 specifies the task generators and OOD shifts. For Poisson , Wave , Allen–Cahn , Darcy , and Navier–Stokes , the input and target fields are normalized independently by fixed dataset-level affine maps to [0 , 1] . For datasets using affine min–max normalization, the input field a and target field u are transformed independently according to 
+
+ea(x) = a(x) − aID min 
+
+aID max − aID min 
+
+, eu(x) = u(x) − uID min 
+
+uID max − uID min 
+
+.
+
+4 scalar normalization constants are read from the corresponding ID HDF5 archive, and the same constants are reused for the training, validation, ID-test, and OOD-test splits. Continuous Translation , Discontinuous Transla-tion , and Airfoil are loaded in their stored scales without additional normalization. For the translation datasets, the stored fields are already normalized by the data-generation procedure; the stored Airfoil fields remain unnor-malized. Several tasks use random multiscale fields: 
+
+fK,r (x, y ) = πK2
+
+> K
+
+X
+
+> i,j =1
+
+aij (i2 + j2)−r sin( πix ) sin( πjy ), aij i.i.d.
+
+∼ U(−1, 1) .
+
+Table 11: Benchmark datasets. Split sizes are reported as Ntrain /N validation /N test ID /N test OOD . “ID affine” denotes separate fixed affine maps for the input and target, with constants determined from the ID data and reused for all splits. “Stored scale” denotes the values stored in the released HDF5 archives, without an additional loader-side transformation. Task Domain and resolution Split sizes Scaling 
+
+Poisson [0 , 1] 2, 64 2 1024 /128 /256 /256 ID affine to [0 , 1] 
+
+Wave [0 , 1] 2, 64 2 512 /128 /256 /256 ID affine to [0 , 1] 
+
+Allen–Cahn [0 , 1] 2, 64 2 256 /128 /128 /128 ID affine to [0 , 1] 
+
+Cont. translation [0 , 1] 2, 64 2 512 /256 /256 /256 Stored scale 
+
+Disc. translation [0 , 1] 2, 64 2 512 /256 /256 /256 Stored scale 
+
+Darcy [0 , 1] 2, 64 2 256 /128 /128 /128 ID affine to [0 , 1] 
+
+Navier–Stokes [0 , 1] 2, 64 2 (ID ), 128 2 (OOD ) 750 /128 /128 /128 ID affine to [0 , 1] 
+
+Airfoil [−0.75 , 1.75] 2, 128 2 512 /128 /128 /128 Stored scale 
+
+D Baseline Architecture Details 
+
+This section describes the implementation of each baseline architecture. All models map one scalar input field to one scalar output field. The training resolution is 64 2 for all tasks except Airfoil , which uses 128 2. Details of the hyperparameter optimization procedure and the selected configurations are given in Appendix F. 
+
+D.1 Fourier Neural Operator 
+
+We use the FNO implementation from the neuraloperator library [Li et al., 2020]. The input is augmented internally with two Cartesian coordinate channels and lifted pointwise to width w. The network contains L Fourier layers retaining m modes along each spatial axis. The lifting and projection channel ratios are fixed to two. Domain padding of width p is applied on the right and bottom and removed after the output projection. 
+
+D.2 Weight-Tied FNO and FNO-DEQ 
+
+FNO-WT and FNO-DEQ [Marwah et al., 2023] use input lifting, shared Fourier update, and output projection. The input and coordinate channels are lifted using two pointwise convolutions (cin + 2) → 2w → w, with a GELU 20 Table 12: Task definitions and OOD shifts. Parameters not listed in the OOD column are unchanged from the ID distribution. 
+
+Task Operator and target ID distribution OOD shift 
+
+Poisson −∆u = f in D, with u|∂D = 0 .The target is the closed-form so-lution in the sine basis. Source term f = f16 ,−1/2. Increase the spectral cutoff from 
+
+K = 16 to K = 20 , introduc-ing forcing frequencies absent from training. 
+
+Wave utt − c2∆u = 0 , with c = 0 .1.The target is the exact solution at T = 5 .Initial condition f = f24 ,1. Replace f24 ,1 with f32 ,0.85 , in-creasing the number and relative strength of high-frequency modes. 
+
+Allen–Cahn ut = ∆u − ε2u(u2 − 1) , with 
+
+ε = 220 . The target is u(·, T ) at 
+
+T = 2 × 10 −4, computed with an explicit finite-difference solver. Initial condition f = f24 ,1. Set K = 16 and sample 
+
+r ∼ U(0 .85 , 1.15) independently for each sample. 
+
+Continuous translation 
+
+ut +v·∇ u = 0 , with v = (0 .2, 0.2) .The target is u(·, 1) = f (· − v).Radial Gaussian fields with centers sam-pled from (0 .2, 0.4) 2 and variances sam-pled from (0 .003 , 0.009) .Shift the center distribution to 
+
+(0 .4, 0.6) 2.
+
+Discontinuous translation 
+
+ut +v·∇ u = 0 , with v = (0 .2, 0.2) .The target is u(·, 1) = f (· − v).Disk indicators with centers sampled from (0 .2, 0.4) 2 and radii sampled from 
+
+(0 .1, 0.2) . Samples are generated at 128 2,smoothed with a Gaussian filter with σ =1.75 , and band-limited-downsampled to 
+
+64 2.Shift the center distribution to 
+
+(0 .4, 0.6) 2.
+
+Darcy −∇· (a∇u) = 1 in D, with u|∂D =0. The input is a, and the target is u.
+
+a = ψ#μ, where μ is a mean-zero Gaus-sian process with squared-exponential ker-nel, variance 0.1, and length scale ℓ = 0 .1.The map ψ sends positive values to 12 and negative values to 3.Decrease the Gaussian-process length scale from ℓ = 0.1 to 
+
+l = 0 .05 .
+
+Navier–Stokes ∂tu + ( u · ∇ )u = −∇ p + ν∆u,
+
+∇ · u = 0 in D = T2, with u =(u1, u 2). The target is u1(·, T ) at 
+
+T = 1 , input is u1(·, 0) . Viscos-ity ν = 4 × 10 −4 is applied only to Fourier modes with wavenum-ber ≥ 12 , modeling flow at very high Reynolds number; no exter-nal forcing is applied. Reference solutions are computed at 128 2
+
+using a spectral-viscosity method and then downsampled to 64 2.The initial condition consists of two oppo-sitely oriented tanh shear layers of thick-ness ρ = 0 .1, centered at y = 0 .25 and 
+
+y = 0.75 , with zero initial vertical ve-locity. Their interfaces are perturbed by 
+
+σδ (x) = δ P10  
+
+> k=1
+
+αk sin(2 πkx − βk ), where 
+
+δ = 0.025 , αk ∼ U(0 , 1) , and βk ∼U(0 , 2π).Set ρ = 0 .09 and move the shear-layer centers to y = 0 .3 and y =0.7. Evaluation is performed di-rectly at 128 2. Thus the split com-bines a parameter shift with zero-shot resolution transfer. 
+
+Airfoil The operator maps the charac-teristic function of a perturbed RAE2822 airfoil to the steady-state density of compressible Eu-ler flow with γ = 1 .4. Solutions are computed on a 243 × 43 ellip-tic mesh and interpolated to 128 2;errors are evaluated only outside the airfoil. Shapes use 20 Hicks–Henne bump func-tions with coefficients sampled from [0 , 1] .The freestream conditions are M∞ =0.729 , α = 2 .31 ◦, and T∞ = p∞ = 1 .Increase the number of Hicks– Henne bump functions from 20 to 
+
+30 .
+
+activation between them. The shared update contains D sublayers. Each sublayer applies a spectral convolution, a pointwise linear map of the current state, and a pointwise injection of the lifted input: 
+
+hj+1 = GELU ( Kj hj + Wj hj + Bj s) , j = 0 , . . . , D − 1,
+
+where s denotes the lifted input. The output projection has channel dimensions w → 2w → cout .FNO-WT applies the shared update 4 times and differentiates through the complete unrolled computation. FNO-DEQ instead solves z⋆ = Φ θ(z⋆; s).The first 300 optimization steps use eight explicit unrolls. Subsequent steps use a no-gradient forward equilibrium solve followed by phantom-gradient backpropagation [Geng et al., 2021]. Anderson acceleration [Anderson, 1965] uses history size 5, regularization 10 −4, tolerance 10 −3, and mixing coefficient 1. The maximum number of forward 21 iterations is 32 , except on Navier–Stokes , where it is 16 . The phantom gradient uses one step with damping 0.5,except on Navier–Stokes , where it uses three steps with damping 0.8.
+
+D.3 Riesz Neural Operator 
+
+RNO follows the supplementary implementation of the Riesz Neural Operator [Liu et al., 2026]. Cartesian coordi-nates are concatenated to the input before pointwise lifting. Each spectral layer forms 
+
+bhR = α0bh + α1
+
+iξ1
+
+∥ξ∥2
+
+bh + α2
+
+iξ2
+
+∥ξ∥2
+
+bh, 
+
+where the three coefficients are learned and initialized to 1/3. Learned complex channel maps are applied to the retained positive and negative frequency bands, and each spectral branch is combined with a pointwise linear branch. For base width w, the channel widths are (w/2, 3w/4, w, w, 5w/4), and 4 Riesz layers retain (m, ⌊3m/4⌋, ⌊m/2⌋, ⌊m/2⌋)
+
+modes. SELU is applied after the first three layers. Two additional SELU-activated pointwise layers and a linear output map process the final feature field. 
+
+D.4 ConvFNO 
+
+ConvFNO follows the local–spectral construction of [Liu et al., 2025]. The scalar input and two coordinate channels are processed by a three-level UNet local branch. For base width cU, its encoder widths are cU, 2cU, 4cU, 8cU. Each local block contains two circularly padded 3 × 3 convolutions with ReLU activations. The decoder uses transposed convolutions and skip connections. A final 1 × 1 convolution produces cLSF local features. The local features are concatenated with the original input and coordinate channels and passed to a 4-layer FNO of width w. Its lifting and projection widths are rlift w and rproj w, respectively. The spectral branch uses group normalization, channel MLPs, linear residual paths, and Tucker-factorized spectral weights with rank parameter 1.Fourier-domain padding is zero. The local branch is evaluated at the training resolution; during resolution-transfer evaluation, its output is interpolated to the requested grid before concatenation with the native-resolution input. 
+
+D.5 Convolutional Neural Operator 
+
+CNO follows the encoder–decoder architecture of [Raonic et al., 2023]. A CNO block applies a 3 × 3 convolution, batch normalization, and the alias-controlled CNO activation. The activation bicubically upsamples the field by a factor of two, applies LeakyReLU, and bicubically resamples the result to the requested output resolution. The lifting and projection blocks use intermediate width 64 . The decoder uses encoder skip connections and the additional invariant blocks from the reference implementation. An architecture is specified by (L, R, R neck , d e), where L is the number of resolution levels, R is the number of residual blocks at each encoder level, Rneck is the number of residual blocks at the bottleneck, and de is the channel multiplier. The encoder widths are de/2, de, . . . , 2L−1de. All configurations use batch normalization, 3 × 3 kernels, the additional invariant decoder blocks, and lifting/projection intermediate width 64 . Inputs evaluated away from the training resolution are spectrally resized to the training grid, and predictions are resized back to the grid with requested resolution. 
+
+D.6 DeepONet 
+
+We use the Cartesian-product DeepONet implementation from DeepXDE [Lu et al., 2021]. The branch network receives the complete input field flattened at the training resolution. Inputs on another grid are bilinearly inter-polated to the training resolution before entering the branch network. The trunk network receives the coordinate 
+
+(x, y ) of each requested output point. For basis size b, the output is 
+
+bu(x) = 
+
+> b
+
+X
+
+> j=1
+
+Bj (a)Tj (x) + β. 
+
+22 All linear layers use Glorot-normal initialization. An architecture is specified by (b, w b, d b, w t, d t, σ ), where wb, d b
+
+and wt, d t denote the branch and trunk widths and depths, and σ is the shared activation. 
+
+D.7 UNet 
+
+The UNet baseline uses 4 encoder levels with widths c, 2c, 4c, 8c, and a bottleneck of width 16 c. Each block contains two 3 × 3 convolutions, each followed by batch normalization and tanh . Downsampling uses 2 × 2 max pooling. Upsampling uses 2 × 2 transposed convolutions followed by concatenation with the corresponding encoder feature map. A final 1 × 1 convolution produces the output. Inputs whose dimensions are not divisible by 16 are replication-padded on the right and bottom and cropped after the output projection. 
+
+D.8 AKOrN 
+
+AKOrN denotes our resolution-preserving adaptation of the original architecture [Miyato et al., 2025] to dense operator learning. We remove all spatial downsampling and upsampling operations and replace the original task-specific prediction head with a pointwise field projection. The oscillator and conditioning fields therefore remain on the input grid throughout the network. A zero-padded 3 × 3 convolution lifts the scalar input to a conditioning field of width w = 64 . The oscillator field has the same width and is grouped into M = 16 oscillators of dimension n = 4 at every spatial location. Initial oscillator vectors are sampled from a standard Gaussian and normalized oscillator-wise. We use the same layer and integration-step indices as in Section 4. AKOrN has layers l = 0 , . . . , L − 1 with L = 3 ,and each layer performs r = 0 , . . . , R −1 Euler–normalization steps with R = 4 . Let q(r) 
+
+> l
+
+and cl denote the oscillator and conditioning fields in layer l. The update is 
+
+g(r) 
+
+> l
+
+= Proj q(r)
+
+> l
+
+
+
+Ckl
+
+
+
+q(r)
+
+> l
+
+
+
++ cl
+
+
+
++ Ω q(r) 
+
+> l
+
+,q(r+1)  
+
+> l
+
+= q(r) 
+
+> l
+
++ γg (r)
+
+> l
+
+q(r) 
+
+> l
+
++ γg (r) 
+
+> l2
+
+, r = 0 , . . . , R − 1. (7) The step size is fixed at γ = 1 . The natural-frequency term is a learned global planar rotation initialized with magnitude one and shared across spatial positions and oscillator channels. After each layer, a 3×3 invariant convolution maps the oscillator field to 64 ×2 channels. These channels are grouped in pairs and reduced by their Euclidean norm, producing a 64 -channel invariant field. Two residual pre-activation convolutions and one additional pre-activation convolution process this field to form cl+1 . Batch normalization is used in the readout head. A final 1 × 1 convolution maps cL to the scalar output. Since AKOrN is not inherently a neural operator baseline, its hyperparameters are configured once as 
+
+n = 4 , M = 16 , w = 64 , L = 3 , R = 4 ,
+
+(k0, k 1, k 2) = (9 , 7, 5) , kread = 3 , rread = 2 .
+
+and kept fixed across all tasks. 
+
+E KNO Architecture and Implementation Details E.1 Forward-Pass Algorithm 
+
+Let a ∈ RB×cin ×H×W , S = ( H, W ), S c = ( Hc, W c) denote an input batch, its grid, and the canonical grid. All benchmark configurations reported in Table 1 use cin = cout = 1 , S c = (32 , 32) , c = 64 , M = 16 , n = 4 , R = 4 .We use exactly the indexing of Section 4: layers are indexed by l = 0 , . . . , L − 1, stages in layer l by t =0, . . . , T l − 1, and weight-tied integration steps by r = 0 , . . . , R − 1. KNO maintains hl ∈ RB×c×Hl×Wl , q (r) 
+
+> l,t
+
+∈
+
+RB×M ×n×Hc×Wc , s l,t ∈ RB×M n ×Hc×Wc . At a stage boundary, ql,t = q(0)  
+
+> l,t
+
+, and after the stage ql,t +1 = q(R) 
+
+> l,t
+
+.23 We write RS→S′ for centered Fourier resampling from grid S to grid S′. It crops centered Fourier coefficients when reducing resolution and zero-pads the centered spectrum when increasing it. The low-pass operator Π≤k retains a centered frequency window; all reported configurations use k = 16 .The input is augmented with normalized Cartesian coordinates ξ, lifted to feature width c, and band-limited onto the canonical grid: 
+
+h0 = MLP 1([ a; ξ]) , ¯h0 = RS→Sc (Π ≤kh0) .
+
+At every forward pass, the initial oscillator field is sampled from a standard Gaussian and normalized oscillator-wise: 
+
+εm(x) ∼ N (0 , I n), q(0) 0,0,m (x) = εm(x)
+
+∥εm(x)∥2
+
+, m = 1 , . . . , M. 
+
+The initial stimulus is s0,0 = MLP 2(¯h0).At layer l, the feature field is transferred once to the canonical grid, 
+
+hcl = RSl→Sc [hl],
+
+and held fixed throughout the stages of that layer. At stage t and integration step r, the local-message network produces 
+
+c(r) 
+
+> l,t
+
+= Cl,t 
+
+
+
+q(r) 
+
+> l,t
+
+, h cl
+
+
+
+.
+
+The unconstrained force on oscillator m is 
+
+F (r) 
+
+> l,t,m
+
+= c(r) 
+
+> l,t,m
+
++ sl,t,m + Ω l,t,m q(r)
+
+> l,t,m
+
+,
+
+where Ωl,t,m is skew-symmetric. With 
+
+Proj q(F ) = F − ⟨ F, q ⟩q, 
+
+one integration step is 
+
+q(r+1)  
+
+> l,t,m
+
+=
+
+q(r) 
+
+> l,t,m
+
++ γl,t Proj q(r)
+
+> l,t,m
+
+
+
+F (r)
+
+> l,t,m
+
+
+
+q(r) 
+
+> l,t,m
+
++ γl,t Proj q(r)
+
+> l,t,m
+
+
+
+F (r)
+
+> l,t,m
+
+
+
+> 2
+
+.
+
+The local-message parameters, skew-symmetric map, and learned scalar γl,t are shared across the R integration steps of the stage, while the stimulus sl,t is held fixed. After the final step, 
+
+ql,t +1 = q(R) 
+
+> l,t
+
+.
+
+The invariant readout then refreshes the stimulus: 
+
+esl,t +1 = gl,t (ql,t +1 ) , αl = σ(al),sl,t +1 = αlsl,t + (1 − αl)esl,t +1 .
+
+The retention coefficient αl is shared across the stages of layer l.After all Tl stages, the terminal oscillator state is decoded and added residually to the feature field: 
+
+hl+1 = RSl→Sl+1 [hl] + RSc→Sl+1 [Dl(ql,T l )] .
+
+For fixed-resolution evaluation, Sl+1 = Sl. When another output resolution is requested, only the final layer targets that grid. The oscillator and stimulus states are carried between layers as 
+
+ql+1 ,0 = ql,T l , sl+1 ,0 = sl,T l .
+
+The prediction is bu = MLP 3(hL).24 Algorithm 1 summarizes the complete forward pass. 
+
+Algorithm 1: Kuramoto Neural Operator forward pass Require: Input field a, stage schedule (T0, . . . , T L−1), integration-step count R
+
+Ensure: Predicted field bu 
+
+> 1:
+
+Append normalized coordinates and compute h0 ← P ([ a; ξ])  
+
+> 2:
+
+Compute ¯h0 ← R S→Sc (Π ≤kh0) 
+
+> 3:
+
+Sample and normalize Gaussian oscillator vectors to obtain q0,0 
+
+> 4:
+
+Compute s0,0 ← E(¯h0) 
+
+> 5:
+
+for l = 0 , . . . , L − 1 do  
+
+> 6:
+
+Compute hcl ← R Sl→Sc (hl) 
+
+> 7:
+
+Compute αl ← σ(al) 
+
+> 8:
+
+for t = 0 , . . . , T l − 1 do  
+
+> 9:
+
+Set q(0)  
+
+> l,t
+
+← ql,t  
+
+> 10:
+
+for r = 0 , . . . , R − 1 do  
+
+> 11:
+
+F ← C l,t (q(r) 
+
+> l,t
+
+, h cl ) + sl,t + Ω l,t q(r) 
+
+> l,t
+> 12:
+
+q(r+1)  
+
+> l,t
+
+← Normalize 
+
+
+
+q(r) 
+
+> l,t
+
++ γl,t Proj q(r)
+
+> l,t
+
+(F )
+
+ 
+
+> 13:
+
+end for  
+
+> 14:
+
+ql,t +1 ← q(R) 
+
+> l,t
+> 15:
+
+sl,t +1 ← αlsl,t + (1 − αl)gl,t (ql,t +1 ) 
+
+> 16:
+
+end for  
+
+> 17:
+
+hl+1 ← R Sl→Sl+1 (hl) + RSc→Sl+1 (Dl(ql,T l ))  
+
+> 18:
+
+Set ql+1 ,0 ← ql,T l and sl+1 ,0 ← sl,T l 
+
+> 19:
+
+end for  
+
+> 20:
+
+bu ← Q(hL) return bu
+
+E.2 Layer Specifications 
+
+Table 13 summarizes the component-level channel dimensions and spatial operations used by KNO. All spatial convolutions in the local-message, stimulus-encoder, and stimulus-readout networks use circular padding. Pointwise maps use 1 × 1 convolutions. The lifting, layer decoder, and output projection are two-layer ChannelMLP modules. Let Dq = M n denote the number of flattened oscillator channels. 
+
+Grid embedding and lifting. Two normalized Cartesian coordinate channels are appended to the scalar input before a two-layer pointwise lifting. 
+
+Initial spectral projection. The lifted feature field is low-pass filtered and spectrally transferred to the canonical 
+
+32 × 32 grid. This operation contains no learned parameters. 
+
+Stimulus encoder. Let Hs = max( c, D q, round( ρsc)) , where ρs = 1 .5 in all reported configurations. Three circular 3 × 3 convolutions with channel dimensions c → Hs → Hs → Dq and GELU activations map the canonical feature field to the initial stimulus. 
+
+Local-message network. The oscillator and canonical feature fields are concatenated. A local branch applies 
+
+5 × 5 and 3 × 3 convolutions, each followed by GELU. The result is concatenated with the original input and passed through a pointwise channel MLP that produces the Dq-channel interaction force. Every stage has an independent local-message network. 25 Oscillator dynamics. Each stage has one learned scalar γl,t , one skew-symmetric rotation map, and one local-message network, all shared across its R integration steps. 
+
+Stimulus readout. The oscillator field is expanded pointwise from Dq to Dqn channels, reshaped into Dq groups of dimension n, and reduced by the Euclidean norm. A learned bias and a lightweight convolutional head then produce the next stimulus candidate. Every stage has an independent readout. 
+
+Layer decoder and output projection. Each layer has a separate pointwise decoder from the terminal oscil-lator state to a 64 -channel feature correction. The correction is spectrally transferred to the feature grid and added residually. A final pointwise projection produces the scalar output field. 
+
+Table 13: KNO layer specifications shared by the reported configurations. Component Channel dimensions Spatial operations Grid embedding 1 → 3 Append two normalized coordinates Lifting P 3 → 128 → 64 Pointwise ChannelMLP 
+
+Initial projection 64 → 64 Low-pass filter and Fourier resampling to 32 2
+
+Stimulus encoder E 64 → Hs → Hs → Dq Three circular 3 × 3 convolutions Local convolution (64 + Dq ) → 32 → 32 Circular 5 × 5 and 3 × 3 convolutions Local readout (96 + Dq ) → (96 + Dq ) → Dq Pointwise ChannelMLP 
+
+Invariant expansion Dq → Dq n Pointwise 1 × 1 convolution Invariant reduction Dq n → Dq Norm over Dq groups of dimension n
+
+Stimulus post-processing Dq → Dq → Dq Circular 3 × 3 and pointwise 1 × 1 convolutions Layer decoder Dl Dq → max(64 , ⌈1.5Dq ⌉) → 64 Pointwise ChannelMLP and Fourier resampling Output projection Q 64 → 128 → 1 Pointwise ChannelMLP 
+
+E.3 Direct Comparison between KNO and AKOrN 
+
+KNO and AKOrN share the same basic dynamical primitive, but embed it into different surrounding architectures, as summarized in Table 14. 
+
+Table 14: Implementation-level comparison between KNO and the operator-learning adaptation of AKOrN. Component KNO AKOrN adaptation Persistent states Feature, oscillator, and stimulus fields Oscillator and conditioning fields Oscillator grid Fixed canonical grid Native input grid Coordinate channels Appended before pointwise lifting Not appended Conditioning of coupling Concatenated with q before the message network No separate coupling conditioning Local interaction 5 × 5 and 3 × 3 convolutions plus channel MLP One layer-specific convolution Step size Learned separately for each stage Fixed globally at γ = 1                
+
+> Rotation Stage- and oscillator-specific skew-symmetric map Global planar rotation shared across channels Persistent feedback Stimulus EMA across stages and layers No separate persistent stimulus Feature update Residual decoder from qto a separate feature pathway No separate residual feature pathway Resolution handling Spectral transfer to and from the canonical grid Dynamics evaluated directly on the requested grid Output Pointwise projection of the final feature field 1×1projection of the final conditioning field
+
+The central difference is the separation of state roles in KNO. The feature field h stores the evolving operator representation, the oscillator field q carries the constrained dynamics, and the stimulus s provides persistent feedback. AKOrN instead alternates between an oscillator field and a single conditioning field: the condition is added to the oscillator update and then replaced by the invariant readout after every layer. 26 KNO also conditions the interaction law itself. Its local-message network receives the concatenation of q and the canonical-grid feature field, allowing the current operator representation to modulate the learned coupling. In AKOrN, the connectivity convolution depends only on q, while the conditioning field enters only as an additive drive. Finally, KNO decodes each terminal oscillator state as a residual correction to a separate feature pathway, whereas the adapted AKOrN passes the invariant oscillator readout directly to the next layer. 
+
+E.4 Architecture Search Space 
+
+The KNO candidate pool contains KNO-1, KNO-2, and KNO-3. All three configurations use k = 16 , c = 64 , M =16 , n = 4 , R = 4 , S c = (32 , 32) . Each candidate contains eight stages and therefore 8R = 32 oscillator integration steps in total. They differ only in the number of feature-update layers and in the allocation of stages across those layers.                                               
+
+> Table 15: Predeclared KNO architecture candidate pool. The stage schedule is (T0, . . . , T L−1).Configuration Modes Width Layers Oscillators Dimension Stage schedule Steps R
+> KNO-1 16 64 416 4(2 ,2,2,2) 4
+> KNO-2 16 64 616 4(2 ,1,1,1,1,2) 4
+> KNO-3 16 64 816 4(1 ,1,1,1,1,1,1,1) 4
+
+The final configurations selected for each task is reported in Table 17. 
+
+F Training, Validation, and Hyperparameter-Selection Details F.1 Architecture Selection Protocol 
+
+Every searched model family is selected independently for each task from a fixed, predeclared candidate pool using the same two-stage, validation-only procedure. Baseline families use five candidates, while KNO uses the three candidates defined in Appendix E.4. AKOrN was not originally an operator learning architecture and is used only as a direct adaptation of a closely related architecture, taken as a reference; consequently, a single fixed set of hyperparameters is used across all tasks. Neither ID-test nor OOD-test errors enter architecture, hyperparameter, checkpoint, or seed selection. 
+
+Two-stage selection procedure Let b index a searched model family, d a task, and Ab,d its candidate set. Each candidate λ ∈ A b,d is first trained for 500 epochs with seed 0. Its stage-one score is 
+
+Vb,d (λ, 0) = min  
+
+> 1≤e≤500
+
+E
+
+
+
+θ(e)
+
+> b,d,λ, 0
+
+; Dval 
+
+> d
+
+
+
+,
+
+where E is defined in (6). A run is eligible only if it reaches epoch 500 . The two candidates with the lowest stage-one scores form the finalist set Fb,d .Each finalist is then trained from scratch with seeds 1 and 2. Together with the reused seed-0 run, each finalist is represented by three seeds. Its stage-two score is 
+
+Vb,d (λ) = 13
+
+> 2
+
+X
+
+> j=0
+
+min  
+
+> 1≤e≤500
+
+E
+
+
+
+θ(e) 
+
+> b,d,λ,j
+
+; Dval 
+
+> d
+
+
+
+,
+
+and the selected architecture is 
+
+λ⋆b,d = arg min 
+
+> λ∈F b,d
+
+Vb,d (λ).
+
+27 For a family with Ncand candidates, this procedure requires Ncand +4 training runs per task: Ncand seed-0 screening runs and 4 additional runs for the two finalists. Each five-candidate baseline family therefore uses nine runs, while the three-candidate KNO pool uses seven. AKOrN uses one fixed architecture trained with three seeds. The validation criterion is identical across searched families, although the candidate-pool sizes differ. For each seed of the selected architecture, the checkpoint with the lowest validation relative L2 is retained for final evaluation. The selected seed-0, seed-1, and seed-2 runs are used directly; no additional post-selection retraining is performed. During training and selection, ID-test and OOD-test data are not loaded. 
+
+F.2 Baseline Architecture Search Spaces 
+
+Every searched baseline family uses five predeclared candidates per task. Table 16 collects the complete candidate pools. The vectors are ordered as follows: FNO (m, w, L, p ); FNO-WT and FNO-DEQ (m, w, D, p ); RNO (m, w );ConvFNO (m, w, c U, c LSF , r lift , r proj ); CNO (L, R, R neck , d e); DeepONet (b, w b, d b, w t, d t, σ ); and UNet (c). FNO-WT and FNO-DEQ share the same architecture pool and differ only in their iteration and differentiation procedures. AKOrN uses the single fixed architecture described in Appendix D. 
+
+Table 16: Predeclared baseline architecture candidate pools. Each row lists all five candidates used for the indicated family and task group.                                                                                                                                                                                                                                                                                                                                                                                                               
+
+> Family Tasks Candidate vectors FNO Non-Airfoil (12 ,48 ,4,8) ,(16 ,64 ,4,8) ,(16 ,128 ,5,0) ,(20 ,64 ,4,8) ,(20 ,96 ,5,0)
+> Airfoil (16 ,48 ,4,12) ,(16 ,64 ,4,12) ,(16 ,128 ,5,0) ,(24 ,64 ,4,12) ,(24 ,96 ,4,12)
+> FNO-WT/FNO-DEQ Non-Airfoil (8 ,40 ,3,8) ,(12 ,32 ,3,8) ,(16 ,24 ,3,8) ,(16 ,32 ,2,8) ,(12 ,32 ,3,0)
+> Airfoil (8 ,40 ,3,12) ,(12 ,32 ,3,12) ,(16 ,24 ,3,12) ,(16 ,32 ,2,12) ,(12 ,32 ,3,0)
+> RNO Non-Airfoil (12 ,64) ,(16 ,96) ,(20 ,128) ,(24 ,128) ,(20 ,160)
+> Airfoil (12 ,64) ,(16 ,96) ,(20 ,128) ,(28 ,128) ,(20 ,160)
+> ConvFNO Poisson ,Wave , translations, Darcy (32 ,64 ,16 ,32 ,2,2) ,(24 ,64 ,16 ,32 ,2,2) ,(24 ,48 ,16 ,32 ,2,2) ,(32 ,80 ,16 ,32 ,2,2) ,(32 ,64 ,24 ,48 ,2,2)
+> Allen–Cahn (48 ,64 ,16 ,32 ,4,2) ,(32 ,64 ,16 ,32 ,4,2) ,(32 ,48 ,16 ,32 ,4,2) ,(48 ,80 ,16 ,32 ,4,2) ,(48 ,64 ,24 ,48 ,4,2)
+> Navier–Stokes ,Airfoil (48 ,64 ,16 ,32 ,4,4) ,(32 ,64 ,16 ,32 ,4,4) ,(32 ,48 ,16 ,32 ,4,4) ,(48 ,80 ,16 ,32 ,4,4) ,(48 ,64 ,24 ,48 ,4,4)
+> DeepONet All tasks
+> (64 ,32 ,3,64 ,3,tanh) ,(128 ,64 ,4,128 ,4,tanh) ,(256 ,64 ,4,128 ,4,tanh) ,
+> (128 ,128 ,4,128 ,4,tanh) ,(128 ,64 ,4,128 ,4,ReLU)
+> UNet All tasks (12) ,(16) ,(24) ,(32) ,(40)
+> Family Task Candidate vectors (L, R, R neck , d e)
+> CNO Poisson (3 ,4,6,16) ,(2 ,2,4,16) ,(3 ,4,6,32) ,(3 ,2,6,16) ,(3 ,4,4,16)
+> Wave (3 ,4,6,48) ,(2 ,2,4,32) ,(3 ,4,6,32) ,(3 ,2,6,48) ,(3 ,4,4,48)
+> Allen–Cahn (3 ,4,8,48) ,(2 ,2,6,32) ,(3 ,4,8,32) ,(3 ,2,8,48) ,(3 ,4,4,48)
+> Cont. translation (3 ,2,6,32) ,(2 ,2,4,16) ,(3 ,2,6,64) ,(3 ,4,6,32) ,(3 ,2,4,32)
+> Disc. translation (3 ,5,4,32) ,(2 ,2,4,16) ,(3 ,5,4,64) ,(3 ,2,4,32) ,(3 ,5,8,32)
+> Darcy (3 ,4,4,48) ,(2 ,2,4,32) ,(3 ,4,4,32) ,(3 ,2,4,48) ,(3 ,4,8,48)
+> Navier–Stokes (3 ,1,8,32) ,(2 ,1,6,16) ,(3 ,1,8,64) ,(3 ,4,8,32) ,(3 ,1,4,32)
+> Airfoil (4 ,1,8,48) ,(3 ,1,6,32) ,(4 ,1,8,32) ,(4 ,4,8,48) ,(4 ,1,4,48)
+
+KNO candidate pool The KNO pool contains KNO-1, KNO-2, and KNO-3, defined in Table 15. The config-urations share the feature width, oscillator dimension, oscillator count, integration-step count R, canonical grid, and spectral mode budget. They differ in layer count and allocation of stages across layers. 
+
+Selected baseline architectures Table 17 reports the architecture selected for each architecture family and task by the stage-two criterion. Entries are hyperparameter vectors in the notation of Table 16 for baselines and Table 15 for KNO. AKOrN is omitted because it uses one fixed architecture and is not subjected to architecture selection. 
+
+F.3 Optimization Protocol 
+
+All KNO and baseline runs use AdamW with weight decay 10 −5 and peak learning rate 10 −3. The learning rate increases linearly over the first 20 epochs and is then annealed to 10 −6 using a cosine schedule. Gradients are 28 Table 17: Architectures selected by the stage-two validation criterion. Each body entry gives the hyperparameter vector. 
+
+Task FNO (m, w, L, p ) RNO (m, w ) ConvFNO (m, w, c U, c LSF , r lift , r proj ) DeepONet (b, w b, d b, w t, d t, σ )
+
+Poisson (12 , 48 , 4, 8) (12 , 64) (32 , 80 , 16 , 32 , 2, 2) (64 , 32 , 3, 64 , 3, tanh) 
+
+Wave (20 , 64 , 4, 8) (24 , 128) (24 , 64 , 16 , 32 , 2, 2) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Allen–Cahn (20 , 96 , 5, 0) (20 , 160) (48 , 80 , 16 , 32 , 4, 2) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Cont. translation (20 , 96 , 5, 0) (20 , 128) (32 , 64 , 24 , 48 , 2, 2) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Disc. translation (20 , 96 , 5, 0) (16 , 96) (32 , 64 , 24 , 48 , 2, 2) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Darcy (12 , 48 , 4, 8) (20 , 160) (32 , 64 , 16 , 32 , 2, 2) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Navier–Stokes (20 , 96 , 5, 0) (20 , 160) (48 , 80 , 16 , 32 , 4, 4) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Airfoil (16 , 48 , 4, 12) (28 , 128) (32 , 64 , 16 , 32 , 4, 4) (128 , 64 , 4, 128 , 4, ReLU) 
+
+Task UNet (c) CNO (L, R, R neck , d e) FNO-WT (m, w, D, p ) FNO-DEQ (m, w, D, p ) KNO 
+
+Poisson (32) (3 , 4, 6, 32) (16 , 24 , 3, 8) (16 , 24 , 3, 8) KNO-2 
+
+Wave (24) (3 , 4, 6, 32) (16 , 24 , 3, 8) (16 , 24 , 3, 8) KNO-3 
+
+Allen–Cahn (24) (3 , 4, 8, 48) (12 , 32 , 3, 0) (12 , 32 , 3, 0) KNO-1 
+
+Cont. translation (32) (3 , 4, 6, 32) (16 , 32 , 2, 8) (16 , 32 , 2, 8) KNO-3 
+
+Disc. translation (40) (3 , 5, 4, 64) (12 , 32 , 3, 0) (16 , 24 , 3, 8) KNO-1 
+
+Darcy (32) (3 , 4, 8, 48) (12 , 32 , 3, 0) (8 , 40 , 3, 8) KNO-1 
+
+Navier–Stokes (32) (3 , 1, 8, 32) (12 , 32 , 3, 0) (12 , 32 , 3, 0) KNO-1 
+
+Airfoil (12) (3 , 1, 6, 32) (8 , 40 , 3, 12) (16 , 24 , 3, 12) KNO-1 
+
+clipped to global norm 0.5. Unless stated otherwise, the batch size is 8. Training and evaluation are performed in FP32. The training objective and primary evaluation metric are both the sample-averaged relative L2 error in Eq. (6). For every run, the checkpoint attaining the lowest validation relative L2 is retained. 
+
+F.4 Implementation Details 
+
+KNO is implemented in PyTorch using components from the neuraloperator library [Kovachki et al., 2023]. FNO uses the official neuraloperator implementation, RNO follows the authors’ implementation, DeepONet uses DeepXDE, and UNet follows the PDEBench implementation. CNO follows the released CNO2d_classic . ConvFNO follows [Liu et al., 2025]. FNO-WT and FNO-DEQ use the same weight-tied FNO block; FNO-WT applies 4 explicit updates, whereas FNO-DEQ uses Anderson iteration with phantom gradients. Normalized spatial coordinates are supplied according to the standard interface of each architecture. KNO appends normalized Cartesian coordinates before lifting and uses circular padding in every spatial convolution. 29

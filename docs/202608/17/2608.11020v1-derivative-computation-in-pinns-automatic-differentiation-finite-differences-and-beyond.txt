@@ -1,0 +1,525 @@
+Title: Derivative Computation in PINNs: Automatic Differentiation, Finite Differences and Beyond
+
+URL Source: https://arxiv.org/pdf/2608.11020v1
+
+Published Time: Wed, 12 Aug 2026 01:15:44 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Derivative Computation in PINNs: Automatic Differentiation, Finite Differences and Beyond 
+
+Maciej J. Mikulski 1 Tadeusz Uhl 2
+
+AGH University of Krakow 
+
+> 1
+
+mjmikulski@agh.edu.pl ORCID: 0009-0001-6634-7934 
+
+> 2
+
+tuhl@agh.edu.pl ORCID: 0000-0002-4332-3067 
+
+Abstract 
+
+We systematically investigate finite-difference (FD) derivative computation in Physics-Informed Neural Networks (PINNs) as an alternative to automatic differentiation (AD). On three bench-mark PDEs we show that, with a properly calibrated step size, FD matches AD in accuracy on every problem while running faster across the full tested batch-size range and using substantially less GPU memory, and that a stochastic variant we propose outperforms AD on a stationary problem. We further show that for neural architectures with inter-sample dependencies (e.g. BatchNorm, self-attention) the standard PyTorch autograd idiom is silently incorrect; the cor-rect per-sample alternative is computationally infeasible at PINN-relevant batch sizes, while FD provides a forward-only approximation that is empirically an order of magnitude closer to the true per-sample derivative. 
+
+Figure 1: Solution of the 2D Poisson equation on a multiply-connected domain — a square with four circular holes — obtained by a Physics-Informed Neural Network trained with our proposed 
+
+Stochastic Finite Differences (sFD) method. From left to right: PINN prediction, reference solution from a high-resolution finite-element solver, and pointwise error. sFD achieves a relative 
+
+L2 error of 1 .15% on this benchmark, outperforming standard Automatic Differentiation (1 .66%), while requiring only forward evaluations of the network — no autograd graph is built for the PDE residual. 1arXiv:2608.11020v1 [cs.LG] 11 Aug 2026 1 Introduction 
+
+Partial differential equations (PDEs) form the mathematical backbone of many physical, biologi-cal, and engineering systems. They govern phenomena such as heat diffusion, wave propagation, structural deformation, and fluid dynamics, enabling quantitative predictions across scales and dis-ciplines. In scientific computing and engineering design, accurately solving PDEs is essential not only for modeling complex behavior but also for optimization, control, and uncertainty quantifica-tion. Traditional numerical methods, such as the Finite Element Method (FEM) or Finite Volume Method (FVM), provide robust and well-established tools for solving PDEs. However, they typically require mesh generation—often manual and labor-intensive—and scale poorly to high-dimensional problems or complex, irregular geometries. For inverse problems, where one seeks to infer unknown parameters or boundary conditions from partial observations, classical methods require substantial reformulation and computational resources. In recent years, Physics-Informed Neural Networks (PINNs) have emerged as a promising mesh-free alternative [Raissi et al., 2019, Cuomo et al., 2022]. By embedding the governing equations directly into the loss function of a neural network, PINNs unify data and physical priors within a single optimization framework. This design enables seamless handling of sparse or noisy measure-ments, natural treatment of inverse problems, and straightforward extension to complex geometries without explicit meshing [De Ryck and Mishra, 2024]. Despite their conceptual elegance, PINNs face several practical challenges that limit their widespread adoption. Training instabilities arise from the need to balance multiple loss terms—data fidelity, PDE residuals, and boundary conditions—each potentially operating at different scales. The choice of collocation points, activation functions, and network architecture all significantly impact convergence and solution quality. Among these challenges, the computation of derivatives stands out as particularly critical: the PDE residual loss requires evaluating partial derivatives of the network output with respect to its inputs, often up to second or higher order. Modern deep learning frameworks such as PyTorch [Paszke et al., 2019] and JAX [Bradbury et al., 2018] provide automatic differentiation (AD) capabilities that, in principle, make derivative computation straightforward. However, these mechanisms were designed and optimized primarily for first-order derivatives of the scalar loss with respect to neural networks weights, as used in the context of backpropagation for supervised training. They do not natively support efficient per-sample gradient computation required for PDE residuals at collocation points. In practice, AD-based gradient computation in PINNs leads to very quick graph build-up, especially for second order derivatives, required by many PDEs, such as the Laplacian in diffusion equations. This becomes prohibitive for large batch sizes or higher order differential equations. Furthermore, certain architectural choices exacerbate these difficulties. Batch Normalization (BN), widely used in deep learning to stabilize training, and Attention (Att), a basic building block of Transformers, introduce dependencies between samples within a mini-batch or a sequence. When computing per-sample gradients, as required for the PDE residual at each collocation point, these inter-sample dependencies lead to incorrect derivatives if not handled with care. Given these limitations, there is renewed interest in finite difference (FD) methods for derivative approximation within neural network training [Lim et al., 2022]. While FD is among the oldest techniques in numerical analysis, its application to modern deep learning has been largely overlooked in favor of AD. Recent work has demonstrated the viability of FD in large-scale settings: [Wang et al., 2025] replaced backpropagation-based Jacobian computation with FD in a large generative model, achieving over 2 × speedup. The key insight underlying FD is that it requires only forward function evaluations, which can be parallelized trivially, rather than the sequential graph traversals 2inherent to AD. This makes FD particularly attractive when higher-order derivatives are needed or when memory constraints limit the feasible batch size In this work, we systematically investigate the use of finite differences for derivative computation in Physics-Informed Neural Networks. Our contributions are as follows: First, we demonstrate that the perturbation parameter ε is crucial for numerical accuracy and and we propose a principled empirical method for selecting optimal ε based on the interplay between truncation and floating-point errors. We introduce an scheme that periodically recalibrates ε during training as the network’s smoothness characteristics evolve. Second, we provide a theoretical analysis of how the optimal ε scales with derivative order and propose three practical strategies for handling mixed-order PDEs: a geometric-mean step size (FD), order-specific step sizes (eFD), and stochastic finite differences (sFD), and verify their effectiveness on three different benchmark PDEs. Additionally, we note that a common way to compute derivatives for neural networks contain-ing inter-sample dependencies (e.g. BN or Att) leads to silently incorrect result. We provide a theoretical and experimental evidence. Our experiments on three benchmark PDEs demonstrate that FD-based PINNs achieve com-parable or superior accuracy to their AD-based counterparts while reducing memory consumption and enabling larger batch sizes. While Chen et al. [2025] recently argued that AD is essential for training neural networks to solve differential equations, our results show that FD is interchangeable with AD for standard MLP-based PINNs in practical settings. These findings suggest that finite differences, far from being an obsolete technique, offer a viable and often preferable alternative for derivative computation in physics-informed deep learning. 
+
+# 2 Related Work 
+
+2.1 Finite Differences in PINNs 
+
+The idea of replacing automatic differentiation with finite-difference formulas in PINNs has been explored by several groups. Lim et al. [2022] proposed a straightforward substitution of AD with central differences for computing PDE residuals, demonstrating feasibility on simple benchmark problems. Jiang et al. [2023] applied FD-PINNs to steady incompressible flow problems and re-ported higher accuracy, faster convergence, and greater robustness compared to AD-based PINNs; in their lid-driven cavity benchmark at high Reynolds numbers, the FD-PINN outperformed both the AD-PINN and a classical CFD solver on a coarse mesh. Roy et al. [2025] confirmed these find-ings on Navier–Stokes problems, showing that FD-PINNs can match or exceed AD-PINN accuracy while reducing computational cost. Zhang et al. [2024] further demonstrated that finite-difference-based physics-informed deep learning can achieve efficient and accurate PDE solutions. Dao et al. [2022] combined numerical differentiation with physics-informed training for complex fluid dynam-ics, and Guo and Li [2025] proposed an FD-PINN with adaptive residual point selection for seismic inversion, coupling FD derivatives with spatially adaptive sampling. On the theoretical side, Langer [2026] proved that both AD-PINNs and FD-PINNs are math-ematically ill-posed (minimizers are non-unique), but that FD-PINNs are “tightly coupled” to the underlying FD scheme: any zero-loss FD-PINN solution on a fixed grid corresponds to a true solu-tion of the discrete PDE on the that grid. That motivates looking at FD-PINNs as outright citizens of the numerical analysis world, rather than as an approximation to AD-PINNs. De Ryck and Mishra [2024] provided a comprehensive numerical analysis of PINNs and related models, placing both AD and FD approaches within a rigorous approximation-theoretic framework, addressing problem of existence of FD operator on edges of the domain. 32.2 Hybrid Approaches 
+
+Rather than choosing between AD and FD, several works combine both. Chiu et al. [2022] pro-posed CAN-PINN, where finite-difference-type stencils couple neighboring support points while AD supplies local derivative information inside the stencil. This was motivated by the observation that standard AD-PINNs constrain residuals almost pointwise at collocation points, which can be under-constraining in sparse-sampling regimes Xiang et al. [2022] developed HFD-PINN, which uses AD near complex boundaries (where FD stencils are difficult to construct) and FD in the interior. Their variant HFD-PINN-sdf uses a signed distance function to ensure stencil points remain inside the domain, enabling mesh-free finite differences on irregular geometries. 
+
+2.3 Step Size Selection 
+
+Despite the importance of ε, most existing FD-PINN works treat it as a fixed hyperparameter chosen by trial and error. Wang et al. [2025], in the context of generative diffusion models, used a manually chosen small ε to approximate Jacobian-vector products via forward differences, treating it as a constant throughout training. Lim et al. [2022] use a finite-difference step size determined by the grid resolution. In the Burgers’ equation example, this notation obscures the fact that the spatial and temporal grids have different spacings, since both are denoted by a single h. Jiang et al. [2023] and Xiang et al. [2022] likewise used fixed step sizes. To our knowledge, no prior work proposes (i) an empirical runtime-calibration procedure for ε
+
+that adapts to the current network state, (ii) periodic recalibration of ε during training to track the evolving smoothness of the solution, or (iii) stochastic step-size sampling as a strategy for mixed-order PDEs. 
+
+2.4 FD Beyond PINNs and Alternative Derivative Methods 
+
+The computational benefits of finite-difference-style derivative approximations are not limited to PINNs. Pang et al. [2020] reformulated score matching in generative modeling by expressing Hessian-trace-related terms as directional derivatives and approximating them with finite-difference decompositions. This replaced sequential higher-order AD computations with parallelizable func-tion evaluations, yielding about 1.7 to 2.9 × speedup and 10-35% reduction in memory usage across various models and datasets. In a billion-parameter generative model, Wang et al. [2025] replace AD-based Jacobian-vector products with a forward-pass-only finite-difference estimator, which is reported to be approximately 2× faster than JVP while being natively compatible with fully sharded data parallel training. This result illustrates that avoiding explicit AD-based derivative computation can improve not only runtime, but also the scalability of training large neural models. Beyond finite differences, several alternative derivative computation strategies have been pro-posed for PINNs. Cardona and Hecht [2023] introduced polynomial differentiation (“Sobolev cuba-tures”), which replaces nested AD calls with precomputed cubature matrices, yielding substantial speedups. Sharma and Shankar [2022] accelerated PINN training using meshless RBF-FD dis-cretizations that provide high-order accurate derivatives on scattered point clouds. They also suc-cessfully used a mixed strategy: RBF-FD for the spatial derivatives and AD for the time derivative. Similar RBF approach was proved successful by Xiao et al. [2023]. Cho et al. [2023] proposed separable PINNs that decompose the problem structure to reduce derivative computation costs. 4Chen et al. [2025] argued that replacing AD with standard FD can adversely affect the training dynamics of PINN-style losses. Their spectral analysis links this effect to the distribution of small singular/eigenvalues and introduces a truncated-entropy measure as a proxy for late-stage conver-gence, suggesting that AD can achieve lower residual errors and faster optimization. This result provides a useful caution against treating FD as a universally benign drop-in replacement for AD, although the practical relevance of this effect depends on the discretization, architecture, derivative order, and whether performance is measured by residual minimization, solution accuracy, memory usage, or wall-clock time. 
+
+# 3 Methodology 
+
+3.1 Finite differences for Neural Networks 
+
+For a given function, one can obtain an approximation of its derivative at point x by evaluating the function at a few points in vinicty of x. While there exists multiple schemes for such an approximation, we focus here on 3-point central difference. For the first derivative it has the following form: 
+
+D(1)  
+
+> ε
+
+f (x) = f (x + ε) − f (x − ε)2ε ,
+
+where D(k) 
+
+> ε
+
+means finite difference operator of order k using finite difference ε. Similary, the second derviative has a form: 
+
+D(2)  
+
+> ε
+
+f (x) = f (x + ε) − 2f (x) + f (x − ε)
+
+ε2 .
+
+Given a (physics-informed) neural network, i.e. a mapping D ∋ x 7 → fθ(x) ∈ R, we use the above schemes to approximate spatial derivatives of fθ(x) at collocation points X = xiBi=1 ⊂ D . In practice, this amounts to evaluating the neural network on an enlarged batch of perturbed points, i.e. the concatenation of [ X −ε, X, X +ε]. This contrast to Lim et al. [2022], where a grid is fixed and the ε is determined by the grid spacing. Algorithm 1 provides pseudocode for the one-dimensional case D = R, while the general formulation for D = Rd is given in Appendix A. A practical PyTorch implementation will be made publicly available upon publication of this paper. 
+
+Algorithm 1 
+
+METHOD finite_difference # Inputs: # model: neural network mapping R to R # X: batch of randomly sampled collocation points, shape (B,) # epsilon: finite difference step size stencil_1 = [[-0.5, 0.0, 0.5]] # 1st deriv coeffs stencil_2 = [[1.0, -2.0, 1.0]] # 2nd deriv coeffs # Step 1: Create perturbed points X_plus = X + epsilon X_minus = X - epsilon # Step2: Concatenate original and perturbed points 
+
+5X_concat = concatenate([X_minus, X, X_plus]) # Step 3: Evaluate the network at all points during a single forward pass u_concat = model(X_concat) # Step 4: Reshape to separate original and perturbed evaluations u = u_concat.view(3, B) # Step 5: Compute finite difference approximations u_x = u @ stencil_1.T / epsilon # 1st derivative u_xx = u @ stencil_2.T / (epsilon ** 2) # 2nd derivative return u_x, u_xx 
+
+3.2 Theoretical Analysis of Finite Difference Errors 
+
+Central finite difference approximations involve a fundamental trade-off between: (a) truncation error, arising from truncation of Taylor series, i.e. assuming only finite set of terms in Taylor expansion; (b) roundoff error, arising from limitations of floating-point arithmetic to represent precisely two very close numbers. Below we analyze how those errors scale with ε, what is the optimum and how it changes with order of the derivative. Further, given that theoretical formulas contain unknwon constants, we propose an empirical method to determine the optimal ε for a given neural network and floating-point precision. 
+
+3.2.1 Error Analysis for the First Derivative 
+
+The FD operator is given by: 
+
+D(1)  
+
+> ε
+
+f (x) = f (x + ε) − f (x − ε)2ε .
+
+Expanding f (x ± ε) in Taylor series about x,
+
+f (x ± ε) = f (x) ± εf ′(x) + ε2
+
+2 f ′′ (x) ± ε3
+
+6 f ′′′ (x) + O(ε4),
+
+and subtracting these expansions and dividing by 2 ε yields 
+
+D(1)  
+
+> ε
+
+f (x) = f ′(x) + ε2
+
+6 f ′′′ (x) + O(ε3),
+
+giving a truncation error: 
+
+E(1) trunc (ε) = ε2
+
+6 |f ′′′ (x)| + O(ε3).
+
+For the roundoff error, each evaluation f (x ± ε) incurs a relative error of order εm (machine epsilon), corresponding to an absolute error of approximately εm|f |. The subtraction of two nearly equal quantities and subsequent division by 2 ε amplifies this error. The precise amplification factor depends on implementation details and potential cancellation effects, so we write 
+
+E(1) round (ε) = κ1
+
+εm|f (x)|
+
+ε ,
+
+6where κ1 is an unknown constant. The total error is then given by the sum of the above two errors 
+
+E(1) (ε) = ε2
+
+6 |f ′′′ (x)| + κ1
+
+εm|f (x)|
+
+ε + O(ε3).
+
+Dropping O(ε3) and minimizing by setting dE (1) /dε = 0: 
+
+ε
+
+3 |f ′′′ (x)| = κ1
+
+εm|f (x)|
+
+ε2 ,
+
+leads us to 
+
+ε(1) opt =
+
+( 3κ1εm|f (x)||f ′′′ (x)|
+
+)1/3
+
+.
+
+Absorbing all prefactors into a single constant C1 = 3 1/3κ1/31 (|f |/|f ′′′ |)1/3 we get simple relation: 
+
+ε(1) opt = C1 · ε1/3 
+
+> m
+
+.
+
+The constant C1 contains obviously a function-dependent factor ( |f |/|f ′′′ |)1/3.
+
+3.2.2 Error Analysis for the Second Derivative 
+
+The central difference approximation for the second derivative is 
+
+D(2)  
+
+> ε
+
+f = f (x + ε) − 2f (x) + f (x − ε)
+
+ε2 .
+
+Adding the Taylor expansions: 
+
+f (x + ε) + f (x − ε) = 2 f (x) + ε2f ′′ (x) + ε4
+
+12 f ′′′′ (x) + O(ε6),
+
+from which 
+
+D(2)  
+
+> ε
+
+f = f ′′ (x) + ε2
+
+12 f ′′′′ (x) + O(ε4),
+
+giving truncation error 
+
+E(2) trunc = ε2
+
+12 |f ′′′′ (x)| + O(ε4).
+
+The roundoff error, amplified by division by ε2, takes the form 
+
+E(2) round = κ2
+
+εm|f (x)|
+
+ε2 ,
+
+where κ2 is again an unknown constant. Minimizing the total error: 
+
+ε
+
+6 |f ′′′′ (x)| = 2κ2εm|f (x)|
+
+ε3 ,
+
+yields 
+
+ε(2) opt =
+
+( 12 κ2εm|f (x)||f ′′′′ (x)|
+
+)1/4
+
+= C2 · ε1/4 
+
+> m
+
+.
+
+This analysis leads to two main observations. First, and well-known, the total finite-difference approximation error exhibits a minimum as a function of ε. Second, the location of this minimum 7is not fixed: it depends on the ratio |f (x)|/|f (k+2) (x)|, which (when f is a neural network being trained) evolves as the model’s smoothness and nonlinearity change during optimization. The table below shows the theoretical scaling ε1/(k+2)  
+
+> m
+
+across common floating-point formats; the actual optimum differs by a function-dependent prefactor that the analysis leaves undetermined — a gap we close in the next section with a simple empirical procedure for selecting ε at runtime. Format Mantissa bits εm ε1/3 
+
+> m
+
+ε1/4
+
+> m
+
+FP64 52 2.2 × 10 −16 6.1 × 10 −6 1.2 × 10 −4
+
+FP32 23 1.2 × 10 −7 4.9 × 10 −3 1.9 × 10 −2
+
+FP16 10 9.8 × 10 −4 9.9 × 10 −2 1.8 × 10 −1
+
+BF16 7 7.8 × 10 −3 2.0 × 10 −1 3.0 × 10 −1
+
+3.3 Empirical Determination of Optimal Step Size 
+
+The above analysis motivates the following procedure that evaluates n logarithmically spaced can-didate step sizes and selects the one that minimizes the RMSE between the FD approximation and the AD-computed reference. 
+
+Algorithm 2: Empirical step-size calibration ( find_eps )
+
+METHOD find_eps: # Inputs: # model: neural network approximating function f # order: 1 or 2 # n_candidates: number of candidate step sizes, e.g. 50 # Heuristical range for FP32: # eps_min = 1e-6, eps_max = 1e-1 eps_candidates = torch.logspace(-6, -1, n_candidates) X = Set of collocation points, e.g. from Sobol sequence # Compute AD reference (per-sample, exact) ref = ad_derivative(model, X, order) # Evaluate FD error at each candidate errors = [] for eps in eps_candidates: fd_approx = fd_derivative(model, X, order, eps) errors.append(rmse(fd_approx, ref)) return eps that minimizes error 
+
+We propose periodic recalibration of ε at a fixed interval during training. In Section 4 we show experimentally measured sensitivity to this interval. 83.4 Strategies for Mixed-Order PDEs 
+
+PDEs usually involve derivatives of multiple orders, for example the viscous Burgers equation contains both first-order and second-order terms. That leads us to perform Algorithm 2 separately for each derivative order, obtaining ε(1) opt and ε(2) opt . The question arises: how to use these two different optima when performing finite-difference-based training? We propose the three FD-based strategies: 
+
+Strategy 1: basic Finite Difference (FD) Use a single compromise step size computed as the geometric mean of the order-specific optima: 
+
+εGM =
+
+> √
+
+ε(1) opt · ε(2) opt .
+
+This requires only one set of function evaluations per stencil but achieves suboptimal accuracy for both derivative orders. 
+
+Strategy 2: Exact order-specific step sizes Finite Difference (eFD) Use ε(1) opt for first derivatives and ε(2) opt for second derivatives. This achieves optimal accuracy for each term at the cost of 40% higher batch size. 
+
+Strategy 3: Stochastic Finite Differences (sFD). For each training step and each colloca-tion point, sample ε log-uniformly from the range of optimal step sizes for the different derivative orders. [ ε(1) opt , ε (2) opt ]: log ε ∼ U 
+
+> (
+
+log min( ε(1) opt , ε (2) opt ), log max( ε(1) opt , ε (2) opt )
+
+> )
+
+.
+
+This strategy maintains a single 3-point stencil per point (preserving the computational efficiency of FD) while introducing stochasticity that prevents optimization from overfitting to a particular step size and still providing near-optimal accuracy for both derivative orders across training iterations. We systematically compare these three strategies in our experiments, evaluating their impact on both approximation accuracy, memory usage, and wall-clock time across a few mixed-order PDE benchmarks. 
+
+3.5 Per-sample Derivatives in Architectures with Inter-Sample Dependencies 
+
+Most of the PINN literature quietly assumes that the neural network fθ maps each input xi indepen-dently to an output fθ(xi). Standard MLPs, when processing a batch of points in parallel, satisfy this assumption. However, architectures that contain some kind of layers that allow intersample dependencies break this assumption. One class of such architectures are neural networks using default implementation of batch normalization [Ioffe and Szegedy, 2015]. This is a common technique that is known to improve convergence of the optimization. Another, even more interesting class, are architectures with attention layers where the collocation points are not treated independently, but influence each other in highly non-linear manner. Spectacular successes of transformer architectures in multiple domains (e.g. GPT [Radford et al., 2018]) motivate research in this kind of models, see e.g. [Zhao et al., 2024]. Unfortunately those inter-sample couplings have consequences for derivative computation. Be-cause of the inherent inner working of grad computations, where Jacobina-vector product is com-puted, calculating elementwise-derivatives is not possible. A common trick of setting the vector to ones (in PyTorch grad_outputs=ones_like(outputs) ) is silently wrong. The only correct way (at least in PyTorch; JAX offers a promising functional interface that could in theory yield true 9element-wise derivatives in a compute-efficient way, but we have not tested its efficiency) is to com-pute the per-sample gradient with O(B) separate autograd calls, one forward-backward pass per sample, which is prohibitively expensive in time and memory at the batch sizes needed for PINN training. Finite differences are not an exact remedy either. Empirically, however, on inter-sample architec-tures FD reduces the discrepancy against the true per-sample reference by roughly an order of mag-nitude for BatchNorm and by a factor of three for self-attention, relative to the grad_outputs=ones 
+
+idiom (Appendix B). The principal contribution of this subsection is the identification of the failure mode itself; we treat FD as a partial mitigation, not a solution, and leave a complete fix to future work. 
+
+# 4 Experiments 
+
+4.1 Experimental setup 
+
+All experiments use a fully connected MLP with 4 hidden layers and tanh activation. The hidden width is 128 for Burgers 1D and Poisson 2D, and 256 for Heat2D-CG. Training uses the Adam optimizer with learning rate 10 −3 and a cosine annealing schedule. The loss is 
+
+L = LPDE + λIC LIC + λBC LBC ,
+
+with λIC = λBC = 10 for Burgers and Heat2D-CG, and λBC = 1000 for Poisson (Poisson has no initial condition). Collocation points are resampled uniformly at each epoch with batch size 8192 — using rejection sampling for the multiply-connected domains in Poisson 2D and Heat2D-CG. For FD-based methods, the step size ε is recalibrated every 4000 epochs using the empirical procedure of Section 3. Each configuration is trained for 20k epochs with 25 independent random seeds. Heat2D-CG additionally uses an input normalization layer that rescales each input dimension to [ −1, 1]; this is essential because the domain has highly asymmetric scales ( x ∈ [−8, 8], y ∈ [−12 , 12], t ∈ [0 , 3]). All experiments are run on an NVIDIA GeForce RTX 4070 (12 GB) using PyTorch [Paszke et al., 2019] with FP32 precision. 
+
+4.2 Optimal ε selection 
+
+We first validate the theoretical error analysis from Section 3 by empirically measuring the finite-difference error as a function of ε on a fixed, randomly initialized MLP (4 layers, 64 units, tanh). For each candidate step size, we compute the discrepancy between the finite-difference approximation and the AD-computed reference on a sample of 1024 collocation points. Figure 2 shows the characteristic V-shaped curve of finite-difference error as a function of step size ε. Figure 3 compares the error landscape across three floating-point formats: FP64, FP32, and BF16. Experimental locations of minima agree with theoretical predictions from Table 1 of Section 3.2.1 implying value of the constant factor C1 ≈ 2–3. 
+
+4.3 Accuracy of methods 
+
+4.3.1 Poisson 2D on a domain with holes 
+
+The first problem is a 2D Poisson equation on a rectangular domain with four circular holes from the PINNacle benchmark [Hao et al., 2024]: ∆u(x, y ) = 0 , (x, y ) ∈ Ω,
+
+10 Figure 2: Error (RMSE and max) of the central finite-difference approximation of the first derivative as a function of step size ε. For small ε, roundoff error dominates; for large ε, truncation error dominates. The minimum of the curve identifies εopt . The characteristic V-shape resembles Figure 3 from Baydin et al. [2018], confirming that the error behavior of finite differences in neural networks follows the same pattern as for standard numerical functions. 
+
+Figure 3: Error (RMSE) of the central finite-difference approximation of the first derivative as a function of step size ε, for three floating-point formats (FP64, FP32, BF16). Each curve exhibits the characteristic V-shape. Vertical dashed lines mark the empirical optima. The shift of the optimal ε across formats is consistent with the theoretical scaling ε(1) opt ∼ ε1/3 
+
+> m
+
+and allows us to conclude that C1 is of order of a few. 11 with Dirichlet boundary conditions on the outer rectangle and inner circles. This problem is stationary, has no initial condition, and involves only second-order derivatives. eFD and FD therefore coincide on this problem (both use ε(2) opt ), and we report only the three distinct methods. Table 2: Poisson 2D. Mean ± standard deviation across 26 seeds, 20k epochs, batch size 8192. Best results in bold. eFD is omitted because on a purely second-order PDE it coincides with FD. Method SMAPE (%) L2 Relative (%) Max Error 
+
+sFD 13.10 ± 0.64 1.11 ± 0.39 0.026 ± 0.010 
+
+AD 13.67 ± 0.55 1.41 ± 0.31 0.032 ± 0.008 FD (eq. eFD) 13.66 ± 0.63 1.40 ± 0.39 0.033 ± 0.014 sFD is the best method on every metric, achieving 21% lower L2 error than AD and 20% lower max error. AD and FD are statistically indistinguishable on this problem (1.41% vs. 1.40% L2), consistent with the other benchmarks. 
+
+4.3.2 1D viscous Burgers equation 
+
+We consider the viscous Burgers equation 
+
+∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 , x ∈ [−1, 1] , t ∈ [0 , 1] ,
+
+with viscosity ν = 0 .01 /π , initial condition u(x, 0) = − sin( πx ), and homogeneous Dirichlet boundary conditions u(±1, t ) = 0. This problem develops a sharp shock front around t ≈ 0.3 and is a standard stress test for PINNs. The reference solution is obtained from the analytical Cole–Hopf transformation by Hao et al. [2024]. The PDE combines first-order ( ut, ux) and second-order ( uxx )derivatives, directly exercising the mixed-order step-size strategies. Table 3: Burgers 1D. Mean ± standard deviation across 26 seeds, 20k epochs, batch size 8192. Best results in bold. Method SMAPE (%) L2 Relative (%) Max Error 
+
+AD 6.81 ± 0.04 1.36 ± 0.11 0.088 ± 0.012 
+
+eFD 6.81 ± 0.04 1.38 ± 0.17 0.091 ± 0.019 
+
+FD 6.82 ± 0.04 1.38 ± 0.14 0.093 ± 0.019 
+
+sFD 7.77 ± 0.34 4.23 ± 1.21 0.233 ± 0.120 AD, FD, and eFD are statistically indistinguishable on all three metrics: the differences between methods are an order of magnitude smaller than the inter-seed variance. This is the central empirical observation for MLP-based PINNs: with a correctly calibrated step size, finite differences recover the same solution as automatic differentiation. Contrary to Poisson 2D, sFD performs poorly, achieving roughly 3 × the L2 error of the deterministic methods and suffers a much larger max-error variance ( ±0.120 vs. ±0.012 for AD) indicating problems with convergence. 12 4.3.3 Heat2D-CG (PINNacle complex geometry) 
+
+The third problem is the 2D heat equation from PINNacle [Hao et al., 2024]: 
+
+∂u ∂t − ∆u = 0 , (x, y ) ∈ Ω, t ∈ [0 , 3] ,
+
+where Ω ⊂ [−8, 8] × [−12 , 12] is a rectangle with 17 circular holes representing a heat exchanger. The initial condition is u(x, y, 0) = 0. The boundary conditions are of Robin type, 
+
+∇u · n = g − q · u, 
+
+with parameters g and q varying across boundary segments (large circles: g = 5, q = 1; small circles: g = 1, q = 1; outer rectangle: g = 0 .1, q = 1). The reference solution was obtained from COMSOL on an unstructured mesh with 13,312 nodes and 31 time steps by [Hao et al., 2024]. This problem introduces two additional challenges for FD: the domain is three-dimensional ( x, y, t), and the Robin boundary conditions involve normal derivatives ∇u · n, where the normal direction varies along the curved boundaries. Table 4: Heat2D-CG. Mean ± standard deviation across 26 seeds, 20k epochs, batch size 8192. Best results in bold. Method SMAPE (%) L2 Relative (%) Max Error 
+
+AD 14.79 ± 0.78 2.56 ± 0.32 0.571 ± 0.025 
+
+eFD 14.82 ± 0.66 2.60 ± 0.31 0.577 ± 0.024 FD 14.97 ± 0.79 2.66 ± 0.38 0.564 ± 0.018 sFD 19.88 ± 4.03 4.65 ± 2.24 0.581 ± 0.089 AD and eFD are tied as the best methods (2.56% and 2.60% L2), with standard FD only marginally behind (2.66%). Our AD baseline is competitive with the original PINNacle vanilla PINN (3.64%) and close to the best method reported in the benchmark (LAAF at 2.39%), confirm-ing that our experimental configuration is a strong implementation rather than a weak baseline. This is our strongest positive result for FD at scale: on a three-dimensional problem with irregular geometry and Robin conditions, FD and eFD match AD’s accuracy on a problem that the PINN community considers difficult . sFD performs substantially worse (4.65% L2, ±2.24 pp across seeds). 
+
+4.3.4 Summary across problems 
+
+Table 5: L2 relative error across benchmark problems. 
+
+Best results per row in bold. Problem AD FD eFD sFD Poisson 2D 1.41% 1.40% equal FD 1.11% 
+
+Burgers 1D 1.36% 1.38% 1.38% 4.23% Heat2D-CG 2.56% 2.66% 2.60% 4.65% Two qualitative observations emerge. First, AD, FD, and eFD are interchangeable on all tested problems for MLP-based PINNs: differences between them are within one standard deviation of the seed-to-seed variance. Second, sFD performance is highly problem-dependent. 13 4.4 Computational cost 
+
+A practical motivation for FD is that it avoids the backward-graph overhead of AD for higher-order derivatives. We benchmark the speed and memory consumption of computing the first and second derivatives of a scalar network output with respect to its inputs as a function of batch size, for a fixed 4-layer MLP. Figure 4 reports the full PINN training step (residual evaluation followed by a regular AD backward pass through the network parameters). Across the entire tested range, FD is faster than AD. For the plain MLP, FD beats the memory-efficient batched AD idiom by roughly 2–3 ×. For architectures with inter-sample dependencies the gap widens to 6–14 ×, but more importantly the batched idiom is silently incorrect there (Section 3.5), so the only valid AD baseline is per-sample AD — against which FD is two to three orders of magnitude faster ( ∼ 360 × for the plain MLP, ∼ 1600 × for the MLP with BN, and ∼ 1400 × for the MLP with attention at B = 2 7). The memory advantage tracks the same pattern: ∼ 2× for the plain MLP and one-to-three orders of magnitude for the inter-sample architectures, capping AD’s feasible batch size at values that are too small for converged PINN training. Larger batches are necessary for converged comparison of derivative methods on standard PINN benchmarks, so this advantage compounds in practice. 
+
+4.5 Sensitivity to the recalibration interval of ε
+
+Section 3 argued that the optimal step size evolves as the network’s smoothness characteristics change during training and advocated periodic recalibration. To validate this claim we run each method at refresh intervals of {1, 4, 10 , 40 , 100 , 400 , 1000 , 4000 , 10000 } epochs on all three problems (5 seeds each, 20000 total epochs). Figure 5 reports the L2 relative error as a function of the interval. We observe that all FD methods are robust to the recalibration frequency. Across all three problems, their L2 error is essentially flat from interval 1 to interval 4000. Only at interval 10000, i.e. when ε is calibrated twice during the entire training, we see a substaintally worse L2 error for sFD, a slightly worse for FD and eFD. 
+
+# 5 Discussion 
+
+5.1 When finite differences match automatic differentiation 
+
+The most immediately practical finding of Section 4 is that on MLP-based PINNs with a prop-erly calibrated step size, AD, FD, and eFD produce statistically indistinguishable solutions on every problem we tested. This contradicts a common assumption that finite differences must be less accurate than automatic differentiation. In the regime in which PINNs actually operate, the approximation error of optimally chosen ε is below the seed-to-seed noise of the training itself. The two derivative schemes are then indistinguishable through their solutions, only through their computational cost. From a computational standpoint, AD and FD expose different scalings with batch size. AD of a scalar output with respect to its inputs builds a computational graph that must be retained through the backward pass, and for second-order derivatives this graph grows quadratically with the number of nonlinearity layers and linearly with the batch size. Finite differences require only forward passes and have essentially constant memory per point. In our benchmark FD is faster than AD across the full tested batch-size range—by a factor of 2–4 × for plain MLPs and by an order of magnitude or more for architectures with inter-sample dependencies. Similarily FD allows for roughly twice BS for plain MLP (although this is partially offset by the fact that the FD batch 14 10 0
+
+> 10 1
+> 10 2
+> 10 3
+> Time (ms)
+
+MLP 
+
+> AD (batched) AD (per-sample) FD
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+
+MLP with BN 
+
+> AD (batched, WRONG) AD (per-sample) FD
+> 10 1
+> 10 2
+> 10 3
+
+MLP with attention       
+
+> AD (batched, WRONG) AD (per-sample) FD
+> 2628210 212 214 216 218
+
+Batch size       
+
+> 01000 2000 3000 4000 5000 6000 7000 8000
+> Peak GPU memory (MB)
+> AD (batched) AD (per-sample) FD
+> 2628210 212 214 216 218
+
+Batch size         
+
+> 02000 4000 6000 8000 10000 AD (batched, WRONG) AD (per-sample) FD
+> 2526272829210 211 212
+
+Batch size  
+
+> 01000 2000 3000 4000 5000 6000 7000 8000 AD (batched, WRONG) AD (per-sample) FD
+
+Figure 4: Wall-clock time per training step (top) and peak GPU memory (bottom, measured on a 12 GB NVIDIA RTX 4070), as a function of batch size, for AD (per-sample and batched variants) and FD. Columns: a plain MLP, an MLP with BN, and an MLP with attention. FD is the fastest method across the tested range. For the plain MLP (left), the memory-efficient batched AD idiom is correct and uses roughly 2.0× the memory of FD at the largest tractable batch ( B = 2 18 ), itself only half of FD’s B = 2 19 . For architectures with inter-sample dependencies — MLP with BN (middle, using PyTorch’s BatchNorm1d ) and MLP with attention (right, using PyTorch’s MultiheadAttention )[Paszke et al., 2019] — the batched idiom is silently incorrect (Section 3.5), so correct per-sample AD requires an O(B) loop that accumulates B separate autograd graphs. Peak memory then grows roughly quadratically with B, capping the feasible batch at B = 2 8 for the MLP with BN and 
+
+B = 2 7 for the MLP with attention, against FD’s B = 2 18 and B = 2 12 — a 1024 × and 32 ×
+
+advantage. At a common B = 2 7, AD per-sample costs 54 × and 107 × more memory than FD for the two architectures, respectively, and FD provides more than 1000 × speedup over the only correct AD baseline for a wide range of batch sizes. 15 10 0 10 1 10 2 10 3 10 4              
+
+> hrefresh interval (epochs)
+> 10 2
+> 10 1
+> 10 0
+> L2 relative error
+> Heat 2D (Complex Geometry)
+> 10 010 110 210 310 4
+> hrefresh interval (epochs)
+> Burgers 1D
+> 10 010 110 210 310 4
+> hrefresh interval (epochs)
+> Poisson 2D
+> Effect of recalibration frequency
+> FD sFD eFD AD baseline
+
+Figure 5: Ablation of the ε recalibration interval on Burgers 1D, Heat2D-CG, and Poisson 2D (L2 relative error vs. interval). FD and eFD are robust to the interval across four orders of magnitude; sFD is stable on Poisson but fails catastrophically on Burgers and Heat2D-CG when the interval reaches 10000 epochs. consists of the independent collocation points plus their dependent shifts, so the effective batch size of independent points is smaller than the raw batch size) and few orders of magnitude higher BS for architectures with inter-sample dependencies. 
+
+5.2 Stochastic FD 
+
+A useful way to interpret sFD is as a form of noise-induced regularization. Instead of optimizing the PDE residual under a single fixed finite-difference operator, the model is trained against a small family of nearby operators indexed by the sampled step size ε. This makes the residual less tied to one particular numerical scale and prevents the optimizer from exploiting artifacts of a fixed stencil. The empirical benefit of sFD is most visible on the stationary Poisson problem, where we observed a common failure mode of standard PINNs: solution collapse. In this regime the network can drive the interior close to zero, satisfy the Dirichlet data only in a very narrow layer near the boundary, and still obtain a small total loss. The interior PDE residual remains small because the collapsed solution is nearly harmonic away from the boundary, while the transition layer occupies such a small volume that it is rarely sampled by collocation points. Finite differences change this geometry. A residual evaluated at x no longer depends only on the infinitesimal behavior of uθ at x, but on values in a finite neighborhood of radius ε. Points near the boundary therefore become sensitive to narrow transition layers even when the collocation point itself does not lie inside the layer. In effect, FD increases the visible width of such pathological boundary layers. sFD strengthens this effect by sampling ε across a range of scales. The optimizer cannot adapt to a single stencil width, and a transition that is invisible at one scale may be exposed at another. This suggests that sFD is not merely adding generic optimization noise: it introduces a structured, scale-local perturbation that preferentially penalizes features whose apparent derivatives 16 are unstable across nearby finite-difference scales. This interpretation also explains why sFD is not uniformly beneficial. On Burgers and Heat2D-CG, where the solution contains physically meaningful sharp gradients, time-dependent structure, or geometry-dependent boundary effects, stochastic variation of ε can inject excessive variance or blur derivative information that deterministic FD and eFD capture more consistently. The Poisson result should therefore be read not as evidence that sFD is generally superior, but as evidence that it can suppress a specific collapse mechanism in stationary elliptic problems. There is also a structural analogy to Richardson extrapolation. Richardson extrapolation com-bines finite-difference estimates at different step sizes to cancel leading truncation-error terms al-gebraically. sFD instead samples from a distribution of step sizes and optimizes the expected residual induced by this distribution. It does not increase the formal order of the finite-difference scheme, but it reduces dependence on a single discretization scale and turns step-size variation into a regularizing signal. 
+
+5.3 Limitations and future work 
+
+• Derivative order. Our analysis and experiments are restricted to first and second deriva-tives. For fourth-order PDEs (biharmonic operators, Kirchhoff plates) the roundoff amplifi-cation scales as ε−4; whether the empirical ε1/6 
+
+> m
+
+scaling continues to work in FP32 is an open question. • Floating-point format. All experiments use FP32. The scaling analysis of Section 3 predicts substantially smaller FD residuals in FP64, at a 2 × memory cost and potentially higher arithmetic cost. Sharma and Shankar [2022] show that FP64 may nevertheless improve end-to-end efficiency when AD-based spatial derivatives are replaced by precomputed high-order RBF-FD sparse matrix-vector products, since the reduction in derivative-evaluation cost and numerical error can outweigh the slower arithmetic. Testing whether this trade-off transfers to our setting is left for future work. 
+
+5.4 Practical recommendations 
+
+• Standard MLP PINNs. Use FD (geometric-mean ε) as the default. It matches AD accuracy on every problem we tested, is approximately 2x faster and has essentially constant memory as the derivative order grows. Recalibrate ε a few times durign the training. • BatchNorm models. Avoid the grad_outputs=ones idiom—it is silently wrong, use FD. Alternatively implement non-standard form of BatchNorm that uses running statistics also in training without introducing inter-sample dependencies. 
+
+# 6 Conclusions 
+
+Finite difference is a viable alternative to automatic differentiation. Choice of the optimal step size is crucial for accuracy and can be done easily with our proposed method. As the characteristic of the neural network model changes, it may be worth to recalibrate that step size a few times during training. The common grad_outputs=ones idiom is silently wrong in neural architectures that use inter-sample dependencies. Our stochastic FD method introduces regularization that can help models that suffer from the solution collapse, but the exact mechanism must be further investigated. 17 7 Data availability 
+
+The reference solutions used in this study are obtained from the PINNacle benchmark suite [Hao et al., 2024]: an analytical Cole–Hopf reference for the 1D viscous Burgers equation, a high-resolution finite-element (COMSOL) solution for the 2D Poisson problem on a domain with four cir-cular holes, and the Heat2D-CG dataset. All numerical training outputs reported in this manuscript — per-seed L2 relative errors, SMAPE, maximum errors, training wall-clock times, calibrated step sizes ε, and the speed/memory microbenchmark measurements — are stored as CSV files together with the small arrays needed to regenerate the figures (cached as .npz ). The data will be made available upon publication. 
+
+# 8 Code availability 
+
+All custom code used to generate the results in this manuscript — PyTorch implementations of the four derivative-computation strategies (AD, FD, eFD, sFD), training scripts for the three benchmark PDEs, the empirical ε calibration routine, the speed/memory microbenchmark, and the figure-generation pipeline — together with configuration files, the random seeds used for each reported experiment, and step-by-step instructions for reproducing every table and figure, will be made available upon publication. Experiments were run with Python 3.11 and PyTorch 2.11.0 on a single NVIDIA RTX 4070 GPU. 
+
+# 9 Use of generative AI tools 
+
+The authors used a generative AI coding assistant (Anthropic’s Claude, accessed via the Claude Code command-line interface) throughout the preparation of this manuscript. The assistant was used for: (i) refactoring and writing portions of the research codebase, including the figure-generation scripts and parts of the benchmark and ablation pipelines; (ii) drafting, restructuring, and copy-editing prose in several sections of the manuscript; (iii) literature search and summarisa-tion; and (iv) producing summary tables and analysis of experimental results from CSV outputs. All scientific contributions — the research questions, methodology, experimental design, interpre-tation of results, and final wording of every claim — were conceived, verified and approved by the human authors, who take full responsibility for the content. The AI assistant is not credited as an author. 
+
+# 10 Author contributions 
+
+M.J.M. conceived the study, implemented the methods, designed and conducted the experiments, analysed the results, and wrote the manuscript. T.U. supervised the project, provided guidance on the methodology and the interpretation of results, and reviewed and edited the manuscript. 
+
+# 11 Competing interests 
+
+M.J.M. is employed by NVIDIA. The work reported in this manuscript was conducted indepen-dently, outside the author’s employment responsibilities, using private computational resources. NVIDIA had no role in the study design, experiments, analysis, interpretation, manuscript prepa-ration, or decision to submit the work. The remaining author declares no competing interests. 18 A Finite differences in higher input dimensions 
+
+For a neural network uθ : Rd → R and a batch of collocation points X ∈ RB×d, the central-difference stencil for the Laplacian is ∆uθ(x) ≈ 1
+
+ε2
+
+> d∑
+> k=1
+
+[uθ(x + εe k) − 2uθ(x) + uθ(x − εe k)] ,
+
+where ek is the k-th unit vector in input space. The total number of function evaluations is 2d + 1 per collocation point, and all of them can be packed into a single forward pass through the network by concatenating the perturbed batches along the batch dimension: 
+
+def laplacian_fd(model, X, eps): # X: (B, d), model: R^d -> R, eps: scalar step size B, d = X.shape perturbations = [X] # center for k in range(d): shift = torch.zeros(d, device=X.device) shift[k] = eps perturbations.append(X + shift) perturbations.append(X - shift) X_all = torch.cat(perturbations, dim=0) # (B * (2d+1), d) u_all = model(X_all).view(2 * d + 1, B) center = u_all[0] plus = u_all[1::2] # (d, B) minus = u_all[2::2] # (d, B) lap = (plus.sum(0) + minus.sum(0) - 2 * d * center) / (eps ** 2) return lap 
+
+# B Finite differences for architectures with inter-sample dependen-cies 
+
+The two sample-coupling architectures used in Section 3.5 are defined as follows. 
+
+MLP with BN : input linear ( d → 64) → BatchNorm1d(64) → tanh → linear (64 → 64) →
+
+tanh → linear (64 → 1). The BatchNorm layer uses PyTorch’s default momentum of 0.1 for running statistics. 
+
+MLP with attention : input linear ( d → 64) → single-head self-attention block (hidden dim 64, pre-norm LayerNorm, residual connection) → tanh → linear (64 → 64) → tanh → linear (64 
+
+→ 1). The attention block treats the batch of collocation points as a sequence of tokens, so that each output depends on all B collocation points through the attention weights. Both architectures are pretrained for 2000 epochs on the smooth target u(x, y ) = sin x · cos y
+
+with the Adam optimizer (learning rate 10 −3, batch size 256). The pretraining step is essential for two reasons. First, it brings the output magnitudes of the three architectures (plain MLP, MLP with BN, MLP with attention) into a comparable range, so that the max-absolute-difference residuals reported in the table below can be compared across rows. Second, for the MLP with BN, pretraining stabilizes the running mean and variance of the BatchNorm layer: a freshly initialized BN layer has running statistics at the defaults (mean 0, variance 1) that bear no relation to the actual activation distribution, which inflates the train-vs-eval gap and corrupts the measured FD 19 residual. After 2000 epochs the running statistics reflect the true activation distribution and the measured residual becomes interpretable. The experiments in the main paper establish that FD is a drop-in replacement for AD on MLPs. In this appendix we report the numerical evidence behind the grad_outputs=ones failure mode discussed in Section 3.5. We focus on two architectures: an MLP with BatchNorm and an MLP with a self-attention block. We refer the reader to the python code that accompanies this paper. For each architecture we compare three methods of computing the Laplacian ∆ u of the network output on a batch of B = 64 collocation points: the standard grad_outputs=ones idiom (batched AD), the O(B) per-sample autograd loop (per-sample AD, the reference), and FD with calibrated step size. We report the median over 5 fresh random initializations of the maximum absolute discrepancy between pairs of methods. Models are pretrained for 2000 epochs on u(x, y ) = sin x ·
+
+cos y to bring outputs to a comparable scale and to stabilize BatchNorm running statistics. Table 6: Median max-absolute discrepancy of Laplacian es-timates across 5 random initializations. Architecture 
+
+∥batched AD −
+
+per-sample AD ∥∞ ∥FD − per-sample AD ∥∞
+
+plain MLP 0 8.2 × 10 −4
+
+MLP with BN 8.5 0.79 MLP with attention 7.4 2.1On the plain MLP all three methods agree at the level of the FD truncation error. On the MLP with BN and the MLP with attention, the grad_outputs=ones idiom is wrong by 7-8 absolute units, which is the silent bug identified in Section 3.5. FD also disagrees with the per-sample reference, but the discrepancy is roughly an order of magnitude smaller for the MLP with BN and more than a factor of three smaller for the MLP with attention. 
+
+# References 
+
+A. G. Baydin, Barak A. Pearlmutter, Alexey Radul, and J. Siskind. Automatic differentiation in machine learning: a survey. J. Mach. Learn. Res. , 18:153:1–153:43, 2018. James Bradbury, Roy Frostig, Peter Hawkins, et al. JAX: composable transformations of Python+NumPy programs. https://github.com/google/jax , 2018. Juan-Esteban Suarez Cardona and Michael Hecht. Polynomial differentiation decreases the training time complexity of physics-informed neural networks and strengthens their approximation power. 
+
+Machine Learning: Science and Technology , 4, 2023. doi: 10.1088/2632-2153/acf97a. Chuqi Chen, Yahong Yang, Yang Xiang, and Wenrui Hao. Automatic differentiation is essential in training neural networks for solving differential equations. Journal of Scientific Computing , 104, 2025. doi: 10.1007/s10915-025-02965-3. Pao-Hsiung Chiu, Jian Cheng Wong, Chinchun Ooi, My Ha Dao, and Yew-Soon Ong. CAN-PINN: A fast physics-informed neural network based on coupled-automatic-numerical differentiation method. Computer Methods in Applied Mechanics and Engineering , 395:114909, 2022. doi: 10.1016/j.cma.2022.114909. 20 Junwoo Cho, Seungtae Nam, Hyunmo Yang, Seok-Bae Yun, Youngjoon Hong, and Eunbyung Park. Separable physics-informed neural networks. In Advances in Neural Information Processing Systems , volume 36, 2023. S. Cuomo, Vincenzo Schiano Di Cola, F. Giampaolo, G. Rozza, Maizar Raissi, and F. Piccialli. Scientific machine learning through physics–informed neural networks: Where we are and what’s next. Journal of Scientific Computing , 92, 2022. doi: 10.1007/s10915-022-01939-z. My Ha Dao, Pao-Hsiung Chiu, Jian Cheng Wong, and Chin Chun Ooi. Physics-informed neural network with numerical differentiation for modelling complex fluid dynamic problems. Volume 7: CFD and FSI , 2022. doi: 10.1115/omae2022-81237. Tim De Ryck and Siddhartha Mishra. Numerical analysis of physics-informed neural networks and related models in physics-informed machine learning. Acta Numerica , 33:633 – 713, 2024. doi: 10.1017/s0962492923000089. Zekai Guo and Ye Li. Fd-pinn: A finite-difference physics-informed neural network with adaptive residual point selection for seismic inversion. In Proceedings of the 2025 2nd Symposium on Big Data, Neural Networks, and Deep Learning , BDNNDL ’25, pages 384–389, New York, NY, USA, 2025. Association for Computing Machinery. ISBN 9798400720185. doi: 10.1145/3784013. 3784074. Zhongkai Hao, Jiachen Yao, Chang Su, Hang Su, Ziao Wang, Fanzhi Lu, Zeyu Xia, Yichi Zhang, Songming Liu, Lu Lu, and Jun Zhu. PINNacle: A comprehensive benchmark of physics-informed neural networks for solving PDEs. In Advances in Neural Information Processing Systems , vol-ume 37, 2024. Sergey Ioffe and Christian Szegedy. Batch normalization: Accelerating deep network training by reducing internal covariate shift. In Proceedings of the 32nd International Conference on Machine Learning , pages 448–456. PMLR, 2015. Qinghua Jiang, Chang Shu, Lailai Zhu, L. M. Yang, et al. Applications of finite difference-based physics-informed neural networks to steady incompressible isothermal and thermal flows. Inter-national Journal for Numerical Methods in Fluids , 95(10):1565–1597, 2023. doi: 10.1002/fld.5217. Andreas Langer. The ill-posed foundations of physics-informed neural networks and their finite-difference variants. arXiv preprint arXiv:2601.07017 , 2026. Kart Leong Lim, Rahul Dutta, and Mihai Rotaru. Physics informed neural network using finite difference method. In Proc. IEEE International Conference on Systems, Man, and Cybernetics (SMC) , pages 1828–1833, 2022. doi: 10.1109/SMC53654.2022.9945171. Tianyu Pang, Kun Xu, Chongxuan Li, Yang Song, Stefano Ermon, and Jun Zhu. Efficient learning of generative models via finite-difference score matching. In Advances in Neural Information Processing Systems , volume 33, 2020. Adam Paszke, Sam Gross, Francisco Massa, et al. Pytorch: An imperative style, high-performance deep learning library. In Advances in Neural Information Processing Systems , 2019. Alec Radford, Karthik Narasimhan, Tim Salimans, and Ilya Sutskever. Improving language under-standing by generative pre-training. Technical report, OpenAI, 2018. 21 Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp. 2018.10.045. Nityananda Roy, Robert Dürr, Andreas Bück, and S. Sundar. Finite difference physics-informed neural networks enable improved solution accuracy of the Navier–Stokes equations. arXiv preprint arXiv:2501.00014 , 2025. Ramansh Sharma and Varun Shankar. Accelerated training of physics-informed neural networks (PINNs) using meshless discretizations. In Advances in Neural Information Processing Systems ,volume 35, 2022. Zidong Wang, Yiyuan Zhang, Xiaoyu Yue, Xiangyu Yue, Yangguang Li, Wanli Ouyang, and Lei Bai. Transition models: Rethinking the generative learning objective. arXiv preprint arXiv:2509.04394 , 2025. Zixue Xiang, Wei Peng, Weien Zhou, and Wen Yao. Hybrid finite difference with the physics-informed neural network for solving PDE in complex geometries. arXiv preprint arXiv:2202.07926 , 2022. Y. Xiao, L. M. Yang, Y. J. Du, Y. Song, and C. Shu. Radial basis function-differential quadrature-based physics-informed neural network for steady incompressible flows. Physics of Fluids , 35(7): 073607, 2023. doi: 10.1063/5.0159224. Jiaming Zhang, David Dalton, Hao Gao, and Dirk Husmeier. Physics-informed deep learning based on the finite difference method for efficient and accurate numerical solution of partial differential equations. In Proceedings of the 5th International Conference on Statistics: Theory and Applications (ICSTA’24) , Barcelona, Spain, 2024. Zhiyuan Zhao, Xueying Ding, and B. Aditya Prakash. PINNsFormer: A transformer-based frame-work for physics-informed neural networks. In International Conference on Learning Represen-tations (ICLR) , 2024. 22

@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-07-26 ~ 2026-08-04</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-17</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 37 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 33 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>24</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>20</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-04 03:15:05 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-17 21:04:22 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共扫描37篇论文，精读24篇、速读13篇，核心聚焦LLM智能体自我进化与科学方程发现两大方向。最值得关注的是满分论文《SkillMentor》提出盲点诊断式自我进化机制，以及《MOT-SR》用多目标工具增强科学方程发现；此外可留意8分速读中关于振动非平衡可压缩流神经网络闭合模型、PDE控制的联合嵌入预测方法。普通读者建议优先精读两篇满分论文，后续可追踪工具增强与自监督方法在科学计算中的交叉应用。</p>
+<p>今日共处理33篇论文，其中精读20篇、速读13篇，聚焦AI与科学计算交叉领域。最值得关注的是满分论文《Bayesian Symbolic Regression with Entropic Reinforcement Learning》，以及关于深度学习发现动力系统的核局部化方法（9分）。建议普通读者优先浏览速读中物理信息神经网络与水下机器人动力学等应用方向，快速把握前沿趋势。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +71,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">24 篇</strong>
+    <strong class="dpr-home-dashboard-count">20 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SkillMentor: LLM Agent Self-Evolution via Learning Blind-Spot Diagnosis">SkillMentor: LLM Agent Self-Evolution via Learning Blind-Spot Diagnosis</span></li><li><span class="dpr-home-dashboard-paper-title" title="MOT-SR: Multi-Objective Tool-Augmented Scientific Equation Discovery with Large Language Models">MOT-SR: Multi-Objective Tool-Augmented Scientific Equation Discovery with Large Language Models</span></li><li><span class="dpr-home-dashboard-paper-title" title="Extending Fourier Neural Operators for Modeling Parameterized and Coupled PDEs">Extending Fourier Neural Operators for Modeling Parameterized and Coupled PDEs</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Bayesian Symbolic Regression with Entropic Reinforcement Learning">Bayesian Symbolic Regression with Entropic Reinforcement Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="Kernel Localization and Whole-Trajectory Generalization for Linear Multistep Methods in Deep Learning-Based Discovery of Dynamical Systems">Kernel Localization and Whole-Trajectory Generalization for Linear Multistep Methods in Deep Learning-Based Discovery of Dynamical Systems</span></li><li><span class="dpr-home-dashboard-paper-title" title="SymbolicPhasor: Power System Phasor Estimation via Deep Symbolic Regression">SymbolicPhasor: Power System Phasor Estimation via Deep Symbolic Regression</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>10</strong></span><span class="dpr-home-dashboard-tag">sr <strong>8</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>10</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +87,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A physics-assisted deep neural network-based closure framework for velocity gradient dynamics in compressible flows with vibrational non-equilibrium">A physics-assisted deep neural network-based closure framework for velocity gradient dynamics in compressible flows with vibrational non-equilibrium</span></li><li><span class="dpr-home-dashboard-paper-title" title="Toward Goal-Agnostic Joint-Embedding Predictive Control of Partial Differential Equations">Toward Goal-Agnostic Joint-Embedding Predictive Control of Partial Differential Equations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Variance-Reduced Q-Learning over Static and Time-Varying Networks">Variance-Reduced Q-Learning over Static and Time-Varying Networks</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Eikonal Regularisation in Physics-Informed Neural Networks for Three-Dimensional Level-Set Advection: Transferability of Two-Dimensional Design Principles">Eikonal Regularisation in Physics-Informed Neural Networks for Three-Dimensional Level-Set Advection: Transferability of Two-Dimensional Design Principles</span></li><li><span class="dpr-home-dashboard-paper-title" title="Stochastic Physics-Informed Neural Networks on Lie Groups for Learning Underwater Vehicle Dynamics">Stochastic Physics-Informed Neural Networks on Lie Groups for Learning Underwater Vehicle Dynamics</span></li><li><span class="dpr-home-dashboard-paper-title" title="SkillReason: Reasoning-Enhanced Agent Skill Retrieval for Implicit User Requests">SkillReason: Reasoning-Enhanced Agent Skill Retrieval for Implicit User Requests</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>9</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>8</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>5</strong></span></div>
 </section>
 </div>
 

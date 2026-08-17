@@ -1,0 +1,1951 @@
+Title: Reduced Order Modeling and Applications to Inverse State Estimation
+
+URL Source: https://arxiv.org/pdf/2608.14328v1
+
+Published Time: Mon, 17 Aug 2026 00:52:24 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Reduced Order Modeling and Applications to Inverse State Estimation ∗Olga Mula and Agustín Somacal 17th August 2026 
+
+Abstract 
+
+Solving parametric partial differential equations (PDEs) repeatedly for many parameter values, as needed in optimal control, uncertainty quantification, and inverse problems, is often prohibitive with classical discretizations. This chapter introduces Reduced Order Modeling (ROM), which builds compressed yet accurate representations of parametric solution sets for fast online evaluation. We formulate the approximation of parametric PDEs as a supervised learning task and review linear approximation, very effective for elliptic and parabolic problems, before turning to nonlinear methods needed when solutions exhibit discontinuities or steep gradients. We then show how to use reduced-order models to efficiently recover the state of a physical system from limited measurements, which is an inverse problem known as state estimation. Throughout, we favor results with theoretical guarantees while also discussing practical methods, and provide a companion Jupyter notebook implementing the main algorithms. 
+
+Keywords— reduced order modeling, parametric PDEs, linear approximation, Kolmogorov widths, nonlinear approximation, inverse state estimation, PBDW method. 
+
+# Contents 
+
+1 Introduction 22 Reduced Order Modeling of Parametric PDEs 2
+
+2.1 Do we really need ROM? . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42.2 Linear Reduced Order Modeling . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 62.2.1 The average case . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 72.2.2 The worst case . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10 2.3 Nonlinear Strategies . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 11 2.3.1 Why do we need nonlinear Model Order Reduction? . . . . . . . . . . . . . . . . . . . . . 12 2.3.2 Piecewise Affine Approximation and Library Approximation . . . . . . . . . . . . . . . . . 12 2.3.3 Beyond piece-wise affine strategies: nonlinear parametric approximations . . . . . . . . . 13 2.3.4 Beyond piece-wise affine strategies: transformations . . . . . . . . . . . . . . . . . . . . . 15 2.4 Further reading . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 
+
+3 Inverse State Estimation 16 
+
+3.1 Optimal Algorithms for State Estimation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 3.2 The Parametrized Background Data-Weak Algorithm (PBDW) . . . . . . . . . . . . . . . . . . . 20 3.3 Practical computation of Am,n (ω) and of β(Vn, W m) . . . . . . . . . . . . . . . . . . . . . . . . . 21 3.4 Error bounds for PBDW . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 3.5 Interpretation of β(Vn, W m) and other remarks . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 3.6 Further Reading and Applications . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+Bibliography 25 
+
+> ∗
+
+Chapter of the book An Introduction to Scientific Machine Learning: Mathematical Foundations and Numerical Implementation 
+
+1arXiv:2608.14328v1 [math.NA] 14 Aug 2026 1 Introduction 
+
+Partial Differential Equations (PDEs) are very powerful mathematical tools used to model and understand countless phenomena. Although they were originally introduced to describe the laws of nature (e.g., in physics and chemistry), they soon became relevant in many other areas, such as economics or, more recently, as an analytical tool to shed light on the training and behavior of machine learning algorithms. Thanks to their explanatory power, they are often preferred over black-box approaches in many design and decision-making processes. Using PDEs to solve optimal control problems, inverse problems, or quantifying uncertainty often requires evaluating solutions across a wide range of problem-dependent parameters, rendering the process computationally expensive. Consequently, the primary challenge lies in solving these systems both accurately and efficiently. Solving each PDE problem with classical discretization methods is, in general, not a viable option: such solvers are very accurate and reliable, but they are also computationally very expensive when the physical model becomes complex. In this context, the field of Reduced Order Modeling (ROM) studies strategies to build inexpensive mappings that take us from the parameters to good approximations of the solution. To obtain a mapping which is fast to evaluate, the main idea is to find a “compressed yet accurate” representation of the set of solutions as the parameters vary within a range relevant to the problem. This is more or less challenging depending on the nature of the PDE, and also on the final goal we are pursuing: uncertainty quantification, optimal control, or inverse state or parameter estimation. This tutorial gives a short introduction to the topic of ROM. We assume that the reader has basic notions of PDEs (theory and numerics, in particular the Galerkin method, see e.g. Ern and Guermond (2013)), and of functional analysis (familiarity with Hilbert spaces, and the concept of orthogonal projection). Since the field is currently very dynamic, and there are many recent developments, we will focus on what we consider to be the main ideas and the main lines of thought to navigate the vast literature. We will systematically point to further references for the readers wishing to deepen their knowledge in each aspect. Since many statements are very hard to prove, and there are many open questions, we give priority to results that come with theoretical guarantees, but we also present developments which seem to work well in practice despite a lack of completely rigorous justification. In Section 2, we start by formulating the problem of finding “compressed” representations of parametric PDEs. We will see that the task can be understood as a specific type of supervised learning problem where the notion of linear and nonlinear approximation plays an important role in the categorization of existing algorithms. We will see in Section 2.2 that a lot is known for linear approximations, and in particular that they work very well for elliptic and parabolic PDEs. However, for other types of PDEs, nonlinear approximation strategies are often needed, especially in cases where solutions present spatial discontinuities or steep gradients. We will see that recent advances leverage mostly two ingredients: i) machine learning tools as a means for devising nonlinear parametric approximations, and ii) transformations inspired by physical insights that allow to fall back to linear model reduction methods. In this respect, significant theoretical gaps remain, driving an intense research activity on the topic. We briefly discuss some strategies in Section 2.3. We next move on to Section 3 where we explain how to leverage the concepts from Section 2 to solve inverse problems. Such problems arise when we observe a real physical system through partial observations, and we want to build an approximation of the whole system assuming that a certain PDE model is a good description of the underlying physics. In this setting, the nature of the PDE is known, but the parameters explaining at best the observations are not known. We thus combine the knowledge of real data observations with the PDE model to find an optimal approximation of the system. Like before, we divide the discussion into linear and nonlinear approximation. This tutorial comes with a companion jupyter notebook, which can be found on the following link: 
+
+https://github.com/agussomacal/MLbook 
+
+# 2 Reduced Order Modeling of Parametric PDEs 
+
+Parametric PDEs are written in abstract form as 
+
+P(u, θ ) = 0 ,
+
+where P is a partial differential operator, and θ = ( θ1, . . . , θ p) is a vector of scalar parameters ranging in some domain Θ ⊂ Rp. We assume well-posedness, that is, for every θ ∈ Θ the problem admits a unique solution 
+
+u = u(θ) which lives in a Hilbert space V . Typical spaces for V would be L2(Ω) or H1(Ω) where Ω is a spatial domain 1 of Rd. Our notation thus means that u(θ) : Ω → R is a function of a spatial variable x ∈ Ω. In what follows, the norm in V and the scalar product are respectively denoted by ∥·∥ V and ⟨· , ·⟩ V . The Euclidean norm and scalar product in Rd will be denoted as |·| and ( ·, ·). 
+
+> 1Although the domain Ω often refers to spatial variables it is not necessarily restricted to that meaning as it may also represent other quantities such as time or momentum.
+
+2Our object of interest is the parameter-to-solution mapping 
+
+u : Θ → Vθ 7 → u(θ)Its image 
+
+M := u(Θ) = {u(θ) : θ ∈ Θ} ⊂ V (1) is the set of all PDE solutions when the parameters θ take values in Θ. Throughout this document, we assume that Θ is compact in Rp and that the map u is continuous and injective (if u(θ1) = u(θ2), then θ1 = θ2). Therefore 
+
+M is a compact set of V . In the literature, M is often referred to as the solution manifold , since it may be thought of as a parameterized p-dimensional set immersed in the Hilbert space V . Note however that calling M amanifold is not always technically correct since the parameter-to-solution mapping may not satisfy all the axioms of topological manifolds (e.g. continuity may fail). As a guiding example, we consider the PDE operator P defined by the Poisson equation on a bounded domain Ω, 
+
+−∇ · (a∇u) = f, in Ω, (2) 
+
+u = 0 , on ∂Ω, (3) where f : Ω → R, and 
+
+a = a(θ) = 
+
+> p
+
+∑
+
+> i=1
+
+θiψi, with θ = ( θi)pi=1 ,
+
+where ψi : Ω → R are given functions for i ∈ { 1, . . . , p }. This notation implies that a(θ) is a function that depends on the spatial variable x (just in the same manner as u(θ)). The divergence and the gradient in (2) are taken with respect to x (and not θ). We refer to Fig. 1 for an example solution. The setting explained in the figure is the one which we propose to experiment with in the corresponding jupyter notebook. 1 12 3
+
+Figure 1: Illustration of a solution of (2) with Ω = (0 , 1) 2 and p = 4. In the example, we build 
+
+a(θ) based on a partition of Ω into 4 smaller squares Ω 1 = (0 , 0.5) × (0 , 0.5], Ω 2 = (0 .5, 1.) × (0 , 0.5], etc. In the left figure, we see the value of each θi in association with each subdomain Ω i so that 
+
+a(θ) = 2 χΩ1 + 3 χΩ2 + χΩ3 + χΩ4 with θ = (2 , 3, 1, 1), and for each i = 1 , . . . , 4 we have chosen ψi = χΩi
+
+which is the indicator function in the corresponding subdomain Ω i. The corresponding solution u(θ) is given on the right. In the jupyter notebook, we generate the manifold M by making θ vary in a certain compact set Θ ⊂ R4, and we propose numerical experiments to understand the model reduction strategies that we present in this tutorial. 
+
+To proceed, we need to derive a variational formulation of Eq. (2). This requires working in the ambient space 
+
+V = H10 (Ω) := {v ∈ H1(Ω) : v|∂Ω = 0 },
+
+which is a Hilbert space when equipped with the scalar product, and induced norm 
+
+⟨w, v ⟩H10 (Ω) := 
+
+∫
+
+> Ω
+
+w(x)v(x)d x +
+
+∫
+
+> Ω
+
+∇w(x) · ∇ v(x)d x, ∥v∥H10 (Ω) := ⟨v, v ⟩1/2  
+
+> H10(Ω)
+
+, ∀ w, v ∈ H10 (Ω) .
+
+The variational formulation reads: Find u ∈ V = H10 (Ω) s.t. a(u, v ) = F (v), ∀ v ∈ V, (4) 
+
+3where 
+
+{a(u, v ) = ∑pi=1 θi
+
+∫ 
+
+> Ω
+
+ψi∇u · ∇ v, ∀(u, v ) ∈ V × V, F (v) = ∫ 
+
+> Ω
+
+f v, ∀ v ∈ V. 
+
+Assuming that f ∈ L2(Ω), a(θ) ∈ L∞(Ω), and that there exists 0 < r ≤ R such that 0 < r ≤ a(θ)( x) ≤ R, ∀ x ∈ Ω, (5) then the Lax-Milgram theorem guarantees that, for every θ ∈ Θ, problem (4) has a unique solution u(θ) ∈ V =
+
+H10 (Ω). For clarity of notation, when we specifically refer to the solution set of our Poisson example, we will use the notation M .A very common way of finding a numerical approximation of u(θ) is the Galerkin method: we replace the infinite dimensional space V in (4) by a finite dimensional subspace Vh ⊂ V , and consider the variational problem Find uh ∈ Vh s.t. a(uh, v h) = F (vh), ∀ vh ∈ Vh. (6) When Vh is chosen as a subspace of piecewise polynomials defined on an underlying spatial grid, this method is called the Finite Element Method (FEM). The parameter h refers to the size of the mesh that is used, and we denote N = dim Vh the dimension of Vh.
+
+# 2.1 Do we really need ROM? 
+
+We are now going to recall a few key results from finite element analysis whose aim is to motivate why the dimension N of Vh is expected to be typically large in the following three situations: 1. when one requires a high degree of accuracy in the solution, 2. when the space dimension is large ( d ≫ 1), 3. when there are local spatial discontinuities. The complexity of solving the Galerkin formulation (6) grows at least as O(N ) (in general, it will be even worse, of the order O(N α) for some α > 1). So if N ≫ 1, and we need to solve the PDE for many parameter instances, the expected complexity becomes very large, and this motivates the need to build another type of algorithm that maps parameters to solutions in a more affordable manner, which is precisely the main goal in ROM . To start discussing why N is expected to be large in the above three situations, let us first recall Céa’s lemma. It connects the approximation error given by the Galerkin method with the best approximation in Vh through the following bound. 
+
+Lemma 2.1: Céa’s Lemma 
+
+For the Poisson problem from (4), the accuracy of the Galerkin approximation (6) is bounded by 
+
+∥u − uh∥H10 (Ω) ≤
+
+( 2Rr min(1 , C −2Ω )
+
+)1/2
+
+min 
+
+> vh∈Vh
+
+∥u − vh∥H10 (Ω) ,
+
+where CΩ > 0 is the Poincaré constant associated to Ω. By a nontrivial development, we can leverage this bound to connect the size of the mesh with the accuracy of the solution if we have some knowledge on the regularity of u. There are plenty of results of this flavor (see for example Babuska and Szabo (1982); Süli (2012)), and we record one of them in the next theorem (see Eq. (8)). 
+
+Theorem 2.2: Convergence of FEM 
+
+Let u ∈ H10 (Ω) and uh ∈ Vh be the solutions of (6). Then, the finite element method involving piece-wise polynomials of degree m ≥ 1 converges, that is, lim 
+
+> h→0
+
+∥u − uh∥H10 (Ω) = 0 . (7) Moreover, if u ∈ Hm+1 (Ω), then there exists a constant C > 0 independent of h such that 
+
+∥u − uh∥H10 (Ω) ≤ Ch m|u|Hm+1 (Ω) , (8) 
+
+4where 
+
+|u|Hm+1 (Ω) := 
+
+ ∑
+
+> |k|=m+1
+
+∥∂k v∥2
+
+> L2(Ω)
+
+
+
+> 1/2
+
+is the Hm+1 (Ω) semi-norm of u.Equation (7) from Theorem 2.2 guarantees convergence for any degree of the finite element. Equation (8) gives the rate of convergence, and reveals that the rate depends on the size h of the mesh, and on the spatial regularity of the solution. We gain one order of convergence per polynomial degree. If the solution is not regular enough ( u̸ ∈ Hm+1 (Ω)), then the results from Theorem 2.2 show that there is no theoretical advantage to use finite elements of degree m instead of elements of lower degree. However, a finer analysis may lead to a more nuanced landscape depending on the situation since the presence of local spatial regularity may justify the use of higher degree in subdomains where the solution is regular. Using finite elements of high degree comes at the price of having to deal with more unknowns and denser systems of linear equations to invert. Let us discuss the concrete implications when we work with a quasi-uniform triangulation of a domain Ω ⊂ Rd. In this case, the dimension N = dim( Vh) is of the same order of the number of cells, that is 
+
+N ∼ h−d.
+
+We can thus reformulate the estimate (8) as a compromise between accuracy and the number N of degrees of freedom: 
+
+∥u − uh∥H10 (Ω) ≤ C|u|Hm+1 (Ω) N − md . (9) This means, concretely, that to reach a given accuracy ε, the number N (ε) of degrees of freedom needed is of order 
+
+N (ε) ∼
+
+( C|u|Hm(Ω) 
+
+ε
+
+)d/m 
+
+.
+
+It grows exponentially with the dimension, and this fact is called the curse of dimensionality . We see that smoothness has the opposite effect: the rate improves with regularity which is sometimes called the blessing of smoothness .To understand the drastic implications of this curse of dimensionality, it is good to study an example. Suppose we fix the smoothness m, and suppose that we currently have an approximation uh with N (ε) = ε−d/m degrees of freedom giving an error of ε. Suppose now that we want to improve the quality of our approximation, i.e. reduce the error ε, by a factor of 2. This is a fairly modest improvement, but the expression ε = N −m/d tells us that we need N ′ = N (ε/ 2) degrees of freedom with (N ′)−m/d = 12 ε = 12 N −m/d or equivalently N ′
+
+N = 2 d/m .
+
+If we are working in dimension 2 and m = 1 then we need to take 4 times as many points. If Ω has 10 dimensions, then we need to take 2 10 = 1024 as many points, which typically already is prohibitive. When d = 100, 2 d ≈ 10 30 ,and when d = 1000, 2 d ≈ 10 301 . This is more than the cube of the amount of estimated atoms in the universe (10 80 ). The number d = 1000 may seem artificial given the low dimensional examples that we consider in our programming tutorial. However, PDEs in very high dimension arise in applications such as molecular dynamics where a simulation of k particles in spatial dimension D yields PDEs with effective dimension d = kD .The curse of dimensionality is mitigated when we have smoothness. However, the higher the dimension, the more smoothness we need to require, and at some point this is no longer a realistic assumption. In addition, even for small dimensions, we may not have a lot of regularity. As a consequence, |u|Hm+1 (Ω) in (9) becomes very large or even infinite even for small m. This happens when the solution has local singularities, which typically occurs when the right-hand side f has singularities, when the PDE coefficients have discontinuities or when the boundary conditions are of Dirichlet type in one part, and of Neumann type in another part. In such situations, non-uniform meshes refined near singularities become essential. These discretizations are typically constructed using a posteriori error estimators. More broadly, one may consider approximation strategies beyond finite elements. However, regardless of the particular method, the same challenge remains: the number N of degrees of freedom can become extremely large in high-dimensional settings, in problems with limited regularity, or when very high accuracy is required. Consequently, when solutions must be computed repeatedly for many parameter values, it is natural to seek fast surrogate models that avoid reconstructing such costly discretizations for every new query. This is precisely the main motivation behind reduced-order modeling (ROM). Although this discussion could be developed further, we stop here to keep the focus on ROM. We now return to the main thread, hoping that the above considerations have made clear why the number of degrees of freedom 
+
+N should be thought as a large number which leads to challenges in a parametric setting. 
+
+52.2 Linear Reduced Order Modeling 
+
+In general, for every θ ∈ Θ, one cannot exactly compute u(θ) unless the solution to the PDE has an analytic form. As explained just above, to approximate u(θ) we may rely on classical discretizations such as finite element methods which would compute an approximate solution in a finite element space Vh ⊂ V of dimension N ≫ 1. The goal of ROM is to find an approximation space Vn of dimension n that approximates u(θ) at a comparable accuracy than the one of Vh but with a big dimension reduction n ≪ N . The space Vn could either be an 
+
+n-dimensional linear subspace of V , or more generally a nonlinear set parametrized by n degrees of freedom. As we will see in the following, sometimes Vn is actually built as a subspace of a finite element space Vh.Methods of approximation are essentially divided into two classes: linear and nonlinear. In linear approximation, 
+
+Vn is a linear subspace of V , and we want to choose it so that it approximates well all the elements u ∈ M . Once such a space is found, we can then build a numerical strategy ̂
+
+u (lin)  
+
+> n
+
+: Θ → Vn
+
+such that ̂u (lin)  
+
+> n
+
+(θ) approximates u(θ), and such that the numerical complexity to evaluate the mapping ̂u (lin) 
+
+> n
+
+is of order O(nα) instead of O(N α). For example, to solve problem (2) one could use the Galerkin method corresponding to Vn.Let us examine how much accuracy we can expect when working with linear subspaces Vn. For each θ ∈ Θ, the best approximation of u(θ) in Vn is 
+
+e(u(θ), V n) := inf 
+
+> v∈Vn
+
+∥u(θ) − v∥V ,
+
+which, for Vn a finite dimensional subspace, it can be written as 
+
+e(u(θ), V n) = ∥u(θ) − PVn u(θ)∥V .
+
+where PVn : V → Vn is the orthogonal projection operator onto Vn. The quality of Vn for our parametric problem is either given by 
+
+Ewc (M; Vn) := max  
+
+> θ∈Θ
+
+e(u(θ), V n) (10) or by 
+
+Eav  
+
+> ρ
+
+(M; Vn) := 
+
+(∫ 
+
+> θ∈Θ
+
+e2(u(θ), V n)ρ(d θ)
+
+)1/2
+
+. (11) We refer to these quantities as the error on the class M. The first quantity (10) measures accuracy in the worst case sense. The second one is based on the average accuracy over all elements when we place ourselves in a probabilitic setting in which we assume that the parameters follow a certain distribution ρ ∈ P (Θ). We have that 
+
+Eav  
+
+> ρ
+
+(M; Vn) ≤ E wc (M; Vn), ∀ ρ ∈ P (Θ) .
+
+The best choice of a linear space Vn is the one that minimizes the error Eq. (10) or Eq. (11). This smallest error is called the Kolmogorov n-width of M, and it is defined as (see (Benner et al., 2017, Chapter 3)) d⋆n(M) := inf   
+
+> Wlinear dim( W)≤n
+
+E⋆(M; W ), with ⋆ = {av , wc }.
+
+The Kolmogorov n-width gives the optimal performance that we can achieve when working with a linear approximation space of dimension n to approximate the elements of M. Determining the value of d⋆n(M) for a given solution set M, and finding an optimal or near-optimal subspace is a very difficult problem. A salient example where a rate for dwc  
+
+> n
+
+(M) is known is our example on the parametric Poisson problem. 
+
+Theorem 2.3: see, e.g., Tran et al. (2017) 
+
+For the parametrized Poisson problem (4), if the uniform ellipticity assumption (5) holds, then 
+
+dwc 
+
+> n
+
+(
+
+M
+
+)
+
+≤ Ce −cn 1/d 
+
+,
+
+where C, c > 0. 
+
+Remark 2.4. Beyond our elliptic problem, there are a few other parametric PDE manifolds for which the decay of the Kolomogorov width has been estimated. We refer to Arbes et al. (2025) for the study of manifolds 
+
+Mg = {g(· − θ) : θ ∈ [0 , 1] } generated by translations of a “template function” g ∈ Hr (Ω). Such manifolds arise in parametric transport problems. It is proven in Arbes et al. (2025) that dn(Mg ) ≲ n−r (the bound is slightly better than that but it would become technical to present it here, see Theorem 5.3 of Arbes et al. (2025)). For wave-type equations, some results have been derived in Greif and Urban (2019). Since finding the optimal space is out of reach, we next present existing methods to find good approximation spaces Vn in practice. 
+
+62.2.1 The average case 
+
+When working in the average sense, the space V opt  
+
+> n
+
+which is the minimizer of dav  
+
+> n
+
+(M) is completely characterized by a singular value decomposition. To explain it, let us recall a few concepts from the spectral theory of compact operators. 
+
+Theorem 2.5: Spectral Theorem 
+
+Let H be a Hilbert space with norm ∥·∥ H and inner product ⟨· , ·⟩ H , and let A : H → H be a self-adjoint, compact, linear operator. Then there exists a system of orthonormal vectors {hi}i∈I ⊂ H and corresponding real eigenvalues {λi}i∈I ⊂ R with |λ1| ≥ | λ2| ≥ . . . such that 
+
+A(hi) = λihi, ∀ i ∈ I, 
+
+and A admits an eigendecomposition of the form 
+
+A(h) = 
+
+∑
+
+> i∈I
+
+λi⟨hi, h ⟩H hi, ∀ h ∈ H. 
+
+The set I is either finite or countably finite so we work with I ⊆ N. When I = N, then λn → 0 as n → ∞ .Note that when I = N, the system {hi}i∈I forms an orthonormal basis of H, and when I is finite, the system can be completed (e.g. by Gram-Schmidt orthonormalization) to form an orthonormal basis of the full space 
+
+H. As a consequence of Theorem 2.5, we can deduce the following Lemma. We give its proof for the sake of completeness. 
+
+Lemma 2.6: Singular Value Decomposition 
+
+Let H and F be two Hilbert spaces (with our usual notation for norms and inner products), and let B : H → F
+
+be a compact, linear operator. Then: 1. A = B∗B : H → H is self-adjoint, compact and linear with countable eigenvalues {λi}i∈I and corresponding orthonormalized eigenvectors {hi}i∈I ⊂ H.2. The set {fi}i∈I with fi := λ−1/2 
+
+> i
+
+B(hi) forms an orhonormal system of F .3. B has a singular value decomposition of the form 
+
+B(h) = 
+
+∑
+
+> i∈I
+
+λ1/2 
+
+> i
+
+⟨h, h i⟩H fi.
+
+Proof. 1. Since B is compact and linear, its adjoint is also compact and their composition A = B∗B is also compact. By Theorem 2.5, A has an eigenvalue decomposition. 2. For any ( i, j ) ∈ I2,
+
+⟨fi, f j ⟩F = ( λiλj )−1/2⟨B(hi), B (hj )⟩F = ( λiλj )−1/2⟨hi, B ∗B(hj )⟩H = δi,j 
+
+3. Since Im (B) = span {B(hi)}i∈I = span {fi}i∈I , and that the fi are orthonormal, we have for all h ∈ H,
+
+B(h) = 
+
+∑
+
+> i∈I
+
+⟨B(h), f i⟩F fi
+
+=
+
+∑
+
+> i,j ∈I
+
+⟨h, h j ⟩H ⟨B(hj ), f i⟩F fi since h =
+
+∑
+
+> j∈I
+
+⟨h, h j ⟩H hj
+
+=
+
+∑
+
+> i,j ∈I
+
+⟨h, h j ⟩H λ1/2 
+
+> i
+
+δi,j fi since ⟨B(hj ), f i⟩F = λ1/2 
+
+> i
+
+δi,j 
+
+=
+
+∑
+
+> i∈I
+
+λ1/2 
+
+> i
+
+⟨h, h i⟩H fi.
+
+We now leverage these results to characterize a space V opt  
+
+> n
+
+that is a minimizer of dav  
+
+> n
+
+(M). The development requires to assume that our mapping u : Θ → V is such that u ∈ L2((Θ , ρ ), V ). In other words, we need that 
+
+∥u∥2  
+
+> L2((Θ ,ρ ),V )
+
+=
+
+∫
+
+> θ∈Θ
+
+∥u(θ)∥2 
+
+> V
+
+ρ(d θ) < +∞. (12) 
+
+7To formulate the result, we need to introduce the operator 
+
+R : L2(Θ , ρ ) → V (13) 
+
+φ 7 → R(φ)( x) := 
+
+∫
+
+> Θ
+
+u(θ)( x)φ(θ)ρ(d θ) = ⟨u(·)( x), φ (·)⟩L2(Θ ,ρ ), ∀ x ∈ Ω. (14) 
+
+Theorem 2.7 
+
+Suppose that the mapping u : Θ → V is such that u ∈ L2((Θ , ρ ), V ). Then: 1. R is a bounded linear operator with adjoint 
+
+R∗ : V → L2(Θ , ρ ) (15) 
+
+v 7 → R∗(v)( θ) = ⟨u(θ), v ⟩V , ∀ θ ∈ Θ. (16) 2. The operator 
+
+C := R∗R : L2(Θ , ρ ) → L2(Θ , ρ ) (17) 
+
+φ → C(φ)( θ) := 
+
+∫
+
+> Θ
+
+k(θ, θ ′)φ(θ′)ρ(d θ′), ∀ θ ρ -a.e. (18) with 
+
+k(θ, θ ′) = ⟨u(θ), u (θ′⟩V ,
+
+is linear, compact, and self-adjoint, with countable eigenvalues {λi}i∈I , and corresponding orthonor-malized eigenvectors {hi}i∈I ⊂ L2(Θ , ρ ). If necessary, the set of eigenvectors can be completed to form an orthonormal basis {hi}i∈N of L2(Θ , ρ ). 3. R has a singular value decomposition 
+
+R(φ) = 
+
+∑
+
+> i∈I
+
+λ1/2 
+
+> i
+
+⟨φ, h i⟩L2(Θ ,ρ )fi,
+
+where fi := λ−1/2 
+
+> i
+
+R(hi) and {fi}i∈I forms an orthonormal system in V which can be completed to form an orthonormal basis of V .4. The space V opt  
+
+> n
+
+:= span {f1, . . . , f n} is optimal for dav  
+
+> n
+
+(M), and 
+
+dav  
+
+> n
+
+(M) = 
+
+(∑
+
+> i>n
+
+λ1/2
+
+> i
+
+)1/2
+
+.
+
+Proof. 1. R and R∗ are linear. They are also bounded because our assumption u ∈ L2((Θ , ρ ), V ) implies that (12) holds. In addition, it holds that for all ( φ, v ) ∈ L2(Θ , ρ ) × V ,
+
+⟨R(φ), v ⟩V =
+
+〈∫ 
+
+> Θ
+
+u(θ)( ·)φ(θ)ρ(d θ), v (·)
+
+〉
+
+> V
+
+=
+
+∫
+
+> Θ
+
+⟨u(θ), v ⟩V φ(θ)ρ(d θ) = 〈φ, ⟨u(·), v ⟩V
+
+〉
+
+> L2(Θ ,ρ )
+
+.
+
+This proves that R∗(v) = ⟨u(·), v ⟩V is the adjoint of R.2. By the Cauchy-Schwarz inequality and assumption (12), 
+
+∥k∥2 
+
+> L2(Θ ×Θ,ρ ⊗ρ)
+
+=
+
+∫
+
+> Θ2
+
+k2(θ, θ ′)ρ(d θ)ρ(d θ′) ≤ ∥ u∥4  
+
+> L2((Θ ,ρ ),V )
+
+< +∞.
+
+Therefore, C is a Hilbert-Schmidt integral operator, so it is compact, see (Reed and Simon, 1980, Theorem VI.22). Since k is symmetric, C is also self-adjoint. By Theorem 2.5, C admits an eigenvalue decomposition. 3. We obtain the statement by following the same lines as for point 3 in Lemma 2.6 (use H = L2((Θ , ρ )) and 
+
+F = V ). 4. We now prove that V opt  
+
+> n
+
+= span {f1, . . . , f n}ni=1 minimizes dav  
+
+> n
+
+(M). By expanding u(θ) in the orthonormal basis {fi}i∈N, we have that 
+
+Eav  
+
+> ρ
+
+(M; V opt  
+
+> n
+
+)2 =
+
+∫
+
+> Θ
+
+∥u(θ) − PV opt  
+
+> n
+
+u(θ)∥2 
+
+> V
+
+ρ(d θ) = 
+
+∑
+
+> i>n
+
+∫
+
+> θ
+
+|⟨ u(θ), f i⟩V |2ρ(d θ).
+
+8From Eq. (16), ⟨u(θ), f i⟩V = R∗(fi) = λ1/2 
+
+> i
+
+hi, thus we find that 
+
+Eav  
+
+> ρ
+
+(M; V opt  
+
+> n
+
+)2 =
+
+∑
+
+> i>n
+
+∥R∗(vi)∥2 
+
+> L2(Θ ,ρ )
+
+=
+
+∑
+
+> i>n
+
+λi.
+
+To see that this is the optimal space for dav  
+
+> n
+
+(M), we proceed as follows. Suppose first that Vn =span {fi1 , . . . , f in } and denote In = {i1, . . . , i n}. The same computation that we have just done for 
+
+V opt  
+
+> n
+
+leads to 
+
+Eav  
+
+> ρ
+
+(M; Vn)2 =
+
+∑
+
+> i̸∈ In
+
+λi ≥ E av  
+
+> ρ
+
+(M; V opt  
+
+> n
+
+)2,
+
+and we see that this error is minimized when we choose In = {1, . . . , n } (which corresponds to V opt  
+
+> n
+
+). More in general, for any n-dimensional space Vn = span {v1, . . . , v n}, by using that the basis elements can be expressed as linear combinations of the {fi}i∈I , we can prove that 
+
+Eav  
+
+> ρ
+
+(M; Vn) ≥ E av  
+
+> ρ
+
+(M; V opt  
+
+> n
+
+)for any n-dimensional space Vn. This shows that 
+
+V opt  
+
+> n
+
+∈ arg min   
+
+> dim( W)≤nW⊆V
+
+Eav  
+
+> ρ
+
+(M; W ),
+
+and concludes the proof. In practice, we find a numerical approximation of V opt  
+
+> n
+
+by building a sampled version of the operator C (see equation (18)). For this, we draw K independent random samples θi from the probability distribution ρ, and we define the empirical measure ̂ρ K := 1
+
+> K
+
+∑Ki=1 δθi . We next define the associated operator ̂
+
+CK : L2(Θ ,̂ρ K ) → L2(Θ ,̂ρ K )
+
+φ →̂ CK (φ)( θ) := 1
+
+K
+
+> K
+
+∑
+
+> j=1
+
+k(θ, θ j )φ(θj ), ∀ θ̂ρ K -a.e. By direct application of point 2 of Theorem 2.7, ̂ CK has an eigenvalue decomposition with countable eigenvalues 
+
+{̂ λ(K) 
+
+> i
+
+}i∈I and orthonormalized eigenvectors {̂h(K) 
+
+> i
+
+}i∈I ⊂ L2(Θ ,̂ρ K ), and they satisfy ̂ CK (̂h(K) 
+
+> i
+
+)( θ) = ̂ λ(K)
+
+> i
+
+̂ h(K) 
+
+> i
+
+(θ). Since this relation holds for all θ̂ρ K -almost everywhere, it means that it has to hold for all samples θi for 
+
+i = 1 , . . . , K . Consequently, each eigenpair ( ̂λ, ̂ h) satisfies ̂
+
+CK (̂h)( θi) = ̂ λ̂ h(θi), ∀ i = 1 , . . . , K ⇔̂ CK̂ h =̂ λ̂h (19) where ̂
+
+CK := ( k(θi, θ j )) 1≤i,j ≤K ,̂ h := ( ̂h(θi)) Ki=1 .
+
+Therefore, the eigenvalues and eigenfunctions of the operator ̂ CK are given by the eigendecomposition of the matrix ̂ CK which is symmetric, positive definite. From this development, we can derive a practical strategy to build an approximation ̂ f (K) 
+
+> i
+
+of the orthonormal basis fi that span the optimal space V opt  
+
+> n
+
+:1. Compute u(θi) for the random samples θi ∼ ρ, and assemble the matrix ̂ CK ∈ RK×K . In practice, this is done with a classical discretization solver, so we actually work with uh(θi) ∈ Vh.2. Compute the eigenvalue decomposition of ̂ CK which we denote ̂ CK =̂ Û Ŝ U⊤
+
+where ̂ U = ( ̂Ui,j )1≤i,j ≤K ) ∈
+
+RK×K is the orthogonal matrix carrying the eigenvectors on each column, and ̂ S = diag( si) ∈ RK×K is the diagonal matrix containing the nonnegative eigenvalues. 3. From Eq. (19), it follows that si =̂ λ(K) 
+
+> i
+
+for i = 1 , . . . , K , and that ̂
+
+h(K) 
+
+> i
+
+(θ) = 
+
+{̂ Uj,i , if θ = θj
+
+0, otherwise . (20) 4. We can finally define the approximation of fi as ̂
+
+f (K) 
+
+> i
+
+:= s−1/2
+
+> i
+
+̂ RK (̂ h(K) 
+
+> i
+
+) = s−1/2
+
+> i
+
+K
+
+> K
+
+∑
+
+> j=1
+
+uh(θj )̂hi(θj ), (21) and assuming that K ≥ n, we can consider the space ̂ Vn := span {̂ f (K) 
+
+> i
+
+}ni=1 as a surrogate of V opt  
+
+> n
+
+.
+
+95. In practice, we usually work with evaluations of ̂ f (K) 
+
+> i
+
+at points {x1, . . . , x N } ⊂ Ω. This can be done by matrix multiplication as ̂
+
+F =̂ S−1/2̂ U ⊤̂ T ,
+
+where ̂
+
+F =
+
+(̂ 
+
+f (K) 
+
+> i
+
+(xj )
+
+)
+
+> 1≤i≤n
+> 1≤j≤N
+
+, and ̂ T = ( uh(θi)( xj )) 1≤i≤K
+
+> 1≤j≤N
+
+.
+
+Remark 2.8 (Historical Note) . The singular value decomposition (SVD) has its roots in early functional analysis and matrix approximation theory, beginning with Schmidt’s work on compact operators (Schmidt (1907)), and the optimal low-rank approximation theorem of Eckart and Young (Eckart and Young (1936)). It later became closely connected to the Karhunen–Loève expansion (Karhunen (1947); Loève (1948)), principal component analysis (PCA, see Pearson (1901); Hotelling (1933)), and proper orthogonal decomposition (POD), eventually emerging as a central computational tool in reduced-order modeling Sirovich (1987); Berkooz et al. (1993); Holmes et al. (1996). 
+
+2.2.2 The worst case 
+
+For the worst case sense there is no explicit characterization of an optimal space V opt  
+
+> n
+
+that is a minimizer of dwc  
+
+> n
+
+(M). However, one can build subspaces Vn for which Ewc (M, V n) decays at a comparable rate as the Kolmogorov 
+
+n-width dwc  
+
+> n
+
+(M) as n → ∞ . The construction of such a space is done with the following iterative algorithm (see Binev et al. (2011); DeVore et al. (2013)). 
+
+Greedy algorithm : For n = 1, we find 
+
+u1 ∈ arg max 
+
+> u∈M
+
+∥u∥V (22) and define U1 := {u1}, V1 := span {u1}.
+
+For n > 1, given U n−1 and Vn−1, we find 
+
+un ∈ arg max 
+
+> u∈M
+
+min 
+
+> v∈Vn−1
+
+∥u − v∥V (23) and set Un = U n−1 ∪ { un}, Vn = span {Un}.
+
+The maximization problems (22)-(23) defined over the full manifold M are not computable in general. For this reason, in practice the maximization is performed over the finite set MK := {u(θ1), . . . , u (θK )}. The weak greedy version of (22)-(23) allows us to get guaratees for a family of greedy methods including the former algorithm defined on M and the latter empirical version using MK instead of M.
+
+Weak greedy algorithm : for a parameter γ ∈ (0 , 1], we search for 
+
+u1 ∈ { u ∈ M : ∥u∥V ≥ γ sup 
+
+> v∈M
+
+∥v∥V } (24) and for n > 1, 
+
+un ∈ { u ∈ M : inf 
+
+> v∈Vn−1
+
+∥u − v∥V ≥ γ sup 
+
+> z∈M
+
+inf 
+
+> v∈Vn−1
+
+∥z − v∥V }.
+
+The parameter γ models how close an optimization method can approach the real optimum. When γ = 1, we recover the original greedy algorithm. The following result shows that the weak-greedy algorithm generates a sequence of spaces {Vn}n for which 
+
+Ewc (M; Vn) decays at a comparable rate as the Kolmogorov n-width d wc  
+
+> n
+
+(M). 
+
+Theorem 2.9: see Corollary 3.3 of DeVore et al. (2013) 
+
+Consider the weak greedy algorithm with parameter γ ∈ (0 , 1]. Then: • For any C0 > 0 and s > 0, we have 
+
+dwc  
+
+> n
+
+(M) ≤ C0n−s, n ≥ 1 =⇒ E wc (M, V n) ≤ C1n−s, n ≥ 1, (25) with C1 := 2 5s+1 γ−2C0.• For any c0, C 0 > 0 and s > 0, we have 
+
+dwc  
+
+> n
+
+(M) ≤ C0e−c0ns
+
+, n ≥ 1 =⇒ E wc (M, V n) ≤ √2C0γ−1e−c1ns
+
+, n ≥ 1, (26) where c1 = 2 −1−2sc0.
+
+10 Chaining Theorem 2.3 with Theorem 2.9, we directly obtain that the weak greedy has a sub-exponential decay rate for the Poisson problem. We record this fact in the following corollary. 
+
+Corollary 2.10 
+
+The weak greedy algorithm with parameter γ ∈ (0 , 1] applied to M gives 
+
+Ewc (M , V n) ≤ √2Cγ −1e−2−1− 2 
+
+> dcn 1/d
+
+.
+
+where C, c are the constants involved in Theorem 2.3. 1 3 5 7 9 11 13 15 17 19            
+
+> Reduced basis dimension: dim( Vn) = n
+> 10 9
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Average  H10 ( ) error
+> dwc
+> n()
+> SVD Greedy
+
+Figure 2: Estimates of the Ewc (M; Vn) and Eav  
+
+> ρ
+
+(M; Vn) for the Poisson example (2) with p = 4, and when ψi = χΩi are constant functions in their corresponding subdomains Ω i (as we have seen in Fig. 1). The estimates are obtained by generating a discrete training set of K = 200 samples of u(θ), which was obtained by uniformly sampling θ ∼ [1 , 10] 4. We then run the greedy algorithm, and compute the SVD on this discrete set to estimate Ewc (M; Vn) and Eav  
+
+> ρ
+
+(M; Vn). We also display the trend of the upper bound of the Kolmogorov n-width dwc  
+
+> n
+
+(M) predicted by Theorem 2.3. 
+
+In Fig. 2 we can see this behaviour in practice. The form in which we have formulated the weak greedy algorithm assumes that, for each θ ∈ Θ, we approximate u(θ) with the best approximation PVn (u(θ)). This is not true since in practice we compute the element ˆ un(θ) ∈ Vn which is the solution to the Galerkin projection from (6) when we use Vn as the finite dimensional space. Consequently, the weak greedy algorithm reads 
+
+θ1 ∈ { θ ∈ Θ : ∥ˆun(θ)∥V ≥ γ sup 
+
+> θ∈Θ
+
+∥ˆun(θ)∥V }, and u1 := ˆ un(θ1) (27) and for n > 1, 
+
+θn ∈ { θ ∈ Θ : ∥u(θ) − ˆun−1(θ)∥V ≥ γ sup 
+
+> θ∈Θ
+
+∥u(θ) − ˆun−1(θ)∥V }, and un := ˆ un(θn)For the Poisson problem (4), errors of the type ∥u(θ) − ˆun−1(θ)∥V are equivalent to residual computations which can be computed in an efficient way. Depending on the nature of the PDE, this replacement may be more or less difficult to do. We will not dive further into this topic for the sake of brevity. As mentioned before, in practice, the optimization over M in (22) and (23) is done over the finite training set 
+
+MK . In principle, the paradigm of the weak greedy algorithm can account for the inaccuracies introduced by working on a finite amount of samples (the parameter γ of the algorithm degrades and becomes smaller). However, to rigorously relate the amount of samples to γ, in principle one needs training sets that are an ε-covering of 
+
+M (for ε > 0 taken as small as the final accuracy of the application requires, see e.g. Maday et al. (2016) for a discussion about this). Depending on M, the amount of samples may become quickly very large which is also connected to the so-called covering numbers. Working with sets that are not ε-coverings is very challenging, and very little is understood in this respect. We refer to Cohen et al. (2020b) for a work in which this aspect is studied. 
+
+# 2.3 Nonlinear Strategies 
+
+We say that a strategy is nonlinear when the approximation of M is no longer done with linear spaces Vn ⊂ V .We first motivate why such approaches are needed, and then we briefly explain some strategies that are currently 
+
+11 being investigated in the literature. The topic of nonlinear model order reduction is currently attracting a lot of attention, and numerous different ideas are being explored. We consider that this is an advanced topic which goes a bit beyond the purpose of this introductory tutorial. Therefore we only provide the main ideas, and give a few examples of existing strategies. We refer to Hesthaven et al. (2026) for a recent extensive review on this topic. 
+
+2.3.1 Why do we need nonlinear Model Order Reduction? 
+
+As we have seen in the previous sections, linear reduced models can bring a significant reduction of complexity for elliptic problems thanks to the fact that the Kolomogorov n-width decays exponentially fast (see Theorem 2.3). The situation is quite different for problems transporting discontinuities that vary together with the parameters. This typically occurs for hyperbolic PDEs when parameters influence the transport velocity and therefore the positions of shocks. To illustrate this, we recall a toy example given in Binev et al. (2018). We consider the univariate transport equation 
+
+∂tu(θ) + θ∂ xu(θ) = 0 , x ∈ R, t ≥ 0, (28) with the characteristic function as initial condition u0(x) = χ]−∞ ,0] , and the velocity as the parameter of interest 
+
+θ ∈ [0 , 1]. We consider the parametrized family of solutions at time t = 1 restricted to x ∈ [0 , 1], that is 
+
+M = {u(θ)( x) = χ[0 ,θ ] : θ ∈ [0 , 1] }. (29) In Fig. 3 we can see different profiles for u(θ)( x) for various values of θ.Here, we choose to work in the Hilbert space V = L2([0 , 1]) which contains such discontinuous functions. In this context, the covariance operator C (from Theorem 2.7) has its spectral decomposition given by the Karhunen–Loève orthonormal basis of eigenfunctions fk which, in this case, correspond to the Fourier series associated to the interval [0 , 1], that is f sk = 2 sin(2 kπx ) and f ck = 2 cos(2 kπx ). The associated eigenvalues, due to the effect of the discontinuity, decrease proportional to k−1 thus even if we build our reduced basis with the first 
+
+n Fourier terms (which correspond to V opt  
+
+> n
+
+) we get an approximation error proportional to n−1/2
+
+sup 
+
+> u∈M
+
+∥u − PVn u∥ ∼ n−1/2. (30) which also implies that dav  
+
+> n
+
+(M) ∼ n−1/2.On the other hand, a linear reduced space generated by the greedy algorithm is of the form 
+
+Vn = span {χ[0 ,θ i] : i = 1 , . . . , n } (31) for some points θ1, . . . , θ n ∈ [0 , 1], and therefore it is equal to the space of piecewise constant functions on the intervals [ θi, θ i+1 ], assuming that these points have been increasingly ordered. By taking a θ to be the midpoint of the largest of such intervals, that has length larger than n−1, we can check that 
+
+∥χ[0 ,θ ] − PVn χ[0 ,θ ]∥ ≥ 12 n−1/2, (32) and therefore the approximation rate is not better than with the Fourier space. More generally it can be checked that the Kolmogorov n-width of M in V decays like n−1/2, that is, any linear approximation method cannot have a better rate (for a complete proof, see (Benner et al., 2017, Chapter 3, see equation (3.76))). This rate is too slow to make linear reduced models effective in this case (remember that we want to work with n small). By now, similar results have been obtained for different manifolds of hyperbolic PDEs (see Welper (2020); Ohlberger and Rave (2016)). We also refer to Greif and Urban (2019) for the same type of result for wave equations. All these results point to the fact that one should in general expect that the convergence rate of the Kolmogorov n-width is slow as soon as the solution has discontinuities or steep gradients. So we need to shift to nonlinear approximation spaces for model reduction for these PDEs. 
+
+2.3.2 Piecewise Affine Approximation and Library Approximation 
+
+If we think how to go beyond a simple linear space, one first idea is to work with piecewise linear approximations. For this, we need to build a partition of the parameter space Θ into K disjoint subdomains Θ = ∪Ki=1 Θi, with Θi ⊆ Θ , and Θi ∩ Θj = ∅ if i̸ = j , ∀(i, j ) ∈ { 1, . . . , K }2.
+
+This partition induces a partition of the manifold M,
+
+M = ∪Ki=1 Mi, Mi := u(Θ i), and Mi ∩ M j = ∅ if i̸ = j . 
+
+For each i, we approximate Mi with a linear space V ini of dimension ni. Denoting L := {V 1 
+
+> n1
+
+, . . . , V KnK }, the piece-wise parameter-to-solution mapping is of the form ̂
+
+u (pw)  
+
+> n
+
+: Θ → L .
+
+12 0.0 0.5 1.0 0.0 0.5 1.0 0.0 0.5 1.0 0.0 0.5 1.0 0.0 0.5 1.0 0.0 0.5 1.0 Figure 3: Some MOR methods applied to the manifold M of Eq. (29) generated by translations of Heaviside functions. We see in black the profile of u(θ) which corresponds to the final state ( t = 1) of (28) for θ = 0 .45. We also show the best approximations PVn χ[0 ,θ ] using the spaces Vn obtained by the greedy method (orange), or the SVD (blue). The dimension changes from n = 3 (top-left), n = 15 (top-right) and n = 30 (bottom). We observe the presence of large oscillations for all methods. 
+
+In our Poisson model problem, if we want to approximate u(θ) for a given θ ∈ Θi, we solve the Galerkin problem (6) with the subspace V ini .The main question then is how to build the partition and what is the quality criterion to judge whether one is better than another. We refer to Guignard and Mula (2024) for a discussion on this matter, and also for an overview of various strategies, and how difficult they are to implement. In essence, the piece-wise affine approach is easy to use in place when Θ is a Cartesian product domain. We can then develop a partition strategy based on dyadic splittings (we refer to Eftang et al. (2010); Maday and Stamm (2013); Bonito et al. (2021); Daniel et al. (2022); Guignard and Jantsch (2024) for works in this direction). The construction is not that straightforward as soon as we want to consider either generic shapes for each partition, or very general domains which are not necessarily Cartesian products. In Guignard and Mula (2024), an approach for general domains was introduced, and the way to store the information is based on a tree structure of the different subspaces V kn that are built. The idea of working with several subspaces belongs to a broader class of approximation methods called library or dictionary approximation. We again refer to Guignard and Mula (2024) for a description of the main concepts. 
+
+2.3.3 Beyond piece-wise affine strategies: nonlinear parametric approximations 
+
+The main idea to go beyond piece-wise affine methods relies on parametric mappings (also called decoder mappings) of the form 
+
+φ : W → V, (33) where W is a space of parameters that are amenable to manipulate in practice. These parameters are not to be confused with the parameters θ ∈ Θ from the PDE. Thus, to avoid confusion in the terminology, we will refer to the elements w ∈ W as the weights, and to W as the space of weights. In full generality, W is a Riemannian manifold of dimension n however the most common choice is just the flat space W = Rn. The image set 
+
+Vn := φ(W ) = {φ(w) : w ∈ W } ⊆ V (34) is a subset of V parametrized by the elements w ∈ W . In general Vn is not going to be a linear subspace of V as in our earlier discussion unless we make specific choices on φ. However, we overload the notation in this part of the text because we are building a generalization of the previous construction in which the case of Vn being a linear subspace happens for particular choices of φ.Most common approximation families can be expressed as a parametric mapping. Here are some examples: 
+
+13 • Polynomial-type approximations: The first important class of parametric approximations are those of polynomial type. Choosing W = Rn, we consider a polynomial ansatz 
+
+φ poly (w) = 
+
+∑
+
+> ν∈E
+
+wν vν , ∀ w = ( w1, . . . , w n)⊤ ∈ Rn, (35) where ν = ( ν1, . . . , ν n) ∈ Nn 
+
+> 0
+
+is a multi-index of order |ν| = ν1 + · · · + νn and 
+
+wν = wν1 
+
+> 1
+
+. . . w νn 
+
+> n
+
+,
+
+and the set E is a finite set of multi-indices of Nn 
+
+> 0
+
+. The index set E and the functions vν ∈ V are chosen a priori. This construction generates the approximation space 
+
+V poly  
+
+> n
+
+= φ poly (W ) = {φ poly (w) : w ∈ W },
+
+which is of dimension dim( V poly  
+
+> n
+
+) = n. We remark that this approximation class includes the important case of linear combinations of functions, since we can choose E = {ei}ni=1 , where the ei are the canonical vectors of Rn. With this choice, we obtain 
+
+φ (lin) (w) = 
+
+> n
+
+∑
+
+> i=1
+
+wivi, (36) Observe that choosing the functions vi as hat functions allows us to express finite-element-type approxima-tions in the current framework. Also, we can express the linear approximation with the Greedy basis by choosing the vi’s as the solutions u(θi) selected by the greedy algorithm (and similarly for the SVD basis). • Neural networks: An important instance of a fully nonlinear parametric mapping are neural networks. The most basic instance of this family are Shallow Neural Networks (SNN) which are mappings of the form 
+
+φ SNN (w) = 
+
+> k
+
+∑
+
+> i=1
+
+ciσ(ai · +bi), (37) where w = (( ai, b i, c i)) pi=1 and ( ai, b i, c i) ∈ Rd × R × R. Consequently W = Rn with n = k(d + 2). The function σ : R → R is the so-called activation function (typical choices are the ReLU function, sigmoid, hyperbolic tangent, etc.). σ needs to be nonlinear to guarantee density properties as k → ∞ with respect to classical ambient Hilbert spaces V encountered in PDE theory.. This construction generates the fully nonlinear approximation set 
+
+V SNN  
+
+> n
+
+= φ SNN (W ) = {φ SNN (w) : w ∈ W }.
+
+Once a parametric mapping φ is chosen, the main idea to do model order reduction is to consider that the weights 
+
+w ∈ W depend on the physical PDE parameters θ ∈ Θ. In this way, one approximates the exact solution u(θ)with φ(w(θ)). Therefore, here we have ˆun : Θ → V (38) 
+
+θ 7 → ˆun(θ) = φ(w(θ)) (39) The main question then becomes how to build numerically efficient strategies to map from a physical parameter 
+
+θ to an appropriate weight w ∈ W . For this, one key idea is to resort once again to nonlinear parametric approximations to represent the parameter-to-weight mapping, and to use supervised learning techniques to train the weights. Fully nonlinear parametric mappings are the subject of very active research, and numerous strategies are currently being proposed and studied. For an extensive overview on all currently existing techniques, we refer to Hesthaven et al. (2026). Below, we only give two examples of such strategies: • Nonlinear Compressive ROM: As we have seen in Section 2.2, quasi-optimal linear spaces Vn =span {vi}ni=1 are built either by SVD (in the average case), or by a greedy algorithm (in the worst case). To enhance the accuracy of these spaces, here is a strategy proposed in Cohen et al. (2023). If we accept to pay the price of computing the SVD or the greedy algorithm up to a larger dimension N > n , we can then consider an ansatz of the form ̂
+
+u n(θ) = 
+
+> n
+
+∑
+
+> i=1
+
+wi(θ)vi +
+
+> N
+
+∑
+
+> i>n
+
+ψi(w1(θ), . . . , w n(θ)) vi.
+
+In the case of the Poisson example, we can obtain the weights wi(θ) by solving the Galerkin problem (6) with the subspace Vn of small dimension. We can then use a supervised learning algorithm to train the mappings ψi : Rn → R for i = n + 1 , . . . , N . These mappings can be searched in an approximation class generated by polynomials, neural networks or any other type of parametric function family (see Fig. 4 for an example). 
+
+14 0.0 0.5 1.0 0.0 0.5 1.0 
+
+u( )
+
+SVD basis Nonlinear Compressive ROM via Neural Network Figure 4: Black line: the function u(θ) which corresponds to the final state ( t = 1) of (28) for θ = 0 .45. Blue line: the best approximation obtainable by an SVD reduced basis of dimension n = 3. Green line: a nonlinear method as in Cohen et al. (2023) using a neural network to learn the mappings ψi.
+
+• Quadratic Manifold: A somewhat complementary approach to the nonlinear compressive strategy is the so-called quadratic manifold approach. This idea finds its roots in works from structural mechanics such as Jain et al. (2017). It was then taken as a starting point in Geelen et al. (2023b) (and many subsequent works such as Geelen et al. (2023a)) to develop strategies revolving around the ansatz ̂
+
+u n(θ) = 
+
+> n
+
+∑
+
+> i=1
+
+wi(θ)vi +
+
+> n
+
+∑
+
+> i,j =1
+
+wi(θ)wj (θ)vi,j .
+
+Like in the nonlinear compressive strategy, the spirit is to enhance the accuracy of the linear space 
+
+Vn = span {vi}ni=1 obtained by SVD or with the greedy algorithm. For this, in the quadratic manifold approach we search for the best functions vi,j ∈ V such that an expansion involving quadratic terms 
+
+wi(θ)wj (θ) gives a good accuracy. If we find such vi,j , then the computation boils down to estimating only the n terms wi(θ) for i = 1 , . . . , n. 
+
+2.3.4 Beyond piece-wise affine strategies: transformations 
+
+In addition to fully nonlinear parametric approximations, another powerful paradigm in nonlinear model reduction is based on the use of transformations. The underlying idea is that, although the solution manifold associated with a parametric PDE may be poorly approximated by linear spaces, it may become much more amenable to reduction after a suitable change of variables. More precisely, one seeks an approximation of the form 
+
+u(θ) ≈ T (ˆun(θ)),
+
+where T : V → V is a transformation and ˆ un(θ) approximates a transformed representation of the solution. The transformation T may be prescribed from prior knowledge of the governing equations or inferred directly from data. Its purpose is to factor out the dominant nonlinear effects such as transport, moving interfaces, or geometric deformations. This way, it is expected that the transformed solution manifold 
+
+T −1(M) := (T −1(u(θ)) : θ ∈ Θ),
+
+has significantly smaller Kolmogorov n-widths than the original solution manifold M. Linear reduction techniques, or closely related approximation methods, are then applied to the transformed problem. Several important instances of this idea are described below. • Physics-informed transformations: A natural way of constructing the transformation T is to exploit prior knowledge about the underlying dynamics. Typical examples arise from group actions such as translations, rotations, or other symmetries of the problem. In transport-dominated PDEs, this idea has been used to capture advective phenomena by choosing T according to the transport dynamics generated by the governing equations (see, e.g., Ohlberger and Rave (2013)). More sophisticated variants combine linear approximation techniques with nonlinear transport maps evolving along characteristic curves, thereby factoring out the dominant transport behavior before applying model reduction (see, e.g., Welper (2017, 2020); Rim et al. (2023); Rim and Welper (2026)). 
+
+15 • Data-driven registration and alignment methods: A closely related family of approaches consists of inferring the transformation T directly from data. These methods are often equation-agnostic and are inspired by image registration techniques. Their objective is to align coherent structures, interfaces, shocks, or other dominant features across parameter values or time instances, thereby transforming the solution manifold into a representation that is more amenable to linear approximation. In this setting, the transformation is not prescribed from the governing equations but learned from the snapshots themselves (see Taddei (2020); Ferrero et al. (2022); Blickhan (2024)). • Spaces of measures and general metric spaces: Nonlinear approximation methods also arise naturally when the ambient solution space itself lacks a linear structure. A prominent example is provided by gradient flows in Wasserstein spaces, where linear combinations of solutions are generally not meaningful. In such settings, model reduction must inherently rely on nonlinear constructions. One successful strategy consists in representing ˆ un(θ) as a Wasserstein barycenter of suitably selected snapshots. In one spatial dimension, this can be achieved through a physics-informed transformation based on inverse cumulative distribution functions, which maps the problem into a space where convex combinations become meaningful (see Ehrlacher et al. (2020); Battisti et al. (2023)). Extensions to higher-dimensional Wasserstein spaces have also been developed, although they no longer rely on such a transformation-based linearization (see, e.g., Dalery et al. (2023); Do et al. (2025)). Another related approach consists of constructing reduced models through the approximation of push-forward maps in combination with registration approaches, as proposed in Blickhan (2024). We also refer to Iollo and Lombardi (2014) for an early work leveraging ideas from Optimal Transport to develop physics-informed transformations. 
+
+# 2.4 Further reading 
+
+There are by now several books about forward ROM which cover particularly well the case of linear approximation, see Hesthaven et al. (2015); Quarteroni et al. (2016); Benner et al. (2017). These references also explain how to apply ROM to problems such as uncertainty quantification and optimal control. There are plenty of more advanced concepts that we have not covered in our discussion, and which are sometimes not fully covered either in these books. Some relevant ones are: • How to reliably, and efficiently work with residuals in the weak greedy algorithm This question is very related to a good choice of a weak formulation of the problem at hand. In presence of nonlinearities, we need to involve further steps, usually known under the name of hyperreduction methods. The Empirical Interpolation Method is probably the most well-known approach, see Barrault et al. (2004). • In time-dependent problems, it is often interesting to consider that the manifold set of solutions depends on time. We would thus have to work with M(t), and in this case one has to compute reduced models 
+
+Vn(t) that depend on time. One challenge is about how to make the basis evolve in time, and there is a lot of activity in this direction. We refer to (Hesthaven et al., 2022, Section 4.3) for an overview. Another relevant approach is the so-called POD-Greedy method, see Haasdonk (2013). • Many problems come with important structural properties. Examples are conservation laws, symmetries, symplecticity, reversibility and invariants of motion. A topic of vibrant research at the moment is related to building reduced models Vn that preserve such properties, see (Hesthaven et al., 2022, Section 4.2) or Ehrlacher et al. (2020). Concerning nonlinear model reduction methods, we refer to Hesthaven et al. (2026) for an extensive overview of current research. Last but not least, for training on how to implement advanced ROM concepts, we refer to Rozza et al. (2024) which is a book that offers an extensive collection of worked out implementation problems with increasing complexity from the field of computational mechanics. 
+
+# 3 Inverse State Estimation 
+
+Inverse Problems occur when the parameter θ is not given, and, instead, we only observe a vector of measurements 
+
+z = ( z1, . . . , z m) ∈ Rm, zi = ℓi(u), i = 1 , . . . , m, 
+
+where each ℓi ∈ V ′ is a known continuous linear functional on V , and we assume that the set of {ℓi}mi=1 are linearly independent. We will sometimes use the notation 
+
+z = ℓ(u), ℓ = ( ℓ1, . . . , ℓ m).
+
+There are two main types of inverse problems: 1. State estimation: The task is to recover an approximation u∗ of the state u ∈ V from the observation 
+
+z = ℓ(u). Since we assume that V is high or infinite dimensional, there are in general many u that satisfy 
+
+ℓ(u) = z so we decrease this “uncertainty” by adding extra assumptions. In our case, we assume that u
+
+belongs to the manifold M.
+
+16 State estimation is a linear inverse problem in the sense that the forward map ℓ : u 7 → ℓ(u) is linear. It is however challenging because the target u lives in an infinite dimensional space V . The additional assumption that u ∈ M eases the problem only to some extent. On the one hand, it means that u is in a manifold that can be parametrized with p parameters. Since we receive m observations, recovering u ∈ M from z is an ill-posed problem as soon as p > m . This ill-posed setting is the one that we are often implicitly considering since it corresponds to the situation in which the physical model is complex ( p is large), and we only observe it with a few sensors ( m is moderate). On the other hand, the membership of u to M makes it difficult to recover u even when the problem is not ill-posed. This is because M has a complicated geometry, which is only partially known to us by solving forward problems θ 7 → u(θ) for different values of θ ∈ Θ. 2. Parameter estimation: Here the goal is to recover an approximation θ∗ of the parameter θ from the observation z = ℓ(u) when u = u(θ). This is a nonlinear inverse problem, for which the prior information available on θ is given by the domain Θ. In the above description, we have assumed that the observations are noiseless, that the ℓi are perfectly known, and that the physical model is perfect so that we have u ∈ M . Of course, in general, none of these three assumptions are true: • Measurements are usually affected by noise. To account for this, we need to add an extra modeling assumptions. In general, one assumes additive noise 
+
+z = ℓ(u) + η, 
+
+and η ∈ Rm is a vector of random variables that follows a certain probability distribution. One then needs to decide which probability distribution this is, and whether the sensors’ noise is correlated or uncorrelated. • The sensors’ response is usually not completely known which means in turn that the functionals ℓi do not fully describe the measurment process. One can account for this lack of knowledge by adding an extra additive noise term. • The physical model in general does not fully capture the behaviour of the real system so the true observed state is an element u ∈ V , and it may deviate from the solution manifold M by a considerable amount. In the following, we place ourselves in the idealized setting without modeling errors and measurement noise. We do this for clarity of exposition, but we emphasize that one can easily incorporate these inaccuracies in the theory and the algorithms that we present below. 
+
+# 3.1 Optimal Algorithms for State Estimation 
+
+Since we are assuming that we have no noise, our observations are of the form 
+
+zi = ℓi(u), i = 1 , . . . , m. (40) We denote by ωi ∈ V the Riesz representers of the ℓi, such that ℓi(v) = ⟨ωi, v ⟩ for all v ∈ V (see Fig. 5), and we define the observation space 
+
+Wm := span {ω1, . . . , ω m} ⊂ V. 
+
+To avoid any possible confusion, we emphasize that in this section Wm has a totally different meaning with respect to the space of weights W from Eq. (33) for parametric approximations. Using the observation space Wm, the measurement data z = ( z1, . . . , z m)T can equivalently be represented by 
+
+ω = PWm u, 
+
+where PWm is the orthogonal projection from V onto Wm (see Fig. 6). This equivalence comes from the fact that we can write 
+
+PWm u =
+
+> n
+
+∑
+
+> i=1
+
+ciωi,
+
+for some coefficients ci ∈ R. Knowing the measurement data allows us to write 
+
+zi = ℓi(u) = ⟨ωi, u ⟩ = ⟨ωi, P Wm u⟩ =
+
+> m
+
+∑
+
+> j=1
+
+cj ⟨ωi, ω j ⟩ , ∀ i = 1 , . . . , m. 
+
+Thus the vector of coefficients c = ( c1, . . . , c m)T is the unique solution to the linear system 
+
+B c = z
+
+where 
+
+B := ( ⟨ωi, ω j ⟩)1≤i,j ≤m
+
+is an invertible matrix because the {ωi}mi=1 are linearly independent (because their associated linear functionals 
+
+{ℓi}mi=1 are assumed to be independent). Therefore knowing z is equivalent to knowing c, and also w = PWm u.
+
+17 Remark 3.1. Given a linear functional ℓi ∈ V ′, its Riesz representer ωi is defined by the variational problem: Find ωi ∈ V s.t. ⟨ωi, v ⟩ = ℓi(v), ∀ v ∈ V. 
+
+In practice, one can find an approximation of ωi by Galekin projection. We choose a finite dimensional space Vh
+
+(usually, a finite element space), and then the problem is: Find ω(h) 
+
+> i
+
+∈ Vh s.t. ⟨ω(h) 
+
+> i
+
+, v h⟩ = ℓi(vh), ∀ vh ∈ Vh.
+
+For example, if V = L2(Ω), and if ℓi(v) := ∫ v(x)e− (x−xi)22σ2 dx, then we can directly identify ωi = e− (x−xi)22σ2 . If 
+
+V = H10 (Ω), then we have to consider the variational problem Find ωi ∈ H10 (Ω) s.t. ∫ 
+
+> Ω
+
+∇ωi · ∇ v = ∫ v(x)e− (x−xi)22σ2 dx, ∀ v ∈ H10 (Ω) .
+
+Fig. 5 gives a visual illustration of this example. 
+
+Figure 5: Riesz representer ωi if we work with ℓi(v) = ∫ v(x)e− (x−xi)22σ2 dx with xi = (0 .5, 0.5). Images on the left: V = L2([ −1, 1] 2). On the right: V = H10 ([ −1, 1] 2). σ = 0 .1 (up) and σ = 0 .25 (down). 
+
+Figure 6: We show (left) the same solution u of Fig. 1. For ℓi(u) = ∫ u(x)e− (x−xi)22σ2 dx and σ = 0 .1 we see the projection PWm u of the solution u onto the measurement space Wm for V = H10 ([ −1, 1] 2) (center) and L2([ −1, 1] 2) (right). 
+
+Given that the observations can be seen as having been given an element ω ∈ Wm, we can view the task of state estimation as building a recovery algorithm which is defined as a mapping 
+
+A : Wm → V. 
+
+For such an algorithm A, the approximation of u is given by 
+
+u∗ = A(w) = A(PWm u).
+
+18 Note that, in our terminology, an algorithm A is just a mapping from the observation space Wm to the ambient space V , and we do not attach any notion of practical feasibility to it. We will add this idea in a second stage. The construction of A should be based on the available prior information that describes the properties of the unknown u, and the evaluation of its quality needs to be defined according to a precise criterion. By following similar lines as for forward reduced modeling, we distinguish two main quality benchmarks: • In the worst case setting , the sole prior information is that u belongs to the solution manifold M that we defined in equation (1). The performance of an algorithm A over the class M is measured by the “worst case” reconstruction error Ewc (M, A ) := max 
+
+> u∈M
+
+∥u − A(PWm u)∥.
+
+In this case, the problem of finding an A that minimizes E wc (M, A ) is called optimal recovery . It has been extensively studied for convex sets M that are balls of smoothness classes Bojanov (1994); Micchelli and Rivlin (1977); Novak and Wozniakowski (2008) but note that this is not the present case for our solution manifold. • In the average setting , the prior information on u is described by a probability distribution p on V , which is supported on M. Typically, p is induced by a probability distribution ρ on Θ that is push-forwarded with the solution map: p = u#ρ. It is then natural to measure the performance of an algorithm in an averaged sense, for example through the mean-square error Eav  
+
+> ρ
+
+(M, A ) := 
+
+(∫ 
+
+> Θ
+
+∥u(θ) − A(PWm u(θ)) ∥2ρ(d θ)
+
+)1/2
+
+.
+
+This average setting is the starting point for Bayesian estimation methods Dashti and Stuart (2017). Let us observe that for any algorithm A one has E av  
+
+> ρ
+
+(M, A )( A) ≤ Ewc (M, A ). For both criteria, the best algorithm is the one that minimizes the reconstruction error. The optimal performance that we can achieve is thus 
+
+δ⋆(M) := inf  
+
+> A:Wm→V
+
+E⋆(M, A ), with ⋆ = {av , wc }.
+
+For the worst case setting, a simple mathematical description of an optimal map that meets this benchmark was given in Binev et al. (2017) (see also Cohen et al. (2020a)). To define it, we note that in the absence of model bias and when a noiseless measurement ω = PWm u is given, our knowledge on u is that it belongs to the set 
+
+Mω := M ∩ (ω + Wm⊥).
+
+The set Mω can be understood as the “slice” of the manifold M which agrees with a given observation ω ∈ Wm.This “slice” can be a fully connected set, or composed of non connected sets, and it could even be the empty set depending on ω. We refer to Fig. 7 for a graphical illustration. 
+
+Figure 7: Illustration of the optimal recovery benchmark on a manifold in the two dimensional Euclidean space. Note that sometimes Mω may be a non connected set as the figure depicts. This does not alter the fact that the best reconstruction is the center of the Chebyshev ball cen( Mω ). Remark that the center does not necessarily lie in Mω when the set is not connected. 
+
+The best possible recovery map can be described through the following general notion. 
+
+19 Definition 3.2 
+
+The Chebychev ball of a bounded set S ∈ V is the closed ball B(v, r ) of minimal radius that contains S.One denotes by v = cen( S) the Chebychev center of S and r = rad( S) its Chebychev radius. In particular one has 12 diam( S) ≤ rad( S) ≤ diam( S), (41) where diam( S) := sup {∥ u − v∥ : u, v ∈ S} is the diameter of S. Therefore, the recovery map that minimizes the worst case error over Mω for any given ω, and therefore over M is defined by 
+
+Awc opt (ω) = cen( Mω ). (42) Its associated worst case error is 
+
+δwc (M) = sup {rad( Mω ) : ω ∈ Wm}.
+
+Note that the map Awc opt is also optimal among all algorithms for each slice Mω , where ω ∈ PWm (M), since Ewc (Awc opt , Mω ) = min  
+
+> A
+
+Ewc (A, Mω ) = rad( Mω ), ∀ ω ∈ PWm (M).
+
+However, there may exist other maps A such that E wc (M, A ) = δwc (M), since we also supremize over ω ∈ PWm (M). In view of the equivalence (41), we can relate δwc (M) to the quantity 
+
+σ := sup {diam( Mω ) : ω ∈ Wm} = sup {∥ u − v∥ : u, v ∈ M , u − v ∈ Wm⊥},
+
+by the equivalence 
+
+σ
+
+2 ≤ δwc (M) ≤ σ. 
+
+Note that having injectivity of the measurement map PWm : M → Wm is equivalent to σ = 0. In other words, when the measurement map is rich enough so that there is only one element u ∈ M that matches the observations, then the optimal algorithm will do a perfect recovery and δwc (M) = 0. More importantly, note that, in practice, the optimal map Awc opt from Eq. (42) cannot be easily constructed. Since the solution manifold M is a high-dimensional and geometrically complex object, one cannot easily find the Chebyshev center to Mω for a given measurement ω. One is therefore interested in designing “sub-optimal yet good” recovery algorithms A whose performance E(M, A ) does not deviate that much from the optimal δwc (M). We next present a simple approach based on approximating M with a linear approximation space Vn. We are going to see that using linear reduced model spaces Vn as we did for forward reduced modeling (see Section 2.2) is a pretty good choice when the Kolomogorov width dn(M) decays fast, although this choice comes with a couple of caveats that we will point out. 
+
+# 3.2 The Parametrized Background Data-Weak Algorithm (PBDW) 
+
+Given a measurement space Wm and a reduced model Vn with 1 ≤ n ≤ m, the PBDW algorithm is defined as the mapping 
+
+Am,n : Wm → V (43) 
+
+ω 7 → Am,n (ω) = arg min 
+
+> v∈ω+Wm⊥
+
+∥v − PVn v∥ (44) The following theorem shows that the solution to the above minimization problem exists and is unique under some conditions that we will assume are satisfied in the rest of our developments. The result requires introducing the quantity 
+
+β(F, H ) := inf  
+
+> f∈F
+
+sup 
+
+> h∈H
+
+⟨f, h ⟩∥f ∥ ∥ h∥ = inf  
+
+> f∈F
+
+∥PH f ∥∥f ∥ ∈ [0 , 1] (45) where ( F, H ) are any pair of finite-dimensional subspaces of V . We also define the orthogonal projection into F
+
+restricted to H,
+
+PF |H : H → Fh 7 → PF |H (h).
+
+For any h ∈ H, PF |H (h) is the unique element f ∈ F such that 
+
+⟨h − f, ˜f ⟩ = 0 , ∀ ˜f ∈ F. 
+
+20 Theorem 3.3 
+
+Let Wm and Vn be an observation space and a reduced basis such that β(Vn, W m) > 0. Then the linear PBDW algorithm defined in (44) is given by 
+
+Am,n (ω) = ω + v∗
+
+> m,n
+
+(ω) − PWm (v∗
+
+> m,n
+
+(ω)) ∈ ˜Vn := Vn ⊕ (V ⊥ 
+
+> n
+
+∩ Wm), (46) with 
+
+v∗
+
+> m,n
+
+(ω) = ( PVn|Wm PWm|Vn )−1PVn|Wm (ω). (47) 
+
+Proof. By Eq. (44), Am,n (ω) is a minimizer of min 
+
+> u∈ω+Wm⊥
+
+dist ( u, V n)2 = min 
+
+> u∈ω+Wm⊥
+
+min 
+
+> v∈Vn
+
+∥u − v∥2
+
+= min 
+
+> v∈Vn
+
+min 
+
+> η∈Wm⊥
+
+∥ω + η − v∥2 (u = ω + η with η ∈ Wm⊥)= min 
+
+> v∈Vn
+
+∥ω − v − PWm⊥ (ω − v)∥2
+
+= min 
+
+> v∈Vn
+
+∥ω − v + PWm⊥ (v)∥2
+
+= min 
+
+> v∈Vn
+
+∥ω − PWm (v)∥2.
+
+The last minimization problem is a classical strongly convex, least squares optimization. Any minimizer v∗ 
+
+> m,n
+
+=
+
+v∗
+
+> m,n
+
+(ω) ∈ Vn satisfies the normal equations 
+
+P ∗ 
+
+> Wm|Vn
+
+PWm|Vn v∗ 
+
+> m,n
+
+= P ∗ 
+
+> Wm|Vn
+
+ω, 
+
+where P ∗ 
+
+> Wm|Vn
+
+: Vn → Wm is the adjoint operator of PWm|Vn . Note that P ∗ 
+
+> Wm|Vn
+
+is well-defined since β(Vn, W m) = min v∈Vn ∥PWm|Vn v∥/∥v∥ > 0, which implies that PWm|Vn is injective and thus admits an adjoint. Furthermore, since for any ω ∈ Wm and v ∈ Vn, ⟨v, ω ⟩ = ⟨PWm|Vn v, ω ⟩ = ⟨v, P Vn|Wm ω⟩, it follows that P ∗ 
+
+> Wm|Vn
+
+= PVn|Wm ,which finally yields that the unique solution of the least squares problem is 
+
+v∗
+
+> m,n
+
+(ω) = ( PVn|Wm PWm|Vn )−1PVn|Wm (ω).
+
+Therefore Am,n (ω) = ω + η∗
+
+> m,n
+
+(ω) = ω + v∗
+
+> m,n
+
+(ω) − PWm v∗
+
+> m,n
+
+(ω). The statement of Theorem 3.3 requires that β(Vn, W m) > 0 because we need to guarantee injectivity of 
+
+PWm|Vn . For this to hold, the next Proposition shows that it is necessary (but not sufficient) that n ≤ m.
+
+Proposition 3.4 
+
+If n > m , then β(Vn, W m) = 0. 
+
+Proof. If n > m , then there exists an element v ∈ Vn which is orthogonal to Wm. Thus, for this element, 
+
+∥PWm v∥V = 0 and therefore β(Vn, W m) = 0. 
+
+# 3.3 Practical computation of Am,n (ω) and of β(Vn, W m)
+
+Computation of Am,n (ω): Since Am,n (ω) is given by Eq. (46), computing it in practice boils down to computing v∗
+
+> n
+
+(ω). The explicit expression (47) for v∗
+
+> n
+
+(ω) allows to easily derive its algebraic formulation. Let F
+
+and H be two finite-dimensional subspaces of V of dimensions n and m respectively in the Hilbert space V and let F = {fi}ni=1 and H = {hi}mi=1 be a basis for each subspace respectively. The Gram matrix associated to F
+
+and H is 
+
+G(F, H) = ( ⟨fi, h j ⟩) 1≤i≤n
+
+> 1≤j≤m
+
+.
+
+These matrices are useful to express the orthogonal projection PF |H : H 7 → F in the bases F and H in terms of the matrix 
+
+PF |H = G(F, F)−1G(F, H). (48) As a consequence, if Vn = {vi}ni=1 is a basis of the space Vn and Wm = {ωi}mi=1 is the basis of Wm formed by the Riesz representers of the linear functionals {ℓi}mi=1 , the coefficients v∗ 
+
+> m,n
+
+of the function v∗ 
+
+> m,n
+
+in the basis Vn are the solution to the normal equations 
+
+PVn|Wm PWm|Vn v∗ 
+
+> m,n
+
+= PVn|Wm G(Wm, Wm)−1z,
+
+21 where z = ( ⟨u, ω i⟩)mi=1 = ( zi)mi=1 is the vector of measurement observations that we introduced in Eq. (40). From Eq. (48), 
+
+{PVn|Wm = G(Vn, Vn)−1G(Vn, Wm),
+
+PWm|Vn = G(Wm, Wm)−1G(Wm, Vn).
+
+Usually v∗ 
+
+> m,n
+
+is computed with a QR decomposition or any other suitable method for linear least-squares problems. Once v∗ 
+
+> m,n
+
+is found, the vector of coefficients u∗ 
+
+> m,n
+
+of Am,n (ω) easily follows. 
+
+Computation of β(Vn, W m): As explained in the proof of Theorem 3.3, if n > m , then β(Vn, W m) = 0. We therefore focus on the case n ≤ m, and remind that, from Eq. (45), we have 
+
+β(Vn, W m) := min 
+
+> v∈Vn
+
+max 
+
+> ω∈Wm
+
+⟨v, w ⟩∥v∥ ∥ w∥ = min 
+
+> v∈Vn
+
+∥PWm v∥∥v∥ .
+
+The last equality comes from the fact that max 
+
+> ω∈Wm
+
+⟨v, w ⟩∥w∥ = max 
+
+> ω∈Wm
+
+⟨PWm v, w ⟩∥w∥ = ∥PWm v∥, ∀ v ∈ Vn.
+
+Let Vn = {vi}ni=1 be a basis of the space Vn and let c be the coefficients of an element v ∈ Vn in the basis Vn. For any nonzero v ∈ Vn, we can thus write 
+
+β2(Vn, W m) = min 
+
+> v∈Vn
+
+∥PWm v∥2
+
+> V
+
+∥v∥2
+
+> V
+
+= min 
+
+> c∈Rn
+
+cT M(Vn, Wm)ccT G(Vn, Vn)c (49) where 
+
+M(Vn, Wm) := ( ⟨PWm vi, P Wm vj ⟩)1≤i,j ≤n
+
+is a symmetric matrix. Let us make a few remarks before giving an implementable expression for M(Vn, Wm). First, we note that the value of β(Vn, W m) does not depend on the selected bases Vn and Wm. For example, using a basis ˜Vn instead of 
+
+Vn amounts to changing the variable c by ˜c = Uc for an invertible matrix U, and this does not affect the value of the minimizer. Second, formula (49) shows that β(Vn, W m) is the smallest eigenvalue of the generalized eigenvalue problem find (λ, c) ∈ R × Rn − { 0} s.t. M(Vn, Wm)c = λG(Vn, Vn)c.
+
+Since G(Vn, Vn) and M(Vn, Wm) are symmetric, positive definitive, the eigenvalues λ are positive, and having 
+
+β(Vn, W m) > 0 is equivalent to the invertibility of M(Vn, Wm). We can transform the generalized eigenvalue problem in a classical eigenvalue problem by multiplying by the inverse of G(Vn, Vn). Also, remark that we have important simplifications when V and/or Wm are orthonomal bases since in that case G(Vn, Vn) and G(Wm, Wm)become the identity matrices. We next give an explicit expression for M(Vn, Wm). Since the coordinates in Vn of the i-th basis function vi
+
+are given by the i-th canonical vector ei ∈ Rn, using formula (48) we deduce that the coordinates of PWm vi in 
+
+Wm are given by 
+
+pi := PWm|Vn ei = G(Wm, Wm)−1G(Wm, Vn)ei, ∀ i ∈ { 1, . . . , n }.
+
+Therefore 
+
+⟨PWm vi, P Wm vj ⟩V = pTi G(Wm, Wm)pj
+
+= eTi GT (Wm, Vn)G−1(Wm, Wm)G(Wm, Vn)ej , ∀(i, j ) ∈ { 1, . . . , n }2,
+
+and 
+
+M(Vn, Wm) = GT (Wm, Vn)G−1(Wm, Wm)G(Wm, Vn). (50) 
+
+# 3.4 Error bounds for PBDW 
+
+Formula (46) shows that Am,n is a bounded linear map from Wm to the space ˜Vn which, as a reminder, was defined as ˜Vn := Vn ⊕ (V ⊥ 
+
+> n
+
+∩ Wm) in (46). We have the following bounds for the reconstruction error. 
+
+Theorem 3.5 
+
+If β(Vn, W m) > 0, then 
+
+∥u − P˜Vn
+
+u∥ ≤ ∥ u − Am,n (PWm u)∥ ≤ β−1(Vn, W m)∥u − P˜Vn
+
+u∥, ∀ u ∈ V. (51) 
+
+22 Figure 8: Following the same example as in Fig. 1 and Fig. 6 we show here the true solution u (left), 
+
+PVn u (center), that is, the best approximation of u on Vn for n = 2 with Vn obtained by an SVD strategy. At right the correction obtained by incorporating the riez representers information as in PBDW strategy (see Eq. (50)). 
+
+Proof. This result was first proven in Binev et al. (2017). Here we present a new alternative proof which significantly simplies the original one. To show the lower bound, it suffices to notice that since Am,n (PWm u) ∈ ˜Vn,then 
+
+∥u − Am,n (PWm u)∥ ≥ min 
+
+> ˜v∈
+
+˜Vn
+
+∥u − v∥ = ∥u − P˜Vn
+
+u∥.
+
+The proof of the upper bound crucially relies on the fact that 
+
+β(Vn, W m) = β( ˜Vn, W m) = β(Wm⊥, ˜V ⊥ 
+
+> n
+
+),
+
+which is a statement that we prove in Lemma 3.6. Since, by construction, PWm (Am,n (PWm u)) = PWm (u), then 
+
+u − Am,n (PWm u) ∈ Wm⊥, and from the definition of β(Wm⊥, ˜V ⊥ 
+
+> n
+
+) it holds that 
+
+β(Wm⊥, ˜V ⊥ 
+
+> n
+
+)∥u − Am,n (PWm u)∥ ≤ sup 
+
+> ˜v⊥∈
+
+˜V ⊥
+
+> n
+
+⟨u − Am,n (PWm u), ˜v⊥⟩∥˜v⊥∥ .
+
+In addition, since Am,n (PWm u) ∈ ˜Vn, by orthogonality we have 
+
+⟨u − Am,n (PWm u), ˜v⊥⟩ = ⟨u − ˜v, ˜v⊥⟩, ∀(˜ v, ˜v⊥) ∈ ˜Vn × ˜V ⊥
+
+> n
+
+Consequently, 
+
+β(Wm⊥, ˜V ⊥ 
+
+> n
+
+)∥u − Am,n (PWm u)∥ ≤ sup 
+
+> ˜v⊥∈
+
+˜V ⊥
+
+> n
+
+⟨u − ˜v, ˜v⊥⟩∥˜v⊥∥ = ∥u − ˜v∥, ∀ ˜v ∈ ˜Vn,
+
+Therefore, dividing by β(Wm⊥, ˜V ⊥ 
+
+> n
+
+) = β(Vn, W m) > 0 (we prove this equality in Lemma 3.6), and minimizing over ˜ v ∈ ˜Vn we obtain the desired bound, 
+
+∥u − Am,n (PWm u)∥ ≤ 1
+
+β(Vn, W m) ∥u − P˜Vn
+
+u∥.
+
+Lemma 3.6 
+
+Suppose that β(Vn, W m) > 0. Then it holds that 
+
+β(Vn, W m) = β( ˜Vn, W m) = β(Wm⊥, ˜V ⊥ 
+
+> n
+
+).
+
+Proof. Since we assume β(Vn, W m) > 0, necessarily n ≤ m by Proposition 3.4. Now, to see that β(Vn, W m) = 
+
+β( ˜Vn, W m), we consider an element ˜ v ∈ V ⊥ 
+
+> n
+
+∩ Wm ⊂ ˜Vn. Since ˜ v ∈ Wm, ∥PWm ˜v∥/∥˜v∥ = 1. Therefore, since 
+
+β( ˜Vn, W m) ≤ 1, 
+
+β( ˜Vn, W m) = min 
+
+> ˜v∈
+
+˜Vn
+
+∥PWm (˜ v)∥∥˜v∥ = min 
+
+> v∈Vn
+
+∥PWm v∥∥v∥ = β(Vn, W m).
+
+The equality β( ˜Vn, W m) = β(Wm⊥, ˜V ⊥ 
+
+> n
+
+) is a direct application of (Maday et al., 2015, Proposition A.1). As a direct consequence of Theorem 3.5, we can derive error bounds on the reconstruction quality of Am,n on the whole set M. This is recorded in the next Corollary. 
+
+23 Corollary 3.7 
+
+It holds that 
+
+Ewc (M, ˜Vn) ≤ Ewc (M, A n,m ) ≤ β−1(Vn, W m)Ewc (M, ˜Vn) (52) 
+
+Eav  
+
+> ρ
+
+(M, ˜Vn) ≤ Eav  
+
+> ρ
+
+(M, A n,m ) ≤ β−1(Vn, W m)Eav  
+
+> ρ
+
+(M, ˜Vn) (53) 
+
+Proof. It suffices to maximize (51) over u ∈ M or take the expectation to obtain the inequalities. 
+
+# 3.5 Interpretation of β(Vn, W m) and other remarks 
+
+The lower bound (51) implies that Am,n (ω) provides the best reconstruction in ˜Vn that we can expect as the reconstruction error is given by the best approximation of u in ˜Vn, which is the orthogonal projection of u into ˜Vn.The upper bound of (51) shows that we deviate from the best approximation up to the multiplicative constant 
+
+β−1(Vn, W m). For this reason, we can view β(Vn, W m) as a stability factor. This quantity can be interpreted as the cosine of the angle between Vn and Wm (see Fig. 9b), 
+
+β(Vn, W m) = cos( θVn,W m ).
+
+The stability of the algorithm thus depends on an interplay between the approximation space Vn and the observation space Wm. Of course, if Wm is given, by choosing the reduced space Vn = Wm, we would maximize the stability constant, and we would have β(Vn, W m) = 1. This is the most stable situation, but this choice also affects the quality of approximation: in general, the observation space Wm has rather poor approximation properties so by choosing Vn = Wm, we degrade Ewc 
+
+(
+
+M, ˜Vn
+
+)
+
+. Alternatively, if the application allows for it, we can work with a reduced model Vn that gives a good accuracy (e.g. the one from forward reduced order modeling), and we can consider the problem of optimizing the choice of the measurement space Wm. This would be done by searching for optimal ℓi (respectively ωi) from a given dictionary of admissible linear functionals. We do not cover the topic of optimal sensor placement in this tutorial but we refer to Maday et al. (2016); Binev et al. (2018) for works on this topic, and to Mula (2023) for a tutorial covering this aspect. Another interesting observation is that for a fixed measurement space Wm we still have the freedom to tune the dimension n of Vn to improve accuracy. Consequently, we can search for 
+
+n∗ = arg min 
+
+> 1≤n≤m
+
+E⋆(An,m , M), with ⋆ = {wc , av }
+
+and work with Am,n ∗ . Contrary to what one might expect at first glance, the best performance is not achieved in general when we take n as large as possible, namely n = m. In fact, there is a sweet spot due to the trade-off between the increase of the approximation properties of Vn as n grows, and the degradation of the stability of the algorithm, given here by the decrease of β(Vn, W m) to 0 as n → m.We finish this section by connecting the algorithm Am,n with the concept of optimal algorithms in the sense of 
+
+δwc (M). For this, suppose that the reduced model Vn is such that we approximate the elements of M at εn > 0accuracy, 
+
+Ewc (M; Vn) ≤ εn.
+
+As a consequence, M is included in the cylinder (see Fig. 9a) 
+
+M ⊂ K n := {v ∈ V : dist( v, V n) ≤ εn}. (54) We can prove (see Cohen et al. (2020a)) that Am,n is optimal among all linear and nonlinear algorithms when M
+
+is replaced by the simpler containment set Kn, that is 
+
+Am,n = arg min 
+
+> A:Wm→V
+
+Ewc (A, Kn).
+
+# 3.6 Further Reading and Applications 
+
+This document covers quite extensively how to work with linear approximation subspaces Vn. Extending this setting to nonlinear spaces Vn is a very dynamic research direction for which several milestones have already been achieved. First, the setting can easily be extended to affine approximation spaces of the form ¯ u + Vn, as is explained in Cohen et al. (2020a). Next, one can take affine spaces as a building block to construct piece-wise affine approximations. The idea is to build a partition of the manifold M into K disjoint subsets, M = ∪Kk=1 Mk
+
+with Mk ∩ M k′ = ∅ if k̸ = k′. We approximate the elements of each subset Mk with affine subspaces ¯ uk + V (k) 
+
+> n
+
+.To do state estimation, given the observation ω, we need to find a procedure to detect in which subset Mk lies the target function u, and then we reconstruct with the affine version of PBDW. A strategy to implement this idea was 
+
+24 (a) A manifold M, a linear space Vn with ac-curacy εn, and the cylinder Kn from Eq. (54). 
+
+(b) Angle between Vn and Wm.
+
+Figure 9: The concepts associated to the linear reconstruction algorithm. 
+
+proposed in Cohen et al. (2022), and it was also shown in that if we are willing to have enough partitions, then the piece-wise affine strategy is near-optimal in the sense that its performance will get close to δwc (M). Additionally, we refer to Nouy and Pasco (2024) for another construction based on randomization. Another relevant extension is the one introduced in Mula et al. (2025) where the linear approximation paradigm is made time-dependent with dynamical approximation techniques which can, in addition, preserve certain structures such as symplecticity. A first contribution involving fully-nonlinear approximation families was proposed in Aghili et al. (2025). Last but not least, we mention that the above-discussed paradigm has found numerous applications including biomedical problems Taddei et al. (2018); Galarce et al. (2021a,b, 2022, 2023, 2025a); Mantegazza et al. (2026), food freezing Galarce et al. (2025b), electromagnetism Alahyane et al. (2026), pollution dispersion Hammond et al. (2019); Dolbeault et al. (2024) and nuclear engineering Argaud et al. (2018); Taumhas et al. (2023); Bao et al. (2025); Riva et al. (2025, 2026). The idea of PBDW and the stability concept connected to the parameter 
+
+β(Vn, W m) has also recently been used to develop dynamical sampling strategies to compute integrals arising in the framework of solving forward problems with fully nonlinear parametric approximations of the type introduced in (33). 
+
+# Bibliography References 
+
+J. Aghili, J. Z. Atokple, M. Billaud-Friess, G. Garnier, O. Mula, and N. Tognon. A dynamical neural Galerkin scheme for filtering problems. ESAIM: Proceedings and Surveys , 81:2–15, 2025. M. Alahyane, Z. Tang, and A. Benabou. Optimal sensor placement for electromagnetic problems: A pbdw-based approach with position constraints. Computers & Mathematics with Applications , 212:78–97, 2026. F. Arbes, C. Greif, and K. Urban. The kolmogorov n-width for linear transport: exact representation and the influence of the data: The kolmogorov n-width for linear transport: exact representation... Adv. Comput. Math. ,51(2), Mar. 2025. ISSN 1019-7168. doi:10.1007/s10444-025-10224-0. URL https://doi-org.uaccess.univie. ac.at/10.1007/s10444-025-10224-0 .J.-P. Argaud, B. Bouriquet, F. de Caso, H. Gong, Y. Maday, and O. Mula. Sensor placement in nuclear reactors based on the generalized empirical interpolation method. J. Comput. Phys , 363:354–370, 2018. ISSN 0021-9991. doi:https://doi.org/10.1016/j.jcp.2018.02.050. URL http://www.sciencedirect.com/science/article/pii/ S0021999118301414 .I. Babuska and B. Szabo. On the rates of convergence of the finite element method. International Journal for Numer-ical Methods in Engineering , 18(3):323–341, Mar. 1982. ISSN 0029-5981, 1097-0207. doi:10.1002/nme.1620180302. N. Bao, S. Zhu, and H. Gong. Spatiotemporal geim for ultra-real-time prediction of coupled multi-physics in reactor transients using sparse observations. Journal of Computational Physics , page 114401, 2025. M. Barrault, Y. Maday, N. C. Nguyen, and A. T. Patera. An Empirical Interpolation Method: application to efficient reduced-basis discretization of partial differential equations. C. R. Acad. Sci. Paris, Série I. , 339: 667–672, 2004. doi:https://doi.org/10.1016/j.crma.2004.08.006. B. Battisti, T. Blickhan, G. Enchery, V. Ehrlacher, D. Lombardi, and O. Mula. Wasserstein model reduction approach for parametrized flow problems in porous media. ESAIM: Proceedings and Surveys , 73:28–47, 2023. 
+
+25 P. Benner, A. Cohen, M. Ohlberger, and K. Willcox. Model Reduction and Approximation: Theory and Algorithms ,volume 15. SIAM, 2017. G. Berkooz, P. Holmes, and J. L. Lumley. The Proper Orthogonal Decomposition in the Analysis of Turbulent Flows. Annual Review of Fluid Mechanics , 25:539–575, 1993. P. Binev, A. Cohen, W. Dahmen, R. DeVore, G. Petrova, and P. Wojtaszczyk. Convergence rates for greedy algorithms in reduced basis methods. SIAM Journal on Mathematical Analysis , 43(3):1457–1472, 2011. doi:10.1137/100795772. URL https://doi.org/10.1137/100795772 .P. Binev, A. Cohen, W. Dahmen, R. DeVore, G. Petrova, and P. Wojtaszczyk. Data assimilation in reduced modeling. SIAM/ASA Journal on Uncertainty Quantification , 5(1):1–29, 2017. doi:10.1137/15M1025384. URL 
+
+http://dx.doi.org/10.1137/15M1025384 .P. Binev, A. Cohen, O. Mula, and J. Nichols. Greedy algorithms for optimal measurements selection in state estimation using reduced models. SIAM/ASA Journal on Uncertainty Quantification , 6(3):1101–1126, 2018. doi:10.1137/17M1157635. URL https://doi.org/10.1137/17M1157635 .T. Blickhan. A registration method for reduced basis problems using linear optimal transport. SIAM Journal on Scientific Computing , 46(5):A3177–A3204, 2024. B. Bojanov. Optimal recovery of functions and integrals. In First European Congress of Mathematics , pages 371–390. Springer, 1994. A. Bonito, A. Cohen, R. DeVore, D. Guignard, P. Jantsch, and G. Petrova. Nonlinear methods for model reduction. 
+
+ESAIM: Mathematical Modelling and Numerical Analysis , 55(2):507–531, 2021. A. Cohen, W. Dahmen, R. DeVore, J. Fadili, O. Mula, and J. Nichols. Optimal reduced model al-gorithms for data-based state estimation. SIAM Journal on Numerical Analysis , 58(6):3355–3381, 2020a. doi:https://doi.org/10.1137/19m1255185. A. Cohen, W. Dahmen, R. DeVore, and J. Nichols. Reduced basis greedy selection using random training sets. 
+
+ESAIM: Mathematical Modelling and Numerical Analysis , 54(5):1509–1524, 2020b. A. Cohen, W. Dahmen, O. Mula, and J. Nichols. Nonlinear reduced models for state and parameter estimation. 
+
+SIAM/ASA Journal on Uncertainty Quantification , 10(1):227–267, 2022. doi:10.1137/20M1380818. A. Cohen, C. Farhat, Y. Maday, and A. Somacal. Nonlinear compressive reduced basis approximation for pde’s. 
+
+Comptes Rendus. Mécanique , 351(S1):357–374, 2023. M. Dalery, G. Dusson, V. Ehrlacher, and A. Lozinski. Nonlinear reduced basis using mixture wasserstein barycenters: application to an eigenvalue problem inspired from quantum chemistry. arXiv preprint arXiv:2307.15423 , 2023. T. Daniel, F. Casenave, N. Akkari, A. Ketata, and D. Ryckelynck. Physics-informed cluster analysis and a priori efficiency criterion for the construction of local reduced-order bases. Journal of Computational Physics , 458: 111120, 2022. M. Dashti and A. M. Stuart. The Bayesian Approach to Inverse Problems , pages 311–428. Springer International Publishing, Cham, 2017. ISBN 978-3-319-12385-1. doi:10.1007/978-3-319-12385-1_7. URL https://doi.org/ 10.1007/978-3-319-12385-1_7 .R. DeVore, G. Petrova, and P. Wojtaszczyk. Greedy algorithms for reduced bases in Banach spaces. Constructive Approximation , 37(3):455–466, 2013. M.-H. Do, J. Feydy, and O. Mula. Sparse Wasserstein barycenters and application to reduced order modeling. 
+
+Journal of Scientific Computing , 102(64), 2025. doi:10.1007/s10915-024-02766-0. M. Dolbeault, O. Mula, and A. Somacal. State estimation of urban air pollution with statistical, physical, and super-learning graph models. Advances in Computational Science and Engineering , 2(2):130–151, 2024. doi:10.3934/acse.2024008. URL https://www.aimsciences.org/article/id/6668192c5a42b314c5bee243 .C. Eckart and G. Young. The approximation of one matrix by another of lower rank. Psychometrika , 1(3):211–218, 1936. J. Eftang, A. Patera, and E. Rønquist. An “hp” certified reduced basis method for parametrized elliptic partial differential equations. SIAM Journal on Scientific Computing , 32(6):3170–3200, 2010. V. Ehrlacher, D. Lombardi, O. Mula, and F.-X. Vialard. Nonlinear model reduction on metric spaces. Applic-ation to one-dimensional conservative PDEs in Wasserstein spaces. ESAIM M2AN , 54(6):2159–2197, 2020. doi:10.1051/m2an/2020013. URL https://arxiv.org/abs/1909.06626 .
+
+26 A. Ern and J. Guermond. Theory and practice of finite elements , volume 159. Springer Science & Business Media, 2013. A. Ferrero, T. Taddei, and L. Zhang. Registration-based model reduction of parameterized two-dimensional conservation laws. Journal of Computational Physics , 457:111068, 2022. F. Galarce, J. Gerbeau, D. Lombardi, and O. Mula. Fast reconstruction of 3d blood flows from Doppler ultrasound images and reduced models. Computer Methods in Applied Mechanics and Engineering , 375:113559, 2021a. doi:https://doi.org/10.1016/j.cma.2020.113559. F. Galarce, D. Lombardi, and O. Mula. Reconstructing haemodynamics quantities of interest from Doppler ultrasound imaging. Int. J. Numer. Meth. Biomedical Eng. , 2021b. doi:https://doi.org/10.1002/cnm.3416. F. Galarce, D. Lombardi, and O. Mula. State estimation with model reduction and shape variability. Application to biomedical problems. SIAM J. Sci. Comput. , 44(3):B805–B833, 2022. URL https://arxiv.org/abs/2106. 09421 .F. Galarce, K. Tabelow, J. Polzehl, C. P. Papanikas, V. Vavourakis, L. Lilaj, I. Sack, and A. Caiazzo. Displacement and pressure reconstruction from magnetic resonance elastography images: Application to an in silico brain model. SIAM Journal on Imaging Sciences , 16(2):996–1027, 2023. F. Galarce, J. Mura, and A. Caiazzo. Bias and multiscale correction methods for variational state estimation. 
+
+Applied Mathematical Modelling , 138:115761, 2025a. F. Galarce, D. R. Rivera, D. R. Pacheco, A. Caiazzo, and E. Castillo. A fast food-freezing temperature estimation framework using optimally located sensors. International Journal of Mechanical Sciences , 299:110374, 2025b. R. Geelen, L. Balzano, and K. Willcox. Learning latent representations in high-dimensional state spaces using polynomial manifold constructions. In 2023 62nd IEEE Conference on Decision and Control (CDC) , pages 4960–4965. IEEE, 2023a. R. Geelen, S. Wright, and K. Willcox. Operator inference for non-intrusive model reduction with quadratic manifolds. Computer Methods in Applied Mechanics and Engineering , 403:115717, 2023b. C. Greif and K. Urban. Decay of the Kolmogorov n-width for wave problems. Applied Mathematics Letters , 96: 216–222, 2019. D. Guignard and P. Jantsch. Nonlinear approximation of high-dimensional anisotropic analytic functions. Journal of Approximation Theory , page 106040, 2024. D. Guignard and O. Mula. Tree-Based Nonlinear Reduced Modeling , pages 267–298. Springer Nature Switzerland, Cham, 2024. ISBN 978-3-031-75802-7. doi:10.1007/978-3-031-75802-7_13. URL https://doi.org/10.1007/ 978-3-031-75802-7_13 .B. Haasdonk. Convergence rates of the pod–greedy method. ESAIM: Mathematical modelling and numerical Analysis , 47(3):859–873, 2013. J. K. Hammond, R. Chakir, F. Bourquin, and Y. Maday. PBDW: A non-intrusive reduced basis data assimilation method and its application to an urban dispersion modeling framework. Appl. Math. Model. , 76:1–25, 2019. J. S. Hesthaven, G. Rozza, and B. Stamm. Certified reduced basis methods for parametrized partial differential equations. SpringerBriefs in Mathematics , 2015. J. S. Hesthaven, C. Pagliantini, and G. Rozza. Reduced basis methods for time-dependent problems. Acta Numerica , 31:265–345, 2022. doi:10.1017/S0962492922000058. J. S. Hesthaven, B. Peherstorfer, and B. Unger. Nonlinear model reduction for transport-dominated problems, 2026. URL https://arxiv.org/abs/2602.01397 .P. Holmes, J. L. Lumley, and G. Berkooz. Turbulence, Coherent Structures, Dynamical Systems and Symmetry .Cambridge University Press, 1996. H. Hotelling. Analysis of a complex of statistical variables into principal components. Journal of Educational Psychology , 24(6):417–441, 1933. A. Iollo and D. Lombardi. Advection modes by optimal mass transfer. Physical Review E , 89(2):022923, 2014. S. Jain, P. Tiso, J. B. Rutzmoser, and D. J. Rixen. A quadratic manifold for model order reduction of nonlinear structural dynamics. Computers & Structures , 188:80–94, 2017. 
+
+27 K. Karhunen. Über lineare Methoden in der Wahrscheinlichkeitsrechnung. Annales Academiae Scientiarum Fennicae , 37, 1947. M. Loève. Fonctions aléatoires du second ordre . Hermann, Paris, 1948. Y. Maday and B. Stamm. Locally adaptive greedy approximations for anisotropic parameter reduced basis spaces. 
+
+SIAM J. Scientific Computing , 35(6):A2417–A2441, 2013. Y. Maday, O. Mula, A. T. Patera, and M. Yano. The Generalized Empirical Interpolation Method: Stability theory on Hilbert spaces with an application to the Stokes equation. Computer Methods in Applied Mechanics and Engineering , 287(0):310–334, 2015. ISSN 0045-7825. doi:http://dx.doi.org/10.1016/j.cma.2015.01.018. URL 
+
+http://www.sciencedirect.com/science/article/pii/S0045782515000389 .Y. Maday, O. Mula, and G. Turinici. Convergence analysis of the generalized empirical interpolation method. 
+
+SIAM Journal on Numerical Analysis , 54(3):1713–1731, 2016. doi:10.1137/140978843. URL http://dx.doi. org/10.1137/140978843 .F. C. Mantegazza, F. Caforio, C. Augustin, M. A. Gsell, G. Haase, and E. Karabelas. Non-intrusive parametrized-background data-weak reconstruction of cardiac displacement fields from sparse mri-like observations. Compu-tational Mechanics , pages 1–27, 2026. C. A. Micchelli and T. J. Rivlin. A survey of optimal recovery . Springer, 1977. O. Mula. Inverse problems: A deterministic approach using physics-based reduced models. In Model Order Reduction and Applications: Cetraro, Italy 2021 , pages 73–124. Springer Nature Switzerland, Cham, 2023. ISBN 978-3-031-29563-8. doi:10.1007/978-3-031-29563-8_2. URL https://doi.org/10.1007/978-3-031-29563-8_2 .O. Mula, C. Pagliantini, and F. Vismara. Dynamical approximation and sensor placement for filtering problems. 
+
+SIAM Journal on Scientific Computing , 47(1):A403–A429, 2025. A. Nouy and A. Pasco. Dictionary-based model reduction for state estimation. Advances in Computational Mathematics , 50(3):32, 2024. E. Novak and H. Wozniakowski. Tractability of multivariate problems, volume i: Linear information, european math. Soc., Zürich , 2(3), 2008. M. Ohlberger and S. Rave. Nonlinear reduced basis approximation of parameterized evolution equations via the method of freezing. Comptes Rendus Mathematique , 351(23-24):901–906, 2013. M. Ohlberger and S. Rave. Reduced basis methods: Success, limitations and future challenges. In Proceedings of the Conference Algoritmy , pages 1–12, 2016. URL http://www.iam.fmph.uniba.sk/amuc/ojs/index.php/ algoritmy/article/view/389 .K. Pearson. On lines and planes of closest fit to systems of points in space. Philosophical Magazine , 2(11):559–572, 1901. A. Quarteroni, A. Manzoni, and F. Negri. Reduced basis methods for partial differential equations. an introduction. 2016. doi:10.1007/978-3-319-15431-2. URL http://infoscience.epfl.ch/record/218966 .M. Reed and B. Simon. Methods of modern mathematical physics: Functional analysis , volume 1. Gulf Professional Publishing, 1980. D. Rim and G. Welper. A low-rank neural representation of entropy solutions: D. rim, g. welper. Advances in Computational Mathematics , 52(1):2, 2026. D. Rim, B. Peherstorfer, and K. T. Mandli. Manifold approximations via transported subspaces: Model reduction for transport-dominated problems. SIAM Journal on Scientific Computing , 45(1):A170–A199, 2023. S. Riva, C. Introini, E. Zio, and A. Cammi. Data-driven reduced order modelling with malfunctioning sensors recovery applied to the molten salt reactor case. EPJ Nuclear Sciences & Technologies , 11:55, 2025. S. Riva, S. Deanesi, C. Introini, S. Lorenzi, and A. Cammi. Real-time state estimation of neutron flux in molten salt fast reactors from out-core sparse measurements. Nuclear Science and Engineering , 200(sup1):S63–S76, 2026. G. Rozza, F. Ballarin, L. Scandurra, and F. Pichi. Real time reduced order computational mechanics. In SISSA Springer Series . Springer, 2024. E. Schmidt. Zur theorie der linearen und nichtlinearen integralgleichungen. i. teil. Mathematische Annalen , 63(4): 433–476, 1907. 
+
+28 L. Sirovich. Turbulence and the dynamics of coherent structures. part i: Coherent structures. Quarterly of Applied Mathematics , 45(3):561–571, 1987. E. Süli. Lecture notes on finite element methods for partial differential equations. Mathematical Institute, University of Oxford , 2012. T. Taddei. A registration method for model order reduction: data compression and geometry reduction. SIAM Journal on Scientific Computing , 42(2):A997–A1027, 2020. T. Taddei, J. Penn, M. Yano, and A. T. Patera. Simulation-based classification; a model-order-reduction approach for structural health monitoring. Arch. Comput. Methods Eng. , 25:23–45, 2018. Y. C. Taumhas, D. Labeurthre, F. Madiot, O. Mula, and T. Taddei. Impact of physical model error on state estimation for neutronics applications. ESAIM: Proceedings and Surveys , 73:158–172, 2023. H. Tran, C. G. Webster, and G. Zhang. Analysis of quasi-optimal polynomial approximations for parameterized pdes with deterministic and stochastic coefficients. Numerische Mathematik , 137(2):451–493, 2017. G. Welper. Interpolation of functions with parameter dependent jumps by transformed snapshots. SIAM Journal on Scientific Computing , 39(4):A1225–A1250, 2017. G. Welper. Transformed snapshot interpolation with high resolution transforms. SIAM Journal on Scientific Computing , 42(4):A2037–A2061, 2020. 
+
+29

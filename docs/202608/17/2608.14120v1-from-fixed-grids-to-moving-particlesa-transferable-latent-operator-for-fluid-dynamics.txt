@@ -1,0 +1,383 @@
+Title: From Fixed Grids to Moving Particles:A Transferable Latent Operator for Fluid Dynamics
+
+URL Source: https://arxiv.org/pdf/2608.14120v1
+
+Published Time: Mon, 17 Aug 2026 00:44:16 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# From Fixed Grids to Moving Particles: A Transferable Latent Operator for Fluid Dynamics 
+
+# Meng Li 1,2 , Chuqi Chen 3, Zhengqing Gao 1,4 , Xi Zhou 1,Xiao Sun 1, Yang Xiang 2,5 ∗, Huaxi Huang 1∗
+
+> 1
+
+Shanghai Artificial Intelligence Laboratory, 
+
+> 2
+
+The Hong Kong University of Science and Technology, 
+
+> 3
+
+University of Michigan, 
+
+> 4
+
+Mohamed bin Zayed University of Artificial Intelligence, 
+
+> 5
+
+HKUST Shenzhen-Hong Kong Collaborative Innovation Research Institute 
+
+Abstract 
+
+Lagrangian modeling is vital to fluid dynamics, as it character-izes particle transport and complements the Eulerian descrip-tion. However, Lagrangian trajectories are less commonly available than Eulerian fields, while most neural operators are trained and evaluated primarily in the Eulerian represen-tation. This mismatch motivates a new learning problem: can a model trained solely on Eulerian observations generalize zero-shot from Eulerian field prediction to Lagrangian par-ticle rollout, without Lagrangian supervision or task-specific adaptation? To address this problem, we propose the Trans-ferable Latent Operator (TLO), which learns a unified flow representation shared by Eulerian field prediction and La-grangian particle rollout. TLO decouples latent flow evolution from coordinate-dependent decoding: querying the evolving latent representation at fixed spatial coordinates yields Eule-rian fields, whereas querying velocities at particle positions and recursively updating these positions enables Lagrangian rollout. Across five fluid-dynamics benchmarks, TLO consis-tently outperforms existing neural operators in both Eulerian field prediction and zero-shot Lagrangian rollout, with further gains from limited Lagrangian fine-tuning. 
+
+# Introduction 
+
+Lagrangian particle trajectories provide a direct description of transport, mixing, and dispersion in fluid flows. However, most fluid-learning datasets are available as time-dependent fields on fixed Eulerian grids (Lu et al. 2021; Li et al. 2021; Takamoto et al. 2022; Ohana et al. 2024). Native La-grangian data are less commonly available because they re-quire specifying and tracking particle populations. At high particle counts, trajectory generation, storage, and particle-based training can also become expensive in time and mem-ory (Sanchez-Gonzalez et al. 2020; Toshev et al. 2023; Rochman-Sharabi, Lewin, and Louppe 2025). This mismatch motivates a practical question: can a model trained only on fixed-grid Eulerian data also support Lagrangian particle rollout of the same flow? We formulate this problem as zero-shot Eulerian-to-Lagrangian generalization . A model is trained exclusively with Eulerian field supervision, without particle coordinates, particle velocities, or trajectory labels. At test time, the same 
+
+> ∗
+
+Corresponding author. 
+
+model is queried at moving particle positions, and its pre-dicted velocities are recursively integrated without parameter adaptation. This is more than ordinary arbitrary-coordinate evaluation: each velocity prediction changes the next particle position and therefore determines the next query location. Er-rors can consequently induce a history-dependent query shift and accumulate into trajectory drift. Although existing methods have explored Eulerian– Lagrangian modeling, they do not directly address zero-shot Eulerian-to-Lagrangian rollout. Approaches based on latent particles, joint field–trajectory learning, or trajectory recon-struction (Wan et al. 2025; Thakur and Raissi 2025; Alkin et al. 2024; Ma et al. 2024) typically require additional La-grangian supervision or particle-specific modeling, prevent-ing zero-shot transfer. Alternatively, Eulerian neural opera-tors (Li et al. 2021; Tripura and Chakraborty 2023; Rahman, Ross, and Azizzadenesheli 2022) can be combined with nu-merical interpolation to obtain particle velocities from pre-dicted grid fields. However, this strategy remains tied to the resolution and finite support of the Eulerian discretization. Once particles move beyond the grid support, standard in-terpolation cannot continue without additional extrapolation rules. These limitations motivate a neural operator that learns flow dynamics from Eulerian observations while support-ing direct evaluation at recursively evolving particle loca-tions. We therefore introduce the Transferable Latent Op-erator (TLO), which uses one latent flow evolution with two query modes. An encoder maps fixed-grid Eulerian ob-servations into spatially localized tokens augmented with global flow context, and a shared latent processor advances this representation independently of the output query set. A coordinate-conditioned decoder then evaluates the predicted field at requested locations. Querying on the fixed Eulerian grid produces an Eulerian field forecast, whereas querying the velocity channels at recursively advected particle posi-tions produces a Lagrangian rollout. Particle coordinates are used only as decoder queries and are not required by the Eulerian training objective. We evaluate TLO on five fluid-dynamics benchmarks for Eulerian forecasting and on three benchmarks for zero-shot Lagrangian particle rollout. TLO achieves strong Eulerian accuracy while transferring directly to reference-path veloc-arXiv:2608.14120v1 [cs.LG] 14 Aug 2026 ity prediction and closed-loop trajectories. We additionally compare with a native particle-based model and grid inter-polation. Direct decoding is competitive with interpolation within the Eulerian support and remains evaluable after parti-cles leave that support, where standard interpolation becomes undefined. We separately study decoder-only adaptation us-ing sparse particle-velocity supervision. Our main contributions are summarized as follows: 
+
+• We formulate and evaluate zero-shot Eulerian-to-Lagrangian generalization , in which a model trained only with fixed-grid Eulerian supervision performs closed-loop particle rollout without particle supervision or pa-rameter adaptation. 
+
+• We propose the Transferable Latent Operator ,whose output-query-independent latent evolution and coordinate-conditioned decoder allow the same trained model to support both fixed-grid forecasting and moving particle queries. 
+
+• Across five Eulerian benchmarks and three particle-rollout benchmarks, TLO achieves strong performance, compares favorably with neural-operator and native particle-based baselines, and remains evaluable beyond the fixed Eulerian grid support. 
+
+# Related Work 
+
+Neural operators. Neural operators learn mappings be-tween function spaces for PDE modeling (Lu et al. 2021; Li et al. 2024; Wen et al. 2026). Representative architec-tures include spectral operators, coordinate-based models, and attention- or token-based operators (Li et al. 2021; Hao et al. 2023; Li et al. 2023; Wu et al. 2024; Alkin et al. 2024; Cao 2021). Although several of these models support arbitrary-coordinate evaluation, they are generally evaluated on fixed or externally specified query locations. We instead consider moving queries whose positions are recursively gen-erated by the model’s predicted velocities. 
+
+Eulerian–Lagrangian modeling. Classical particle-grid methods couple Eulerian fields and Lagrangian particles through transfers between the two representations (Brackbill and Ruppel 1986; Sulsky, Chen, and Schreyer 1994). Recent neural methods use latent particles to improve Eulerian fore-casting (Ma et al. 2024), infer fields or trajectories from particle observations (Wan et al. 2025; Thakur and Raissi 2025), or learn particle-based simulators (Rochman-Sharabi, Lewin, and Louppe 2025; Xiong et al. 2023). In contrast, the zero-shot version of TLO is trained only on fixed-grid Eu-lerian fields, with particle positions introduced at inference time solely as decoder queries. The same learned flow rep-resentation therefore supports both Eulerian field prediction and closed-loop Lagrangian rollout. Sparse decoder adapta-tion is studied separately as a non-zero-shot extension. 
+
+# Problem Setting 
+
+Let Ω ⊂ Rd be the spatial domain. At time t, the state of a flow is represented by a vector-valued field ut : Ω →
+
+Rdu , where the c channels may contain velocity, pressure, density, or other physical variables. We denote the velocity by vt(x) := Π v ut(x) ∈ Rd, where Πv is the projection operator extracting the velocity channels. The available data do not provide the continuous function 
+
+ut directly. Instead, each state is observed at a fixed set of Eulerian coordinates 
+
+XE := {xi}NE
+
+> i=1
+
+, Ut := [ ut(xi)] NE 
+
+> i=1
+
+∈ RNE ×du . (1) The coordinates in XE remain fixed over time, while the field values Ut evolve. The dataset therefore consists of tempo-ral sequences {U0, U1, . . . } observed on the same Eulerian coordinates. Our goal is to learn the one-step evolution from the current Eulerian observation Ut to the next physical field ut+1 . In particular, the learned operator should not be restricted to returning values only on XE . Given any finite set of output coordinates Q = {qj }NQ 
+
+> j=1
+
+⊂ Ω, it predicts 
+
+bUt+1 (Q) := Gθ (XE , Ut; Q) = [ but+1 (q1), . . . , but+1 (qNQ )] ⊤.
+
+Here, a query is simply a coordinate qj at which the next field is requested. Setting Q = XE produces the next Eulerian grid field. Setting Q to particle coordinates provides the local velocity values needed to evolve Lagrangian particles. 
+
+Figure 1: Workflow of TLO for unified Eulerian field fore-casting and Lagrangian particle rollout from a shared latent flow representation. Notations XE , ˆUt, and ˆyt follow Section Problem Setting. 
+
+Learning from Eulerian fields. Fluid-dynamics datasets are commonly available as time-dependent fields on fixed spatial grids. We therefore use consecutive Eulerian fields as the primary source of supervision. Although the operator accepts a general query set Q, its training targets are provided only on XE :
+
+LEul = Et
+
+ 1
+
+NE du
+
+∥G θ (XE , Ut; XE ) − Ut+1 ∥2
+
+> F
+
+
+
+. (2) Thus, neither particle coordinates nor trajectory labels are required to train the field-evolution model. Starting from an observed initial state U0, choosing Q = XE at every step gives the autoregressive Eulerian rollout 
+
+bUt+1 = Gθ (XE , bUt; XE ), bU0 = U0. (3) This produces the predicted field sequence { bU1, . . . , bUH }
+
+on the fixed Eulerian grid support. Besides providing a field forecast, this rollout supplies the evolving flow state from which velocities at moving coordinates can be evaluated. Figure 2: Overview of the Transferable Latent Operator (TLO). TLO learns coordinate-independent latent dynamics from Eulerian observations. The hierarchical encoder extracts local and global flow representations, while the latent processor evolves the fused tokens without spatial coordinates. A coordinate-conditioned decoder then queries the latent state at arbitrary locations, enabling both fixed-grid Eulerian prediction and Lagrangian rollout. Particle positions are used only as inference-time queries and are not required for Eulerian training. 
+
+Recovering Lagrangian trajectories. Fixed-grid fore-casts describe how the flow evolves at stationary spatial loca-tions. Many transport problems, however, concern material carried by the flow and therefore require following moving particles. Particle trajectories provide a direct description of transport and expose accumulated drift that may not be ev-ident from an average fixed-grid field error. To obtain this Lagrangian view, let Y0 = {yi, 0}NP 
+
+> i=1
+
+denote a set of initial particle positions. Once but has been predicted, its velocity channels are evaluated at the current particle positions and integrated through 
+
+byi,t +1 = B(byi,t + ∆ t bvt(byi,t )) , byi, 0 = yi, 0, (4) where B enforces the physical boundary condition during particle integration, ensuring that the updated particle posi-tions remain within the spatial domain Ω. The Eulerian state continues to evolve through Equation (3); the particles only determine where the predicted velocity field is evaluated. Thus, in the Eulerian-only setting, the same trained operator predicts fields on the fixed grid and provides velocities at moving particle positions. The particle trajectories are then obtained by numerical integration, without training a sepa-rate particle-dynamics model. 
+
+Field and trajectory errors. Since Lagrangian rollout is driven by velocities queried from the predicted flow, fixed-grid field error alone does not fully characterize model per-formance. We therefore distinguish errors in Eulerian field prediction, velocity evaluation at particle positions, and the resulting closed-loop trajectories. We refer to these quan-tities as Eul , Ref , and Path , respectively, and report them throughout the experiments. Let H denote the rollout horizon, NE the number of Eule-rian grid points, and Np the number of particles. We use du,
+
+dv , and dx for the dimensions of the predicted state, velocity, and particle position, respectively. First, the fixed-grid Eulerian error is 
+
+EEul := 1
+
+HN E duHX
+
+> t=1
+
+X
+
+> g∈XE
+
+∥but(g) − ut(g)∥22 . (5) This measures the autoregressive field prediction on the Eu-lerian support XE .To evaluate velocity without position feedback, we query at the reference positions yi,t :
+
+ERef := 1
+
+HN pdvHX
+
+> t=1
+> Np
+
+X
+
+> i=1
+
+∥bvt(yi,t ) − vt(yi,t )∥22 . (6) The Eulerian field is still predicted autoregressively, but the query coordinates are reset to the reference pathline at every step. Hence, ERef measures velocity accuracy along the cor-rect trajectory without propagating particle-position errors. Finally, in the closed-loop rollout, the particle positions 
+
+byi,t are recursively generated using the model’s queried ve-locities. The resulting trajectory error is 
+
+EPath := 1
+
+HN pdxHX
+
+> t=1
+> Np
+
+X
+
+> i=1
+
+d2Ω(byi,t , yi,t ) , (7) where dΩ accounts for the domain geometry and uses the minimum-image distance on periodic domains. 
+
+# Transferable Latent Operator 
+
+TLO follows an encode–process–decode architec-ture (Sanchez-Gonzalez et al. 2020) that separates latent flow modeling from coordinate-dependent field eval-uation. Given an Eulerian observation on XE = {xi}NE
+
+> i=1
+
+,we denote its sampled state by Ut = [ ut(xi)] NE
+
+> i=1
+
+. The model advances this state by one time step and evaluates the predicted field at a specified query set Q = {qj }NQ
+
+> j=1
+
+.Formally, the one-step operator Gθ is decomposed into an encoder Eθ , a latent processor Tθ , and a coordinate-conditioned decoder Dθ :
+
+Z0 
+
+> t
+
+= Eθ (XE , Ut),
+
+ZLt = Tθ (Z0 
+
+> t
+
+),
+
+bUt+1 Q = Dθ (ZLt , Q ).
+
+(8) The encoder constructs a latent representation of the ob-served flow, the processor advances this representation, and the decoder evaluates the predicted state at the requested coordinates. Importantly, the encoder and latent processor are independent of Q; only the final readout depends on the output coordinates. Setting Q = XE produces the next Eulerian field, whereas setting Q to the current particle po-sitions provides the velocities used for Lagrangian rollout. The following sections describe each component in detail. 
+
+Patch Encoder employs cross-attention as a permutation-invariant aggregation mechanism to map local and global observations into a fixed-size latent representation. To capture both localized transport dynamics and long-range flow dependencies, we construct a hierarchical domain representation consisting of local patches Ωp and the global domain Ωg :
+
+D = {Ω1, . . . , ΩP
+
+| {z }
+
+> local patches
+
+, Ωg
+
+|{z} 
+
+> global context
+
+}, Ωg =
+
+> P
+
+[
+
+> p=1
+
+Ωp.
+
+For each region Ω∗ ∈ D , we first lift coordinate-attached observations into position-physical features. Specifically, 
+
+ri = ϕ [PE( xi), PE( x pi ), ui, e p] ,R∗ = {ri | xi ∈ Ω∗},
+
+where xi denotes the global coordinate in Ω, x pi represents the local coordinate relative to its patch, and ui is the as-sociated physical state. The fixed Fourier feature encoding 
+
+PE( ·) provides continuous coordinate information, while the learnable patch embedding ep identifies local spatial regions. The lifting function ϕ follows the standard formulation used in neural operator learning (Li et al. 2021). For each local patch and the global domain, learnable latent queries Ql and Qg aggregate observations through cross-attention: 
+
+Z∗ = Attn( Q∗, K (R∗), V (R∗)) ,
+
+where ∗ indicates either a local patch or the global domain. The resulting latent tokens from different spatial regions are fused to form the initial latent state: 
+
+Z0 = concat ({Z∗})
+
+By integrating local coordinate encoding with global con-text aggregation, the hierarchical Patch Encoder con-verts coordinate-attached observations into a discretization-independent latent representation. This latent state preserves both local transport structures and global flow dependencies, providing a unified representation that can be queried on fixed Eulerian grids or evolving Lagrangian particle trajectories. 
+
+The Latent Processor learns the temporal evolution of un-derlying dynamics and separats physical evolution from spa-tial discretization. We implement the Latent Processor with 
+
+L attention-based blocks inspired by the slice-based aggre-gation mechanism in Transolver (Wu et al. 2024). Different from coordinate-conditioned neural operators, the proposed processor operates purely on latent tokens. At layer ℓ, the latent tokens are flattened as Zℓ ∈ RN ×h,where N denotes the total number of latent tokens. The processor first assigns tokens into M adaptive latent slices: 
+
+W ℓ = softmax( ψ(Zℓ)) ∈ RN ×M ,
+
+where each row of W ℓ represents the contribution of a token to the latent slices. The slice representations are obtained by weighted and are then updated through self-attention: 
+
+Sℓ = Attn( ˆSℓ), ˆSℓ = fW ℓ,T Zℓ,
+
+where fW ℓi,j = W ℓi,j / P 
+
+> i
+
+W ℓi,j . The updated slice information is distributed back to the latent tokens: 
+
+Zℓ+1 = Zℓ + Proj( W ℓSℓ) + α FFN( Zℓ).
+
+Through latent-space evolution independent of spatial co-ordinates, the processor provides a reusable dynamic rep-resentation ZL that can be decoded at arbitrary Eulerian locations or evolving Lagrangian particle positions. 
+
+Query Decoder provides a coordinate-conditioned read-out from the coordinate-independent latent state, decoupling latent dynamics evolution from spatial discretization. For each query point, we first identify its corresponding patch 
+
+Ωp(j) and construct a query representation 
+
+gj = ψ[PE( qj ), PE( q pj )] ,
+
+using the previous embedding strategy. The physical quantity at the query location is recovered through cross-attention between the query feature and latent tokens from neighboring patches: 
+
+ˆu(qj ) = X   
+
+> pk∈N (qj)
+
+αk Attn ( Q(gj ), K (Zpk ), V (Zpk )) ,
+
+where N (qj ) denotes the set of neighboring patches around the patch containing qj , and αk represents the aggregation weight of each neighboring patch. 
+
+# Error Analysis 
+
+TLO predicts velocity, whereas a Lagrangian rollout is ulti-mately evaluated through particle position. Consider particle 
+
+i over a rollout of T steps, indexed by t = 0 , . . . , T . Let ∆t
+
+be the integration step, and let vt and bvt denote the refer-ence and predicted velocity fields at step t, respectively. The corresponding reference and predicted particle positions are denoted by yi,t and byi,t .Using forward Euler, their positions evolve as 
+
+yi,t +1 = B(yi,t + ∆ t vt(yi,t )) ,
+
+byi,t +1 = B(byi,t + ∆ t bvt(byi,t )) , t = 0 , . . . , T − 1. (9) where B is the bounce operator that handles particles that reach the boundary of the physical-domain during rollout. Define the position error and the velocity error evaluated at the reference particle position as 
+
+δi,t := dΩ(byi,t , yi,t ), r i,t := ∥bvt(yi,t ) − vt(yi,t )∥2 . (10) Proposition 1 (Velocity error to trajectory error) . Assume that byi, 0 = yi, 0, that B is non-expansive under dΩ, and that 
+
+bvt is bLt-Lipschitz over the region visited by the two particles. Then, for every t = 0 , . . . , T − 1,
+
+δi,t +1 ≤ (1 + ∆ t bLt)δi,t + ∆ t r i,t . (11) 
+
+Consequently, the position error at the rollout horizon T
+
+satisfies 
+
+δi,T ≤ ∆t 
+
+> T−1
+
+X
+
+> s=0
+
+ri,s T −1Y
+
+> k=s+1
+
+(1 + ∆ t bLk), (12) 
+
+with the convention that an empty product equals one. 
+
+Proposition 1 connects the velocity predicted by the model to the particle position evaluated in a Lagrangian rollout. At each step, a velocity error ri,t causes an immediate position error of approximately ∆t r i,t . The updated position is then used as the query coordinate at the next step. Therefore, once the predicted particle deviates from the reference path, sub-sequent velocities are evaluated at a different location, which may introduce further error. The factor 1 + ∆ t bLt describes the strength of this feedback. Over a long rollout, these errors accumulate, and errors made earlier can affect more subse-quent steps. Thus, a small Ref vel. error is important but does not necessarily imply a small Path error, which motivates reporting both metrics. 
+
+# Experiments 
+
+Benchmarks. We evaluate TLO on five fluid benchmarks covering particle-based simulations, grid-based PDEs, and real-world SEA (ocean current). DAM2D and TGV3D are SPH datasets from LagrangeBench (Toshev et al. 2023) and are converted to Eulerian fields by kernel splatting; see supplementary material for details. NS2D, Burgers3D, and SEA provide grid-based velocity fields from, respectively, in-compressible Navier–Stokes dynamics, nonlinear advection– diffusion, and ocean reanalysis data (Kovachki et al. 2023; Koehler et al. 2024; Ma et al. 2024). DAM2D uses its native particle trajectories, while virtual tracers for Burgers3D and SEA are generated from the reference velocity fields using Parcels (Delandmeter and Van Sebille 2019). These parti-cles are passive tracers and do not influence the Eulerian dynamics.                             
+
+> Dataset Native data Support Evaluation Horizon DAM2D SPH 32 ×64 Eul/Ref/Path 10 NS2D Grid 64 2Eul 10 TGV3D SPH 20 3Eul 5Burgers3D Grid 32 3Eul/Ref/Path 5SEA Grid 180 ×300 Eul/Ref/Path 10
+
+Table 1: Benchmark summary. Eul, Ref, and Path denote fixed-grid field, reference-query velocity, and closed-loop trajectory evaluation. 
+
+Baselines. We compare with LSM (Wu et al. 2023), GINO (Li et al. 2023), GNOT (Hao et al. 2023), Tran-solver (Wu et al. 2024), UPT (Alkin et al. 2024), LNO (Wang and Wang 2024), and DeepLag (Ma et al. 2024), cov-ering latent-space, geometry-aware, attention-based, and Eulerian–Lagrangian operator architectures. For particle evaluation, query-native models are evaluated directly at par-ticle coordinates, whereas grid-output models use bilinear or trilinear interpolation of their predicted fields. We addition-ally evaluate both direct decoding and grid interpolation from the same TLO checkpoint. 
+
+Training and evaluation. All models are trained for one-step Eulerian field prediction and evaluated through autore-gressive rollout. We report fixed-grid field error ( Eul ), ve-locity error along reference particle trajectories ( Ref ), and closed-loop particle-position error ( Path ), as defined in Eqs. (5)–(7). For Ref, reference particle positions are supplied as queries at each step, while the predicted field continues to evolve autoregressively. For Path, only the initial parti-cle positions are given; subsequent positions are obtained by integrating the predicted velocities and are used as the next queries. Thus, Path measures the accumulated effect of velocity errors on the particle trajectory. The main ex-periments use only Eulerian training data, with the sparse decoder-adaptation study reported separately. 
+
+Eulerian prediction 
+
+Autoregressive Eulerian field rollout. We first examine whether TLO preserves predictive accuracy in the standard Eulerian setting. Starting from the ground-truth initial field, each model recursively predicts the next state on the fixed Eulerian grid and feeds its previous prediction back as in-put. We report the fixed-grid field error ( Eul ) defined in Eq. (5), averaged over all rollout steps H, spatial locations, state channels, and test trajectories. This evaluation isolates temporal field-forecasting error from spatial-query error and particle-position feedback. As shown in Table 2, TLO achieves strong Eulerian roll-out performance across all five benchmarks. The improve-ments cover SPH-derived and grid-native data, two- and three-dimensional systems, and both simulated and reanaly-sis flows. These results show that TLO retains strong fixed-grid Eulerian forecasting accuracy while supporting moving particle queries through the same learned representation. 
+
+Model ablations analysis. Figure 3 shows that the 12 × 12 
+
+patch lattice yields the lowest error, suggesting a trade-off between finer spatial partitioning and the amount of infor-mation available within each patch. Under the same total token budget, Local+Global consis-tently outperforms Local, showing that its gain cannot be explained by additional latent capacity alone. And the Lo-cal+Global error exhibits an overall downward trend and reaches its lowest value at 160 tokens. These results support the complementary roles of local tokens for spatially resolved information and global tokens for domain-level context. In Table 3, all variants are controlled with comparable model sizes to ensure a fair comparison. TLO has 150.8K parameters versus 146.7K without FFN, while Local-only Method DAM2D NS2D TGV3D Burgers3D SEA LSM 2.97E-02 3.46E-03 9.57E-04 2.17E-03 5.72E-01 GINO 6.04E-03 3.68E-05 2.47E-04 5.35E-03 5.90E-01 GNOT 2.24E-02 1.72E-03 9.37E-04 4.21E-04 4.19E-01 Transolver 6.13E-03 1.40E-04 7.67E-04 4.22E-04 5.22E-01 LNO 3.75E-03 8.73E-05 7.54E-03 4.42E-03 5.21E-01 UPT 2.38E-02 1.31E-03 7.54E-03 5.59E-03 8.97E-01 DeepLag 1.65E-02 4.04E-03 3.17E-04 3.38E-03 8.17E-01      
+
+> TLO (Ours) 3.12E-03 1.98E-05 1.75E-04 9.88E-05 1.77E-01
+
+Table 2: Mean squared error (MSE) of autoregressive Eule-rian rollout. Lower is better. The best result in each column is highlighted in bold. 
+
+Figure 3: Patch and token ablations on NS2D. Left: Eul MSE versus patch lattice size. Right: two models use matched total tokens, with a fixed 8 × 8 patch and global token equals 8 for Local+Global. Lower is better. and Global-only use the same number of tokens as TLO. Thus, the gains cannot be explained solely by model capac-ity, but arise from the local–global representation and latent processing. 
+
+Transfer from Eulerian to Lagrangian rollout 
+
+Having established strong Eulerian forecasting accuracy, we next evaluate whether the learned dynamics can transfer from fixed-grid field prediction to closed-loop rollout at moving particle coordinates. Because the latent processor in TLO evolves the flow representation independently of the output query set, the same Eulerian-trained checkpoint can be used by changing the decoder queries from fixed-grid locations to recursively advected particle positions. We first consider the Eulerian-only (EO) setting. The model is trained using only Eulerian field supervision, with-out particle coordinates, particle velocities, or trajectory la-bels during training. At inference time, particle positions are introduced only as decoder queries, and the queried veloci-ties are recursively integrated to form a closed-loop rollout. As shown in Table 4, TLO achieves the lowest Ref and Path errors among the compared methods on all three Lagrangian benchmarks. These results show that an Eulerian-trained TLO checkpoint can transfer directly to moving-particle queries without particle-based training supervision or param-eter adaptation. They also motivate evaluating closed-loop trajectories in addition to fixed-grid forecasting accuracy. We further consider a decoder-adapted (DA) setting. Start-Design Eul ↓
+
+TLO (Local 56 + Global 8) 1.98E-05 
+
+Local-only (64) 2.22E-05 Global-only (64) 4.21E-05 w/o FFN 4.51E-05 Table 3: Ablation of TLO components on NS2D under comparable model sizes. Token-allocation variants share the same 64-token budget. Lower L2 error is better. ing from the Eulerian-trained checkpoint, we fine-tune only the decoder using sparse velocity samples at particle coordi-nates, while keeping the encoder and latent processor fixed. This adaptation provides additional, dataset-dependent im-provements in the coordinate readout. The results are consis-tent with the Eulerian-trained latent representation already containing transport-relevant information, which can be fur-ther calibrated for moving-coordinate evaluation through limited particle supervision. Figure 4 provides a qualitative comparison of closed-loop particle rollouts. All methods start from the same initial par-ticle positions and recursively update them using their pre-dicted velocities. The resulting trajectory deviations visual-ize the accumulated effects of velocity-prediction error and feedback through recursively generated query locations.                 
+
+> Dataset Setting Method Eul ↓Ref ↓Path ↓
+> DAM2D EO UPT 2.38E-02 7.62E-02 1.44E-01 LNO 3.75E-03 4.35E-03 5.30E-03
+> TLO (Ours) 3.12E-03 2.41E-03 3.72E-03
+> DA TLO (Ours) 3.08E-03 2.39E-03 3.72E-03
+> Burgers3D EO UPT 5.59E-03 2.91E-03 7.73E-03 LNO 4.42E-03 3.36E-03 9.42E-03
+> TLO (Ours) 9.88E-05 6.17E-04 3.01E-03
+> DA TLO (Ours) 9.48E-05 2.25E-04 2.59E-03
+> SEA EO UPT 8.97E-01 4.92E-02 1.06E-02 LNO 5.21E-01 5.29E-02 1.10E-02
+> TLO (Ours) 1.77E-01 3.00E-02 8.99E-03
+> DA TLO (Ours) 1.72E-01 2.95E-02 8.29E-03
+
+Table 4: Transfer from Eulerian training to Lagrangian roll-out. EO directly applies the Eulerian-trained checkpoint without particle-based training supervision. For TLO, DA fine-tunes only the decoder using sparse velocity samples at particle coordinates. Eul, Ref, and Path denote fixed-grid field, reference-path velocity, and closed-loop particle-position MSE, respectively. Lower is better. 
+
+Comparison with Lagrangian baseline. We compare TLO-DA with GNS (Sanchez-Gonzalez et al. 2020), a na-tive Lagrangian model trained from particle trajectories, in Table 5. This comparison examines whether latent dynam-ics learned from Eulerian fields, together with lightweight decoder adaptation, can support competitive particle rollout. GNS learns particle interactions directly through trajectory Figure 4: Qualitative closed-loop Lagrangian rollout on SEA. Each column shows the Eulerian velocity field and the corresponding particle trajectories at different rollout steps (T = 2 , 6, 10 ).                 
+
+> Method Ref ↓Path ↓Mem. ↓Time ↓
+> TLO-DA 2.39E-03 3.72E-03 35.94 7.26
+> GNS 4.19E-02 2.50E-02 47.99 8.68
+
+Table 5: Comparison with a native Lagrangian model on DAM2D particle rollout. TLO and GNS contain 144K and 146K parameters, respectively. Memory and runtime are re-ported in MiB and ms/step, respectively. supervision, whereas TLO-DA keeps its Eulerian-trained en-coder and latent processor fixed and fine-tunes only the de-coder using sparse velocity samples at particle coordinates, without a trajectory loss. On DAM2D, TLO-DA achieves more accurate particle rollout with lower computational overhead than GNS. This advantage comes from the different representations used for dynamics modeling: GNS explicitly propagates information among particles through graph message passing, whose cost grows with particle interactions, while TLO evolves a com-pact latent flow representation and only decodes velocities at queried locations. These results show that an Eulerian la-tent representation can recover accurate particle dynamics without the cost of explicit particle interaction modeling. 
+
+Beyond-Grid Lagrangian Rollout 
+
+We further evaluate TLO on Lagrangian rollouts beyond the fixed Eulerian grid support. Starting from the same latent flow state, we compare two readout strategies: TLO-Interp obtains particle velocities by interpolating the predicted Eu-lerian field, whereas TLO-Direct evaluates the coordinate-conditioned decoder at particle locations. Within the grid support, the two strategies achieve com-parable accuracy. Once particles leave the grid domain, however, standard interpolation is no longer defined with-           
+
+> In-grid 10 steps Outside 20 steps Full 20 steps Method Ref Path Ref Path Path TLO-Interp 2.89E-04 1.63E-04 –––TLO-Direct 3.22E-04 1.89E-04 1.35E-01 6.05E-02 4.48E-03 TLO-DA 3.22E-04 1.89E-04 3.82E-02 3.51E-02 2.51E-03
+
+Table 6: Direct decoding and grid interpolation on DAM2D. A dash indicates that interpolation cannot continue after grid exit. 
+
+Figure 5: Closed-loop rollout beyond the fixed Eulerian grid support on DAM2D. Light- and dark-blue points show ref-erence particles at Steps 15 and 20, respectively. The inset follows a particle crossing Ωgrid : grid interpolation becomes undefined after the exit, whereas direct decoding continues the rollout. out an additional extrapolation rule, while TLO-Direct can still be evaluated at the off-grid particle coordinates. TLO-DA, which fine-tunes only the decoder using sparse particle-velocity supervision, further reduces the off-grid rollout er-ror. These results highlight the advantage of decoupling la-tent flow evolution from coordinate-dependent readout: La-grangian rollout is not restricted to the spatial support of the Eulerian output grid. 
+
+# Conclusion 
+
+To answer whether flow dynamics learned only from fixed-grid Eulerian data can support closed-loop Lagrangian parti-cle rollout, we formulated zero-shot Eulerian-to-Lagrangian generalization and developed TLO. By separating query-independent latent dynamics from coordinate-conditioned decoding, TLO supports both fixed-grid field prediction and rollout at recursively evolving particle locations. Across five field-prediction and three particle-rollout benchmarks, TLO achieves strong Eulerian accuracy and lower rollout errors than the evaluated baselines; sparse decoder adaptation fur-ther improves accuracy and outperforms GNS on DAM2D. The decoder can also be queried after particles leave the fixed-grid domain, whereas interpolation requires an addi-tional extrapolation rule. Overall, these results show that fixed-grid supervision can learn transferable flow dynam-ics beyond fixed-grid inference, while closed-loop moving queries provide a stringent test of this transferability. References 
+
+Alkin, B.; Fürst, A.; Schmid, S.; Gruber, L.; Holzleitner, M.; and Brandstetter, J. 2024. Universal Physics Transformers: A Framework for Efficiently Scaling Neural Operators. In 
+
+Advances in Neural Information Processing Systems , vol-ume 37. Brackbill, J. U.; and Ruppel, H. M. 1986. FLIP: A method for adaptively zoned, particle-in-cell calculations of fluid flows in two dimensions. Journal of Computational physics , 65(2): 314–343. Cao, S. 2021. Choose a transformer: Fourier or galerkin. Ad-vances in neural information processing systems , 34: 24924– 24940. Delandmeter, P.; and Van Sebille, E. 2019. The Parcels v2. 0 Lagrangian framework: new field interpolation schemes. 
+
+Geoscientific Model Development , 12(8): 3571–3584. Hao, Z.; Wang, Z.; Su, H.; Ying, C.; Dong, Y.; Liu, S.; Cheng, Z.; Song, J.; and Zhu, J. 2023. Gnot: A general neural operator transformer for operator learning. In International conference on machine learning , 12556–12569. PMLR. Koehler, F.; Niedermayr, S.; Westermann, R.; and Thuerey, N. 2024. APEBench: A benchmark for autoregressive neural emulators of pdes. Advances in Neural Information Process-ing Systems , 37: 120252–120310. Kovachki, N.; Li, Z.; Liu, B.; Azizzadenesheli, K.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2023. Neural operator: Learning maps between function spaces with ap-plications to pdes. Journal of Machine Learning Research ,24(89): 1–97. Li, Z.; Kovachki, N.; Azizzadenesheli, K.; Liu, B.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2021. Fourier Neural Operator for Parametric Partial Differential Equa-tions. In International Conference on Learning Representa-tions .Li, Z.; Kovachki, N.; Choy, C.; Li, B.; Kossaifi, J.; Otta, S.; Nabian, M. A.; Stadler, M.; Hundt, C.; Azizzadenesheli, K.; et al. 2023. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36: 35836–35854. Li, Z.; Song, H.; Xiao, D.; Lai, Z.; and Wang, W. 2024. Harnessing scale and physics: A multi-graph neural operator framework for pdes on arbitrary geometries. arXiv preprint arXiv:2411.15178 .Lu, L.; Jin, P.; Pang, G.; Zhang, Z.; and Karniadakis, G. E. 2021. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3): 218–229. Ma, Q.; Wu, H.; Xing, L.; Miao, S.; and Long, M. 2024. Deeplag: Discovering deep lagrangian dynamics for intuitive fluid prediction. Advances in Neural Information Processing Systems , 37: 122833–122866. Ohana, R.; McCabe, M.; Meyer, L.; Morel, R.; et al. 2024. The Well: A Large-Scale Collection of Diverse Physics Sim-ulations for Machine Learning. Advances in Neural Infor-mation Processing Systems , 37: 44989–45037. Rahman, M. A.; Ross, Z. E.; and Azizzadenesheli, K. 2022. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 .Rochman-Sharabi, O.; Lewin, S.; and Louppe, G. 2025. A Neural Material Point Method for Particle-based Emulation. 
+
+Transactions on Machine Learning Research .Sanchez-Gonzalez, A.; Godwin, J.; Pfaff, T.; Ying, R.; Leskovec, J.; and Battaglia, P. 2020. Learning to Simu-late Complex Physics with Graph Networks. In Proceedings of the 37th International Conference on Machine Learning ,volume 119 of Proceedings of Machine Learning Research ,8459–8468. PMLR. Sulsky, D.; Chen, Z.; and Schreyer, H. L. 1994. A particle method for history-dependent materials. Computer methods in applied mechanics and engineering , 118(1-2): 179–196. Takamoto, M.; Praditia, T.; Leiteritz, R.; MacKinlay, D.; Alesiani, F.; Pflüger, D.; and Niepert, M. 2022. PDEBench: An Extensive Benchmark for Scientific Machine Learning. In Advances in Neural Information Processing Systems , vol-ume 35. Thakur, S.; and Raissi, M. 2025. ELPINN: eulerian la-grangian physics-informed neural network. arXiv preprint arXiv:2504.09053 .Toshev, A.; Galletti, G.; Fritz, F.; Adami, S.; and Adams, N. 2023. Lagrangebench: A lagrangian fluid mechanics bench-marking suite. Advances in Neural Information Processing Systems , 36: 64857–64884. Tripura, T.; and Chakraborty, S. 2023. Wavelet neural op-erator for solving parametric partial differential equations in computational mechanics problems. Computer Methods in Applied Mechanics and Engineering , 404: 115783. Wan, J.; Wang, H.; Liu, B.; Yang, X.; Hu, X.; Cai, S.; He, G.; and Liu, Y. 2025. TrajectoryFlowNet: Lagrangian–Eulerian Learning of Flow Field and Trajectories. arXiv:2507.09621. Wang, T.; and Wang, C. 2024. Latent neural operator for solv-ing forward and inverse pde problems. Advances in Neural Information Processing Systems , 37: 33085–33107. Wen, S.; Kumbhat, A.; Lingsch, L.; Mousavi, S.; Zhao, Y.; Chandrashekar, P.; and Mishra, S. 2026. Geometry aware operator transformer as an efficient and accurate neural sur-rogate for pdes on arbitrary domains. Advances in Neural Information Processing Systems , 38: 155423–155501. Wu, H.; Hu, T.; Luo, H.; Wang, J.; and Long, M. 2023. Solv-ing High-Dimensional PDEs with Latent Spectral Models. In International Conference on Machine Learning , 37417– 37438. PMLR. Wu, H.; Luo, H.; Wang, H.; Wang, J.; and Long, M. 2024. Transolver: A Fast Transformer Solver for PDEs on Gen-eral Geometries. In International Conference on Machine Learning .Xiong, S.; He, X.; Tong, Y.; Deng, Y.; and Zhu, B. 2023. Neural vortex method: From finite Lagrangian particles to infinite dimensional Eulerian dynamics. Computers & Flu-ids , 258: 105811.

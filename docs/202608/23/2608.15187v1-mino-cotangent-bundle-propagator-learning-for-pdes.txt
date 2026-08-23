@@ -1,0 +1,1577 @@
+Title: MiNO: Cotangent-bundle propagator learning for PDEs
+
+URL Source: https://arxiv.org/pdf/2608.15187v1
+
+Published Time: Tue, 18 Aug 2026 00:36:39 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# MiNO: Cotangent-bundle propagator learning for PDEs 
+
+## Gnankan Landry Regis N’guessan a,b,c , Bum Jun Kim d,∗
+
+> a
+
+Axiom Research Group 
+
+> b
+
+Department of Applied Mathematics and Computational Science, The Nelson Mandela African Institution of Science and Technology, 404 Nganana, Kikwe, Arumeru, P.O. Box 447, Arusha, 23311, Tanzania 
+
+> c
+
+African Institute for Mathematical Sciences, Research and Innovation Centre, KN 3 Road, Gasharu Cell, Kicukiro Sector, Kicukiro District, Kigali, Rwanda 
+
+> d
+
+Graduate School of Engineering, The University of Tokyo, 7-3-1 Hongo, Bunkyo-ku, Tokyo, 113-8656, Japan 
+
+A R T I C L E I N F O 
+
+Keywords :Propagator learning Microlocal analysis Fourier integral operator Eikonal equation Neural operator Physics-informed learning 
+
+A B S T R A C T 
+
+Scientific machine learning for partial differential equations commonly targets solution fields, as in physics-informed neural networks, or solution maps, as in neural operators. We study a third target: the propagator itself, a phase and amplitude in phase space. The motivation is a gap in regularity. A transported discontinuity is nonsmooth in space and time, yet the rule that moves it can be a polynomial phase carrying unit amplitude, so the object that generates an evolution can be far smoother than the field it generates. The microlocal neural operator (MiNO) learns that object, using the eikonal equation for the phase and the transport equation for the amplitude, and recovers the solution by an oscillatory integral. Sharp fronts and caustics then belong to propagation geometry rather than to a field fitted pointwise. Small residuals certify more than the reconstructed field. They place the learned canonical relation, the geometry that carries singularities, close to the exact one, and they separate trainable error from the frequency-truncation tail. On a matched-budget discontinuous-advection benchmark, MiNO stops improving within 10,000 steps at the accuracy limit of its finite reconstruction window, a limit predicted in closed form, whereas a physics-informed neural network with neural-tangent-kernel loss balancing stays near its initial error. On smooth advection, the mean error is 3.84 × 10 −3 for MiNO and 
+
+3.12 × 10 −2 for a supervised Fourier neural operator. Single-branch MiNO is the smallest model compared, and one trained generator serves five unseen initial conditions without retraining. 
+
+## 1. Introduction 
+
+Most neural solvers for partial differential equations (PDEs) learn the solution itself. Physics-informed neural networks (PINNs) represent a field over space–time and enforce the governing equation through residual losses (Raissi et al., 2019; Sirignano and Spiliopoulos, 2018; Yu et al., 2018), whereas neural operators learn maps between function spaces (Li et al., 2021; Lu et al., 2021; Kovachki et al., 2023). These approaches have enabled broad progress in scientific machine learning (Karniadakis et al., 2021). This paper adopts a different target. Rather than learning only the visible solution, we learn the phase-space mechanism that propagates that solution. We formulate this target through the phase–amplitude pair (𝜙, 𝐴 ) of a Fourier-integral representation of the propagator. The phase describes how oscillations and fronts travel, the amplitude describes their strength, and an oscillatory reconstruction returns the solution. We call this paradigm propagator learning and instantiate the paradigm through the microlocal neural operator (MiNO). MiNO learns the phase and amplitude on the cotangent bundle by enforcing their eikonal and transport equations. The motivation is clearest for sharp propagation. A moving discontinuity is nonsmooth as a function of space and time, yet the rule that moves the discontinuity can be smooth and simple in phase space. For unit-speed advection, for example, a transported square wave lies in 𝐿 2(ℝ) but in no 𝐻 𝑠 (ℝ) with 𝑠 ≥ 1∕2 , while its propagator has the polynomial phase 𝑥𝜉 − 𝑡𝜉 and unit amplitude. The field and its generator therefore describe the same evolution at very different levels of regularity. That gap is not only a matter of training difficulty. The solution manifold of a convection-dominated problem has a slowly decaying Kolmogorov 𝑛 -width, and, for linear transport and wave problems, that width obeys an algebraic lower bound (Greif and Urban, 2019; Ohlberger and Rave, 2015), so no fixed low-dimensional linear approximation of the 
+
+> ∗
+
+Corresponding author 
+
+rnguessan@aimsric.org (G.L.R. N’guessan); bumjun.kim@weblab.t.u-tokyo.ac.jp (B.J. Kim) 
+
+> ORCID
+
+(s): 0009-0009-6161-4608 (G.L.R. N’guessan); 0000-0003-4155-9225 (B.J. Kim) 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 1 of 35 arXiv:2608.15187v1 [cs.LG] 15 Aug 2026 Microlocal neural operators 
+
+field is uniformly accurate in time. The established remedies for sharp transport act on the approximation frame or on the optimization while leaving the learned object a field over space–time (Appendix B). Changing the target moves the problem to an object that the lower bound does not describe. This phase-space view is classical in high-frequency propagation, where fronts, caustics, and multivalued arrivals are organized by bicharacteristic flow (Engquist and Runborg, 2003; Osher et al., 2002; Hörmander, 1971; Duistermaat, 2010; Hörmander, 1985; Maslov and Fedoriuk, 2001). Learning the phase makes that motion explicit through the propagator’s canonical relation, the rule that says where a singularity sitting at one point of phase space has arrived by a later time. A pseudo-differential symbol instead keeps the fixed identity phase and hence the diagonal relation: Such an operator can sharpen or damp a singularity but cannot move one, whatever symbol is learned (Remark 2.4). The experiments reflect this difference in representation. On a matched-budget discontinuous-advection test, MiNO stops improving within 10,000 optimization steps because the model has reached the accuracy limit of its finite reconstruction window, a limit computed in closed form in Proposition 4.12, while a PINN with neural-tangent-kernel (NTK) loss balancing remains near its initial error (Sec. 5.1.2). Both methods receive the same governing equation and are asked for different objects; Sec. 6 reads the reported margins in that light. The separation also has a structural source. MiNO satisfies the eikonal Cauchy datum by construction, so the initial-condition penalty that a PINN must balance against its equation residual is absent from the objective (Secs. 3.3 and 5.1.2). The learned generator is independent of the initial datum: New data enter only through their Fourier transforms during reconstruction. One trained generator is therefore reused for five distinct initial conditions without retraining (Sec. 5.2.2), a reuse that follows from the linearity of the representation rather than from the coverage of a training set. The same structure supports a bank of forward generators for inverse parameter recovery (Sec. 5.2.3), and the learned generator returns the canonical relation itself, so the propagated position of a singularity is read from the learned phase rather than inferred from a reconstructed field. On smooth advection, MiNO also attains a lower mean error than a supervised Fourier neural operator (FNO) (Sec. 5.3.2). These uses require the governing symbol but not labeled solution trajectories. Related methods use phase-space structure for different targets. Learned eikonal solvers predict a base-space traveltime, learned-symbol operators retain a pseudo-differential phase, and imaging networks inspired by Fourier integral operators (FIOs) learn an imaging map. MiNO instead learns the phase and amplitude of a PDE propagator and reconstructs the evolving field, including its branch structure. Appendix B develops this comparison in detail. Figure 1 summarizes the representational shift, the phase-space learning mechanism, and the matched-budget sharp-front result. 
+
+Contributions. 
+
+1. A propagator-learning formulation and architecture. We make the propagator the learned object and introduce MiNO, whose time-factored parameterization satisfies the eikonal Cauchy datum and the amplitude normalization by construction, so neither enters the loss (Secs. 2 and 3). Because the learned phase carries a nondiagonal canonical relation, the target admits transport of singularities, which no learned pseudo-differential symbol can represent (Remark 2.4). 2. Certification of the learned geometry. Differentiated eikonal residuals bound the distance between the learned canonical relation and the exact one (Theorem 4.5 and Corollary 4.6). The certified object is the propagation geometry rather than a function, and that object has no counterpart in field or solution-map error analysis. The same estimates identify which residual norm certifies that geometry: The scalar residual alone does not (Remark 4.7). 3. Residual-to-error analysis of the reconstruction. We relate continuous phase and amplitude residuals to phase error, reconstruction error, and scalar-transport propagator error. A full-solution estimate then separates generator error from the frequency-truncation tail, including a closed-form tail for discontinuous data (Sec. 4). That tail is 
+
+0.1028 on the benchmark window, against a measured late-budget error of 0.103 , so the analysis predicts the level at which training stops paying. 4. Evaluation across propagation and reuse settings. Twelve studies show that the target reaches the accuracy floor its analysis predicts while a matched field baseline does not, that one generator serves five unseen initial conditions and a bank of generators drives inverse speed recovery, and that these results are obtained without labeled trajectories. The same construction carries to bidirectional waves, two variable-coefficient symbols, a point focus, and four-dimensional phase space (Sec. 5).   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 2 of 35
+
+Microlocal neural operators 1 A moving sharp front  
+
+> neither learns the propagator 2
+
+MiNO: learn the propagator  
+
+> the jump is absent from the learned object 3
+
+Matched-budget result         
+
+> reaches the truncation floor
+> t= 0 t
+> PINN
+> fits a nonsmooth field
+> Neural operator
+> supervised on labeled pairs
+> PHASE SPACE smooth
+> front
+> lift reconstruct phase amplitude
+> trained by the equation itself
+> PHYSICAL SPACE sharp
+> nonsmooth
+> t= 0 terror
+> PINN 0.95
+> truncation floor
+> MiNO 0.10
+> training steps
+> floor in 10k steps fewest parameters no labels; reusable
+
+Figure 1: Graphical overview of the MiNO paradigm. Conventional field learning must fit a moving discontinuity in physical space, while supervised operator learning is trained on labeled pairs. MiNO instead learns smooth phase–amplitude propagator data in phase space and reconstructs the sharp front. The chart at the right sketches the matched-budget discontinuous-advection benchmark of Sec. 5.1.2, in which MiNO, using no labeled trajectories, settles near the analytic frequency-truncation tail scale while the NTK-balanced PINN stays near its initial error. The plotted MiNO curve and PINN level follow the measured means of Table 2 on a logarithmic error axis, drawn without numerical axes; that PINN has converged to the trivial solution 𝑢 ≡ 0 (Sec. 5.1.2). 
+
+Taken together, these contributions develop MiNO for linear Cauchy propagators through chartwise stability theory and one- and two-dimensional propagation experiments, and the contributions show that the difficulty of a neural PDE problem is set as much by the object one chooses to learn as by the equation one is given. 
+
+## 2. Representational targets and propagator formulation 
+
+We define the three targets and record the bicharacteristic kernel relation of the localized homogeneous FIO representation; Appendix B places each target against the corresponding literature. Figure 2 summarizes the taxonomy. 
+
+2.1. Solution-field learning 
+
+PINNs learn 𝑢 𝜃 (𝑡, 𝑥 ). Physics enters through residuals, initial and boundary terms, causal or adaptive weights, or NTK balancing (Raissi et al., 2019; Wang et al., 2021a, 2022a,b; Krishnapriyan et al., 2021). The learned object is a field on the base manifold. Field learning asks whether a network can approximate the visible solution while being penalized for violating the equation. The penalty does not change the domain of the learned object. The field remains a function on [0 , 𝑇 ] × Ω . Two difficulties of that domain are documented independently of any particular optimizer. Coordinate networks are biased toward low frequencies (Rahaman et al., 2019; Xu et al., 2019) unless their inputs are lifted by Fourier features (Tancik et al., 2020), and the solution manifold of a convection-dominated problem has a slowly decaying Kolmogorov 𝑛 -width, so no fixed low-dimensional linear subspace approximates that manifold uniformly in time (Mojgani et al., 2023). The same slow 𝑛 -width decay limits linear model reduction for transport-dominated problems (Ohlberger and Rave, 2015), and, for linear transport and wave problems, that width admits an explicit algebraic lower bound (Greif and Urban, 2019). 
+
+2.2. Solution-operator learning 
+
+Neural operators learn 𝜃 ∶ 𝑢 0 ↦ 𝑢 (𝑡, ⋅) (Li et al., 2021; Lu et al., 2021; Kovachki et al., 2023). Operator learning asks whether a network can amortize the input–output map of a PDE family from data. The learned object is a point in a space of maps between function spaces. In the supervised setting considered here, that map is trained on input–output pairs and, in widely used architectures, is represented by a composition of integral kernels and pointwise nonlinearities. 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 3 of 35 Microlocal neural operators Solution-field target                
+
+> LEARNED OBJECT
+> uθ(t,x)
+> AMBIENT SPACE
+> spacetime over Ω
+> field learning (PINNs)
+> Solution-operator target
+> LEARNED OBJECT
+> θ:u0↦u(t, ⋅ )
+> AMBIENT SPACE
+> between function spaces
+> operator learning
+> Propagator-generator target
+> LEARNED OBJECT
+> (Φ θ,Aθ)
+> AMBIENT SPACE
+> on [0, T] × T*Ω
+> propagator learning (MiNO)
+> 123
+> xt
+> u0u(t, ⋅ )
+> 
+> xξχt
+
+Figure 2: The three representational targets. Field learning targets a solution field over space–time; operator learning targets a map between function spaces; and propagator learning targets chartwise phase–amplitude data on the time-parameterized cotangent bundle. In the admissible homogeneous hyperbolic setting of Proposition 2.2, the phase generates the bicharacteristic canonical relation. 
+
+The propagation geometry of the underlying equation is not explicitly parameterized; that geometry is encoded implicitly through the learned input–output map and its training distribution. 
+
+2.3. Propagator learning 
+
+Problem setting and symbol conventions. We make the third target precise. We consider linear Cauchy propagators on Ω = ℝ𝑑 , on Ω = 𝕋 𝑑 with Fourier series, or in a localized coordinate chart with compact cutoffs. In Euclidean charts, we use the Fourier representation below. Consider the linear evolution problem 
+
+(𝐷 𝑡 + 𝑝 (𝑥, 𝐷 𝑥 )) 𝑢 = 0 , 𝑢 (0 , ⋅) = 𝑢 0, 𝐷 𝑡 ∶= − 𝑖𝜕 𝑡 , 𝐷 𝑥 ∶= − 𝑖 ∇𝑥 , (1) where the 𝐷 = − 𝑖𝜕 convention fixes the signs in the eikonal equation and Hamiltonian flow. The notation 𝑝 (𝑥, 𝐷 𝑥 )
+
+also requires a quantization convention. The scalar transport examples below use the left-quantized operator 𝑐 (𝑥 )𝐷 𝑥 ,whereas the leading half-density formula uses the Weyl convention and makes its subprincipal symbol 𝑝 sub explicit (Zworski, 2012). Thus two operators with the same principal symbol need not have the same amplitude equation. We distinguish two settings. In the hyperbolic FIO setting, 𝑝 is real and positively homogeneous of degree one in 𝜉 away from the zero section. In the quadratic (metaplectic) setting, 𝑝 (𝑥, 𝜉 ) = 𝑤 𝑇 𝐻𝑤 ∕2 + 𝓁 ⋅ 𝑤 + 𝑐 0, with 𝑤 ∶= ( 𝑥, 𝜉 ) and 
+
+𝐻 = 𝐻 𝑇 real, is a real quadratic Hamiltonian. Appendix C treats the translation-invariant quadratic-multiplier subclass 
+
+𝑝 = 𝑝 (𝜉 ). Write ̂𝑣 (𝜉 ) ∶= (2 𝜋 )−𝑑 ∕2 ∫ 𝑒 −𝑖𝑥 ⋅𝜉 𝑣 (𝑥 ) d 𝑥 for the Euclidean Fourier transform. Appendix A collects the symbols that recur throughout the paper. 
+
+Fourier-integral propagator representation. For the third target, we recall the local structure of the propagator. In the homogeneous hyperbolic case, the propagator is locally an FIO (Hörmander, 1971; Duistermaat, 2010; Hörmander, 2009). Its geometric-optics prototype, an eikonal phase carrying an amplitude transported along rays, was constructed for oscillatory hyperbolic Cauchy data by Lax (1957). A global propagator generally requires a locally finite sum of phase charts, cutoffs, branch amplitudes, and Maslov transition factors. The transition factors are governed by the characteristic class on the Lagrangian Grassmannian introduced by Arnol’d (1967). Homogeneous quadratic Hamiltonians generate metaplectic operators; affine and constant terms add the corresponding Heisenberg translation and scalar phase. Metaplectic operators have a separate global phase-space 𝐿 2 theory (Folland, 2016; Zworski, 2012), while the local wavefront result below applies to the homogeneous hyperbolic setting. On one fixed chart and frequency 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 4 of 35 Microlocal neural operators                    
+
+> Table 1
+> Attributes of the three paradigms: learned object, ambient space, training signal, and output. Paradigm Learned object Space Training signal Output PINN 𝑢 𝜃 (𝑡, 𝑥 )base manifold PDE residual solution field Neural operator 𝜃 function-space map supervised pairs solution map MiNO (Φ 𝜃 , 𝐴 𝜃 )cotangent bundle eikonal and transport propagator reconstruction
+
+window, which is the form used in the experiments, a branch is written 
+
+𝑢 (𝑡, 𝑥 ) = ( 𝐹 𝜙,𝐴 𝑢 0)( 𝑥 ) ∶= (2 𝜋 )−𝑑 ∕2 
+
+∫ℝ𝑑 
+
+𝑒 𝑖𝜙 (𝑡,𝑥,𝜉 )𝐴 (𝑡, 𝑥, 𝜉 )̂𝑢 0(𝜉 ) d 𝜉, (2) where compact chart cutoffs are included in 𝐴 . On 𝕋 𝑑 , the integral is replaced by the corresponding Fourier series. Globally, one sums expressions of the form in Eq. (2) over admissible branches; a branch weight may be either absorbed into its amplitude or factored out as an explicit external coefficient. Accordingly, the normalization 𝐴 (0) = 1 used below is the normalization of one dynamical branch before any explicit external branch weight, while the total branch sum must reproduce the prescribed Cauchy datum. In a real hyperbolic chart, 𝜙 is positively homogeneous of degree one in 𝜉 and solves the eikonal equation 
+
+𝜕 𝑡 𝜙 + 𝑝 (𝑥, ∇𝑥 𝜙 ) = 0 , 𝜙 (0 , 𝑥, 𝜉 ) = 𝑥 ⋅ 𝜉, (3) and 𝐴 solves the associated chart transport equation along the Hamiltonian flow of 𝑝 . The pair (𝜙, 𝐴 ) is a chart representation on the cotangent bundle 𝑇 ∗Ω = {( 𝑥, 𝜉 )} ; branch and Maslov data are part of the global generator. 
+
+Definition 2.1 (Phase–amplitude generator target) . The phase–amplitude generator target is the equivalence class of chartwise phase–amplitude data (𝜙, 𝐴 ) defined on [0 , 𝑇 ] × 𝑇 ∗Ω by Eqs. (2) and (3), together with the branch and Maslov transition data needed globally. These data generate the evolution through the oscillatory representation in Eq. (2). We use the term generator for these representation data; −𝑖𝑝 (𝑥, 𝐷 𝑥 ) remains the infinitesimal semigroup generator of the evolution in Eq. (1). 
+
+2.4. Comparison of the three targets 
+
+The three targets occupy different ambient spaces: a field over space–time, a map between function spaces, and chartwise phase–amplitude data on the time-parameterized cotangent bundle. Table 1 sets the three side by side. The third makes the canonical geometry of the equation explicit through Eq. (3). 
+
+2.5. Bicharacteristic kernel relation and locality 
+
+The following proposition identifies the kernel relation of the localized homogeneous hyperbolic FIO representation, for an admissible exact phase. Its proof and the proofs of the results of Sec. 4 are collected in Appendix D. 
+
+Proposition 2.2 (Bicharacteristic kernel relation) . Let 𝑝 ∈ 𝐶 ∞(𝑇 ∗Ω ⧵ 0; ℝ) be positively homogeneous of degree one in 𝜉 , and let 𝜙 be a real, degree-one homogeneous admissible phase solving Eq. (3) in a localized hyperbolic FIO chart. For a fixed time 𝑡 in that chart, let 𝐴 (𝑡, 𝑥, 𝜉 ) be a smooth classical amplitude symbol supported in a conic frequency region away from the zero section. Suppose that 𝜕 2 
+
+> 𝑥𝜉
+
+𝜙 is nonsingular there and that the resulting localized operator 
+
+𝐹 𝜙,𝐴 (𝑡 ) is properly supported. Let 𝑡 be its Schwartz kernel. Then 
+
+WF ′(𝑡 ) ⊆ {( 𝑥, 𝜉 𝑥 ; 𝑦, 𝜉 𝑦 ) ∶ ( 𝑥, 𝜉 𝑥 ) = 𝜒 𝑡 (𝑦, 𝜉 𝑦 )} , (4) 
+
+where 𝜒 𝑡 is the time-𝑡 Hamiltonian flow of 𝑝 .
+
+Remark 2.3 (Locality of the graph condition) . The mixed-Hessian condition identifies a local graph for the propagator canonical relation 𝑡 in the chosen phase chart. Caustics are degeneracies of the base projection of a propagated solution Lagrangian. For a chosen oscillatory initial datum with initial Lagrangian Λ𝑆 0 , write Λ𝑆 0 
+
+> 𝑡
+
+∶= 𝑡 ◦Λ𝑆 0 ⊂ 𝑇 ∗Ω. A caustic is a degeneracy of 𝜋 𝑥 ∶ Λ 𝑆 0 
+
+> 𝑡
+
+→ Ω, or equivalently of a specified stationary branch of the reconstruction. In an   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 5 of 35 Microlocal neural operators
+
+adapted stationary-phase chart, a Hessian determinant represents its projection Jacobian up to a nonvanishing factor; this representation depends on the chosen chart. The two conditions can fail independently. In the Airy generating-family normal form 𝑥𝜉 − 𝜉 3∕3 , 𝜕 2 
+
+> 𝑥𝜉
+
+𝜙 = 1 at the fold while 𝜕 2 
+
+> 𝜉𝜉
+
+𝜙 = 0 . This local normal form separates the two geometric nondegeneracy conditions and is distinct from a degree-one homogeneous propagator phase. Proposition 2.2 treats the local operator chart; Sec. 4.5 treats the projection of a specified solution Lagrangian. The same proposition separates the present target from its closest learning-based neighbor, in which a network parameterizes a pseudo-differential symbol and the solution operator remains the target (Shin et al., 2024). 
+
+Remark 2.4 (A learned symbol cannot move a wavefront set) . A pseudo-differential operator 𝑃 carries the fixed identity phase (𝑥 − 𝑦 ) ⋅ 𝜉 , so its canonical relation is the diagonal, and 𝑃 is microlocal: WF( 𝑃 𝑢 ) ⊆ WF( 𝑢 ) for every symbol (Hörmander, 1985). The restriction is structural rather than a matter of capacity. No choice of learned symbol moves a wavefront set, so this family cannot represent the transport of singularities at all, however the symbol network is trained. In Proposition 2.2 the propagator relation is instead the graph of 𝜒 𝑡 , and transport of singularities is exactly its nondiagonality. Learning the phase is therefore what admits the phenomenon; the amplitude then supplies the frequency-dependent strength along the same geometry. 
+
+## 3. Microlocal neural operators 
+
+MiNO instantiates propagator learning. The single design principle is the time-factored parameterization of the phase increment and chart amplitude, so that the eikonal Cauchy datum and amplitude normalization are imposed by construction rather than by penalty. The construction comprises the symbol and its Hamiltonian flow, the training residuals, the phase and amplitude parameterizations, the reconstruction quadrature, and the symbol-dependent procedure that turns a written symbol into the training problem. 
+
+3.1. Principal symbol and Hamiltonian flow 
+
+The construction starts from the principal symbol 𝑝 (𝑥, 𝜉 ) of Eq. (1). Its Hamiltonian vector field on 𝑇 ∗Ω is ̇𝑥 = ∇ 𝜉 𝑝 (𝑥, 𝜉 ),̇ 𝜉 = −∇ 𝑥 𝑝 (𝑥, 𝜉 ), (5) and the bicharacteristics are the integral curves of Eq. (5) lifted to the characteristic hypersurface {( 𝑡, 𝑥, 𝜏, 𝜉 ) ∶ 
+
+𝜏 + 𝑝 (𝑥, 𝜉 ) = 0} . Three consequences of Eq. (5) are relevant to the subsequent analysis. First, the projections of the bicharacteristics to Ω are the rays along which the eikonal equation in Eq. (3) is solved by the method of characteristics; this correspondence is the identification used in the proof of Proposition 2.2. Second, the 𝜉 -component of Eq. (5) is driven by ∇𝑥 𝑝 , so for a spatially homogeneous symbol 𝑝 = 𝑝 0(𝜉 ), the frequency is conserved along rays and the phase is exactly 𝑥 ⋅ 𝜉 − 𝑡𝑝 0(𝜉 ); under the parameterization in Eq. (9), the exact phase-increment target is therefore 
+
+ℎ∗(𝑡, 𝑥, 𝜉 ) = − 𝑝 0(𝜉 ). This spatially homogeneous case is the calibration regime tested in Sec. 5.1.1. Third, for a specified ray-parameterized solution Lagrangian 𝑥 = 𝑥 (𝑡 ; 𝑦 ), the relevant projection Jacobian is 
+
+𝐽 proj (𝑡, 𝑦 ) ∶= det 𝜕𝑥 (𝑡 ; 𝑦 )
+
+𝜕𝑦 .
+
+In an adapted stationary-phase normal form, a phase Hessian represents this Jacobian up to a nonvanishing factor at the critical point. Remark 2.3 records the chart dependence of that representation, and Sec. 4.5 illustrates the normal-form geometry. The method derives directly from the propagation geometry. The curves along which the phase is constrained are the bicharacteristics of 𝑝 .
+
+3.2. The training principle 
+
+Eikonal and transport residuals. Let Φ𝜃 and 𝐴 𝜃 be parameterized families on [0 , 𝑇 ] × 𝑇 ∗Ω. Here 𝜉 is the initial Fourier (fiber) label of the mixed generating function, not an independently evolving current momentum; the current covector is 𝜁 ∶= ∇ 𝑥 Φ𝜃 (𝑡, 𝑥, 𝜉 ). Define 
+
+eik [Φ 𝜃 ]( 𝑡, 𝑥, 𝜉 ) ∶= 𝜕 𝑡 Φ𝜃 + 𝑝 (𝑥, ∇𝑥 Φ𝜃 ), 𝑣 𝜃 (𝑡, 𝑥, 𝜉 ) ∶= ∇ 𝜁 𝑝 (𝑥, ∇𝑥 Φ𝜃 (𝑡, 𝑥, 𝜉 )) . (6)   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 6 of 35 Microlocal neural operators
+
+The transport residual is chosen consistently with the target PDE, in a scalar or a Wentzel–Kramers–Brillouin (WKB) half-density form: 
+
+tr ∶= 
+
+{
+
+𝜕 𝑡 𝐴 𝜃 + 𝑐 (𝑥 )𝜕 𝑥 𝐴 𝜃 , scalar advection ,𝜕 𝑡 𝐴 𝜃 + 𝑣 𝜃 ⋅ ∇𝑥 𝐴 𝜃 + 12 div 𝑥 (𝑣 𝜃 )𝐴 𝜃 + 𝑖𝑝 sub (𝑥, ∇𝑥 Φ𝜃 )𝐴 𝜃 , half-density WKB, Weyl convention . (7) In the second line, the target PDE supplies the quantization convention and the corresponding subprincipal symbol 𝑝 sub ;the quadratic Hamiltonians analyzed here have 𝑝 sub = 0 . The divergence differentiates 𝑥 ↦ ∇𝜁 𝑝 (𝑥, ∇𝑥 Φ𝜃 ) at fixed fiber label 𝜉 ; equivalently, its geometric term is  
+
+> 12
+
+tr (𝑝 𝑥𝜁 (𝑥, ∇𝑥 Φ𝜃 ) + 𝑝 𝜁𝜁 (𝑥, ∇𝑥 Φ𝜃 )∇ 2
+
+> 𝑥
+
+Φ𝜃 
+
+) 𝐴 𝜃 .
+
+Thus for 𝑝 (𝜁 ) = 𝜁 𝑇 𝐻𝜁 ∕2 + 𝓁 ⋅ 𝜁 + 𝑐 0 with 𝐻 = 𝐻 𝑇 , the geometric term is tr( 𝐻 ∇2
+
+> 𝑥
+
+Φ𝜃 )𝐴 𝜃 ∕2 ; that term reduces to 
+
+Δ𝑥 Φ𝜃 𝐴 𝜃 ∕2 when 𝐻 is the identity. The exact unit-scale Schrödinger amplitude equation for its Weyl quantization with 𝑝 sub = 0 adds 𝑖 tr( 𝐻 ∇2
+
+> 𝑥
+
+𝐴 𝜃 )∕2 on the right-hand side, an 𝑂 (𝜀 ) correction in semiclassical scaling. Additional lower-order symbols enter according to their chosen quantization. The second line of Eq. (7) is therefore a leading WKB residual and is exact in quadratic charts with 𝑥 -independent principal amplitude, including the multiplier case 
+
+Φ = 𝑥 ⋅ 𝜉 − 𝑡𝑝 (𝜉 ), 𝐴 ≡ 1, and 𝑝 sub = 0 . The scalar advection experiments use 𝜕 𝑡 𝐴 + 𝑐𝜕 𝑥 𝐴 = 0 ; adding 𝑐 ′(𝑥 )𝐴 ∕2 would instead target the half-density equation 𝜕 𝑡 𝑢 + 𝑐𝜕 𝑥 𝑢 + 𝑐 ′𝑢 ∕2 = 0 .These formulas transport a chart amplitude restricted to the Lagrangian and expressed using the initial label 𝜉 ;a free function on 𝑇 ∗Ω follows the full Hamiltonian derivative. All trained experiments use the constant-amplitude specialization 𝐴 ∗ = 1 with 𝑝 sub = 0 , for which the chart and experimental residuals have the same exact zero target. Appendix C derives the symbol-specific reductions, and Appendix E.2 records the experimental specialization. 
+
+Training objective. With Φ𝜃 (0 , 𝑥, 𝜉 ) = 𝑥 ⋅ 𝜉 and, on the normalized initial identity chart before prescribed cutoffs or external branch weights, 𝐴 𝜃 (0 , 𝑥, 𝜉 ) = 1 , the propagator-learning objective is 
+
+ (𝜃 ) ∶= ‖eik [Φ 𝜃 ]‖2 
+
+> 𝐿 2(𝜇 )
+
++ 𝜆 tr ‖tr [Φ 𝜃 , 𝐴 𝜃 ]‖2 
+
+> 𝐿 2(𝜇 )
+
++ 𝜆 00(𝜃 ), (8) with 𝜇 a sampling measure on [0 , 𝑇 ] × 𝑇 ∗Ω and 0 an initial-condition term that is identically zero under the parameterization of Sec. 3.3; the term also covers parameterizations that impose the Cauchy data through a penalty. The defining feature relative to solution learning is that Eqs. (6) and (7) are equations on 𝑇 ∗Ω for the generator, not equations on Ω for the field. Theorem 4.1 converts a continuous phase residual into a compact-chart phase estimate for a general real Hamilton– Jacobi phase, and Corollary 4.2 combines that estimate with the time-slice amplitude error to control reconstruction. Theorem 4.9 and Corollary 4.10 convert the continuous 𝐿 2 phase and amplitude residuals into an output-operator estimate for scalar transport. All four are stated for continuous residual norms. Both ingredients of that conversion are available for the generator target. Tanh networks admit explicit simultaneous approximation bounds in higher-order Sobolev norms (Ryck et al., 2021), so a smooth chart generator is approximable in the norms these estimates use, and the estimates then return solution and canonical-geometry error. For a field target on a convection-dominated problem, the corresponding route through fixed low-dimensional linear approximation is constrained by the algebraic 𝑛 -width lower bound recorded in Sec. 2.1. That separation is a statement about approximation classes, not about the behavior of the optimizer. 
+
+Collocation sampling. The sampling measure 𝜇 is a design variable in its own right. For residual collocation on the base manifold, a systematic comparison of nonadaptive and residual-based adaptive distributions shows that this choice materially affects accuracy (Wu et al., 2023). Here 𝜇 is the fixed product measure of Appendix E.3, resampled each step using nonadaptive phase-space sampling. In experiments that enable online balancing, the residual weights are balanced by the NTK rule of Wang et al. (2022b); this balancing rule belongs to the optimizer, not to the representation. 
+
+3.3. Phase and amplitude parameterizations 
+
+Phase network. The phase is parameterized in time-factored form, 
+
+Φ𝜃 (𝑡, 𝑥, 𝜉 ) ∶= 𝑥 ⋅ 𝜉 + 𝑡ℎ 𝜃 (𝑡, 𝑥, 𝜉 ). (9)   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 7 of 35 Microlocal neural operators
+
+The factor 𝑡 enforces Φ𝜃 (0 , ⋅, ⋅) = 𝑥 ⋅ 𝜉 identically, so the eikonal Cauchy datum in Eq. (3) is satisfied exactly for every 𝜃 and never enters the loss; the initial-condition term 0 in Eq. (8) is then identically zero for the phase. The network directly parameterizes the full phase increment: ℎ𝜃 = (Φ 𝜃 − 𝑥 ⋅ 𝜉 )∕ 𝑡 represents the full time-averaged phase increment, whose smooth extension is understood at 𝑡 = 0 . For a spatially homogeneous symbol, this increment is also the instantaneous phase rate, with exact target ℎ∗ = − 𝑝 0(𝜉 ).On the finite window, the network parameterization is a numerical oscillatory ansatz. Degree-one homogeneity in 𝜉 
+
+can be imposed separately, e.g. , as ℎ𝜃 ∶= |𝜉 |𝑞 𝜃 (𝑡, 𝑥, 𝜉 ∕|𝜉 |) on conic charts, or holds in the exact zero-residual limit; the homogeneous wavefront theorem then applies. The phase-increment network ℎ𝜃 uses a modified multilayer perceptron (MLP) with multiplicative skip connections in the form stabilized for residual training (Wang et al., 2023) and sinusoidal Fourier features (Tancik et al., 2020); Appendix E.3 gives its full configuration. The network learns the geometry of propagation through the full phase increment. The features act on the generator, whose oscillation in 𝜉 is carried by the explicit exponential in Eq. (2) rather than by the network output. 
+
+Amplitude network. Within the interior of each experimental chart, after any prescribed localization cutoff and explicit external branch weight have been factored out, the nonvanishing amplitude magnitude is parameterized multiplicatively, 
+
+𝐵 𝜃 ∶= exp( 𝑡𝛼 𝜃 ) with real 𝛼 𝜃 , so 𝐵 𝜃 (0 , ⋅, ⋅) = 1 and positivity are enforced by construction. We write 𝐴 𝜃 ∶= 𝑚 𝜈 𝐵 𝜃 ,where |𝑚 𝜈 | = 1 carries a fixed Maslov or chart-transition phase. On the initial identity chart, 𝑚 𝜈 = 1 , so 𝐴 𝜃 (0) = 1 . At a chart crossing, 𝑚 𝜈 is applied as a chartwise transition factor; one such factor is 𝑒 −𝑖𝜋𝜈 ∕2 , with 𝜈 the Maslov index of the crossing (Arnol’d, 1967). The total coefficient in Eq. (2) may vanish with its prescribed localization cutoff; the positivity property applies to 𝐵 𝜃 in the chart interior. The present experiments use known 𝑚 𝜈 on charts with zero subprincipal symbol. The transport equation in Eq. (7) constrains 𝛼 𝜃 through its logarithmic derivative. Substituting 𝐵 𝜃 = exp( 𝑡𝛼 𝜃 ) and dividing by the nonzero 𝐵 𝜃 gives a linear equation for 𝛼 𝜃 and its first derivatives, with the divergence term as an additive source. This algebraic normalization is the motivation for the parameterization. The amplitude network 𝛼 𝜃 uses the same modified-MLP family; Appendix E.3 gives its configuration. That network learns the smooth chart amplitude in phase space. Reduction of the uniform oscillatory integral to separate base-space branches subsequently produces the distinct branchwise stationary-phase coefficient. The experiments parameterize deviations from their constant exact target as 𝐴 𝜃 = 1 + 𝑡𝛾 𝜃 , which enforces 𝐴 𝜃 (0) = 1 .The exponential model above additionally preserves positivity for general nonvanishing chart amplitudes; Appendix E.2 states the experimental specialization. 
+
+3.4. Fourier-integral reconstruction 
+
+Given (Φ 𝜃 , 𝐴 𝜃 ), the solution is recovered by Eq. (2). MiNO outputs the generator, from which the solution is synthesized by the oscillatory integral. On a bounded frequency window, write the nonexponential factor as 
+
+𝑔 (𝑡, 𝑥, 𝜉 ) ∶= 𝐴 𝜃 (𝑡, 𝑥, 𝜉 )̂𝑢 0(𝜉 ) and the oscillatory factor as 𝑒 𝑖 Φ𝜃 (𝑡,𝑥,𝜉 ), whose local frequency in 𝜉 is 𝜕 𝜉 Φ𝜃 . Quadrature regularity is datum-dependent. For a general 𝑢 0 ∈ 𝐿 2, its Fourier transform need only belong to 𝐿 2. The datum determines the location and regularity of ̂𝑢 0; increasing a carrier wavenumber shifts its spectrum and may require a larger active window while leaving the target phase unchanged. A composite trapezoidal rule resolves the integral when the phase and 𝑔 have sufficient regularity on the chosen bounded window and the frequency grid is fine enough for both. The experiments use this rule by default and use a piecewise-linear-phase Filon-type rule when specified (Iserles and Nørsett, 2005; Deaño et al., 2018), which interpolates both the phase and the smooth factor linearly on each frequency panel; its panel formula is stated in Appendix E.3. On a fixed frequency window and for the tested phases, that option reduces the observed dependence on the absolute oscillation count. The error still depends on phase derivatives and stationary points, the regularity of 𝐴 𝜃 ̂𝑢 0, the window size, and the omitted frequency tail; if the datum spectrum leaves the fixed window, the window or node count must change. The asymptotic behavior of Filon-type and stationary-phase-aware rules, including the degradation at a stationary point of the phase, is treated systematically by Deaño et al. (2018), and a rule matched to that analysis is the natural replacement for the default trapezoidal reconstruction. The trained advection and wave runs use the composite trapezoidal rule; the point-focus diagnostic of Sec. 5.1.6 uses the optional Filon rule. Node counts and windows are run-specific (Appendix E.3).   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 8 of 35 Microlocal neural operators
+
+3.5. Symbol-dependent residual construction and operator-like reuse 
+
+Symbol-specific residual construction. The objective in Eq. (8) depends on the symbol 𝑝 only through the differential operators that appear in Eqs. (6) and (7): the spatial gradient ∇𝑥 Φ𝜃 inside 𝑝 (𝑥, ∇𝑥 Φ𝜃 ), the group velocity evaluated at the current covector, and, for the half-density convention, its 𝑥 -divergence and the specified subprincipal symbol. Given a symbolic expression for 𝑝 (𝑥, 𝜉 ), the target-PDE normalization, and the quantization convention, symbolic differentiation yields the corresponding eikonal and transport residuals. Substitution of the exact homogeneous free-symbol generator supplies a constant-coefficient consistency check. For variable-coefficient transport with 𝑝 (𝑥, 𝜉 ) = 𝑐 (𝑥 )𝜉 in one dimension, this construction forms ∇𝑥 Φ𝜃 = 𝜕 𝑥 Φ𝜃 , substitutes into 𝑝 to get 𝑐 (𝑥 )𝜕 𝑥 Φ𝜃 , computes the group velocity 
+
+∇𝜉 𝑝 = 𝑐 (𝑥 ), and uses the scalar normalization of the target advection equation. The resulting residuals are 
+
+eik = 𝜕 𝑡 Φ𝜃 + 𝑐 (𝑥 )𝜕 𝑥 Φ𝜃 , tr = 𝜕 𝑡 𝐴 𝜃 + 𝑐 (𝑥 )𝜕 𝑥 𝐴 𝜃 .
+
+The exact variable-coefficient characteristic phase Φ( 𝑡, 𝑥, 𝜉 ) = 𝑋 (0; 𝑡, 𝑥 )𝜉 , where 𝜕 𝑠 𝑋 (𝑠 ; 𝑡, 𝑥 ) = 𝑐 (𝑋 (𝑠 ; 𝑡, 𝑥 )) and 
+
+𝑋 (𝑡 ; 𝑡, 𝑥 ) = 𝑥 , with 𝐴 ≡ 1, annihilates these scalar residuals. If half-density transport is selected instead under the zero-subprincipal Weyl convention, the amplitude residual includes 𝑐 ′(𝑥 )𝐴 𝜃 ∕2 , thereby targeting the different PDE stated after Eq. (7); a nonzero supplied subprincipal symbol adds its corresponding term. For the pure transport symbol 𝑝 (𝑥, 𝜁 ) = 𝑐 (𝑥 )𝜁 , no separate 𝜕 2
+
+> 𝑥
+
+Φ𝜃 𝐴 𝜃 ∕2 is appended. The geometric term is obtained once from the full divergence in Eq. (7). That divergence is symbol-specific. For example, the mixed symbol 𝑝 (𝑥, 𝜁 ) = 𝑐 (𝑥 )𝜁 + 𝜁 2∕2 gives 
+
+div 𝑥 (𝑣 𝜃 ) = 𝑐 ′(𝑥 ) + 𝜕 2
+
+> 𝑥
+
+Φ𝜃 , so both contributions occur inside the single divergence term. 
+
+Operator-like reuse across initial conditions. Different initial conditions enter only through ̂𝑢 0 in Eq. (2), so a generator trained for a given symbol applies to new data without retraining. MiNO therefore provides operator-like reuse across initial conditions under a fixed symbol. This reuse follows from the linearity of Eq. (2) in ̂𝑢 0 and differs from amortized operator learning from input–output pairs. The distinction is tested directly in Sec. 5.2.2. 
+
+## 4. Theory of propagator learning 
+
+The bicharacteristic relation for the localized homogeneous FIO target is Proposition 2.2. Phase and reconstruction stability on a compact chart is developed in Sec. 4.1, residual control of the learned canonical graph in Sec. 4.2, and scalar-transport reconstruction and frequency-tail separation in Secs. 4.3 and 4.4. A fold normal-form illustration in Sec. 4.5 distinguishes a uniform oscillatory representation from its branchwise reduction. The proofs are collected in Appendix D. One of these results certifies an object that previous error analyses do not address. Theorem 4.5 bounds the distance between the learned canonical relation and the exact one by differentiated eikonal residuals, so what is certified is the propagation geometry rather than a function. Residual-to-error and post-training certification estimates for neural PDE approximations have been developed for other equation classes and solution-field targets (Shin et al., 2020; Ryck and Mishra, 2022; Mishra and Molinaro, 2022; Liu et al., 2023; Eiras et al., 2024), and approximation-theoretic bounds are available on the operator-learning side in terms of the regularity of the target solution operator and of the encoding and reconstruction maps that surround that operator (Kovachki et al., 2021; Lanthaler et al., 2022). All of these bound the error of a learned function; a geometric defect has no counterpart there. The remaining results connect residuals to the reconstruction. The first controls phase error from the residual and then controls reconstruction from that phase estimate together with the amplitude error for a general real Hamilton–Jacobi chart. The scalar-transport results then control the complete phase–amplitude reconstruction and give a continuous-residual full-solution bound that includes the frequency tail, with numerical quadrature entering as an additional error component. 
+
+4.1. Hamilton–Jacobi residual-to-phase and reconstruction stability 
+
+The scalar value of the eikonal residual and its derivatives play different roles. The value controls the phase that appears in the oscillatory exponential, whereas its derivatives control the canonical graph. We first fix the common setting for a phase estimate and its two consequences. Let 𝐺 ⊂ ℝ2𝑑 be open, let 𝑝 ∈ 𝐶 2(𝐺 ; ℝ), and fix 𝑡 ∈ [0 , 𝑇 ], a bounded measurable output set 𝑅 ⋐ ℝ𝑑 , and a compact frequency window 𝐾 ⋐ ℝ𝑑 . Let 𝜙 and ̃ 𝜙 be real 𝐶 2 phases on a common chart containing the tubes below, with 
+
+𝜕 𝑠 𝜙 + 𝑝 (𝑧, ∇𝑧 𝜙 ) = 0 , 𝑟 ∶= 𝜕 𝑠 ̃ 𝜙 + 𝑝 (𝑧, ∇𝑧 ̃ 𝜙 ).  
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 9 of 35
+
+Microlocal neural operators 
+
+Put 𝑒 ∶= ̃ 𝜙 − 𝜙 and assume that every line segment between ∇𝑧 𝜙 (𝑠, 𝑧, 𝜉 ) and ∇𝑧 ̃ 𝜙 (𝑠, 𝑧, 𝜉 ) remains in the fiber of 𝐺 .Define the averaged velocity 
+
+𝑏 (𝑠, 𝑧, 𝜉 ) ∶= ∫
+
+> 10
+
+∇𝜁 𝑝 (𝑧, ∇𝑧 𝜙 (𝑠, 𝑧, 𝜉 ) + 𝜆 ∇𝑧 𝑒 (𝑠, 𝑧, 𝜉 )) d 𝜆. (10) For every (𝑥, 𝜉 ) ∈ 𝑅 × 𝐾 , assume that the terminal-value flow 
+
+dd𝑠 𝑌 𝑏 (𝑠 ; 𝑡, 𝑥, 𝜉 ) = 𝑏 (𝑠, 𝑌 𝑏 (𝑠 ; 𝑡, 𝑥, 𝜉 ), 𝜉 ), 𝑌 𝑏 (𝑡 ; 𝑡, 𝑥, 𝜉 ) = 𝑥, (11) exists on [0 , 𝑡 ] and is a 𝐶 1 diffeomorphism in 𝑥 . Set 
+
+𝑅 𝑏 𝑠 ∶= {( 𝑌 𝑏 (𝑠 ; 𝑡, 𝑥, 𝜉 ), 𝜉 ) ∶ 𝑥 ∈ 𝑅, 𝜉 ∈ 𝐾 }, 𝜅 𝑏 ∶= ‖div 𝑧 𝑏 ‖𝐿 ∞(∪ 0≤𝑠 ≤𝑡 {𝑠 }× 𝑅 𝑏 𝑠 ).
+
+Theorem 4.1 (Hamilton–Jacobi residual-to-phase stability) . In the preceding setting, 
+
+‖𝑒 (𝑡 )‖𝐿 2(𝑅 ×𝐾 ) ≤ 𝔓 𝑡 (𝑒 (0) , 𝑟 ), (12) 
+
+where 
+
+𝔓 𝑡 (𝑒 (0) , 𝑟 ) ∶= 𝑒 𝜅 𝑏 𝑡 ∕2 ‖𝑒 (0) ‖𝐿 2(𝑅 𝑏  
+
+> 0)
+
++ ∫
+
+> 𝑡
+> 0
+
+𝑒 𝜅 𝑏 (𝑡 −𝑠 )∕2 ‖𝑟 (𝑠 )‖𝐿 2(𝑅 𝑏 𝑠 ) d𝑠. (13) 
+
+Corollary 4.2 (Reconstruction stability on a compact chart) . In the setting preceding Theorem 4.1, let 𝐴,̃ 𝐴 be complex amplitudes at time 𝑡 , with 𝐴 ∈ 𝐿 ∞(𝑅 × 𝐾 ) and ̃ 𝐴 − 𝐴 ∈ 𝐿 2(𝑅 × 𝐾 ). If 𝐹 𝐾 𝜙,𝐴 and 𝐹 𝐾̃ 𝜙,̃𝐴 denote the reconstructions in Eq. (2) truncated to 𝐾 , then 
+
+‖𝐹 𝐾̃ 𝜙,̃𝐴 (𝑡 ) − 𝐹 𝐾 𝜙,𝐴 (𝑡 )‖𝐿 2(ℝ𝑑 )→𝐿 2(𝑅 ) ≤ (2 𝜋 )−𝑑 ∕2 [‖̃ 𝐴 (𝑡 ) − 𝐴 (𝑡 )‖𝐿 2(𝑅 ×𝐾 ) + ‖𝐴 (𝑡 )‖𝐿 ∞(𝑅 ×𝐾 )𝔓 𝑡 (𝑒 (0) , 𝑟 )
+
+]
+
+. (14) Thus the phase contribution in Eq. (14) is controlled by the Hamilton–Jacobi residual, while the amplitude discrepancy is retained as the separate time-slice term ‖̃ 𝐴 (𝑡 ) − 𝐴 (𝑡 )‖𝐿 2(𝑅 ×𝐾 ).
+
+Corollary 4.3 (Phase bound for exact Cauchy data) . In the setting preceding Theorem 4.1, suppose the phase Cauchy datum is exact. Then 
+
+𝔓 𝑡 (0 , 𝑟 ) ≤ Γ𝜅 𝑏 (𝑡 )‖𝑟 ‖𝐿 2(𝑏 (𝑡 )) , 𝑏 (𝑡 ) ∶= {( 𝑠, 𝑧, 𝜉 ) ∶ ( 𝑧, 𝜉 ) ∈ 𝑅 𝑏 𝑠 , 0 < 𝑠 < 𝑡 }, (15) 
+
+where 
+
+Γ𝜅 (𝑡 ) ∶= 
+
+{
+
+(( 𝑒 𝜅𝑡 − 1)∕ 𝜅 )1∕2 , 𝜅 > 0,𝑡 1∕2 , 𝜅 = 0 . (16) Theorem 4.1 and Corollary 4.2 are compact-chart stability results valid independently of positive homogeneity and mixed-Hessian nondegeneracy; Proposition 2.2 supplies the separate wavefront statement. The results also distinguish the roles of a scalar residual and its derivatives. The scalar residual controls the phase value in Eq. (14), while the differentiated residual controls the generated canonical graph in the next result. 
+
+4.2. Eikonal-residual control of the canonical geometry 
+
+We next separate the two trajectorywise mechanisms behind canonical-graph control. Let 𝐺 ⊂ ℝ2𝑑 be open, let 
+
+𝑝 ∈ 𝐶 2(𝐺 ; ℝ), and write 
+
+𝐻 𝑝 (𝑥, 𝜁 ) ∶= (∇ 𝜁 𝑝 (𝑥, 𝜁 ), −∇ 𝑥 𝑝 (𝑥, 𝜁 )) .
+
+Assume that 𝐻 𝑝 is 𝐿 -Lipschitz on a region containing all trajectories used below. Let ̃ 𝜙 ∈ 𝐶 2([0 , 𝑇 ] × 𝑈 × 𝑉 ; ℝ)
+
+satisfy ̃𝜙 (0 , 𝑥, 𝜉 ) = 𝑥 ⋅ 𝜉, 𝑟 ∶= 𝜕 𝑡 ̃ 𝜙 + 𝑝 (𝑥, ∇𝑥 ̃ 𝜙 ).
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 10 of 35 Microlocal neural operators 
+
+Fix (𝑡, 𝑥, 𝜉 ) in the phase chart and suppose that the terminal-value problem ̇̃ 𝑥 (𝑠 ) = ∇ 𝜁 𝑝 (̃𝑥 (𝑠 ), ∇ 𝑥 ̃ 𝜙 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 )) ,̃ 𝑥 (𝑡 ) = 𝑥, (17) exists for 0 ≤ 𝑠 ≤ 𝑡 and remains in the phase chart, and that the exact comparison trajectories remain in the stated Lipschitz region. Set ̃𝜁 (𝑠 ) ∶= ∇ 𝑥 ̃ 𝜙 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ), 𝑦 0 ∶= ̃𝑥 (0) ,̃ 𝑦 ∶= ∇ 𝜉 ̃ 𝜙 (𝑡, 𝑥, 𝜉 ).
+
+Lemma 4.4 (Forced characteristic and footpoint estimates) . In the preceding setting, 
+
+|||(𝑥, ∇𝑥 ̃ 𝜙 (𝑡, 𝑥, 𝜉 )) − 𝜒 𝑡 (𝑦 0, 𝜉 )||| ≤ ∫
+
+> 𝑡
+> 0
+
+𝑒 𝐿 (𝑡 −𝑠 ) ||∇𝑥 𝑟 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ) || d𝑠, (18) 
+
+|̃𝑦 − 𝑦 0| ≤ ∫
+
+> 𝑡
+> 0
+
+|||∇𝜉 𝑟 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ) ||| d𝑠. (19) 
+
+Theorem 4.5 (Eikonal-residual control of the canonical graph) . In the setting preceding Lemma 4.4, suppose additionally that 𝜕 2
+
+> 𝑥𝜉
+
+̃ 𝜙 is nonsingular in the chart. Then the output point generated by the approximate phase satisfies 
+
+|||(𝑥, ∇𝑥 ̃ 𝜙 (𝑡, 𝑥, 𝜉 )) − 𝜒 𝑡 (̃𝑦, 𝜉 ) ||| ≤ ∫
+
+> 𝑡
+> 0
+
+𝑒 𝐿 (𝑡 −𝑠 ) ||∇𝑥 𝑟 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ) || d𝑠 + 𝑒 𝐿𝑡 
+
+∫
+
+> 𝑡
+> 0
+
+|||∇𝜉 𝑟 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ) ||| d𝑠. (20) 
+
+Corollary 4.6 (Uniform canonical-graph residual bound) . Under the hypotheses of Theorem 4.5, let 𝑡 be the set of 
+
+(𝑥, 𝜉 ) for which its trajectory hypotheses hold. If the indicated residual derivatives are uniformly bounded, every point of the generated relation ̃
+
+𝑡 ∶= 
+
+{
+
+(𝑥, ∇𝑥 ̃ 𝜙 (𝑡, 𝑥, 𝜉 ); ∇ 𝜉 ̃ 𝜙 (𝑡, 𝑥, 𝜉 ), 𝜉 ) ∶ ( 𝑥, 𝜉 ) ∈ 𝑡 
+
+}
+
+lies within output-phase-space distance 
+
+𝛿 𝑡 ∶= 𝑒 𝐿𝑡 − 1 
+
+𝐿 ‖∇𝑥 𝑟 ‖𝐿 ∞ + 𝑡𝑒 𝐿𝑡 ‖∇𝜉 𝑟 ‖𝐿 ∞ (21) 
+
+of graph 𝜒 𝑡 , where the first coefficient is interpreted as 𝑡 when 𝐿 = 0 , and both 𝐿 ∞ norms are taken over the union of the approximate trajectories associated with (𝑥, 𝜉 ) ∈ 𝑡 .
+
+Theorem 4.5 gives the trajectorywise estimate, and Corollary 4.6 turns that estimate into uniform control of the geometric object carried by the phase. 
+
+Remark 4.7 (Which residual norm certifies which object) . The two statements identify the residual norm the geometry requires, and that norm differs from the norm the objective in Eq. (8) reports. A small scalar eikonal residual, without control of its 𝑥 - and 𝜉 -derivatives, does not by itself place the canonical graph near graph 𝜒 𝑡 . Adding to the phase a function of time alone changes the scalar residual while leaving the graph unchanged, and the differentiated residual in Eq. (20) reflects that invariance correctly, whereas the scalar one does not. A reported training loss therefore certifies the reconstructed field, through Corollary 4.2, but certifies the propagation geometry only through the differentiated norm. The higher-order Sobolev approximation bounds cited in Sec. 3.2 supply the approximation route to that norm. 
+
+4.3. Scalar-transport residual-to-propagator stability 
+
+Let 𝑐 ∈ 𝐶 1(ℝ𝑑 ; ℝ𝑑 ) generate a 𝐶 1 flow 𝑋 (𝑠 ; 𝑡, 𝑥 ) on the tube considered below. Fix 𝑡 ∈ [0 , 𝑇 ], a bounded measurable output set 𝑅 ⋐ ℝ𝑑 , and a compact frequency window 𝐾 ⋐ ℝ𝑑 . Put 
+
+𝑅 𝑠 ∶= 𝑋 (𝑠 ; 𝑡, 𝑅 ), 0 ≤ 𝑠 ≤ 𝑡, 𝜅 ∶= sup 
+
+> 0≤𝑠 ≤𝑡
+
+‖div 𝑐 ‖𝐿 ∞(𝑅 𝑠 ).
+
+Lemma 4.8 (Characteristic-tube transport estimate) . Let 𝑒 be a real- or complex-valued 𝐶 1 function on the characteristic tube, set 
+
+𝑟 ∶= ( 𝜕 𝑠 + 𝑐 (𝑧 ) ⋅ ∇𝑧 )𝑒, 𝑒 0(𝑧, 𝜉 ) ∶= 𝑒 (0 , 𝑧, 𝜉 ),  
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 11 of 35
+
+Microlocal neural operators 
+
+and define 
+
+𝔈 𝑡 (𝑒 0, 𝑟 ) ∶= 𝑒 𝜅𝑡 ∕2 ‖𝑒 0‖𝐿 2(𝑅 0×𝐾 ) + ∫
+
+> 𝑡
+> 0
+
+𝑒 𝜅 (𝑡 −𝑠 )∕2 ‖𝑟 (𝑠 )‖𝐿 2(𝑅 𝑠 ×𝐾 ) d𝑠. (22) 
+
+Then 
+
+‖𝑒 (𝑡 )‖𝐿 2(𝑅 ×𝐾 ) ≤ 𝔈 𝑡 (𝑒 0, 𝑟 ). (23) For the operator-level consequence, remain in the preceding characteristic-tube setting and put 
+
+𝜙 𝑐 (𝑠, 𝑧, 𝜉 ) ∶= 𝑋 (0; 𝑠, 𝑧 ) ⋅ 𝜉, 
+
+so that 𝜙 𝑐 is the exact scalar-transport phase and the exact amplitude is one. Let ̃ 𝜙 be real-valued and let ̃ 𝐴 be complex-valued, both 𝐶 1 on the characteristic tube, and define 
+
+𝑟 𝜙 ∶= 𝜕 𝑠 ̃ 𝜙 + 𝑐 (𝑧 ) ⋅ ∇𝑧 ̃ 𝜙, 𝑒 𝜙, 0(𝑧, 𝜉 ) ∶= ̃ 𝜙 (0 , 𝑧, 𝜉 ) − 𝑧 ⋅ 𝜉, 𝑟 𝐴 ∶= 𝜕 𝑠 ̃ 𝐴 + 𝑐 (𝑧 ) ⋅ ∇𝑧 ̃ 𝐴, 𝑒 𝐴, 0(𝑧, 𝜉 ) ∶= ̃ 𝐴 (0 , 𝑧, 𝜉 ) − 1 .
+
+Define the learned and exact truncated propagators by ̃𝐹 𝐾 (𝑡 )𝑢 0(𝑥 ) ∶= (2 𝜋 )−𝑑 ∕2 
+
+∫𝐾 
+
+𝑒 𝑖̃𝜙 (𝑡,𝑥,𝜉 )̃ 𝐴 (𝑡, 𝑥, 𝜉 )̂𝑢 0(𝜉 ) d 𝜉, 𝑆 𝐾 𝑐 (𝑡 )𝑢 0(𝑥 ) ∶= (2 𝜋 )−𝑑 ∕2 
+
+∫𝐾 
+
+𝑒 𝑖𝜙 𝑐 (𝑡,𝑥,𝜉 )̂𝑢 0(𝜉 ) d 𝜉. 
+
+Theorem 4.9 (Residual-to-propagator stability for scalar transport) . With the preceding definitions, 
+
+‖̃ 𝐹 𝐾 (𝑡 ) − 𝑆 𝐾 𝑐 (𝑡 )‖𝐿 2(ℝ𝑑 )→𝐿 2(𝑅 ) ≤ (2 𝜋 )−𝑑 ∕2 [𝔈 𝑡 (𝑒 𝐴, 0, 𝑟 𝐴 ) + 𝔈 𝑡 (𝑒 𝜙, 0, 𝑟 𝜙 )] . (24) 
+
+Corollary 4.10 (Propagator bound for exact Cauchy data) . Under the hypotheses of Theorem 4.9, suppose the phase and amplitude Cauchy data are imposed exactly, and let 
+
+𝑡 ∶= {( 𝑠, 𝑧, 𝜉 ) ∶ 0 < 𝑠 < 𝑡, 𝑧 ∈ 𝑅 𝑠 , 𝜉 ∈ 𝐾 }.
+
+Then 
+
+‖̃ 𝐹 𝐾 (𝑡 ) − 𝑆 𝐾 𝑐 (𝑡 )‖𝐿 2(ℝ𝑑 )→𝐿 2(𝑅 ) ≤ (2 𝜋 )−𝑑 ∕2 Γ𝜅 (𝑡 )
+
+(‖𝑟 𝐴 ‖𝐿 2(𝑡 ) + ‖𝑟 𝜙 ‖𝐿 2(𝑡 )
+
+)
+
+, (25) 
+
+where Γ𝜅 is defined in Eq. (16). 
+
+4.4. Full-solution error and frequency-truncation tail 
+
+The continuous residual estimate above is datum-uniform. Finite-collocation generalization and frequency truncation enter separately; the following corollary isolates the latter contribution. 
+
+Corollary 4.11 (Full-solution bound with the frequency tail) . Under the hypotheses of Corollary 4.10, let 𝑃 𝐾 be the Fourier projection ̂ 𝑃 𝐾 𝑢 ∶= 𝟏 𝐾 ̂𝑢 , and let 𝑆 𝑐 (𝑡 )𝑢 ∶= 𝑢 ◦𝑋 (0; 𝑡, ⋅) be the full scalar-transport propagator. Define 
+
+Δcont (𝑡 ) ∶= (2 𝜋 )−𝑑 ∕2 Γ𝜅 (𝑡 )
+
+(‖𝑟 𝐴 ‖𝐿 2(𝑡 ) + ‖𝑟 𝜙 ‖𝐿 2(𝑡 )
+
+)
+
+. (26) 
+
+Then every 𝑢 0 ∈ 𝐿 2(ℝ𝑑 ) satisfies 
+
+‖̃ 𝐹 𝐾 (𝑡 )𝑢 0 − 𝑆 𝑐 (𝑡 )𝑢 0‖𝐿 2(𝑅 ) ≤ Δcont (𝑡 )‖𝑢 0‖𝐿 2(ℝ𝑑 ) + 𝑒 𝜅𝑡 ∕2 ‖(𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(ℝ𝑑 ). (27) Corollary 4.11 concerns the continuous oscillatory integral ̃ 𝐹 𝐾 . For a numerical quadrature approximation ̃ 𝐹 𝐾,𝑄 ,the full error additionally contains ‖(̃ 𝐹 𝐾,𝑄 (𝑡 ) − ̃ 𝐹 𝐾 (𝑡 )) 𝑢 0‖𝐿 2(𝑅 ).
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 12 of 35 Microlocal neural operators 
+
+Proposition 4.12 (Sharp square-wave truncation tail) . For 𝑑 = 1 , fixed 𝑎 > 0, Ξ > 0, 𝐾 = [−Ξ , Ξ] , and the square-wave datum 𝑢 0 = 𝟏 [− 𝑎,𝑎 ], the Fourier-tail norm in Corollary 4.11 has the explicit bound 
+
+‖(𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(ℝ) ≤ 2
+
+√𝜋 Ξ
+
+, (28) 
+
+and, writing Si( 𝑠 ) ∶= ∫ 𝑠  
+
+> 0
+
+(sin 𝑞 )∕ 𝑞 d𝑞 , the exact relative identity 
+
+‖(𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(ℝ)
+
+‖𝑢 0‖𝐿 2(ℝ)
+
+=
+
+{ 2
+
+𝜋 
+
+[ sin 2(𝑎 Ξ) 
+
+𝑎 Ξ + 𝜋 
+
+2 − Si(2 𝑎 Ξ) 
+
+]} 1∕2 
+
+. (29) 
+
+Consequently, the sharp relative asymptotics are 
+
+‖(𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(ℝ)
+
+‖𝑢 0‖𝐿 2(ℝ)
+
+= 1
+
+√𝜋𝑎 Ξ+ 𝑂 (Ξ −3∕2 ) (Ξ → ∞) . (30) The bound in Eq. (25) is uniform over all 𝑢 0 ∈ 𝐿 2(ℝ𝑑 ) and therefore does not require the datum to be smooth; in particular, that bound covers the discontinuous-advection datum after frequency truncation. The Ξ−1∕2 rate in Eq. (30) is the 𝐿 2 form of the classical obstruction to spectral approximation of a discontinuous datum, whose pointwise counterpart is the Gibbs phenomenon (Gottlieb and Shu, 1997); that rate is a property of the truncated reconstruction window in Eq. (2), not of the learned generator, which is why Corollary 4.11 keeps the two terms separate. Section 5.1.2 evaluates this tail at the parameters of the discontinuous-advection benchmark and compares that tail with the observed error floor. 
+
+4.5. A fold normal-form illustration 
+
+We use the Airy normal form to describe a fold of the base projection of a propagated solution Lagrangian. The propagator canonical relation remains the operator-level object of Proposition 2.2. The systematic theory behind such normal forms, covering oscillatory integrals attached to Lagrange immersions and the unfolding of singularities of their base projections, is classical (Duistermaat, 1974). 
+
+Example 4.13 (The Airy fold, explicitly) . The canonical fold is generated by 𝜙 (𝑥, 𝜉 ) = 𝑥𝜉 − 𝜉 3∕3 . Then 𝜕 𝜉 𝜙 = 𝑥 − 𝜉 2,so the stationary set is 𝑥 = 𝜉 2. Its projection 𝜉 ↦ 𝑥 = 𝜉 2 has a fold at 𝜉 = 0 , whose caustic value is 𝑥 = 0 , and 
+
+𝜕 2 
+
+> 𝜉𝜉
+
+𝜙 = −2 𝜉 has a simple zero at 𝜉 = 0 . The generator 𝜙 is a polynomial, hence 𝐶 ∞ everywhere, including at the fold. In this specified normal-form chart, the Hessian represents the projection degeneracy on the critical set. The branchwise stationary-phase coefficient contains the factor |𝜕 2 
+
+> 𝜉𝜉
+
+𝜙 |−1∕2 = |2𝜉 |−1∕2 on the folding branches. Since 𝑥 = 𝜉 2,its illuminated-side base-distance scaling is 2−1∕2 𝑥 −1∕4 as 𝑥 → 0+. The Airy integral gives the uniform description at the fold, while these branchwise asymptotics apply away from the fold; higher unfoldings belong to the oscillatory-integral theory of Duistermaat (1974). 
+
+Remark 4.14 (Uniformized and branchwise fold behavior) . Example 4.13 separates the smooth polynomial phase from the branchwise coefficient produced by nondegenerate stationary phase away from the fold. For a properly supported order-zero FIO associated with a canonical graph, the standard FIO mapping theorem gives an 𝐿 2 → 𝐿 2 operator bound (Hörmander, 2009, Ch. 25). Ordinary stationary phase supplies the branchwise pointwise asymptotics away from the degenerate critical point. Example 4.13 and Remark 4.14 clarify the local geometry. The point-focus diagnostic of Sec. 5.1.6 uses a configuration in which all rays collapse, complementing this fold normal form. To fix the orders of magnitude, the standard normalized one-dimensional fold family, with 𝐴 ∈ 𝐶 ∞ 
+
+> 𝑐
+
+(ℝ) and 𝐴 (0) ≠ 0,
+
+(2 𝜋𝜀 )−1∕2 
+
+∫ 𝑒 𝑖 (𝑥𝜉 −𝜉 3∕3)∕ 𝜀 𝐴 (𝜉 ) d 𝜉 
+
+has an Airy transition of width 𝜀 2∕3 , across which the integral reaches size 𝜀 −1∕6 and its first 𝑥 -derivative size 𝜀 −5∕6 . The oscillatory integral is smooth for every fixed 𝜀 > 0; its Maslov change is encoded in the WKB branch representation.   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 13 of 35 Microlocal neural operators
+
+## 5. Experiments 
+
+The twelve studies are organized into three groups: propagation regimes; representational content, reuse, and extension; and efficiency and supervision. The studies comprise trained-generator benchmarks and exact-generator diagnostics. The latter isolate reconstruction through a point focus and resolved wavefront transport; the remaining studies evaluate learned generators, reuse, inverse recovery, dimensional extension, efficiency, and supervision. The two entries of Sec. 5.3 analyze runs already reported in Sec. 5.1 rather than adding training runs. Appendix E.1 pairs each study with its objective and benchmark and states the common protocol, baselines, and computing environment. Errors are relative 𝐿 2 errors, and trained MiNO results are reported as the mean and sample standard deviation over five seeds unless stated otherwise. 
+
+5.1. Propagation regimes 
+
+5.1.1. Smooth advection: closed-form calibration 
+
+A problem with no caustic and a known closed form calibrates the combined learned phase–amplitude model and numerical reconstruction against the exact phase-increment target −𝜉 .
+
+Protocol. Linear advection 𝜕 𝑡 𝑢 + 𝜕 𝑥 𝑢 = 0 is evaluated on 𝑥 ∈ [−3 , 3] , 𝑡 ∈ [0 , 1.5] , with the decaying Gaussian initial condition 𝑢 0(𝑥 ) = 𝑒 −𝑥 2∕(2 𝜎 2), 𝜎 = 0 .3, and the whole-line exact solution 𝑢 (𝑡, 𝑥 ) = 𝑢 0(𝑥 − 𝑡 ). The box is chosen so the translated Gaussian is negligible at its boundary over the evaluation interval; no periodic identification is used for the MiNO reference. The symbol is 𝑝 (𝑥, 𝜉 ) = 𝜉 , spatially homogeneous, so the exact phase is 𝑥𝜉 − 𝑡𝜉 and the target for the learned phase increment ℎ𝜃 is −𝜉 . Reconstruction uses the default composite trapezoidal rule (Appendix E.3). MiNO is trained for 50,000 steps over five seeds. The supervised FNO is trained over the same five seeds on its own labeled dataset and under its own epoch budget (Appendix E.4); step counts are not comparable across the two training modes. The two field baselines, the NTK-balanced PINN and the causal PINN of Wang et al. (2022a), enter at the 200,000-step cross-paradigm budget, at which MiNO is retrained over the same five seeds. The metric is the relative 𝐿 2 error at the final time 𝑡 = 1 .5.
+
+Results. At 50,000 steps, MiNO reaches 3.84 × 10 −3 ± 2 .18 × 10 −3 , and the supervised FNO, at its own budget, reaches 3.12 × 10 −2 ± 4 .27 × 10 −3 . At the 200,000-step cross-paradigm budget (Figure 3), MiNO reaches 
+
+1.32 × 10 −3 ± 4 .36 × 10 −4 , the NTK-balanced PINN reaches 5.48 × 10 −3 ± 2 .04 × 10 −3 , and the causal PINN reaches 
+
+6.09 × 10 −1 ± 2 .07 × 10 −1 .
+
+Interpretation. Without labeled solution trajectories, MiNO attains an error about eight times smaller than that of the supervised FNO on this benchmark; that contrast, and the data-distribution caveat attached to it, are examined directly in Sec. 5.3.2. In this configuration, the causal PINN exhibits a substantially larger mean error and greater seed-to-seed variability than the NTK-balanced PINN. 
+
+5.1.2. Discontinuous advection: a matched-budget comparison 
+
+On sharp transport, field learning and propagator learning occupy different regimes over the budget sweep. MiNO reaches the frequency-truncation floor of its reconstruction window while the NTK-balanced PINN remains near its initial error level. 
+
+Protocol. Linear advection 𝜕 𝑡 𝑢 + 𝜕 𝑥 𝑢 = 0 is evaluated on 𝑥 ∈ [−3 , 3] , 𝑡 ∈ [0 , 1.5] , with 𝑢 0(𝑥 ) = 𝟏 [−0 .3,0.3] (𝑥 ) and exact whole-line solution 𝑢 (𝑡, 𝑥 ) = 𝑢 0(𝑥 − 𝑡 ). The symbol is 𝑝 (𝑥, 𝜉 ) = 𝜉 ; the reconstruction uses 1024 frequency nodes on [−100 , 100] because the square-wave spectrum decays only like |𝜉 |−1 . MiNO and the NTK-balanced PINN are trained over five seeds at budgets of 500, 1,000, 2,000, 5,000, 10,000, 20,000, and 50,000 steps. The metric is the discrete relative 𝐿 2 error over the full 21 × 256 space–time evaluation grid; we additionally report the log–log ordinary-least-squares slope and the ratio of mean errors. 
+
+Results. Table 2 reports the full sweep with standard deviations. MiNO falls from 0.299 ± 0 .154 at 500 steps to 
+
+0.105 ± 0 .001 at 10,000 steps and 0.103 ± 0 .001 at 50,000 steps. The change after 10,000 steps is 0.002 , against a reduction of 0.194 over the preceding budgets, so the error floor is reached by 10,000 steps. The PINN stays at 
+
+0.943 ± 0 .011 at 500 steps, 0.953 ± 0 .011 at 10,000 steps, and 0.950 ± 0 .003 at 50,000 steps. Its error is essentially flat   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 14 of 35
+
+Microlocal neural operators smooth advection discontinuous advection wave equation         
+
+> c = 1+0.5sin (πx)
+> Gaussian datum
+> c = 1+0.5sin (πx)
+> discontinuous datum
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> relative  L 2 error (mean  ± sample s.d. over 5 seeds)
+> not run
+> MiNO PINN (NTK-balanced) causal PINN
+
+Figure 3: Cross-paradigm comparison on the 200,000-step runs, plotted on a log scale, for MiNO, the NTK-balanced PINN, and the causal PINN across smooth advection, discontinuous advection, wave propagation, and the Gaussian and discontinuous initial-data cases for 𝑐 (𝑥 ) = 1 + 0 .5 sin( 𝜋𝑥 ) of Sec. 5.1.5. Those two variable-coefficient groups are distinct from the 𝑐 (𝑥 ) = − 𝑥 stationary-point study of Sec. 5.1.4, which is not plotted here. All plotted errors use their respective final-time protocols. For the wave equation, the comparison includes MiNO and the causal PINN, the two implementations that enforce the zero-initial-velocity condition. The supervised FNO is evaluated separately. 
+
+Table 2 
+
+Discontinuous-advection learning curve for MiNO and the NTK-balanced PINN, evaluated over the full space–time grid. Budget (thousand steps) MiNO PINN PINN-to-MiNO ratio ( ×)
+
+0.5 0.299 ± 0 .154 0.943 ± 0 .011 3.15 1 0.179 ± 0 .051 0.949 ± 0 .012 5.31 2 0.136 ± 0 .038 0.953 ± 0 .014 7.03 5 0.127 ± 0 .049 0.954 ± 0 .014 7.53 10 0.105 ± 0 .001 0.953 ± 0 .011 9.09 20 0.105 ± 0 .003 0.952 ± 0 .007 9.09 50 0.103 ± 0 .001 0.950 ± 0 .003 9.19 
+
+over this range. The log–log convergence slope is −0 .21 for MiNO and +0 .001 for the PINN. The ratio of mean errors is 3.15× at 500 steps and 9.19× at 50,000 steps. The 200,000-step final-time benchmark (Figure 3) gives MiNO 0.140 ± 0 .001 , the NTK-balanced PINN 
+
+0.948 ± 4 × 10 −5 , and the causal PINN 0.484 ± 0 .160 , all at 𝑡 = 1 .5. The 50,000-step sweep reports full-grid error, whereas this 200,000-step benchmark reports final-time error. 
+
+Interpretation. Within this sweep, the two methods occupy different convergence regimes. The fitted PINN slope is essentially zero, with no material change in error as the optimization budget increases. The square wave is a transported 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 15 of 35 Microlocal neural operators 
+
+wavefront feature, a discontinuity whose wavefront set is propagated by the bicharacteristic flow. MiNO has a clear negative slope. For the generator, that same discontinuity is carried by the phase increment ℎ∗ = − 𝜉 , linear in the fiber variable and constant in 𝑡 and 𝑥 , together with unit amplitude. The feature the field target must resolve is absent from the object MiNO learns. Proposition 4.12 shows that truncating the square-wave spectrum at Ξ = 100 with datum half-width 𝑎 = 0 .3 leaves an exact relative 𝐿 2 tail of 0.1028 ; its leading asymptotic value is (30 𝜋 )−1∕2 = 0 .1030 . The analytic tail is therefore numerically close to the late-budget mean 0.103 , supporting the interpretation that the selected frequency window sets the leading scale of the observed late-budget error. The discrete metric additionally contains phase, amplitude, and quadrature error. The diagnostic of Wang et al. (2022b) applies. Inspection of the PINN run shows the PDE residual becoming numerically negligible while the initial-condition loss stalls. The network has converged to the trivial solution 𝑢 ≡ 0,which satisfies 𝜕 𝑡 𝑢 + 𝜕 𝑥 𝑢 = 0 everywhere. This behavior is consistent with documented difficulties of strong-form residual training on hyperbolic transport carrying a sharp front (Fuks and Tchelepi, 2020; Krishnapriyan et al., 2021). The present comparison adds a matched-budget learning curve against a propagator-learning target on the same problem. That failure mode is unavailable to MiNO, and not because of tuning. The collapse requires a competition between an equation residual and a separate initial-condition penalty, and the time-factored parameterization in Eq. (9) removes the second term: Φ𝜃 (0 , ⋅, ⋅) = 𝑥 ⋅ 𝜉 and 𝐴 𝜃 (0 , ⋅, ⋅) = 1 hold identically in 𝜃 , so 0 in Eq. (8) vanishes for every parameter value (Sec. 3.3). Driving the eikonal and transport residuals to zero cannot trade the Cauchy datum away, because that datum is not something the optimizer holds. What separates the two methods here is the parameterized target itself, not the optimizer applied to it. 
+
+5.1.3. Wave propagation: bidirectional dynamics 
+
+MiNO handles the second-order wave equation through a two-branch generator, without leaving the propagator-learning paradigm; the canonical relation there has two branches, the left and right movers. 
+
+Protocol. For the one-dimensional wave equation 𝑢 𝑡𝑡 = 𝑢 𝑥𝑥 with zero initial velocity, the d’Alembert decomposition used here is 
+
+𝑢 (𝑡, 𝑥 ) = 12 (𝐹 +(𝑡 )𝑢 0)( 𝑥 ) + 12 (𝐹 −(𝑡 )𝑢 0)( 𝑥 ) = 12 [𝑢 0(𝑥 − 𝑡 ) + 𝑢 0(𝑥 + 𝑡 )] .
+
+The normalized branches have phases (𝑥 − 𝑡 )𝜉 and (𝑥 + 𝑡 )𝜉 and branch amplitudes 𝐴 ± ≡ 1; the explicit external weights 
+
+1∕2 ensure that their sum equals 𝑢 0 at 𝑡 = 0 . The evaluation domain is 𝑥 ∈ [−3 , 3] , 𝑡 ∈ [0 , 1.5] , with initial displacement 
+
+𝑢 0(𝑥 ) = 𝑒 −𝑥 2∕(2 𝜎 2), 𝜎 = 0 .2, and zero initial velocity. The two characteristic families are carried by two single-branch generators, so the parameter count doubles relative to single-branch MiNO (Table 3). MiNO is trained over five seeds at both the 50,000-step and 200,000-step budgets. The 50,000-step MiNO metric is the discrete relative 𝐿 2 error on the full 21 × 256 space–time grid; the 200,000-step cross-paradigm metric is the final-time relative 𝐿 2 error at 𝑡 = 1 .5.The causal PINN supplies the wave baseline because that baseline enforces both the initial displacement and the initial velocity. 
+
+Results. At 50,000 steps, MiNO reaches 8.29 × 10 −3 ± 2 .90 × 10 −3 on the full grid. Under the 200,000-step final-time protocol (Figure 3), MiNO reaches 8.57 × 10 −3 ± 1 .65 × 10 −3 and the causal PINN is at 0.536 ± 0 .189 .
+
+Interpretation. Each branch carries its own eikonal phase and transport amplitude, so the two-branch superposition is the simplest instance of the phase-branch management that higher-dimensional propagation requires. The mean error is about 63 times smaller than that of the causal baseline at the same final-time budget and is stable across seeds at the 
+
+10 −3 level. 
+
+5.1.4. Variable-coefficient transport with a stationary point 
+
+This experiment tests the learned eikonal generator for one inhomogeneous scalar-transport symbol whose velocity vanishes at an interior point. 
+
+Protocol. The problem is 𝜕 𝑡 𝑢 − 𝑥𝜕 𝑥 𝑢 = 0 as a whole-line Cauchy problem evaluated on 𝑥 ∈ [−2 .5, 2.5] , 𝑡 ∈ [0 , 1.5] ,with 𝑢 0(𝑥 ) = (2 𝜋𝜎 2)−1∕2 𝑒 −𝑥 2∕(2 𝜎 2), 𝜎 = 0 .3, and symbol 𝑝 (𝑥, 𝜉 ) = − 𝑥𝜉 . Its flow is 𝑥 (𝑡 ; 𝑦 ) = 𝑒 −𝑡 𝑦 , its projection Jacobian   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 16 of 35 Microlocal neural operators
+
+is 𝑒 −𝑡 , and hence 
+
+𝑢 (𝑡, 𝑥 ) = 𝑢 0(𝑒 𝑡 𝑥 ), Φ( 𝑡, 𝑥, 𝜉 ) = 𝑒 𝑡 𝑥𝜉, 𝐴 ≡ 1.
+
+The run uses five seeds (Appendix E.3) and reports relative 𝐿 2 at 𝑡 ∈ {0 .5, 1.0, 1.5} . Its training budget is 20,000 steps. 
+
+Results. The relative 𝐿 2 is 8.89 × 10 −3 ± 3 .09 × 10 −3 at 𝑡 = 0 .5, 1.64 × 10 −2 ± 5 .88 × 10 −3 at 𝑡 = 1 .0, and 
+
+2.37 × 10 −2 ± 6 .81 × 10 −3 at 𝑡 = 1 .5.
+
+Interpretation. The errors grow with time while remaining below 0.024 in this window. Differentiating the symbol 
+
+𝑝 = 𝑐 (𝑥 )𝜉 supplies the eikonal residual by the construction of Sec. 3.5, whose analytic check is the characteristic phase 
+
+Φ = 𝑋 (0; 𝑡, 𝑥 )𝜉 with scalar amplitude 𝐴 ≡ 1; the eikonal closure therefore follows from the coefficient without being specified by hand, and the run uses the constant-amplitude specialization of Sec. 3.2. The velocity vanishes at 𝑥 = 0 ,while 𝜕 𝑦 𝑥 (𝑡 ; 𝑦 ) = 𝑒 −𝑡 > 0 for every finite 𝑡 , so the ray projection stays nonsingular and the test isolates a stationary point of the symbol from a projection singularity. 
+
+5.1.5. Variable-coefficient transport with a sinusoidal speed 
+
+The second inhomogeneous symbol carries the cross-paradigm comparison of Figure 3 for both a smooth and a discontinuous initial datum, so the effect of initial-data regularity is separated from the effect of the variable coefficient. 
+
+Protocol. The problem is 𝜕 𝑡 𝑢 + 𝑐 (𝑥 )𝜕 𝑥 𝑢 = 0 with 𝑐 (𝑥 ) = 1 + 0 .5 sin( 𝜋𝑥 ) on 𝑥 ∈ [−1 , 1] , one spatial period of the coefficient, and 𝑡 ∈ [0 , 1] . The reference is the characteristic pullback 𝑢 (𝑡, 𝑥 ) = 𝑢 0(𝑋 (0; 𝑡, 𝑥 )) evaluated by numerical backward integration of ̇ 𝑋 = 𝑐 (𝑋 ). Two initial data are used: the Gaussian 𝑢 0(𝑥 ) = 𝑒 −25( 𝑥 +0 .5) 2
+
+and the square wave 
+
+𝑢 0 = 𝟏 [−0 .8,−0 .2] . Reconstruction uses the default composite trapezoidal rule on a wider frequency window for the square wave than for the Gaussian datum, again reflecting the |𝜉 |−1 spectral decay (Appendix E.3). MiNO, the NTK-balanced PINN, and the causal PINN are trained over five seeds at the 200,000-step cross-paradigm budget; the metric is final-time relative 𝐿 2 at 𝑡 = 1 on the 256-point spatial grid. 
+
+Results. For the Gaussian datum, MiNO reaches 0.052 ± 0 .043 , the NTK-balanced PINN 0.801 ± 0 .001 , and the causal PINN 0.370 ± 0 .160 . For the square wave, MiNO reaches 0.112 ± 0 .021 , the NTK-balanced PINN 0.739 ± 0 .001 ,and the causal PINN 0.265 ± 0 .173 . Figure 3 plots both groups alongside the constant-coefficient cases. 
+
+Interpretation. A spatially varying speed makes the exact phase 𝑋 (0; 𝑡, 𝑥 )𝜉 nonlinear in 𝑥 , so the generator is no longer the polynomial phase of the constant-coefficient benchmarks. MiNO yields lower errors than both field baselines for both initial data, with error ratios ranging from approximately 2.4 to 15 .4. The MiNO seed spread is the widest recorded in this study, a factor of about 17 between the best and worst seeds on the Gaussian datum. Accuracy here is set by the seed-to-seed variance of the learned phase, not by the reconstruction. 
+
+5.1.6. A point focus: exact-generator reconstruction 
+
+A caustic makes the base projection of a propagated solution Lagrangian singular while a uniformizing oscillatory representation can remain regular. This experiment evaluates that representation through a point focus. 
+
+Protocol. We reconstruct through the focus using the exact phase 𝜙 (𝑡, 𝑥, 𝜉 ) = 𝑥𝜉 − 𝑡𝜉 2∕2 for the free Schrödinger multiplier 𝑝 (𝜉 ) = 𝜉 2∕2 in Eq. (2) with 𝐴 ≡ 1, and compare its reconstruction with a high-resolution spectral solution. The datum is a two-bump amplitude carrying the converging chirp exp(− 𝑖𝑦 2∕(2 𝑓 )) ,
+
+𝑢 0(𝑦 ) = 
+
+[
+
+𝑒 −( 𝑦 −𝛿 )2∕(2 𝜎 2) + 0 .6𝑒 −( 𝑦 +𝛿 )2∕(2 𝜎 2)]
+
+𝑒 −𝑖𝑦 2∕(2 𝑓 ), 𝜎 = 0 .3, 𝛿 = 0 .4𝜎, 𝑓 = 1 ,
+
+whose unequal bumps keep the exact solution outside the closed-form chirped Gaussian family. Its rays satisfy 
+
+𝑥 (𝑡 ; 𝑦 ) = (1 − 𝑡 ∕𝑓 )𝑦, 𝐽 proj (𝑡, 𝑦 ) = 1 − 𝑡 ∕𝑓 . 
+
+Thus 𝐽 proj vanishes at 𝑡 = 𝑓 . Because the ray map is linear in 𝑦 , all rays collapse simultaneously at 𝑡 = 𝑓 , producing a point-focus blowdown. The reconstruction uses the Filon rule of Appendix E.3 with 4096 frequency nodes on [−30 , 30] ,outside which the two-bump spectrum is negligible, and ̂𝑢 0 is computed by quadrature over 𝑦 ∈ [−6 , 6] with 8192   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 17 of 35
+
+Microlocal neural operators 0.0 0.5 1.0 1.5 2.0            
+
+> t/f
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> relative  L 2 vs spectral reference
+> focal time t=f
+> 10 −3
+> periodic-wrap floor (narrow box only)
+> box L= 16 box L= 32 box L= 48
+
+Figure 4: Point-focus reconstruction from the exact generator, with no network trained, plotted against the periodic spectral reference computed on the box [− 𝐿 ∕2 , 𝐿 ∕2) . Widening that box removes the periodic-wrap floor; at 𝐿 = 32 and 𝐿 = 48 
+
+the reconstruction stays below 10 −3 relative 𝐿 2 through and past the focal time 𝑡 = 𝑓 .
+
+nodes. The reference is the periodic spectral solution on the box [− 𝐿 ∕2 , 𝐿 ∕2) at the fixed spacing Δ𝑥 = 1∕256 , for the three widths 𝐿 ∈ {16 , 32 , 48} ; both fields are compared on |𝑥 | ≤ 3 at 𝑡 ∕𝑓 ∈ {0 , 0.5, 0.9, 1, 1.1, 1.5, 2} . Since the free evolution spreads the datum, a narrow box wraps the datum periodically, and the reference, not the reconstruction, is what 𝐿 controls. 
+
+Results. The reconstruction tracks the spectral solution through and past the focal time, with relative 𝐿 2 below 10 −3 at every sampled time once the reference box is wide enough to remove periodic wrap-around (Figure 4). 
+
+Interpretation. At finite wavelength, the oscillatory integral remains finite and smooth at every sampled time, including the focal time. The singularity therefore lives in the base projection of the solution Lagrangian, not in the uniform reconstruction. 
+
+5.2. Representational content, reuse, and extension 
+
+5.2.1. Finite-resolution microlocal fidelity 
+
+A reconstruction can match coarse values while losing resolved high-frequency localization. The generator reconstruction preserves the transported ridge in a fixed-resolution wave-packet diagnostic. 
+
+Protocol. A propagated discontinuity is examined with one fixed Fourier–Bros–Iagolnitzer-type wave-packet transform 
+
+𝑇 𝜆 𝑣 (𝑥 0, 𝜉 0) ∶= ( 𝜆 ∕𝜋 )1∕4 
+
+∫ 𝑒 𝑖𝜉 0(𝑥 −𝑥 0)𝑒 −𝜆 (𝑥 −𝑥 0)2∕2 𝑣 (𝑥 ) d 𝑥, 𝜆 = 40 ,
+
+whose squared modulus is the portrait plotted in Figure 5. The datum is 𝑢 0 = 𝟏 [−0 .4,0] under unit-speed advection, sampled at 𝑡 = 0 .5 on 1024 points of 𝑥 ∈ [−1 , 1] , so the two transported jumps sit at 𝑥 = 0 .1 and 𝑥 = 0 .5. The portrait 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 18 of 35 Microlocal neural operators −200 −100 0 100 200                 
+
+> ξ0
+> −0.8 −0.4 0.0 0.4 0.8
+> x0
+> transported jumps
+> exact solution
+> (a)
+> −200 −100 0100 200
+> ξ0
+> exact-generator reconstruction
+> (b)
+> −200 −100 0100 200
+> ξ0
+> low-pass surrogate
+> (c)
+> −12 −10 −8 −6 −4 −2
+> log 10 |Tλu(x0,ξ0)| 2(common scale)
+
+Figure 5: Fixed-resolution wave-packet portrait log 10 |𝑇 𝜆 𝑢 (𝑥 0, 𝜉 0)|2 of a propagated discontinuity at 𝜆 = 40 , on a common color scale: (a) the exact grid values, with the two transported jumps marked; (b) the reconstruction from the exact finite-window generator, with no network trained; and (c) a low-pass surrogate keeping the first 12 Fourier modes. The generator reconstruction preserves the resolved high-frequency ridge attached to those jumps, whereas the surrogate removes that ridge while retaining coarse content. 
+
+grid carries 80 points on 𝑥 0 ∈ [−0 .8, 0.8] and 200 points on 𝜉 0 ∈ [−260 , 260] . Three fields are compared on that grid: the exact grid values; the reconstruction from the exact generator with 8192 trapezoidal nodes on [−300 , 300] ; and a low-pass surrogate that keeps the first 12 discrete Fourier modes of the same grid, i.e. , |𝜉 | ≲ 35 .
+
+Results. The low-frequency content agrees across all three portraits. In the resolved high-frequency band associated with the transported discontinuity, the generator reconstruction follows the ridge of the exact solution while the low-pass surrogate does not (Figure 5). 
+
+Interpretation. At this grid and wave-packet scale, the diagnostic separates value agreement from microlocal agreement. The generator reconstruction carries content that a value-matched low-pass surrogate does not, namely the resolved high-frequency band attached to the transported discontinuity. 
+
+5.2.2. Multi-initial-condition propagator reuse 
+
+A generator trained once for a fixed symbol applies to structurally distinct initial conditions without retraining, because the initial condition enters Eq. (2) only through ̂𝑢 0.
+
+Protocol. A single MiNO generator is trained for 30,000 steps with one seed, using only residuals for the free-particle symbol 𝑝 (𝜉 ) = 𝜉 2∕2 . No initial datum enters that objective. The generator is then evaluated, with no further optimization, on five structurally distinct initial conditions: Gaussian, chirp-Gaussian, double-Gaussian, smooth step, and cosine-envelope. The metric is the relative 𝐿 2 error before, at, and after 𝑡 = 0 .5.
+
+Results. At 𝑡 = 0 .5, the relative 𝐿 2 is 0.080 for the Gaussian, 0.096 for the chirp-Gaussian, 0.070 for the double-Gaussian, 0.077 for the smooth step, and 0.105 for the cosine-envelope, with mean 0.086 across the five; the Gaussian serves as the calibration case. 
+
+Interpretation. The generator is reused across initial conditions at comparable error levels, with the largest recorded error on the cosine-envelope. This reuse realizes the linearity of Eq. (2) in ̂𝑢 0. The learned object is the symbol’s generator, and the datum is supplied to the reconstruction quadrature, not to the network. For the chirp-Gaussian, the 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 19 of 35 Microlocal neural operators 
+
+evaluation time also probes focal behavior, since that datum contains the two quadratic-phase components 𝑒 ±𝑖𝑥 2∕(2 𝑓 )
+
+and the minus component has ray map 𝑥 (𝑡 ; 𝑦 ) = (1 − 𝑡 ∕𝑓 )𝑦 , whose projection collapses at 𝑡 = 𝑓 = 0 .5; the other data have different phase geometry. Section 5.1.6 isolates the focus in the point-focus diagnostic. 
+
+5.2.3. Inverse transport-speed recovery 
+
+The learned propagator can serve as a structured forward model within a parameter-recovery problem, extending its use beyond forward solving. 
+
+Protocol. The forward problem is 𝜕 𝑡 𝑢 + 𝑐𝜕 𝑥 𝑢 = 0 on 𝑥 ∈ [0 , 3] , 𝑡 ∈ [0 , 1] , with a Gaussian initial condition of width 
+
+0.15 centered at 0.5. Observations are 8 time points by 16 spatial points, 128 in total, with additive noise of standard deviation 𝜎 ∈ {0 , 0.01 , 0.02 , 0.05} over five noise seeds, for true speeds 𝑐 ∈ {0 .9, 1.3, 1.5} . Three recovery methods are compared. M1 is a bank of 21 MiNO forward models pre-trained at candidate speeds 𝑐 ∈ {0 .80 , 0.85 , … , 1.80} for 5,000 steps each, recovering 𝑐 by the argmin of the data mean squared error. M2 is an analytic forward-model oracle that performs gradient descent on log 𝑐 using the exact closed-form solution; this method is an oracle because the exact closed-form solution must be known in advance. M3 is a PINN inverse that jointly optimizes network weights and 𝑐 
+
+over 10,000 steps. The metric is the mean absolute error in 𝑐 over the fifteen combinations of true speed and seed at each noise level. 
+
+Results. The three true speeds lie on the 0.05 -spaced M1 candidate grid, so recovery by M1 is a grid-node identification rather than a continuous estimate. M1 selects the true-speed node in all sixty configurations, the sampled array of 21 misfit values having a unique minimum there in every run, and its mean absolute error in 𝑐 therefore vanishes at every tested noise level; that value is not comparable with the continuous estimates below. For the analytic oracle M2, the mean absolute error is 0.0000 , 0.0008 ± 0 .0004 , 0.0016 ± 0 .0008 , and 0.0039 ± 0 .0020 at 𝜎 = 0 , 0.01 , 0.02 , 0.05 ,and for the PINN inverse M3, the mean absolute error is 0.0004 ± 0 .0004 , 0.0018 ± 0 .0015 , 0.0036 ± 0 .0025 , and 
+
+0.0100 ± 0 .0064 at the same noise levels. 
+
+Interpretation. The pre-trained generator bank turns inverse recovery into a one-parameter grid-node identification problem, whereas M2 and M3 estimate a continuous parameter and their errors track the noise level. Off-grid resolution for M1 is determined by the candidate spacing and can be increased through grid refinement or local optimization. The experiment thus demonstrates structured one-parameter recovery with a pre-trained forward-model bank. 
+
+5.2.4. Two-dimensional zero-velocity wave propagation 
+
+This experiment carries the same phase-space parameterization and reconstruction to 𝑇 ∗(ℝ2) for a zero-velocity wave solution. 
+
+Protocol. The run uses a single half-wave branch, whose chosen principal symbol is 𝑝 −(𝜉 ) = − |𝜉 | for 𝜉 = ( 𝜉 1, 𝜉 2). The run therefore targets Φ = 𝑥 ⋅ 𝜉 + 𝑡 |𝜉 | on 𝑇 ∗(ℝ2) = ℝ4 and returns the real part of the resulting single half-wave integral. For the real Gaussian datum and zero initial velocity used here, Re( 𝑒 𝑖𝑡 |𝐷 |𝑢 0) = cos( 𝑡 |𝐷 |)𝑢 0, so this real projection is the exact wave solution. Mathematically, |𝜉 | is smooth and positively homogeneous of degree one on ℝ2 ⧵ {0} . Training samples frequencies from the full square [−40 , 40] 2 and uses a negligible positive regularization of |𝜉 | at the origin. Accordingly, the homogeneous-FIO analysis applies away from the zero section. The model is trained over five seeds for 30,000 steps. The metric is the relative 𝐿 2 error at 𝑡 ∈ {0 , 0.1, 0.3, 0.5} .
+
+Results. The relative 𝐿 2 is 2.1 × 10 −3 at 𝑡 = 0 , 3.8 × 10 −3 ± 1 .8 × 10 −3 at 𝑡 = 0 .1, 1.6 × 10 −2 ± 5 .7 × 10 −3 at 𝑡 = 0 .3,and 2.2 × 10 −2 ± 6 .0 × 10 −3 at 𝑡 = 0 .5, with all five seeds below 0.03 at 𝑡 = 0 .5 and the worst seed at 0.0285 . The 
+
+𝑡 = 0 value is the initial-condition consistency check; that value is identical across seeds because the parameterization imposes Φ𝜃 (0) = 𝑥 ⋅ 𝜉 and 𝐴 𝜃 (0) = 1 exactly. 
+
+Interpretation. The same phase-space parameterization carries to four-dimensional phase space through one half-wave generator, a two-dimensional oscillatory reconstruction, and a real projection supplying the conjugate branch for this real zero-velocity datum. The error growth in time is comparable to that in the one-dimensional variable-coefficient case. This experiment demonstrates the parameterization with a full two-dimensional oscillatory quadrature; scalable quadrature is the main computational frontier in further dimensions.   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 20 of 35 Microlocal neural operators
+
+5.3. Efficiency and supervision 
+
+5.3.1. Parameter count and wall-clock comparison 
+
+The convergence-regime advantage of Sec. 5.1.2 occurs with a lower parameter count and a comparable or higher per-step cost, so that advantage is not attributable to model capacity or to cheaper steps. 
+
+Protocol. Parameter counts follow from the architectures in Appendix E.4. Wall-clock time is measured on the 200,000-step runs using the common hardware described in Appendix E.1. 
+
+Results. Table 3 reports the parameter counts and the measured per-step times. Single-branch MiNO uses 58,658 parameters, fewer than every baseline in the comparison; the two-branch wave configuration uses 117,316. On smooth advection, MiNO costs slightly more per step than the NTK-balanced PINN, and on the wave problem, two-branch MiNO costs slightly less than the causal PINN.                 
+
+> Table 3
+> Parameter counts and per-step wall-clock time on the 200,000-step runs. Every method listed is trained on residuals alone, with no labeled solution data, except the FNO, which is supervised on solutions under a separate epoch budget and is not timed here. The single-branch MiNO and NTK-balanced PINN rows are timed on smooth advection; the two-branch MiNO and causal PINN rows are timed on the wave problem. Paradigm Method Parameters Time per step (ms) Propagator learning MiNO (single-branch) 58,658 2.5
+> MiNO (two-branch wave) 117,316 5.1
+> Field learning PINN (NTK-balanced) 99,649 2.0
+> Causal PINN 202,764 6.3
+> Operator learning FNO (supervised) 329,281 —
+
+Interpretation. Single-branch MiNO has the smallest parameter count among the compared models; the observed regime separation is therefore not explained by additional capacity. Its per-step cost on smooth advection reflects the phase-space eikonal and transport residuals and the automatic-differentiation derivatives those residuals require (Baydin et al., 2017). The time-to-accuracy advantage therefore comes from needing far fewer steps to reach that scale (Sec. 5.1.2). The residual-only objective in Eq. (8) excludes the oscillatory reconstruction, which is used only for prediction and periodic evaluation; the reported hardware-specific timings include that periodic evaluation under the stated collocation batching and derivative requirements. 
+
+5.3.2. Supervised Fourier neural operator comparison 
+
+The two paradigms differ in what they consume as a training signal. This comparison records that asymmetry at the smooth-advection operating point of Sec. 5.1.1; the comparison analyzes the runs reported there rather than introducing a new training run. 
+
+Protocol. The supervised FNO baseline of Li et al. (2021) is trained on solution data and compared against unsupervised MiNO on smooth advection under the same final-time metric (Sec. 5.1.1). Appendix E.4 records its architecture, and Table 3 reports its parameter count. 
+
+Results. The two final-time errors are those of Sec. 5.1.1. MiNO is trained on residuals alone; the FNO is trained on 1024 labeled input–output pairs drawn from a band of sinusoids, so the localized Gaussian used for evaluation lies outside its training distribution (Appendix E.4). 
+
+Interpretation. At this operating point, the residual-trained generator reaches the lower error while consuming no labeled solution data, placing the eikonal and transport residuals on the same footing as supervision for a translation symbol whose propagation geometry is simple.   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 21 of 35
+
+Microlocal neural operators proximity to a projection singularity  
+
+> truncation window and resolution can dominate favorable calibration and reuse setting slow spectral tails plus branch management uniform phase-space representation is relevant
+> rougher datum smoother datum
+> increasing datum regularity
+> farther nearer
+
+Figure 6: Conceptual failure-mode coordinates based on datum regularity and proximity to a projection singularity. The four situations are qualitative prompts for method selection, not measured regimes or decision boundaries. 
+
+## 6. Discussion and conclusions 
+
+6.1. Applicability and scope 
+
+The three targets have complementary regimes. Field-learning methods are well suited to smooth, directly observable solutions and provide a flexible framework for inverse problems. Neural operators are effective when large trajectory datasets are available and fast amortized inference across a PDE family is the goal. Propagator learning is most relevant when the propagation geometry is simpler than the projected solution, as in transport, waves, sharp fronts, caustics, inverse propagation, and shared-symbol reuse across initial conditions. The exact-generator diagnostic demonstrates regular reconstruction through the free-particle focus studied here. The three targets do not consume the same information, and the reported margins should be read accordingly. MiNO and the field baselines are both given the governing equation, but they are asked for different objects. On the constant-coefficient benchmarks, the exact phase increment is the linear function ℎ∗ = − 𝜉 , constant in 𝑡 and 𝑥 , whereas the corresponding field carries the transported front. The supervised FNO is given labeled pairs rather than the symbol. The comparisons therefore measure how much the choice of representational target changes the difficulty of the learning problem under a fixed governing equation, not the performance of methods supplied with identical information. Datum regularity and proximity to a projection singularity provide natural qualitative coordinates for discussing the regime boundary (Figure 6). The present evidence is scoped: The trained studies use linear problems in one and two space dimensions, a single phase chart, zero subprincipal symbols, and constant target amplitudes. The comparison covers two PINN variants and one supervised FNO at the stated budgets; the FNO test uses a localized Gaussian outside its sinusoidal training distribution. Nontrivial chart transitions, nonconstant learned amplitudes, broader PDE families, and additional matched baselines remain open evaluation directions. Appendix F gives the full limitations. 
+
+6.2. Conclusions 
+
+MiNO develops propagator learning as a third target alongside solution-field and solution-map learning. Its learned object is chartwise phase–amplitude data on the cotangent bundle: The eikonal equation constrains the phase, the transport equation evolves the amplitude, and an oscillatory quadrature returns the solution. Sharp fronts, discontinuities, and caustics are thereby represented through propagation geometry rather than only as features that a field surrogate must resolve pointwise. 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 22 of 35 Microlocal neural operators 
+
+The residual-to-error analysis developed in Sec. 4 controls the phase, the canonical graph, and the truncated propagator through residuals of the generator alone, while separating the frequency-truncation tail from that control. For discontinuous data the tail is sharp at rate Ξ−1∕2 (Proposition 4.12), and its value provides a reference scale for interpreting the late-budget error on the chosen window. Computationally, the target produces a distinct optimization regime in the wavefront-dominated benchmark. On discontinuous advection, MiNO reaches an error level consistent with the reconstruction-window tail while the NTK-balanced PINN remains near its initial error over the matched sweep, and at the reported smooth-advection operating point MiNO attains a lower mean error than the supervised FNO without using labeled trajectories. The remaining studies carry the same generator to bidirectional waves, to reuse across initial conditions, to inverse speed recovery, and to four-dimensional phase space, and the exact-generator diagnostic reconstructs through the focal time, with single-branch MiNO the smallest model in the comparison. Propagator learning reframes neural PDE solving as learning the geometry that generates physical evolution rather than only the field that records that evolution. Where that geometry is simpler than the projected solution, the choice of target, and not the choice of optimizer, is what sets the difficulty of the learning problem. 
+
+## A. Notation 
+
+Table A.1 collects the symbols that recur throughout the paper, ordered as the construction is built: phase-space coordinates, the symbol and its canonical geometry, the learned generator and its Fourier-integral reconstruction, the training residuals, and the quantities that enter the residual-to-error estimates of Sec. 4. Symbols confined to a single experiment or proof are defined at the point of occurrence. 
+
+## B. Related work 
+
+This appendix positions MiNO through the three-target taxonomy of Sec. 2. The comparison emphasizes what each method learns, how physics enters, and whether propagation geometry is represented explicitly. 
+
+B.1. Solution-field learning and its remedies 
+
+PINNs parameterize a field 𝑢 𝜃 (𝑡, 𝑥 ) and minimize strong-form PDE, initial-condition, and boundary residuals at collocation points (Raissi et al., 2019; Sirignano and Spiliopoulos, 2018; Yu et al., 2018), with derivatives computed by automatic differentiation (Baydin et al., 2017); the broader framework is surveyed by Karniadakis et al. (2021). This target is effective for smooth fields and remains a flexible mesh-free framework for inverse problems, but a transported discontinuity must still be represented as a nonsmooth function on the base manifold. Two families of remedies address that difficulty without changing the learned object. Weak-form training replaces an undefined shock residual by a Kružkov entropy formulation (Kružkov, 1970; Ryck et al., 2024), and Lagrangian PINNs move collocation points along characteristics, producing a frame in which the convection-dominated solution manifold has a more rapidly decaying 𝑛 -width (Mojgani et al., 2023). Causal weighting, gradient or NTK loss balancing, and modified MLPs with Fourier features instead improve the training dynamics (Wang et al., 2021a, 2022a,b, 2023; Krishnapriyan et al., 2021). The Lagrangian formulation is the closest field-learning analog of MiNO, but that formulation transports coordinates while retaining a field target; MiNO learns the phase–amplitude generator of the flow on 𝑇 ∗Ω.The experiments compare against strong-residual NTK-balanced and causal PINNs (Sec. 5.1.2). 
+
+B.2. Solution-operator learning 
+
+The FNO (Li et al., 2021), DeepONet (Lu et al., 2021), and the general neural-operator framework (Kovachki et al., 2023) learn 𝜃 ∶ 𝑢 0 ↦ 𝑢 (𝑡, ⋅) between function spaces. DeepONet uses a branch–trunk factorization rooted in universal approximation for nonlinear operators (Chen and Chen, 1995); the FNO alternates truncated spectral convolutions with pointwise operations. Both have approximation theory with explicit error bounds (Kovachki et al., 2021; Lanthaler et al., 2022). For advection-dominated problems with discontinuous solutions, however, linear reconstruction maps obey lower bounds that nonlinear reconstruction can avoid (Lanthaler et al., 2023). Physics-informed operator methods replace labeled trajectories by PDE residuals while preserving the same solution-map target (Wang et al., 2021b; Li et al., 2024). Standard neural operators encode propagation geometry implicitly through the learned input–output map and its training distribution. MiNO parameterizes that geometry explicitly through a generator from which a solution map is   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 23 of 35
+
+Microlocal neural operators 
+
+Table A.1 
+
+List of notation: the symbols used repeatedly in the paper. 
+
+Symbol Meaning 
+
+Phase space and data 
+
+𝑑, Ω, [0 , 𝑇 ] Spatial dimension; domain ℝ𝑑 , 𝕋 𝑑 , or a chart; time interval 
+
+𝑇 ∗Ω Cotangent bundle {( 𝑥, 𝜉 )} ; the phase space of the generator 
+
+𝑥, 𝜉 Base point; initial Fourier (fiber) label of the generator 
+
+𝜁 Current covector 𝜁 = ∇ 𝑥 Φ𝜃 (𝑡, 𝑥, 𝜉 )
+
+𝑢 0, 𝑢 (𝑡, 𝑥 ) Initial datum; solution of the Cauchy problem ̂𝑣 Fourier transform of 𝑣 𝐷 𝑡 , 𝐷 𝑥 −𝑖𝜕 𝑡 and −𝑖 ∇𝑥 ; fix the eikonal sign convention 
+
+Symbol and canonical geometry 
+
+𝑝 (𝑥, 𝜉 ) Principal symbol of the evolution operator 
+
+𝑝 sub Subprincipal symbol in the chosen (Weyl) quantization 
+
+𝑐 (𝑥 ) Transport velocity of the scalar symbol 𝑝 = 𝑐 (𝑥 )𝜉 𝐻 𝑝 Hamiltonian vector field (∇ 𝜁 𝑝, −∇ 𝑥 𝑝 )
+
+𝜒 𝑡 Time-𝑡 Hamiltonian (bicharacteristic) flow of 𝑝 𝑋 (𝑠 ; 𝑡, 𝑥 ) Characteristic flow of 𝑐 , from time 𝑡 back to time 𝑠 
+
+WF , WF ′ Wavefront set of a distribution; its twisted form for a kernel 
+
+𝑡 ,̃ 𝑡 Canonical relation of the exact propagator; of a learned phase 
+
+𝜈, 𝑚 𝜈 Maslov index; its unit-modulus chart-transition factor 
+
+Learned generator and reconstruction 
+
+𝜙, 𝐴 Exact chart phase and amplitude 
+
+Φ𝜃 , 𝐴 𝜃 Learned phase and amplitude: the propagator generator 
+
+ℎ𝜃 Phase network; Φ𝜃 = 𝑥 ⋅ 𝜉 + 𝑡ℎ 𝜃 
+
+𝛼 𝜃 , 𝐵 𝜃 Log-amplitude network; 𝐵 𝜃 = exp( 𝑡𝛼 𝜃 )
+
+𝐹 𝜙,𝐴 Fourier-integral reconstruction operator 
+
+𝑅, 𝐾, Ξ Bounded spatial output set; compact frequency window and its half-width 
+
+𝑃 𝐾 Fourier projection onto the window 𝐾̃ 𝐹 𝐾 , 𝑆 𝐾 𝑐 , 𝑆 𝑐 Learned truncated, exact truncated, and full transport propagators 
+
+Learning problem and residuals 
+
+𝜃 Trainable network parameters 
+
+eik Eikonal residual 𝜕 𝑡 Φ𝜃 + 𝑝 (𝑥, ∇𝑥 Φ𝜃 )
+
+tr Chart transport residual of the amplitude 
+
+𝑣 𝜃 Group velocity ∇𝜁 𝑝 at the learned covector 
+
+ (𝜃 ) Propagator-learning objective 
+
+𝜇 Collocation sampling measure on [0 , 𝑇 ] × 𝑇 ∗Ω
+
+𝑢 𝜃 , 𝜃 Learned field of a PINN; learned solution map of a neural operator 
+
+Residual-to-error estimates 
+
+𝑟, 𝑟 𝜙 , 𝑟 𝐴 Residuals of an approximate phase; of phase and of amplitude 
+
+𝑒 Phase error ̃ 𝜙 − 𝜙 𝑏, 𝑌 𝑏 Averaged velocity in Eq. (10) and its terminal-value flow 
+
+𝑅 𝑠 , 𝑡 Output set transported to time 𝑠 ; the space–time tube swept by that set 
+
+𝜅, 𝜅 𝑏 Suprema of the divergence of the transport velocity 
+
+𝔈 𝑡 , 𝔓 𝑡 Residual functionals bounding amplitude and phase error 
+
+Γ𝜅 (𝑡 ) Growth factor (( 𝑒 𝜅𝑡 − 1)∕ 𝜅 )1∕2 
+
+𝐿 Lipschitz constant of 𝐻 𝑝 
+
+Δcont Continuous-residual bound on the truncated propagator 
+
+synthesized by Eq. (2). Its reuse across initial conditions follows directly from the linearity of that representation in ̂𝑢 0,whereas operator networks learn amortized maps from pairs (Sec. 5.2.2). The supervised FNO comparison in Sec. 5.3.2 illustrates this separation at one smooth-advection operating point. 
+
+B.3. Learned eikonal and analytic phase-space methods 
+
+EikoNet, PINNeik, and related tomography methods learn the eikonal solution itself as a base-manifold traveltime field (Smith et al., 2021; bin Waheed et al., 2021; Chen et al., 2022). These eikonal solvers are well suited to single-valued first-arrival computation, including the possibly nonsmooth viscosity solution (Crandall and Lions, 1983). Classical fast-marching and sweeping methods address the first-arrival problem on a grid (Sethian, 1996; Zhao, 2005); Eulerian 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 24 of 35 Microlocal neural operators 
+
+phase-space, level-set, and ray-tube methods lift or decompose the multivalued arrival structure (Osher et al., 2002; Symes and Qian, 2003; Engquist and Runborg, 2003; Runborg, 2007; Benamou, 1996). Architectures that encode a Hamilton–Jacobi representation formula target the equation’s solution (Darbon et al., 2020); MiNO targets the phase–amplitude data of a PDE propagator and accommodates its branch structure. The same lift underlies analytic high-frequency solvers. Maslov representations, Gaussian-beam and frozen-Gaussian superpositions, and curvelet representations prescribe phase-space structure that remains useful at focal points (Maslov and Fedoriuk, 2001; Ralston, 1982; Liu et al., 2013; Delgadillo et al., 2018; Candes and Demanet, 2005). Fast and butterfly FIO algorithms then apply a known oscillatory kernel through hierarchical low-rank factorization (Candès et al., 2007, 2009). These methods provide the geometric template and the efficient deployment engines for that template. These methods also fix what a learned generator adds, since the classical solvers already propagate eikonal and transport data without any network. Their phase-space data are produced by a numerical construction, a ray or beam integration performed on a mesh or a beam family for each configuration; that construction is not differentiable with respect to the symbol that generated those data. MiNO produces the same data as a mesh-free closed-form map on 
+
+[0 , 𝑇 ] × 𝑇 ∗Ω, evaluable at any point without reintegration and differentiable in its inputs and in the parameters of the symbol. The consequences are the ones exercised here: One trained generator serves new initial conditions through Eq. (2) alone (Sec. 5.2.2), and a bank of generators enters a gradient-based parameter recovery as a structured forward model (Sec. 5.2.3). What is learned is the representation, not the propagation principle, which stays the classical one. 
+
+B.4. Learned symbols and microlocal neural architectures 
+
+Phase-space structure is an established learning target for finite-dimensional dynamics, where the learned object is a Hamiltonian or a symplectic map (Greydanus et al., 2019; Jin et al., 2020). For PDE propagators, the learned object has remained a field on the base manifold or a map between function spaces. A close operator-learning neighbor parameterizes a pseudo-differential symbol 𝜎 𝜃 (𝑥, 𝜉 ), generalizing the FNO while retaining the solution operator as its target (Shin et al., 2024). Its kernel has the fixed identity phase (𝑥 − 𝑦 ) ⋅ 𝜉 and hence the diagonal canonical relation, which by Remark 2.4 bars that family from moving a wavefront set for any learned symbol. MiNO learns instead the admissible phase of a homogeneous hyperbolic FIO, whose canonical relation is locally the graph of 𝜒 𝑡 (Proposition 2.2); this phase carries the propagation geometry alongside the frequency-dependent amplitude. Microlocal structure also appears in learned imaging. An FIO-inspired kernel can replace translation equivariance in variable-background wave imaging (Kothari et al., 2020), while wavefront-set extraction and completion can use the known canonical relation of the Radon transform to guide limited-angle reconstruction (Andrade-Loarca et al., 2022). In the first case the trained object is an imaging map with an FIO prior; in the second the trained object is a data-domain singularity set used with a known forward operator. MiNO applies related microlocal structure to the eikonal- and transport-constrained generator of a PDE propagator. 
+
+B.5. Classical microlocal theory and the present contribution 
+
+The structure represented by MiNO is classical: geometric optics for oscillatory hyperbolic Cauchy data (Lax, 1957), the FIO representation and its eikonal–transport hierarchy, canonical relations, and Maslov transitions (Hörmander, 1971; Duistermaat and Hörmander, 1994; Duistermaat, 2010; Hörmander, 1985, 2009; Arnol’d, 1967; Maslov and Fedoriuk, 2001; Zworski, 2012), together with uniform oscillatory analysis at degenerate projections (Duistermaat, 1974). The contribution here is to make the microlocal phase–amplitude generator a primary neural PDE-learning target and to connect its residual training to the generated object. The analysis gives compact-chart Hamilton–Jacobi phase and reconstruction stability (Theorem 4.1 and Corollary 4.2), control of the canonical graph by differentiated eikonal residuals (Theorem 4.5 and Corollary 4.6), operator-norm control for scalar transport (Theorem 4.9 and Corollary 4.10), and a full-solution separation of generator error from the sharp discontinuity tail (Corollary 4.11 and Proposition 4.12). Together with the architecture and experiments, these results distinguish MiNO from learning a field, a solution map, an FIO prior for imaging, or a wavefront set under a known measurement operator. 
+
+## C. Transport residuals for scalar advection and quadratic multipliers 
+
+Here 𝜉 is the initial Fourier (fiber) label of the generating function, while the current covector is 𝜁 ∶= ∇ 𝑥 Φ( 𝑡, 𝑥, 𝜉 ).Thus 𝐴 (𝑡, 𝑥, 𝜉 ) denotes a chart amplitude pulled back to this fixed-label parameterization. A free phase-space amplitude   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 25 of 35 Microlocal neural operators
+
+evolves under the full Hamiltonian derivative 𝐻 𝑝 ∶= ∇ 𝜁 𝑝 ⋅ ∇𝑥 − ∇ 𝑥 𝑝 ⋅ ∇𝜁 , whereas the pulled-back chart amplitude follows the chart transport derived from its generating function. The ansatz below is for one normalized dynamical branch; prescribed localization cutoffs and any explicit external multi-branch weights are suppressed. We use 
+
+𝑢 (𝑡, 𝑥 ) = (2 𝜋 )−𝑑 ∕2 
+
+∫ℝ𝑑 
+
+𝑒 𝑖 Φ( 𝑡,𝑥,𝜉 )𝐴 (𝑡, 𝑥, 𝜉 )̂𝑢 0(𝜉 ) d 𝜉, Φ(0 , 𝑥, 𝜉 ) = 𝑥 ⋅ 𝜉, 𝐴 (0 , 𝑥, 𝜉 ) = 1 . (C.1) 
+
+C.1. Class 1: first-order transport 𝑝 (𝑥, 𝜉 ) = 𝑐 (𝑥 )𝜉 , 𝑑 = 1 
+
+The equation is 𝜕 𝑡 𝑢 + 𝑐 (𝑥 )𝜕 𝑥 𝑢 = 0 . Substituting Eq. (C.1) and differentiating under the integral gives 
+
+𝜕 𝑡 𝑢 + 𝑐𝜕 𝑥 𝑢 = (2 𝜋 )−1∕2 
+
+∫ 𝑒 𝑖 Φ[𝑖 (𝜕 𝑡 Φ + 𝑐𝜕 𝑥 Φ) 𝐴 + ( 𝜕 𝑡 𝐴 + 𝑐𝜕 𝑥 𝐴 )] ̂𝑢 0 d𝜉. 
+
+A sufficient exact split is to set the coefficient multiplying 𝑖𝐴 and the remaining amplitude bracket separately to zero. With a semiclassical parameter inserted, these two conditions are the leading and next equations. The first condition is the eikonal equation 𝜕 𝑡 Φ + 𝑐 (𝑥 )𝜕 𝑥 Φ = 0 with Φ(0 , 𝑥, 𝜉 ) = 𝑥𝜉 , solved by the characteristics ̇ 𝑥 = 𝑐 (𝑥 ). Along those curves, Φ is constant, while its covector satisfies d( 𝜕 𝑥 Φ)∕d 𝑡 = − 𝑐 ′(𝑥 )𝜕 𝑥 Φ. The remaining order is exactly the scalar advective equation 𝜕 𝑡 𝐴 + 𝑐 (𝑥 )𝜕 𝑥 𝐴 = 0 . If 𝑋 (𝑠 ; 𝑡, 𝑥 ) is the characteristic flow, then 
+
+Φ( 𝑡, 𝑥, 𝜉 ) = 𝑋 (0; 𝑡, 𝑥 )𝜉, 𝐴 ≡ 1
+
+gives the scalar pullback 𝑢 (𝑡, 𝑥 ) = 𝑢 0(𝑋 (0; 𝑡, 𝑥 )) . In particular, for 𝑐 (𝑥 ) = 𝑥 , Φ = 𝑒 −𝑡 𝑥𝜉 and hence Δ𝑥 Φ = 0 while 
+
+𝑐 ′(𝑥 ) = 1 , demonstrating that Δ𝑥 Φ and 𝑐 ′(𝑥 ) are independent quantities. The alternative half-density equation 𝜕 𝑡 𝑢 + 𝑐 (𝑥 )𝜕 𝑥 𝑢 + 𝑐 ′(𝑥 )𝑢 ∕2 = 0 has amplitude residual 𝜕 𝑡 𝐴 + 𝑐𝜕 𝑥 𝐴 + 𝑐 ′𝐴 ∕2 = 0 
+
+in the zero-subprincipal Weyl convention and represents a different PDE. The scalar experiments and residual construction in this paper target the former normalization and contain no 𝑐 ′𝐴 ∕2 term. 
+
+C.2. Class 2: quadratic Fourier multiplier 𝑝 (𝜉 )
+
+The symbol is 𝑥 -independent, as for free Schrödinger 𝑝 (𝜉 ) = |𝜉 |2∕2 . The exact propagator is the Fourier multiplier 
+
+𝑒 −𝑖𝑡𝑝 (𝜉 ), so Eq. (C.1) is exact with 
+
+Φ( 𝑡, 𝑥, 𝜉 ) = 𝑥 ⋅ 𝜉 − 𝑡𝑝 (𝜉 ), 𝐴 ≡ 1.
+
+Then ∇𝑥 Φ = 𝜉 and the eikonal residual is 𝜕 𝑡 Φ + 𝑝 (∇ 𝑥 Φ) = − 𝑝 (𝜉 ) + 𝑝 (𝜉 ) = 0 exactly; ∇2
+
+> 𝑥
+
+Φ = 0 and all derivatives of 
+
+𝐴 vanish. Hence both the leading transport equation and the exact finite-wavelength amplitude equation are satisfied. For a general learned 𝑥 -dependent phase and amplitude and 𝑝 (𝜁 ) = 𝜁 𝑇 𝐻𝜁 ∕2 + 𝓁 ⋅ 𝜁 + 𝑐 0 with 𝐻 = 𝐻 𝑇 , the leading half-density transport operator is 
+
+𝜕 𝑡 𝐴 + ( 𝐻 ∇𝑥 Φ + 𝓁 ) ⋅ ∇𝑥 𝐴 + 12 tr( 𝐻 ∇2
+
+> 𝑥
+
+Φ) 𝐴 + 𝑖𝑝 sub (𝑥, ∇𝑥 Φ) 𝐴. 
+
+The quadratic multiplier considered here has 𝑝 sub = 0 . For the Weyl quantization of the quadratic symbol above with no additional lower-order term, the exact unit-scale Schrödinger amplitude equation under the convention of Eq. (1) sets the leading transport operator equal to 𝑖 tr( 𝐻 ∇2
+
+> 𝑥
+
+𝐴 )∕2 ; in semiclassical scaling, the same correction is 𝑂 (𝜀 ). A nonzero lower-order Weyl symbol has its own unit-scale action on the amplitude and is represented by 𝑖𝑝 sub 𝐴 only at leading WKB order. For an arbitrary 𝑥 -dependent learned amplitude, the transport residual above is therefore the leading WKB equation; exact finite-frequency evolution also contains the corresponding higher-order terms. 
+
+C.3. Extension to other symbols 
+
+The invariant leading half-density geometric term is div 𝑥 (∇ 𝜁 𝑝 (𝑥, ∇𝑥 Φ)) 𝐴 ∕2 ; that term reduces to Δ𝑥 Φ𝐴 ∕2 for the identity quadratic multiplier. The full leading transport equation also contains 𝑖𝑝 sub 𝐴 when the chosen quantization has nonzero subprincipal symbol. In the two direct reductions above, Class 1 follows by direct substitution into the scalar PDE, and Class 2 has ∇𝑥 𝑝 = 0 and 𝐴 ≡ 1. For each additional chart, including an 𝑥 -dependent quadratic lens and the two-dimensional half-wave case, the transport law is determined by its symbol, normalization, and quantization. 
+
+## D. Proofs 
+
+This appendix collects the proofs of the statements of Secs. 2 and 4. Each proof uses the notation and the standing hypotheses of the setting that precedes its statement in the main text.   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 26 of 35 Microlocal neural operators
+
+D.1. Bicharacteristic kernel relation 
+
+Proof of Proposition 2.2. At the fixed time in the statement, write the kernel as the oscillatory integral 
+
+𝑡 (𝑥, 𝑦 ) = (2 𝜋 )−𝑑 
+
+∫ℝ𝑑 
+
+𝑒 𝑖 (𝜙 (𝑡,𝑥,𝜉 )− 𝑦 ⋅𝜉 )𝐴 (𝑡, 𝑥, 𝜉 ) d 𝜉. 
+
+By the theory of oscillatory integrals (Hörmander, 2015, Ch. VIII), the wavefront set of a distribution defined by such an integral is contained in the set of (𝑥, 𝑦 ; 𝜉 𝑥 , 𝜉 𝑦 ) at which the phase Ψ( 𝑥, 𝑦, 𝜉 ) ∶= 𝜙 (𝑡, 𝑥, 𝜉 ) − 𝑦 ⋅ 𝜉 is stationary in the fiber variable 𝜉 and the differential in (𝑥, 𝑦 ) is the corresponding covector. Stationarity in 𝜉 reads ∇𝜉 𝜙 (𝑡, 𝑥, 𝜉 ) = 𝑦 . The unprimed kernel covectors are (𝑥, 𝑦 ; ∇ 𝑥 𝜙, −𝜉 ). By definition, the primed kernel relation reverses the input sign and therefore contains (𝑥, ∇𝑥 𝜙 ; 𝑦, 𝜉 ). The set 𝑡 ∶= {( 𝑥, ∇𝑥 𝜙 ; ∇ 𝜉 𝜙, 𝜉 )} is, by the nonsingularity of 𝜕 2 
+
+> 𝑥𝜉
+
+𝜙 , a canonical graph, the graph of a homogeneous canonical transformation. Because 𝜙 solves the eikonal equation in Eq. (3) with Cauchy datum 𝜙 (0 , 𝑥, 𝜉 ) = 𝑥 ⋅ 𝜉 , the method of characteristics for Hamilton–Jacobi equations (Evans, 2022, Ch. 3) identifies the characteristic curves of Eq. (3) with the bicharacteristic curves of 𝑝 , the integral curves of the Hamiltonian vector field 𝐻 𝑝 .Hence 𝑡 is the graph of the time-𝑡 bicharacteristic flow 𝜒 𝑡 . The wavefront containment gives WF ′(𝑡 ) ⊆ graph 𝜒 𝑡 .
+
+D.2. Hamilton–Jacobi phase and reconstruction stability 
+
+Proof of Theorem 4.1. The fundamental theorem of calculus in the covector variable gives the exact pointwise identity 
+
+𝑝 (𝑧, ∇𝑧 ̃ 𝜙 ) − 𝑝 (𝑧, ∇𝑧 𝜙 ) = 𝑏 (𝑠, 𝑧, 𝜉 ) ⋅ ∇𝑧 𝑒. 
+
+Subtracting the exact Hamilton–Jacobi equation for 𝜙 from the definition of 𝑟 therefore yields the linear equation 
+
+𝜕 𝑠 𝑒 + 𝑏 ⋅ ∇𝑧 𝑒 = 𝑟. (D.1) Along the characteristic in Eq. (11), integration of Eq. (D.1) gives 
+
+𝑒 (𝑡, 𝑥, 𝜉 ) = 𝑒 (0 , 𝑌 𝑏 (0; 𝑡, 𝑥, 𝜉 ), 𝜉 ) + ∫
+
+> 𝑡
+> 0
+
+𝑟 (𝑠, 𝑌 𝑏 (𝑠 ; 𝑡, 𝑥, 𝜉 ), 𝜉 ) d 𝑠. (D.2) For fixed 𝑠 and 𝜉 , put 𝑧 ∶= 𝑌 𝑏 (𝑠 ; 𝑡, 𝑥, 𝜉 ). The inverse map is 𝑥 = 𝑌 𝑏 (𝑡 ; 𝑠, 𝑧, 𝜉 ), and Liouville’s formula gives 
+
+||||det 𝜕𝑌 𝑏 (𝑡 ; 𝑠, 𝑧, 𝜉 )
+
+𝜕𝑧 
+
+|||| = exp 
+
+(
+
+∫
+
+> 𝑡 𝑠
+
+div 𝑧 𝑏 (𝜏, 𝑌 𝑏 (𝜏 ; 𝑠, 𝑧, 𝜉 ), 𝜉 ) d 𝜏 
+
+)
+
+≤ 𝑒 𝜅 𝑏 (𝑡 −𝑠 ).
+
+Consequently, for every measurable 𝑓 on 𝑅 𝑏 𝑠 ,
+
+‖𝑓 (𝑌 𝑏 (𝑠 ; 𝑡, ⋅, ⋅), ⋅)‖𝐿 2(𝑅 ×𝐾 ) ≤ 𝑒 𝜅 𝑏 (𝑡 −𝑠 )∕2 ‖𝑓 ‖𝐿 2(𝑅 𝑏 𝑠 ).
+
+Applying this inequality to the initial term and each integrand in Eq. (D.2), followed by Minkowski’s integral inequality, proves Eqs. (12) and (13). 
+
+Proof of Corollary 4.2. After the unitary Fourier transform, the localized difference of the two truncated reconstructions is an integral operator from 𝐿 2(𝐾 𝜉 ) to 𝐿 2(𝑅 𝑥 ) with kernel 
+
+(2 𝜋 )−𝑑 ∕2 (
+
+𝑒 𝑖̃𝜙 ̃ 𝐴 − 𝑒 𝑖𝜙 𝐴 
+
+)
+
+.
+
+Because both phases are real, 
+
+|𝑒 𝑖̃𝜙 ̃ 𝐴 − 𝑒 𝑖𝜙 𝐴 | ≤ |̃𝐴 − 𝐴 | + |𝐴 | ⋅ |𝑒 𝑖̃𝜙 − 𝑒 𝑖𝜙 | ≤ |̃𝐴 − 𝐴 | + |𝐴 | ⋅ |𝑒 |.
+
+The operator norm is bounded by the Hilbert–Schmidt norm of this kernel. The triangle inequality in 𝐿 2(𝑅 × 𝐾 ) and Eq. (12) prove Eq. (14). 
+
+Proof of Corollary 4.3. Cauchy–Schwarz in time gives 
+
+∫
+
+> 𝑡
+> 0
+
+𝑒 𝜅 𝑏 (𝑡 −𝑠 )∕2 ‖𝑟 (𝑠 )‖𝐿 2(𝑅 𝑏 𝑠 ) d𝑠 ≤
+
+(
+
+∫
+
+> 𝑡
+> 0
+
+𝑒 𝜅 𝑏 (𝑡 −𝑠 ) d𝑠 
+
+)1∕2 
+
+‖𝑟 ‖𝐿 2(𝑏 (𝑡 )) ,
+
+and the first factor is Γ𝜅 𝑏 (𝑡 ). This estimate proves Eq. (15).   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 27 of 35 Microlocal neural operators
+
+D.3. Canonical-geometry estimates 
+
+Proof of Lemma 4.4. Along the curve in Eq. (17), differentiate ̃ 𝜁 (𝑠 ) = ∇ 𝑥 ̃ 𝜙 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ) . The chain rule and the 𝑥 -gradient of the residual give ̇̃ 𝜁 = 𝜕 𝑡 ∇𝑥 ̃ 𝜙 + ∇ 2
+
+> 𝑥
+
+̃ 𝜙 ∇𝜁 𝑝 (̃𝑥,̃ 𝜁 ),
+
+∇𝑥 𝑟 = 𝜕 𝑡 ∇𝑥 ̃ 𝜙 + ∇ 𝑥 𝑝 (̃𝑥,̃ 𝜁 ) + ∇ 2
+
+> 𝑥
+
+̃ 𝜙 ∇𝜁 𝑝 (̃𝑥,̃ 𝜁 ).
+
+Therefore, with ̃ 𝑤 ∶= ( ̃𝑥,̃ 𝜁 ),̇̃ 𝑤 (𝑠 ) = 𝐻 𝑝 (̃ 𝑤 (𝑠 )) + (0 , ∇𝑥 𝑟 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 )) . (D.3) The exact initial phase gives ̃ 𝜁 (0) = 𝜉 . If 𝑤 (𝑠 ) = 𝜒 𝑠 (𝑦 0, 𝜉 ), subtracting the exact Hamiltonian equation from Eq. (D.3), using the 𝐿 -Lipschitz property, and applying Gronwall’s inequality proves Eq. (18). For the footpoint estimate, define 𝑞 (𝑠 ) ∶= ∇ 𝜉 ̃ 𝜙 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ) . Differentiating the residual with respect to the fixed label 
+
+𝜉 and using Eq. (17) gives the exact identity ̇𝑞 (𝑠 ) = ∇ 𝜉 𝑟 (𝑠,̃ 𝑥 (𝑠 ), 𝜉 ).
+
+Since the derivative defining 𝑞 is taken at fixed spatial argument, 𝑞 (0) = [∇ 𝜉 ̃ 𝜙 (0 , 𝑥, 𝜉 )] 𝑥 =𝑦 0 = 𝑦 0, and 𝑞 (𝑡 ) = ̃𝑦 .Integration proves Eq. (19). 
+
+Proof of Theorem 4.5. The 𝐿 -Lipschitz assumption and Gronwall’s inequality imply continuous dependence of the exact Hamiltonian flow on its initial point: 
+
+|𝜒 𝑡 (̃𝑦, 𝜉 ) − 𝜒 𝑡 (𝑦 0, 𝜉 )| ≤ 𝑒 𝐿𝑡 |̃𝑦 − 𝑦 0|.
+
+The triangle inequality and the two estimates in Lemma 4.4 prove Eq. (20). The mixed-Hessian assumption identifies the relation generated by the phase as a local canonical graph; that assumption is not needed for the differential inequalities in the lemma. 
+
+Proof of Corollary 4.6. Apply Eq. (20) to each (𝑥, 𝜉 ) ∈ 𝑡 , take the uniform derivative bounds, and evaluate the exponential integral. 
+
+D.4. Scalar-transport stability and frequency-tail estimates 
+
+Proof of Lemma 4.8. Integration along the characteristic ending at 𝑥 at time 𝑡 gives 
+
+𝑒 (𝑡, 𝑥, 𝜉 ) = 𝑒 0(𝑋 (0; 𝑡, 𝑥 ), 𝜉 ) + ∫
+
+> 𝑡
+> 0
+
+𝑟 (𝑠, 𝑋 (𝑠 ; 𝑡, 𝑥 ), 𝜉 ) d 𝑠. (D.4) For 𝑧 ∶= 𝑋 (𝑠 ; 𝑡, 𝑥 ), the inverse change of variables is 𝑥 = 𝑋 (𝑡 ; 𝑠, 𝑧 ). Liouville’s formula for the flow Jacobian gives 
+
+||||det 𝜕𝑋 (𝑡 ; 𝑠, 𝑧 )
+
+𝜕𝑧 
+
+|||| = exp 
+
+(
+
+∫
+
+> 𝑡 𝑠
+
+div 𝑐 (𝑋 (𝜏 ; 𝑠, 𝑧 )) d 𝜏 
+
+)
+
+≤ 𝑒 𝜅 (𝑡 −𝑠 ).
+
+Consequently, for every measurable 𝑓 on 𝑅 𝑠 × 𝐾 ,
+
+‖𝑓 (𝑋 (𝑠 ; 𝑡, ⋅), ⋅)‖𝐿 2(𝑅 ×𝐾 ) ≤ 𝑒 𝜅 (𝑡 −𝑠 )∕2 ‖𝑓 ‖𝐿 2(𝑅 𝑠 ×𝐾 ). (D.5) Apply Eq. (D.5) to the initial term and to each integrand in Eq. (D.4), and then use Minkowski’s integral inequality. These two steps prove Eq. (23). 
+
+Proof of Theorem 4.9. The backward-flow identity implies 𝜕 𝑠 𝜙 𝑐 + 𝑐 ⋅ ∇𝑧 𝜙 𝑐 = 0 and 𝜙 𝑐 (0 , 𝑧, 𝜉 ) = 𝑧 ⋅ 𝜉 . Hence the phase error 𝑒 𝜙 ∶= ̃ 𝜙 − 𝜙 𝑐 and amplitude error 𝑒 𝐴 ∶= ̃ 𝐴 − 1 satisfy, respectively, 
+
+(𝜕 𝑠 + 𝑐 ⋅ ∇𝑧 )𝑒 𝜙 = 𝑟 𝜙 , (𝜕 𝑠 + 𝑐 ⋅ ∇𝑧 )𝑒 𝐴 = 𝑟 𝐴 .  
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 28 of 35
+
+Microlocal neural operators 
+
+Lemma 4.8 bounds both errors by their corresponding functionals in Eq. (22). After the unitary Fourier transform, the difference of the two truncated operators has kernel 
+
+(2 𝜋 )−𝑑 ∕2 𝟏 𝑅 (𝑥 )𝟏 𝐾 (𝜉 )
+
+(
+
+𝑒 𝑖̃𝜙 (𝑡,𝑥,𝜉 )̃ 𝐴 (𝑡, 𝑥, 𝜉 ) − 𝑒 𝑖𝜙 𝑐 (𝑡,𝑥,𝜉 ))
+
+.
+
+Both phases are real, so 
+
+|𝑒 𝑖̃𝜙 ̃ 𝐴 − 𝑒 𝑖𝜙 𝑐 | ≤ |̃𝐴 − 1 | + |𝑒 𝑖̃𝜙 − 𝑒 𝑖𝜙 𝑐 | ≤ |𝑒 𝐴 | + |𝑒 𝜙 |.
+
+The operator norm is bounded by the Hilbert–Schmidt norm of this kernel. Using the triangle inequality in 𝐿 2(𝑅 × 𝐾 )
+
+and then Eq. (23) for the two errors proves Eq. (24). 
+
+Proof of Corollary 4.10. With the initial-error terms absent from Eq. (22), Cauchy–Schwarz in time gives 
+
+∫
+
+> 𝑡
+> 0
+
+𝑒 𝜅 (𝑡 −𝑠 )∕2 ‖𝑟 (𝑠 )‖𝐿 2(𝑅 𝑠 ×𝐾 ) d𝑠 ≤
+
+(
+
+∫
+
+> 𝑡
+> 0
+
+𝑒 𝜅 (𝑡 −𝑠 ) d𝑠 
+
+)1∕2 
+
+‖𝑟 ‖𝐿 2(𝑡 ),
+
+and the first factor is exactly Γ𝜅 (𝑡 ). Apply this estimate to both residuals in Eq. (24). 
+
+Proof of Corollary 4.11. The exact truncated operator satisfies 𝑆 𝐾 𝑐 (𝑡 ) = 𝑆 𝑐 (𝑡 )𝑃 𝐾 , because Fourier inversion gives 
+
+(𝑆 𝑐 (𝑡 )𝑃 𝐾 𝑢 0)( 𝑥 ) = (2 𝜋 )−𝑑 ∕2 
+
+∫𝐾 
+
+𝑒 𝑖𝑋 (0; 𝑡,𝑥 )⋅𝜉 ̂𝑢 0(𝜉 ) d 𝜉. 
+
+Consequently, ̃𝐹 𝐾 (𝑡 )𝑢 0 − 𝑆 𝑐 (𝑡 )𝑢 0 = ( ̃𝐹 𝐾 (𝑡 ) − 𝑆 𝐾 𝑐 (𝑡 )) 𝑢 0 − 𝑆 𝑐 (𝑡 )( 𝐼 − 𝑃 𝐾 )𝑢 0.
+
+For the second term, the change of variables 𝑧 ∶= 𝑋 (0; 𝑡, 𝑥 ) and Liouville’s formula, exactly as in Eq. (D.5), give 
+
+‖𝑆 𝑐 (𝑡 )( 𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(𝑅 ) ≤ 𝑒 𝜅𝑡 ∕2 ‖(𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(𝑅 0) ≤ 𝑒 𝜅𝑡 ∕2 ‖(𝐼 − 𝑃 𝐾 )𝑢 0‖𝐿 2(ℝ𝑑 ).
+
+The triangle inequality, Corollary 4.10, and Eq. (26) prove Eq. (27). 
+
+Proof of Proposition 4.12. Under the Fourier convention of Sec. 2.3, ̂𝑢 0(𝜉 ) = 
+
+√ 2
+
+𝜋 
+
+sin( 𝑎𝜉 )
+
+𝜉 , ‖𝑢 0‖2 
+
+> 𝐿 2(ℝ)
+
+= 2 𝑎. 
+
+Plancherel’s theorem yields 
+
+‖(𝐼 − 𝑃 𝐾 )𝑢 0‖2 
+
+> 𝐿 2(ℝ)
+
+= 4
+
+𝜋 ∫
+
+> ∞Ξ
+
+sin 2(𝑎𝜉 )
+
+𝜉 2 d𝜉. (D.6) The inequality sin 2(𝑎𝜉 ) ≤ 1 proves Eq. (28). A change of variables and integration by parts give 
+
+∫
+
+> ∞Ξ
+
+sin 2(𝑎𝜉 )
+
+𝜉 2 d𝜉 = 𝑎 
+
+[ sin 2(𝑎 Ξ) 
+
+𝑎 Ξ + 𝜋 
+
+2 − Si(2 𝑎 Ξ) 
+
+]
+
+.
+
+Together with Eq. (D.6) and ‖𝑢 0‖2 
+
+> 𝐿 2(ℝ)
+
+= 2 𝑎 , this evaluation proves Eq. (29). Moreover, 
+
+∫
+
+> ∞Ξ
+
+sin 2(𝑎𝜉 )
+
+𝜉 2 d𝜉 = 12Ξ − 12 ∫
+
+> ∞Ξ
+
+cos(2 𝑎𝜉 )
+
+𝜉 2 d𝜉 = 12Ξ + 𝑂 (Ξ −2 ),
+
+where the last estimate follows from one integration by parts. Inserting this expansion into Eq. (D.6), dividing by 2𝑎 ,and taking the square root proves Eq. (30). 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 29 of 35 Microlocal neural operators                           
+
+> Table E.1
+> Evaluation overview. Objective Benchmark Section
+> Propagation regimes
+> Closed-form propagation calibration smooth advection Sec. 5.1.1 Sharp-transport regime comparison discontinuous advection Sec. 5.1.2 Two-branch propagation wave equation Sec. 5.1.3 Inhomogeneous eikonal construction stationary-point transport Sec. 5.1.4 Cross-paradigm variable-coefficient comparison sinusoidal-speed transport Sec. 5.1.5 Exact-generator reconstruction through a focus point-focus caustic Sec. 5.1.6
+> Representational content, reuse, and extension
+> Finite-resolution microlocal fidelity wave-packet portrait Sec. 5.2.1 Propagator reuse across initial data multi-initial-condition reuse Sec. 5.2.2 Structured inverse recovery transport-speed recovery Sec. 5.2.3 Dimensional extension two-dimensional propagation Sec. 5.2.4
+> Efficiency and supervision
+> Capacity and per-step cost parameter-count and wall-clock comparison Sec. 5.3.1 Supervision requirement smooth-advection MiNO–FNO comparison Sec. 5.3.2
+
+## E. Experimental design and implementation details 
+
+E.1. Evaluation design 
+
+The evaluation spans propagation regimes, representational fidelity and reuse, inverse recovery, dimensional extension, efficiency, and supervision. Table E.1 summarizes the objective and benchmark associated with each study. 
+
+Common protocol. Representation diagnostics use exact generators to isolate the reconstruction, whereas learning benchmarks use the learned-generator specialization documented in Appendix E.2. Errors are evaluated either at the final time or over the full space–time grid, as specified for each result. The seed protocol and the per-seed aggregation conventions behind the quoted dispersions are collected in Appendix E.3. 
+
+Baselines and computing environment. The cross-paradigm comparisons use two field-learning baselines trained over five seeds for 200,000 steps: the NTK-balanced PINN, a modified MLP with Fourier features and NTK balancing in the form of Wang et al. (2023), and the causal PINN of Wang et al. (2022a). The supervised FNO of Li et al. (2021) is trained separately on labeled solution data under its own epoch budget (Appendix E.4). All runs use a single NVIDIA A100 GPU. MiNO and the NTK-balanced PINN are implemented in JAX (Bradbury et al., 2018). Each experiment states the applicable subset of baselines, and Appendix E.4 records their configurations. 
+
+E.2. Experimental residual specialization 
+
+The experiments directly parameterize the full phase increment ℎ𝜃 , giving the phase 𝑥 ⋅ 𝜉 + 𝑡ℎ 𝜃 , and use the amplitude 1 + 𝑡𝛾 𝜃 . The default one-dimensional reconstruction is the composite trapezoidal rule. The point-focus diagnostic uses the Filon rule of Appendix E.3. During amplitude training, the experimental residual is 
+
+𝜕 𝑡 𝐴 + ∇ 𝜁 𝑝 (𝑥, 𝜁 ) ⋅ ∇𝑥 𝐴 − ∇ 𝑥 𝑝 (𝑥, 𝜁 ) ⋅ ∇𝜉 𝐴, 𝜁 ∶= ∇ 𝑥 Φ𝜃 (𝑡, 𝑥, 𝜉 ).
+
+Both symbol derivatives are evaluated at the learned covector, matching Listing E.1. This residual is the full Hamiltonian derivative of a free phase-space function, specialized to 𝑝 sub = 0 . For general chart amplitudes, Eq. (7) uses the pulled-back chart derivative and the term 𝑖𝑝 sub 𝐴 , so the two formulations are not identical away from their target. The trained experiments are restricted to the constant-amplitude subclass 𝐴 ∗ = 1 with 𝑝 sub = 0 , for which both formulations have the same exact zero target. 
+
+JAX implementation of the experimental kernel. Listing E.1 records the minimal computational core used by the trained experiments. Here h_apply and gamma_apply are parameter-closed Flax-network outputs, while p evaluates one selected symbol branch; the derivatives of p are partial derivatives with the other argument fixed. Every trained   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 30 of 35
+
+Microlocal neural operators 
+
+Listing E.1: Minimal JAX kernel used in the trained MiNO experiments.                           
+
+> 1import jax
+> 2import jax.numpy as jnp
+> 3# Exact phase and amplitude data at t = 0.
+> 4def make_generator(h_apply, gamma_apply):
+> 5def phi(t, x, xi):
+> 6h = jnp.asarray(h_apply(t, x, xi)).squeeze()
+> 7return jnp.dot(x, xi) + t * h
+> 8def amplitude(t, x, xi):
+> 9gamma = jnp.asarray(gamma_apply(t, x, xi)).squeeze()
+> 10 return 1.0 + t * gamma
+> 11 return phi, amplitude
+> 12 # Eikonal residual on the learned Lagrangian.
+> 13 def eikonal_residual(phi, p, t, x, xi):
+> 14 phi_t = jax.grad(phi, argnums=0)(t, x, xi)
+> 15 zeta = jax.grad(phi, argnums=1)(t, x, xi)
+> 16 return phi_t + p(x, zeta)
+> 17 # Full-Hamiltonian amplitude residual used in the experiments.
+> 18 def experimental_transport_residual(
+> 19 phi, amplitude, p, t, x, xi):
+> 20 a_t = jax.grad(amplitude, argnums=0)(t, x, xi)
+> 21 a_x = jax.grad(amplitude, argnums=1)(t, x, xi)
+> 22 a_xi = jax.grad(amplitude, argnums=2)(t, x, xi)
+> 23 zeta = jax.grad(phi, argnums=1)(t, x, xi)
+> 24 p_x = jax.grad(p, argnums=0)(x, zeta)
+> 25 p_zeta = jax.grad(p, argnums=1)(x, zeta)
+> 26 return a_t + jnp.dot(p_zeta, a_x) - jnp.dot(p_x, a_xi)
+
+case uses a real amplitude and 𝑝 sub = 0 , so no subprincipal term appears. The residuals are batched with jax.vmap and combined as in Eq. (8). 
+
+E.3. Networks, optimization, and reconstruction 
+
+Networks and parameterization. The phase network is a modified MLP with four hidden layers of width 64, multiplicative skip connections in the form of Wang et al. (2023), and 32 sinusoidal input features at the fixed scales 
+
+0.25 in 𝑥 and 0.1 in 𝜉 . The amplitude network is a modified MLP with three hidden layers of width 64 and 16 sinusoidal input features. The phase is parameterized as in Eq. (9). The experimental amplitude 1 + 𝑡𝛾 𝜃 enforces its initial value; the general positivity-preserving model exp( 𝑡𝛼 𝜃 ) and its unit-complex Maslov factor are defined in Sec. 3.3. Appendix E.2 gives the experimental specialization. 
+
+Optimization and collocation. Optimization uses Adam (Kingma and Ba, 2015) with a constant learning rate 10 −3 
+
+and 4096 collocation points resampled each step from a product measure on time, space, and frequency. This fixed, nonadaptive sampling design follows the comparison setting of Wu et al. (2023). When enabled by the individual run configuration, online NTK balancing updates the eikonal and transport weights every 100 steps. 
+
+Seeds and per-seed aggregation. Unless stated otherwise, results for trained MiNO and for the baseline methods are reported over five seeds as the mean and sample standard deviation. The multi-initial-condition generator of Sec. 5.2.2 is trained once with a single seed, so the errors reported there are single-run values. The inverse study of Sec. 5.2.3 uses five noise seeds for each combination of true speed and noise level, giving fifteen configurations per noise level and sixty in total. 
+
+Reconstruction windows and domains. Reconstruction uses the composite trapezoidal rule by default. The smooth-advection run uses 1024 nodes on [−30 , 30] , the wave run uses 512 nodes on [−100 , 100] , and the discontinuous-advection run uses 1024 nodes on [−100 , 100] . The two sinusoidal-speed runs of Sec. 5.1.5 use 512 nodes on [−30 , 30] 
+
+for the Gaussian datum and 1024 nodes on [−60 , 60] for the square wave. The stationary-point run of Sec. 5.1.4 uses 1024 nodes on [−20 , 20] , and the two-dimensional run of Sec. 5.2.4 samples training frequencies from [−40 , 40] 2. The optional Filon rule is used in the exact-generator point-focus test, whose parameters are listed with that experiment. 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 31 of 35 Microlocal neural operators 
+
+Because the windows and node counts differ across runs, every reported error includes its own quadrature contribution. Each run samples collocation points over the space–time domain of its own experiment, as stated with that experiment, and over the frequency window listed above for that run. 
+
+Filon-type panel formula. The optional Filon rule of Sec. 3.4 is the following piecewise-linear-phase rule. On each frequency panel [𝜉 𝑛 , 𝜉 𝑛 +1 ] of width Δ𝜉 , with 𝑠 ∶= ( 𝜉 − 𝜉 𝑛 )∕Δ 𝜉 ∈ [0 , 1] , both the phase and the smooth factor 𝑔 = 𝐴 𝜃 ̂𝑢 0
+
+are interpolated linearly, 
+
+Φ( 𝜉 ) ≈ Φ 𝑛 + 𝛽 𝑛 𝑠, 𝑔 (𝜉 ) ≈ (1 − 𝑠 )𝑔 𝑛 + 𝑠𝑔 𝑛 +1 , 𝛽 𝑛 ∶= Φ 𝑛 +1 − Φ 𝑛 ,
+
+and the panel contribution is evaluated as 
+
+Δ𝜉𝑒 𝑖 Φ𝑛 [𝑔 𝑛 (𝐸 1(𝛽 𝑛 ) − 𝐸 2(𝛽 𝑛 )) + 𝑔 𝑛 +1 𝐸 2(𝛽 𝑛 )] ,
+
+where 𝐸 1(𝛽 ) ∶= ∫ 10 𝑒 𝑖𝛽𝑠 d𝑠 and 𝐸 2(𝛽 ) ∶= ∫ 10 𝑠𝑒 𝑖𝛽𝑠 d𝑠 , using their Taylor limits near 𝛽 = 0 .
+
+E.4. Baseline configurations 
+
+The PINN baseline is a modified-MLP architecture implemented for this study, with four hidden layers of width 128, 64 Fourier features, and NTK balancing in the form of Wang et al. (2023); the baseline has 99,649 parameters and is trained for 200,000 steps over five seeds. The causal baseline of Wang et al. (2022a) uses PirateNet with three layers of width 256, 202,764 parameters, and the same training budget. The operator baseline uses the FNO architecture of Li et al. (2021), with 32 modes, four layers of width 64, and 329,281 parameters, trained supervised on solution data. The FNO is trained over the same five seeds for 200 epochs with batch size 32 and learning rate 10 −3 on 1024 supervised pairs (𝑢 0, 𝑢 (𝑡 max , ⋅)) , with 256 further pairs held out. Each training datum is a normalized sum of one to three sinusoids sin( 𝜋𝑓 (𝑥 − 𝜑 )) with 𝑓 drawn uniformly from [0 .25 , 1.5] and 𝜑 from [0 , 1] , and its label is the corresponding translation on [−3 , 3] . The evaluation datum of Sec. 5.1.1 is the localized Gaussian, whose spectrum extends beyond that training band, so the reported FNO error is that of a trained operator applied to an initial condition outside its training distribution. 
+
+## F. Limitations 
+
+The evidence reported here comes from a scoped evaluation rather than an exhaustive one. The test suite consists of linear propagation problems in one and two space dimensions, each generated from the initial data, coefficients, and phase-space windows of Appendix E.3; the comparison covers NTK-balanced and causal PINNs and a supervised FNO. That evaluation therefore does not span every benchmark dataset or every field-learning and operator-learning architecture in current use, and the reported margins are specific to the regimes and baselines examined. Wider coverage, in particular further PDE families and additional baselines under matched data, resolution, and hyperparameter budgets (Lu et al., 2022), would place the propagator target on a broader empirical footing. The trained configurations are also narrower than the construction of Sec. 3. Every trained run stays on a single phase chart with 𝑚 𝜈 = 1 , so no chart crossing and no nontrivial Maslov transition is exercised; the two-branch wave configuration superposes two single-chart generators under explicit external weights rather than transitioning between charts. All trained runs take 𝑝 sub = 0 and the constant-amplitude specialization 𝐴 ∗ = 1 (Appendix E.2), so the positivity-preserving amplitude model exp( 𝑡𝛼 𝜃 ) and general nonconstant chart amplitudes are defined but not trained here. The supervised comparison of Sec. 5.3.2 is likewise at a single labeled-data budget. 
+
+## CRediT authorship contribution statement 
+
+Gnankan Landry Regis N’guessan: Conceptualization, Methodology, Software, Formal analysis, Investigation, Data curation, Validation, Visualization, Writing – original draft, Writing – review & editing. Bum Jun Kim: Formal analysis, Visualization, Supervision, Validation, Writing – review & editing. 
+
+## Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.   
+
+> G.L.R. N’guessan and B.J. Kim: Preprint Page 32 of 35
+
+Microlocal neural operators 
+
+## Data availability 
+
+The MiNO implementation and the experiment records that reproduce the reported numbers are available from the corresponding author on request. 
+
+## Funding 
+
+This research received no specific grant from any funding agency in the public, commercial, or not-for-profit sectors. 
+
+## Acknowledgments 
+
+The authors thank the Axiom Research Group for sustained discussion of the framework. 
+
+## References 
+
+Andrade-Loarca, H., Kutyniok, G., Oektem, O., Petersen, P., 2022. Deep microlocal reconstruction for limited-angle tomography. Applied and Computational Harmonic Analysis 59, 155–197. Arnol’d, V.I., 1967. Characteristic class entering in quantization conditions. Functional Analysis and its applications 1, 1–13. Baydin, A.G., Pearlmutter, B.A., Radul, A.A., Siskind, J.M., 2017. Automatic Differentiation in Machine Learning: a Survey. J. Mach. Learn. Res. 18, 153:1–153:43. Benamou, J.D., 1996. Big ray tracing: Multivalued travel time field computation using viscosity solutions of the eikonal equation. Journal of Computational Physics 128, 463–474. Bradbury, J., Frostig, R., Hawkins, P., Johnson, M.J., Leary, C., Maclaurin, D., Necula, G., Paszke, A., VanderPlas, J., Wanderman-Milne, S., et al., 2018. JAX: composable transformations of Python+NumPy programs . Candes, E.J., Demanet, L., 2005. The curvelet representation of wave propagators is optimally sparse. Communications on Pure and Applied Mathematics 58, 1472–1528. Candès, E.J., Demanet, L., Ying, L., 2007. Fast Computation of Fourier Integral Operators. SIAM J. Sci. Comput. 29, 2464–2493. Candès, E.J., Demanet, L., Ying, L., 2009. A Fast Butterfly Algorithm for the Computation of Fourier Integral Operators. Multiscale Model. Simul. 7, 1727–1750. Chen, T., Chen, H., 1995. Universal approximation to nonlinear operators by neural networks with arbitrary activation functions and its application to dynamical systems. IEEE Trans. Neural Networks 6, 911–917. Chen, Y., de Ridder, S.A., Rost, S., Guo, Z., Wu, X., Chen, Y., 2022. Eikonal tomography with physics-informed neural networks: Rayleigh wave phase velocity in the northeastern margin of the Tibetan plateau. Geophysical Research Letters 49, e2022GL099053. Crandall, M.G., Lions, P.L., 1983. Viscosity solutions of Hamilton–Jacobi equations. Transactions of the American Mathematical Society 277, 1–42. Darbon, J., Langlois, G.P., Meng, T., 2020. Overcoming the curse of dimensionality for some Hamilton–Jacobi partial differential equations via neural network architectures. Research in the Mathematical Sciences 7, 20. Deaño, A., Huybrechs, D., Iserles, A., 2018. Computing highly oscillatory integrals. Delgadillo, R., Lu, J., Yang, X., 2018. Frozen Gaussian approximation for high frequency wave propagation in periodic media. Asymptot. Anal. 110, 113–135. Duistermaat, J.J., 1974. Oscillatory integrals, Lagrange immersions and unfolding of singularities. Communications on Pure and Applied Mathematics 27, 207–281. Duistermaat, J.J., 2010. Fourier integral operators. Duistermaat, J.J., Hörmander, L., 1994. Fourier integral operators. II, in: Mathematics Past and Present Fourier Integral Operators, pp. 129–215. Eiras, F., Bibi, A., Bunel, R., Dvijotham, K.D., Torr, P., Kumar, M.P., 2024. Efficient Error Certification for Physics-Informed Neural Networks, in: ICML, pp. 12318–12347. Engquist, B., Runborg, O., 2003. Computational high frequency wave propagation. Acta numerica 12, 181–266. Evans, L.C., 2022. Partial differential equations. volume 19. Folland, G.B., 2016. Harmonic analysis in phase space (AM-122) . Fuks, O., Tchelepi, H.A., 2020. Limitations of physics informed machine learning for nonlinear two-phase transport in porous media. Journal of Machine Learning for Modeling and Computing 1. Gottlieb, D.I., Shu, C., 1997. On the Gibbs Phenomenon and Its Resolution. SIAM Rev. 39, 644–668. Greif, C., Urban, K., 2019. Decay of the Kolmogorov N-width for wave problems. Appl. Math. Lett. 96, 216–222. Greydanus, S., Dzamba, M., Yosinski, J., 2019. Hamiltonian Neural Networks, in: NeurIPS, pp. 15353–15363. Hörmander, L., 1971. Fourier integral operators. I . Hörmander, L., 1985. The analysis of linear partial differential operators III: pseudo-differential operators. Hörmander, L., 2009. The analysis of linear partial differential operators IV: Fourier integral operators. Hörmander, L., 2015. The analysis of linear partial differential operators I: Distribution theory and Fourier analysis. Iserles, A., Nørsett, S.P., 2005. Efficient quadrature of highly oscillatory integrals using derivatives. Proceedings: Mathematics, Physical and Engineering , 1383–1399. Jin, P., Zhang, Z., Zhu, A., Tang, Y., Karniadakis, G.E., 2020. SympNets: Intrinsic structure-preserving symplectic networks for identifying Hamiltonian systems. Neural Networks 132, 166–179. 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 33 of 35 Microlocal neural operators 
+
+Karniadakis, G.E., Kevrekidis, I.G., Lu, L., Perdikaris, P., Wang, S., Yang, L., 2021. Physics-informed machine learning. Nature Reviews Physics 3, 422–440. Kingma, D.P., Ba, J., 2015. Adam: A Method for Stochastic Optimization, in: ICLR. Kothari, K., de Hoop, M.V., Dokmanic, I., 2020. Learning the Geometry of Wave-Based Imaging, in: NeurIPS. Kovachki, N.B., Lanthaler, S., Mishra, S., 2021. On Universal Approximation and Error Bounds for Fourier Neural Operators. J. Mach. Learn. Res. 22, 290:1–290:76. Kovachki, N.B., Li, Z., Liu, B., Azizzadenesheli, K., Bhattacharya, K., Stuart, A.M., Anandkumar, A., 2023. Neural Operator: Learning Maps Between Function Spaces With Applications to PDEs. J. Mach. Learn. Res. 24, 89:1–89:97. Krishnapriyan, A.S., Gholami, A., Zhe, S., Kirby, R.M., Mahoney, M.W., 2021. Characterizing possible failure modes in physics-informed neural networks, in: NeurIPS, pp. 26548–26560. Kružkov, S.N., 1970. First order quasilinear equations in several independent variables. Mathematics of the USSR-Sbornik 10, 217–243. Lanthaler, S., Mishra, S., Karniadakis, G.E., 2022. Error estimates for DeepONets: a deep learning framework in infinite dimensions. Transactions of Mathematics and its Applications 6, tnac001. Lanthaler, S., Molinaro, R., Hadorn, P., Mishra, S., 2023. Nonlinear Reconstruction for Operator Learning of PDEs with Discontinuities, in: ICLR. Lax, P.D., 1957. Asymptotic solutions of oscillatory initial value problems . Li, Z., Kovachki, N.B., Azizzadenesheli, K., Liu, B., Bhattacharya, K., Stuart, A.M., Anandkumar, A., 2021. Fourier Neural Operator for Parametric Partial Differential Equations, in: ICLR. Li, Z., Zheng, H., Kovachki, N., Jin, D., Chen, H., Liu, B., Azizzadenesheli, K., Anandkumar, A., 2024. Physics-informed neural operator for learning partial differential equations. ACM/IMS Journal of Data Science 1, 1–27. Liu, H., Runborg, O., Tanushev, N.M., 2013. Error estimates for Gaussian beam superpositions. Math. Comput. 82, 919–952. Liu, S., Huang, X., Protopapas, P., 2023. Residual-based error bound for physics-informed neural networks, in: UAI, pp. 1284–1293. Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.E., 2021. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nat. Mach. Intell. 3, 218–229. Lu, L., Meng, X., Cai, S., Mao, Z., Goswami, S., Zhang, Z., Karniadakis, G.E., 2022. A comprehensive and fair comparison of two neural operators (with practical extensions) based on fair data. Computer Methods in Applied Mechanics and Engineering 393, 114778. Maslov, V.P., Fedoriuk, M.V., 2001. Semi-classical approximation in quantum mechanics. volume 7. Mishra, S., Molinaro, R., 2022. Estimates on the generalization error of physics-informed neural networks for approximating a class of inverse problems for PDEs. IMA Journal of Numerical Analysis 42, 981–1022. Mojgani, R., Balajewicz, M., Hassanzadeh, P., 2023. Kolmogorov n-width and Lagrangian physics-informed neural networks: A causality-conforming manifold for convection-dominated PDEs. Computer Methods in Applied Mechanics and Engineering 404, 115810. Ohlberger, M., Rave, S., 2015. Reduced basis methods: Success, limitations and future challenges. arXiv preprint arXiv:1511.02021 . Osher, S., Cheng, L.T., Kang, M., Shim, H., Tsai, Y.H., 2002. Geometric optics in a phase-space-based level set and Eulerian framework. Journal of Computational Physics 179, 622–648. Rahaman, N., Baratin, A., Arpit, D., Draxler, F., Lin, M., Hamprecht, F.A., Bengio, Y., Courville, A.C., 2019. On the Spectral Bias of Neural Networks, in: ICML, pp. 5301–5310. Raissi, M., Perdikaris, P., Karniadakis, G.E., 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. 378, 686–707. Ralston, J., 1982. Gaussian beams and the propagation of singularities. Studies in partial differential equations 23, C248. Runborg, O., 2007. Mathematical models and numerical methods for high frequency waves. Commun. Comput. Phys 2, 827–880. Ryck, T.D., Lanthaler, S., Mishra, S., 2021. On the approximation of functions by tanh neural networks. Neural Networks 143, 732–750. Ryck, T.D., Mishra, S., 2022. Error analysis for physics-informed neural networks (PINNs) approximating Kolmogorov PDEs. Adv. Comput. Math. 48, 79. Ryck, T.D., Mishra, S., Molinaro, R., 2024. wPINNs: Weak Physics Informed Neural Networks for Approximating Entropy Solutions of Hyperbolic Conservation Laws. SIAM J. Numer. Anal. 62, 811–841. Sethian, J.A., 1996. A fast marching level set method for monotonically advancing fronts. Proceedings of the National Academy of Sciences 93, 1591–1595. Shin, J., Lee, J.Y., Hwang, H.J., 2024. Pseudo-Differential Neural Operator: Generalize Fourier Neural operator for Learning Solution Operators of Partial Differential Equations. Trans. Mach. Learn. Res. . Shin, Y., Darbon, J., Karniadakis, G.E., 2020. On the convergence of physics informed neural networks for linear second-order elliptic and parabolic type PDEs. arXiv preprint arXiv:2004.01806 . Sirignano, J.A., Spiliopoulos, K., 2018. DGM: A deep learning algorithm for solving partial differential equations. J. Comput. Phys. 375, 1339–1364. Smith, J.D., Azizzadenesheli, K., Ross, Z.E., 2021. EikoNet: Solving the Eikonal Equation With Deep Neural Networks. IEEE Trans. Geosci. Remote. Sens. 59, 10685–10696. Symes, W.W., Qian, J., 2003. A Slowness Matching Eulerian Method for Multivalued Solutions of Eikonal Equations. J. Sci. Comput. 19, 501–526. Tancik, M., Srinivasan, P.P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Singhal, U., Ramamoorthi, R., Barron, J.T., Ng, R., 2020. Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains, in: NeurIPS. bin Waheed, U., Haghighat, E., Alkhalifah, T., Song, C., Hao, Q., 2021. PINNeik: Eikonal solution using physics-informed neural networks. Comput. Geosci. 155, 104833. Wang, S., Sankaran, S., Perdikaris, P., 2022a. Respecting causality is all you need for training physics-informed neural networks. CoRR abs/2203.07404. Wang, S., Sankaran, S., Wang, H., Perdikaris, P., 2023. An Expert’s Guide to Training Physics-informed Neural Networks. CoRR abs/2308.08468. Wang, S., Teng, Y., Perdikaris, P., 2021a. Understanding and Mitigating Gradient Flow Pathologies in Physics-Informed Neural Networks. SIAM J. Sci. Comput. 43, A3055–A3081. 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 34 of 35 Microlocal neural operators 
+
+Wang, S., Wang, H., Perdikaris, P., 2021b. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science advances 7, eabi8605. Wang, S., Yu, X., Perdikaris, P., 2022b. When and why PINNs fail to train: A neural tangent kernel perspective. J. Comput. Phys. 449, 110768. Wu, C., Zhu, M., Tan, Q., Kartha, Y., Lu, L., 2023. A comprehensive study of non-adaptive and residual-based adaptive sampling for physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering 403, 115671. Xu, Z.J., Zhang, Y., Luo, T., Xiao, Y., Ma, Z., 2019. Frequency Principle: Fourier Analysis Sheds Light on Deep Neural Networks. CoRR abs/1901.06523. Yu, B., et al., 2018. The deep Ritz method: a deep learning-based numerical algorithm for solving variational problems. Communications in Mathematics and Statistics 6, 1–12. Zhao, H., 2005. A fast sweeping method for Eikonal equations. Math. Comput. 74, 603–627. Zworski, M., 2012. Semiclassical analysis. volume 138. 
+
+G.L.R. N’guessan and B.J. Kim: Preprint Page 35 of 35

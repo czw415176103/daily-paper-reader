@@ -1,0 +1,2164 @@
+Title: MoNo: Multiscale Optimal Transport Neural Operator for Solving PDEs on General Geometries
+
+URL Source: https://arxiv.org/pdf/2608.09764v1
+
+Published Time: Tue, 11 Aug 2026 02:32:37 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# MoNo: Multiscale Optimal Transport Neural Operator for Solving PDEs on General Geometries 
+
+## Zijiang Yang 1, Xiaomeng Wu 1, Dongmei Fu 12 ∗
+
+> 1
+
+School of Automation and Electrical Engineering, University of Science and Technology Beijing 
+
+> 2
+
+Beijing Engineering Research Center of Industrial Spectrum Imaging zijiangyang@xs.ustb.edu.cn, fdm_ustb@ustb.edu.cn 
+
+Abstract 
+
+Transformer-based neural operators have achieved substan-tial progress in solving Partial Differential Equations (PDEs) by projecting spatial observations into compact latent tokens and learning physical interactions in latent spaces. However, we reveal that existing learnable projection mechanisms can-not ensure stable and balanced assignments from observation points to latent tokens, causing some latent tokens to be over-assigned while others remain underutilized. This limitation further restricts the design of hierarchical architectures, as as-signment imbalance is continuously inherited and amplified across latent spaces, eventually causing severe token collapse in deeper spaces. To address these issues, we propose MoNo 
+
+(Multiscale Optimal Transport Neural Operator), a progres-sive multiscale neural operator that efficiently solves PDEs on general geometries through stable latent-space construc-tion. At its core is CoTAP (Cross-scale Optimal Transport 
+
+Assignment and Projection), a novel latent-space construc-tion method that formulates cross-space assignment between adjacent spaces as an entropy-regularized optimal transport problem, thereby constructing balanced bidirectional projec-tions and stable latent spaces. CoTAP also ensures stable in-formation transfer across multiple latent spaces, further en-abling multiscale architectures on general geometries, which in turn support more efficient learning of long-range physical interactions. Extensive experiments demonstrate that MoNo outperforms existing state-of-the-art neural operators in both prediction performance and computational efficiency. Code is available at https://github.com/ZijiangY1116/MoNo. 
+
+## Introduction 
+
+Partial Differential Equations (PDEs) are fundamental tools for describing the evolution of physical systems (Raissi, Yaz-dani, and Karniadakis 2020; Karniadakis et al. 2021; Wang et al. 2025). Neural operators (Li et al. 2020a), particu-larly Transformer-based variants (Kovachki et al. 2023; Luo et al. 2025a), have substantially advanced efficient PDE solv-ing by learning operator mappings from input observations to target physical fields through sequence-based representa-tions. As standard self-attention scales quadratically with the number of observation points (Vaswani et al. 2017), vanilla Transformer-based neural operators are computationally pro-hibitive for large-scale PDE problems (Wu et al. 2024), moti-vating extensive research on performing attention in compact 
+
+> ∗
+
+Corresponding author. 050 100 150 2048 4096 8192 16384 32768 65536         
+
+> GFLOPs Number of Observation Points
+> Transolver LinearNO
+> MoNo-light (ours) MoNo (ours)
+> 0.65
+> 0.50
+> 0.42 0.33
+> 0.13 0.11 0.10
+> 0.06
+> 8.82 6.99 6.73
+> 5.22
+> 0.85 0.77
+> 0.18 0.13
+> Elasticity Plasticity NS2D AirfRANS
+> (a) Comparison of Efficiency
+> (b) Comparison of Performance
+> 0.60
+> 0.30
+> 0.00
+> Relative Error  (1e-2)
+> 0.12
+> 0.06
+> 0.00
+> 8.00
+> 4.00
+> 0.00
+> 0.80
+> 0.40
+> 0.00
+> Transolver LinerNO MoNo-light (ours) MoNo (ours)
+
+Figure 1: Comparison of MoNo with State-Of-The-Art (SOTA) methods. (a) MoNo achieves higher computational efficiency. (b) MoNo achieves lower prediction errors. latent spaces (Wang and Wang 2024; Alkin et al. 2024; Hu et al. 2026). However, the mechanisms for constructing la-tent spaces and the stability of cross-space mappings remain underexplored, limiting efficient compression of observation sequences and constraining flexibility in architectural design. As illustrated in Figure 1, SOTA methods not only exhibit limited prediction performance but also remain computation-ally expensive despite employing lower-complexity attention mechanisms (Hu et al. 2026). To construct latent spaces, softmax-based projection is widely adopted, where the assignments from each observa-tion point in the observation space to latent tokens in the la-tent space are represented by an unconstrained learnable pro-jection matrix and normalized only afterward through inde-pendent row-wise or column-wise softmax operations (Wang and Wang 2024; Hu et al. 2026). In this work, we reveal that this latent-space construction lacks joint constraints on the assignment distribution, resulting in unstable and imbalanced assignments. As shown in Figure 2(a), softmax-based pro-jection concentrates dominant assignment weights on a small subset of latent tokens and produces substantially inconsis-arXiv:2608.09764v1 [cs.LG] 10 Aug 2026 0.0600                         
+
+> 0.0300
+> 0.0000
+> 0.0020
+> 0.0010
+> 0.0000
+> 1.0000
+> 0.5000
+> 0.0000
+> 0.0004
+> 0.0003
+> 0.0002
+> 0512 1024
+> 0.00
+> 0.20
+> 0.40
+> 0.00
+> 0.50
+> 1.00
+> 0512 1024
+> CoTAP (ours)  Softmax
+> Encoding Decoding
+> 0.00
+> 0.02
+> 0.04
+> 0512 1024
+> Token Index Token Index 0128 256
+> 0128 256
+> 0128 256
+> 0128 256
+> Encoding Decoding
+> 0512 1024
+> 0.00
+> 0.50
+> 1.00
+> Token Index Token Index
+> Weight  Weight
+> Token Index Token Index
+> Token Index Token Index
+> (a) First Latent Space (b) Deeper Latent Space
+
+Figure 2: Comparison of assignment patterns on Darcy at a resolution of 85 × 85 . The heatmaps visualize the max-imum assignment of each observation point across latent tokens. In the heatmaps, colors transition from white to red as the assignment weights increase. The line plots show the maximum assignment weight of each latent token across ob-servation points. Softmax-based projection not only fails to preserve consistency between encoding and decoding map-pings, but also exhibits (a) imbalanced token assignments in the first latent space and (b) severe token collapse in the deeper latent space. tent assignment patterns between encoding and decoding. Furthermore, when the model is extended into a multiscale latent-space architecture built with softmax-based projec-tions, assignment imbalance is continuously inherited and amplified across latent spaces, eventually causing severe to-ken collapse in deeper latent spaces (Figure 2(b)). These issues reduce the effective capacity of latent representations, undermine stable cross-space information transfer, and hin-der the design of multiscale architectures. To address these issues, we propose MoNo (Multiscale 
+
+Optimal Transport Neural Operator), an efficient framework for solving PDEs on general geometries by combining stable cross-space projections with a progressive multiscale hierar-chy. At its core is CoTAP (Cross-scale Optimal Transport 
+
+Assignment and Projection), a novel latent-space construc-tion method that formulates assignment learning between adjacent spaces as an entropy-regularized optimal transport problem, further constructing balanced bidirectional projec-tions from a shared transport plan with uniform marginal constraints (Figure 2). CoTAP further ensures stable informa-tion transfer across multiple latent spaces, thereby enabling efficient multiscale architectures on general geometries be-yond standard grids (Wen et al. 2022). Building on this hi-erarchy, MoNo progressively aggregates physical states into more compact latent spaces to model long-range physical interactions at substantially lower computational cost than repeatedly stacking single-scale blocks (Wu et al. 2024; Hu et al. 2026), while fusing multiscale physical state tokens during decoding to predict the physical field. Extensive ex-periments on seven widely used PDE benchmarks demon-strate that MoNo outperforms SOTA methods while main-taining superior computational efficiency. Our contributions are summarized as follows: 
+
+• We propose MoNo, a progressive multiscale neural op-erator for solving PDEs on general geometries by con-structing a stable hierarchy of latent spaces at multiple compression scales to efficiently learn physical interac-tions across scales. 
+
+• We propose CoTAP, which formulates cross-space assign-ment as an entropy-regularized optimal transport problem and constructs balanced bidirectional projections, thereby enabling the stable construction of latent spaces. 
+
+• Extensive experiments on seven PDE benchmarks show that MoNo outperforms SOTA methods in both prediction performance and computational efficiency. 
+
+## Related Work 
+
+Learnable PDE Solver 
+
+Physics-Informed Neural Networks. Physics-Informed Neural Networks (PINNs) incorporate governing PDE con-straints, initial conditions, and boundary conditions into the training objective to optimize a neural approximation of the target physical field (Niaki et al. 2021; Raissi, Yazdani, and Karniadakis 2020; Wandel et al. 2022; Yang, Qiu, and Fu 2023; Luo et al. 2025b; Wu and Wu 2026). However, PINNs generally require complete and explicit formulations of the governing PDEs and associated solution conditions, which are difficult to obtain in real-world problems. In this work, we focus on observation-driven PDE solving without requiring complete prior definition of the physical system. 
+
+Neural Operators. Neural operators have shown great po-tential for solving PDEs by learning operator mappings from input observations to target fields (Lu, Jin, and Karniadakis 2019; Li et al. 2020b,a; Herde et al. 2024; McCabe et al. 2025; Zhou et al. 2024). Recently, Transformer-based neural operators represent discrete spatial observations and target physical fields as sequences, further formulating PDE solving as a sequence-to-sequence mapping (Li, Meidani, and Fari-mani 2022), which provides substantial flexibility in handling general geometries (Wu et al. 2024; Luo et al. 2025a; Xiao et al. 2023). To efficiently process large-scale spatial observa-tions, existing methods mainly introduce linear attention (Li, Meidani, and Farimani 2022; Li, Shu, and Barati Farimani 2023; Hao et al. 2023; Hu et al. 2026; Luo et al. 2025a) to reduce the computational complexity and construct compact latent spaces to compress long observation sequences (Wang and Wang 2024; Serrano et al. 2024; Alkin et al. 2024; Liu et al. 2025; Hu et al. 2026; Wen et al. 2026). 
+
+Optimal Transport 
+
+Optimal transport (OT) provides a unified mathematical framework for distribution matching across spaces (Villani et al. 2009). In neural operator research, OT has primar-ily been employed as a regularization constraint to improve Input Embedding 
+
+Space 
+
+Space 
+
+Space 
+
+···
+
+···
+
+···
+
+···
+
+Transformer Layers 
+
+···Space  Fusion 
+
+Transformer Layers 
+
+···
+
+···
+
+Encoding 
+
+Encoding 
+
+Encoding  Space  Decoding 
+
+Output MLP 
+
+> Balanced
+> Row Assign.
+> Balanced
+> Column Assign.
+
+Space  Decoding 
+
+Space  Decoding 
+
+···
+
+MLP Projection 
+
+> Imbalanced
+> Row Assign.
+> Imbalanced
+> Column Assign.
+
+CoTAP Iteration 
+
+Normalization 
+
+> Transformer Layer
+> LayerNorm
+> Multi-Head
+> Attention
+> LayerNorm
+> Fead Forward
+
+(a)  (b)  (c)  Input Embedding 
+
+··· ···
+
+··· ···
+
+> Syn.
+> // No Grad.
+> Coordinate Anchor Token
+> Physical State Token (Encoding)
+> Physical State Token (Decoding)
+> Multiply
+> Add
+> Observation
+
+Figure 3: Illustration of MoNo. (a) Given a physical system, MoNo first embeds the spatial positions and input observations into high-dimensional tokens, and then efficiently learns physical interaction with a hierarchy of latent spaces. (b) CoTAP constructs an initial assignment matrix, iteratively solves for a balanced assignment matrix, and normalizes it to obtain the encoding matrix and decoding matrix. (c) Illustration of the input embedding and Transformer layer. transfer learning (Yang and Ren 2025) and dense reconstruc-tion (Ma et al. 2026). In addition, some studies use OT to align arbitrary input geometries with predefined grids (Li et al. 2025; Qi et al. 2026). In this work, we propose Co-TAP, which directly predicts assignment relations between adjacent spaces and further constructs balanced bidirectional projections through OT, enabling stable cross-scale informa-tion transfer without predefined grids. 
+
+## Preliminaries 
+
+We consider PDE-solving problems defined on a spatial do-main Ω0 ⊂ RDs , where Ds denotes the spatial dimension. Given input observations determined by the governing PDE, solution conditions, and external parameters, the goal is to estimate the corresponding target physical field. Beyond set-tings restricted to regular grids, we focus on a general ob-servation setting. Let P = {pi}N 0 
+
+> i=1
+
+denote a set of N 0 dis-crete spatial observation points in Ω0. Given observations 
+
+X = {xi}N 0 
+
+> i=1
+
+at P , the model aims to predict the target physical field Y = {yi}N 0 
+
+> i=1
+
+on the same point set, where 
+
+xi ∈ RDx and yi ∈ RDy , with Dx and Dy denoting the input observation and target physical field dimensions, re-spectively. Each xi is a tensor composed of task-specific physical quantities, such as material parameters. 
+
+## Method 
+
+The overall framework of MoNo is illustrated in Figure 3. Given the observation point set P and the corresponding in-put observations X, MoNo first embeds spatial positions and input observations into an anchor token set G0 = {g0 
+
+> i
+
+}N 0
+
+> i=1
+
+and a physical state token set F 0enc = {f 0 
+
+> i
+
+}N 0 
+
+> i=1
+
+by Panchor 
+
+and Pphy , respectively, where g0 
+
+> i
+
+∈ RDg and f 0 
+
+> i
+
+∈ RDf
+
+denote the anchor token and physical state token of the i-th observation point, and Dg and Df denote dimensions. As the mapping from P to G0 is smooth, gradients through 
+
+Panchor are retained for only 25% of randomly sampled P ,while the remaining points are processed by a gradient-free copy, providing performance comparable to full-point back-propagation with lower training memory (Figure 3(c)). Fur-thermore, MoNo progressively builds stable latent spaces at multiple compressed scales to learn physical interactions. Fi-nally, the decoder maps multiscale latent tokens back to the original observation points and outputs the predicted target field ˆY = {ˆyi}N 0
+
+> i=1
+
+.
+
+CoTAP 
+
+Cross-space Assignment and Projection. For any l-th latent space Ωl, where l ∈ { 1, . . . , L }, we use CoTAP to construct the cross-space assignment and projection between the pre-ceding space Ωl−1 and the current latent space Ωl. Ω0 denotes the original observation space, while Ωl for l ≥ 1 denotes the l-th latent space. For the preceding space Ωl−1, we are given the anchor token set Gl−1 = {gl−1 
+
+> i
+
+}N l−1 
+
+> i=1
+
+, where N l−1
+
+denotes the number of elements in Ωl−1 and gl−1 
+
+> i
+
+denotes the anchor token of the i-th element. CoTAP first represents Gl−1 in matrix form Gl−1 ∈
+
+RN l−1×Dg and constructs an initial assignment matrix Sl−1,l 
+
+> init
+
+through an MLP projector Pl(·):
+
+Sl−1,l  
+
+> init
+
+= Pl(Gl−1) ∈ RN l−1×N l
+
+, (1) where Sl−1,l  
+
+> init ,ij
+
+denotes the initial assignment score between the i-th element in Ωl−1 and the j-th latent token in Ωl.CoTAP further treats Sl−1,l  
+
+> init
+
+as the transport reward and solves the entropy-regularized optimal transport problem: 
+
+Sl−1,l  
+
+> ot
+
+= arg max 
+
+> S∈C l−1,l
+
+D
+
+S, Sl−1,l 
+
+> init
+
+E
+
++ τ H(S), (2) where Sl−1,l  
+
+> ot
+
+∈ RN l−1×N l
+
+denotes the OT-normalized as-signment matrix, τ = 1 denotes the temperature coefficient, 
+
+H(S) = − PN l−1
+
+> i=1
+
+PN l 
+
+> j=1
+
+Sij log Sij denotes the entropy regularization term, and Cl−1,l is the transport polytope with uniform marginal constraints. These marginal constraints en-sure that each input element sends the same total mass and each latent token receives the same total mass. Based on Sl−1,l  
+
+> ot
+
+, CoTAP constructs the bidirectional pro-jection matrices between Ωl−1 and Ωl. Since each column and row of Sl−1,l  
+
+> ot
+
+sums to 1/N l and 1/N l−1, respectively, CoTAP further constructs projections through normalization: 
+
+Sl−1,l  
+
+> enc
+
+= N lSl−1,l  
+
+> ot
+
+,
+
+Sl−1,l  
+
+> dec
+
+= N l−1Sl−1,l  
+
+> ot
+
+, (3) where Sl−1,l  
+
+> enc
+
+denotes the projection from Ωl−1 to Ωl and 
+
+Sl−1,l  
+
+> dec
+
+denotes the projection from Ωl to Ωl−1. Since both projections are constructed from Sl−1,l  
+
+> ot
+
+, CoTAP maintains a consistent mass-transfer relation in the encoding and decod-ing, rather than arbitrary learnable token mixing. CoTAP solves Equation (2) with log-domain Sinkhorn it-erations (Sinkhorn 1967). To reduce the computational cost for large-scale tasks, we further implement a Triton-based fused Sinkhorn solver, termed CoTAP Iteration. Specifically, CoTAP Iteration directly fuses the log-sum-exp reductions into GPU kernels, thereby avoiding the materialization of large intermediate tensors. For the backward pass, we derive and implement gradient computation equivalent to backprop-agation through standard Sinkhorn iterations. The details of CoTAP Iteration are provided in the Appendix. We further demonstrate that the composition of CoTAP and a single latent self-attention layer can be represented as a learnable integral operator on the original physical domain 
+
+Ω0, consistent with the operator interpretation of other meth-ods (Wu et al. 2024; Hu et al. 2026). The detailed proof of Theorem 1 is provided in the Appendix. 
+
+Theorem 1 (CoTAP with latent self-attention as an in-tegral operator on Ω0). Let Ω0 be the original physical domain endowed with a probability measure μ0. For any bounded measurable physical state token field F0enc : Ω 0 →
+
+RDf and any continuous anchor token field G0 : Ω 0 → RDg ,the composition of CoTAP and a single latent self-attention layer can be represented as an input-dependent integral ker-nel operator on Ω0. Specifically, for μ0-almost every p ∈ Ω0,
+
+T  G0, F0enc 
+
+(p) = 
+
+Z
+
+> Ω0
+
+κ p, ξF0enc (ξ)Wv dμ 0(ξ), (4) 
+
+where T denotes the composite operator, Wv denotes the value projection in latent self-attention, and κ denotes the input-dependent kernel. 
+
+Progressive Multiscale Modeling 
+
+Based on CoTAP, MoNo builds an encoding-decoding hier-archy with L latent spaces to learn physical interactions at progressively compressed scales. 
+
+Encoding. For each latent space Ωl, where l ∈ { 1, . . . , L },the encoding stage projects anchor tokens and physical state tokens from Ωl−1 to Ωl and learns physical interactions: 
+
+F l 
+
+> enc
+
+= Ml
+
+> enc
+
+ Sl−1,l 
+
+> enc
+
+⊤ F l−1enc 
+
+
+
+,Gl =  Sl−1,l 
+
+> enc
+
+⊤ Gl−1,
+
+(5) where Ml
+
+> enc
+
+, F l
+
+> enc
+
+, and Gl denote the encoding transformer block, the updated physical state token set, and the projected anchor token set in Ωl, respectively. By repeating Equa-tion (5) progressively, MoNo preserves local geometry and fine-grained physical information in shallow latent spaces while forming more compressed and global physical state representations in deeper latent spaces. 
+
+Decoding. Starting from the deepest latent space ΩL, the decoding stage projects physical state tokens back through the hierarchy and fuses them with the encoded tokens: 
+
+F l 
+
+> dec
+
+=
+
+(Ml
+
+> dec
+
+(F l
+
+> enc
+
+), l = L, 
+
+Ml
+
+> dec
+
+
+
+F l 
+
+> enc
+
++ Sl,l +1 dec F l+1 dec 
+
+
+
+, 1 ≤ l < L, (6) where Ml 
+
+> dec
+
+and F l 
+
+> dec
+
+denote the decoding transformer block and the decoded physical state token set in Ωl, respectively. Finally, F 1dec is projected back to the original observation space as F 0dec = S0,1dec F 1dec . An MLP output head then maps 
+
+F 0dec to the target physical field prediction ˆY .Furthermore, we demonstrate that MoNo defines a neural operator that maps input functions to target physical-field functions. The detailed proof of Theorem 2 is provided in the Appendix. 
+
+Theorem 2 (MoNo as a neural operator ). Given a con-tinuous anchor token field G0 : Ω 0 → RDg and a bounded measurable physical state token field F0enc : Ω 0 → RDf ,MoNo with L latent spaces defines the following learnable function-to-function mapping: 
+
+bY = Nθ
+
+ G0, F0enc 
+
+, bY : Ω 0 → RDy , (7) 
+
+where Nθ denotes the MoNo neural operator parameterized by the learnable parameters θ, and bY denotes the predicted physical-field function defined on Ω0.
+
+MoNo Variants 
+
+We define two variants and adjust their input and output dimensions according to each task. Both variants contain four latent spaces, with the numbers of encoding and decoding Transformer layers set to {3, 1, 1, 1}, and differ as follows: 
+
+• MoNo-light : Dg = 96 , Df = 96 , with latent token num-bers of {512 , 256 , 128 , 64 }.
+
+• MoNo : Dg = 192 , Df = 192 , with latent token numbers of {1024 , 512 , 256 , 128 }.Method Structured Mesh Standard Grid Point Cloud Airfoil Pipe Plasticity Navier-Stokes Elasticity FNO (Li et al. 2020a) - - - 0.1556 -GEO-FNO (Li et al. 2023a) 0.0138 0.0067 0.0074 0.1556 0.0229 F-FNO (Tran et al. 2021) 0.0078 0.0070 0.0047 0.2322 0.0263 Galerkin (Cao 2021) 0.0118 0.0098 0.0120 0.1401 0.0240 OFormer (Li et al. 2023) 0.0183 0.0168 0.0017 0.1705 0.0183 GNOT (Hao et al. 2023) 0.0076 0.0047 0.0336 0.1380 0.0086 FactFormer (Li et al. 2023) 0.0071 0.0060 0.0312 0.1214 -ONO (Xiao et al. 2023) 0.0061 0.0052 0.0048 0.1195 0.0118 LSM (Wu et al. 2023) 0.0059 0.0050 0.0025 0.1535 0.0218 LNO (Wang and Wang 2024) 0.0053 0.0031 0.0028 0.0830 0.0066 Transolver (Wu et al. 2024) 0.0053 0.0030 0.0013 0.0882 0.0065 Transolver++ (Luo et al. 2025a) 0.0051 0.0027 0.0014 0.1010 0.0064 LinearNO (Hu et al. 2026) 0.0049 0.0024 0.0011 0.0699 0.0050           
+
+> MoNo-Light (ours) 0.0048 0.0027 0.0010 0.0673 0.0042
+> MoNo (ours) 0.0048 0.0021 0.0006 0.0522 0.0033
+
+Table 1: Comparison on standard benchmarks in relative L2 ( ↓). "-" denotes that the method is not applicable to the corresponding task. The best results are highlighted in bold, and the second-best results are underlined. MoNo outperforms other methods. MoNo-light has a parameter count comparable to existing methods, whereas MoNo uses a larger configuration to in-crease model capacity. Notably, as shown in the Experi-ments section, both variants achieve higher computational efficiency than existing SOTA methods on large-scale tasks. 
+
+## Experiments 
+
+Experiment Settings 
+
+Benchmarks. To comprehensively evaluate MoNo across diverse geometries and physical systems, we conduct ex-periments on six widely used standard benchmarks (Li et al. 2020a; Hu et al. 2026; Wang and Wang 2024), including Air-foil, Pipe, Plasticity, Navier-Stokes (NS2D), Elasticity, and Darcy. Following recent studies (Wu et al. 2024; Hu et al. 2026), we further evaluate MoNo on AirfRANS (Bonnet et al. 2022), a real-world advanced benchmark. 
+
+Baselines. We compare MoNo with SOTA neural operator methods, including FNO (Li et al. 2020a), GEO-FNO (Li et al. 2023a), F-FNO (Tran et al. 2021), Galerkin Trans-former (Cao 2021), OFormer (Li, Meidani, and Farimani 2022), GNOT (Hao et al. 2023), FactFormer (Li, Shu, and Barati Farimani 2023), ONO (Xiao et al. 2023), LSM (Wu et al. 2023), LNO (Wang and Wang 2024), Transolver (Wu et al. 2024), Transolver++ (Luo et al. 2025a), and Lin-earNO (Hu et al. 2026). For AirfRANS, we additionally include MLP, PointNet (Qi et al. 2017), Graph U-Net (Bron-stein et al. 2016), and MeshGraphNet (Pfaff et al. 2020). 
+
+Implementations. Please refer to the Appendix for detailed hyper-parameters and training configurations. 
+
+Main Results 
+
+Standard Benchmarks. Table 1 reports the results on stan-dard benchmarks. MoNo achieves the best performance across all tasks. For the three structured-mesh tasks, includ-ing Airfoil, Pipe, and Plasticity, MoNo outperforms existing                                                    
+
+> Method Vol. ( ↓) Surf. ( ↓)CL(↓)ρL(↑)MLP 0.0081 0.0200 0.2108 0.9932 PointNet (Qi et al. 2017) 0.0253 0.0996 0.1973 0.9919 Graph U-Net (2017) 0.0076 0.0144 0.1677 0.9949 MeshGraphNet (2020) 0.0214 0.0387 0.2252 0.9945 GNO (Li et al. 2020b) 0.0269 0.0405 0.2016 0.9938 GEO-FNO (Li et al. 2023a) 0.0361 0.0301 0.6161 0.9257 GALERKIN (Cao 2021) 0.0074 0.0159 0.2336 0.9951 GNOT (Hao et al. 2023) 0.0049 0.0152 0.1992 0.9942 GINO (Li et al. 2023b) 0.0297 0.0482 0.1821 0.9958 LNO (Wang and Wang 2024) 0.0214 0.0268 0.1480 0.9744 Transolver (Wu et al. 2024) 0.0023 0.0085 0.1230 0.9978 Transolver++ (2025) 0.0068 0.0159 0.1880 0.9910 LinearNO (Hu et al. 2026) 0.0011 0.0077 0.0491 0.9992 MoNo-Light (ours) 0.0025 0.0018 0.0616 0.9986
+> MoNo (ours) 0.0009 0.0013 0.0415 0.9992
+
+Table 2: Comparison on the AirfRANS benchmark. Follow-ing previous works (Wu et al. 2024; Hu et al. 2026), we evaluate the prediction error of surrounding (Vol.) and sur-face (Surf.) physical fields, as well as the lift coefficient ( CL). 
+
+ρL denotes Spearman’s rank correlation for CL. MoNo out-performs other methods. methods by at least 2.0%, 12.5%, and 45.5% in terms of relative L2 error, respectively. MoNo also achieves the best performance for complex time-dependent physical systems and point-cloud representations. For fair comparisons, we also report the performance of MoNo-light, whose parameter count is comparable to that of SOTA methods. MoNo-light still shows competitive and overall superior solving accuracy. Specifically, MoNo-light outperforms SOTA methods by at least 2.0%, 9.1%, 3.7%, and 16.0% on Airfoil, Plasticity, NS2D, and Elasticity in Ground Truth  LinearNO Error  MoNo (ours) Error        
+
+> 2
+> 1
+> 0
+> -1
+> -2
+> 2
+> 0
+> -2
+> NS2D
+> 0.02
+> 0.01
+> 0.00
+> -0.01
+> -0.02
+> 0.30
+> 0.20
+> 0.10
+> 0.00
+> Pipe
+> 0.2
+> 0.1
+> 0.0
+> -0.1
+> -0.2 0
+> 2
+> 4
+> 6
+> Plasticity
+> ···
+> ···
+> ···
+> ···
+> ···
+> ···
+> ···
+> ···
+> Space Space Space Space
+> Maximum Details
+> (a) Assignment Patterns for Solving NS2D (c) Case Studies (b) Assignment Patterns for Solving Elasticity
+> ···
+> ···
+> ···
+> ···
+> Space Space Space Space
+> ···
+> ···
+> ···
+> ···
+
+Figure 4: Visualization of assignment patterns and prediction errors. (a) The assignment patterns learned by MoNo on NS2D. (b) The assignment patterns learned by MoNo-light on Elasticity. (c) Case studies. MoNo constructs assignment relations with clear multiscale characteristics and achieves substantially lower prediction errors. 
+
+Method 85 ×85 141 ×141 211 ×211 LNO 0.0081 0.0074 0.0073 Transolver 0.0055 0.0064 0.0063 LinearNO 0.0050 0.0053 0.0053 
+
+MoNo-Light (ours) 0.0070 0.0057 0.0059 
+
+MoNo (ours) 0.0059 0.0049 0.0046 
+
+Table 3: Comparison on Darcy at multiple resolutions in relative L2 error ( ↓). MoNo effectively reduces prediction errors as the spatial resolution increases. terms of relative L2 error, respectively. These results demon-strate that the stable cross-space projections constructed by CoTAP and the progressive multiscale hierarchy enable ef-fective learning of multiscale physical states across diverse geometries and physical systems. 
+
+Advanced Benchmarks. Table 2 reports the results on the AirfRANS advanced benchmark. MoNo achieves the best performance in predicting the surrounding physical fields, surface physical fields, and lift coefficient. Specifi-cally, MoNo outperforms the existing SOTA methods by at least 18.2% and 83.1% in predicting the surrounding physical fields and surface physical fields, respectively. For aerody-namic performance evaluation, MoNo achieves an error of 0.0415 in predicting the lift coefficient, outperforming all existing methods by at least 15.5%. MoNo-light also outper-forms all baselines by at least 76.6% in predicting the surface physical fields. Moreover, MoNo-light surpasses most exist-ing SOTA methods on the remaining metrics. These results further demonstrate that MoNo can handle complex geome-tries and real-world problems. 
+
+Evaluation at Multiple Resolutions. To further evaluate the ability of models to utilize spatial observations of varying densities, we conduct experiments on Darcy at three spatial resolutions: 85 × 85 , 141 × 141 , and 211 × 211 . The results are reported in Table 3. Both MoNo and MoNo-light effec-
+
+Method OOD Reynolds OOD Angles Vol. ( ↓) Surf. ( ↓) Vol. ( ↓) Surf. ( ↓)MLP 0.0669 0.1153 0.1309 0.3311 PointNet 0.0838 0.1403 0.2021 0.4649 Graph U-Net 0.0538 0.1168 0.0979 0.2391 MeshGraphNet 0.2789 0.2382 0.4902 1.1071 GNO 0.0833 0.1562 0.1626 0.2359 Galerkin 0.0330 0.0972 0.0577 0.2773 GNOT 0.0305 0.0959 0.0471 0.3466 GINO 0.0839 0.1825 0.1589 0.2469 LNO 0.0825 0.1762 0.0346 0.0790 Transolver 0.0122 0.0550 0.0480 0.2335 LinearNO 0.0112 0.0372 0.0464 0.2500 
+
+MoNo-light (ours) 0.0090 0.0146 0.0222 0.0553 
+
+MoNo (ours) 0.0066 0.0121 0.0097 0.0248 
+
+Table 4: Comparison on the AirfRANS OOD benchmarks. tively utilize the additional information provided by higher-resolution observations, achieving more accurate physical field predictions overall as the number of observation points increases. In contrast, both Transolver and LinearNO exhibit performance degradation at higher resolutions. In particu-lar, at the resolution of 211 × 211 , MoNo outperforms all other methods by at least 13.2% in terms of relative L2 er-ror. These results further demonstrate that MoNo can effec-tively aggregate and propagate physical information across different observation resolutions, thereby improving solving performance as the observation density increases. 
+
+Out-of-Distribution Evaluation. We further introduce out-of-distribution (OOD) experiments on the AirfRANS bench-mark. Specifically, following previous work (Wu et al. 2024), we consider two OOD settings on AirfRANS: Reynolds-number extrapolation (OOD Reynolds) and angle-of-attack extrapolation (OOD Angles). As shown in Table 4, MoNo Model Params. (M) GFLOPs ( ↓)GNOT (Hao et al. 2023) 6.73 444.18 Transolver (Wu et al. 2024) 2.81 196.19 Transolver++ (Luo et al. 2025a) 1.74 121.17 LinearNO (Hu et al. 2026) 1.77 132.83     
+
+> MoNo-light (ours) 1.73 23.46 MoNo (ours) 6.90 97.26
+
+Table 5: Efficiency comparison on parameter count (Params.) and GFLOPs ( ↓). MoNo shows substantially higher compu-tational efficiency than existing methods.                     
+
+> MultiScale CoTAP Airfoil Elasticity Pipe
+> ✗✗0.0060 0.0077 0.0036
+> ✓✗0.0056 0.0072 0.0036
+> ✗✓0.0051 0.0070 0.0028
+> ✓✓0.0048 0.0042 0.0027
+
+Table 6: Ablation studies of CoTAP and progressive multi-scale modeling in relative L2 error ( ↓). and MoNo-light outperform existing methods. MoNo out-performs existing methods by at least 41.1% and 67.5% in predicting the surrounding physical fields and surface physi-cal fields on OOD Reynolds, respectively. In addition, MoNo also outperforms existing methods by at least 72.0% and 68.6% in predicting the surrounding physical fields and sur-face physical fields on OOD Angles, respectively. Table 4 demonstrates the strong extrapolation capability of MoNo to unseen flow regimes and aerodynamic configurations. 
+
+Efficiency. Table 5 compares the parameter counts and GFLOPs of models when processing 65,536 spatial obser-vation points. MoNo-light contains only 1.73M parameters and achieves the lowest computational cost. Despite using a larger configuration with 6.90M parameters, MoNo requires only 97.26 GFLOPs, which is 19.7% lower than that of Tran-solver++. These results demonstrate that MoNo-light pro-vides substantial advantages in both model size and compu-tational cost, while MoNo increases representation capacity and solving performance while remaining more computa-tionally efficient than existing methods. 
+
+Ablation Studies 
+
+Unless otherwise specified, ablation studies are conducted using MoNo-light. 
+
+CoTAP. Table 6 verifies the critical role of CoTAP. Build-ing upon the baseline with softmax-based projection, intro-ducing CoTAP reduces the errors on Airfoil, Elasticity, and Pipe by 15.0%, 9.1%, and 22.2%, respectively. These results demonstrate that CoTAP effectively improves the learning of physical interactions in latent spaces by constructing bal-anced cross-space projections. 
+
+Progressive Multiscale Modeling. Table 6 also verifies the importance of progressive multiscale modeling in improv-ing prediction performance. Although introducing multi-scale modeling alone with softmax-based projection pro-(a) Space  (b) Space            
+
+> CoTAP (ours)  Softmax
+> 141 ×141 211 ×211 141 ×141 211 ×211
+
+Figure 5: Visualization of assignments across different spa-tial resolutions. (a) The assignments in the first latent space (Space Ω1). (b) The assignments in the deeper latent space (Space Ω3). CoTAP constructs balanced assignment relations that remain consistent across spatial resolutions. vides only limited improvements, further incorporating pro-gressive multiscale modeling upon CoTAP reduces the errors on Airfoil, Elasticity, and Pipe by 5.9%, 40.0%, and 3.6%, respectively. This demonstrates that the effectiveness of mul-tiscale modeling highly depends on the stable construction of latent spaces. 
+
+Visualizations 
+
+Visualization of CoTAP. Figures 4(a) and (b) visualize the assignment patterns learned by MoNo on NS2D and by MoNo-light on Elasticity, respectively. Across both tasks with distinct geometries, CoTAP constructs assignment rela-tions with clear multiscale characteristics. Latent tokens in shallow spaces provide fine-grained partitions of the origi-nal physical domain, while each latent token progressively covers a larger spatial region and forms a more global repre-sentation as the hierarchy deepens. Figure 5 further compares the assignment patterns gener-ated by CoTAP and softmax-based projection on Darcy at resolutions of 141 × 141 and 211 × 211 . Across multiple latent spaces, CoTAP constructs balanced assignment pat-terns that remain consistent between the two spatial resolu-tions. In contrast, softmax-based projection fails to preserve assignment consistency across resolutions, exhibits imbal-anced assignments, and suffers from severe token collapse in deeper latent spaces. These results validate the critical role of CoTAP in balancing token assignments, mitigating token collapse in deeper latent spaces, and preserving assignment stability across spatial resolutions. 
+
+Case Studies. Figure 4(c) presents qualitative prediction re-sults. Compared with LinearNO, MoNo exhibits substan-tially lower prediction errors throughout the physical domain, particularly in high-gradient regions. These results show that MoNo can accurately predict fine-grained physical behaviors and complex local variations. 
+
+## Conclusion 
+
+In this work, we proposed MoNo, a progressive multiscale neural operator for solving PDEs on general geometries. At its core, we propose CoTAP to formulate cross-space assign-ment as an entropy-regularized optimal transport problem and construct stable latent spaces. CoTAP further unlocks stable progressive multiscale architectures on general ge-ometries, thereby enabling more efficient learning of physical interactions. Extensive experiments demonstrate that MoNo outperforms SOTA methods in both prediction performance and computational efficiency. This work highlights the crit-ical role of stable latent-space construction in developing Transformer-based neural operators with stronger represen-tational capacity and higher computational efficiency. 
+
+## Appendix A: Notation Summary 
+
+For clarity, Table 7 summarizes the main notation used throughout this paper. Symbols that are only used in Ap-pendix E are defined upon their first occurrence. 
+
+## Appendix B: Proof of Theorem 1 
+
+Proof. Assume that the continuous CoTAP coupling be-tween (Ω 0, μ 0) and (Ω 1, μ 1) admits a nonnegative measur-able density with respect to μ0 ⊗ μ1, denoted as: 
+
+r(p, ζ) := r0,1 
+
+> G0
+
+(p, ζ), (8) where μ1 denotes the probability measure on the latent space 
+
+Ω1, r denotes the CoTAP coupling density induced by the anchor token field G0, and p denotes the target point in Ω0.The marginal constraints are as follows: 
+
+Z
+
+> Ω1
+
+r(p, ζ) dμ 1(ζ) = 1 , μ0-a.e. p,
+
+Z
+
+> Ω0
+
+r(ξ, ζ) dμ 0(ξ) = 1 , μ1-a.e. ζ.
+
+(9) 
+
+Continuous CoTAP. The continuous CoTAP encoding and decoding operators induced by this coupling are as follows: 
+
+F1(ζ) :=  S0,1enc F0enc 
+
+ (ζ)=
+
+Z
+
+> Ω0
+
+r(ξ, ζ)F0enc (ξ) dμ 0(ξ),
+
+
+
+S0,1dec Φ1
+
+(p) := 
+
+Z
+
+> Ω1
+
+r(p, ζ)Φ 1(ζ) dμ 1(ζ),
+
+(10) where F1 denotes the physical state field projected into Ω1,and Φ1 denotes a measurable latent feature field on Ω1.
+
+Latent self-attention. As established in prior work (Ko-vachki et al. 2023), standard self-attention admits an integral-operator representation. Denoting its input-dependent atten-tion kernel by α(ζ, η), the latent self-attention operator in the present setting is: 
+
+ A1F1 (ζ) = 
+
+Z
+
+> Ω1
+
+α(ζ, η)F1(η)Wv dμ 1(η), (11) where A1 denotes the latent self-attention operator on Ω1.The attention kernel satisfies: 
+
+α(ζ, η) ≥ 0,
+
+Z
+
+> Ω1
+
+α(ζ, η) dμ 1(η) = 1 . (12) 
+
+Composition on the original space. To represent the com-position of latent self-attention and CoTAP decoding, we first define an intermediate kernel. Specifically, α(ζ, η) transfers the physical state at the latent point η to the attention output at ζ, while r(p, ζ) further projects this output from ζ to the original-space point p. Marginalizing over the intermediate latent point ζ yields the effective transfer kernel from η to p:
+
+β(p, η) := 
+
+Z
+
+> Ω1
+
+r(p, ζ)α(ζ, η) dμ 1(ζ). (13) 
+
+β is the intermediate kernel induced by the composition of latent self-attention and CoTAP decoding. Substituting the intermediate kernel β into the composite operator and then applying the continuous CoTAP encoding gives, for μ0-almost every p ∈ Ω0:
+
+T  G0, F0enc 
+
+(p)=
+
+Z
+
+> Ω1
+
+β(p, η)F1(η)Wv dμ 1(η)=
+
+Z
+
+> Ω1
+
+Z
+
+> Ω0
+
+β(p, η)r(ξ, η)F0enc (ξ)Wv dμ 0(ξ) dμ 1(η).
+
+(14) To express this double integral as an integral solely over the original space Ω0, we first verify the absolute integrability required by Fubini’s theorem: 
+
+Z
+
+> Ω1
+
+Z
+
+> Ω0
+
+β(p, η)r(ξ, η)
+
+· F0enc (ξ)Wv dμ 0(ξ) dμ 1(η)
+
+≤ F0enc L∞(μ0) ∥Wv ∥·
+
+Z
+
+> Ω1
+
+β(p, η)
+
+Z 
+
+> Ω0
+
+r(ξ, η) dμ 0(ξ)
+
+
+
+dμ 1(η)= F0enc L∞(μ0) ∥Wv ∥ < ∞.
+
+(15) The equality follows from Equations (9), (12), and the def-inition of β in Equation (13). Therefore, Fubini’s theorem allows us to exchange the order of integration: 
+
+T  G0, F0enc 
+
+(p)=
+
+Z
+
+> Ω0
+
+Z 
+
+> Ω1
+
+β(p, η)r(ξ, η) dμ 1(η)
+
+
+
+· F 0enc (ξ)Wv dμ 0(ξ).
+
+(16) The inner integral in Equation (16) defines the effective original-space kernel: 
+
+κ(p, ξ) := 
+
+Z
+
+> Ω1
+
+β(p, η)r(ξ, η) dμ 1(η), (17) It follows that, for μ0-almost every p ∈ Ω0, we can get: 
+
+T  G0, F0enc 
+
+(p) = 
+
+Z
+
+> Ω0
+
+κ(p, ξ)F0enc (ξ)Wv dμ 0(ξ),
+
+(18) which proves the integral-operator representation on Ω0.Notation Description 
+
+Dimensions and indices 
+
+Ds Spatial dimension of the original physical domain. 
+
+Dx Dimension of the input observation at each observation point. 
+
+Dy Dimension of the target physical field at each observation point. 
+
+Dg Dimension of the anchor tokens. 
+
+Df Dimension of the physical state tokens. 
+
+N 0 Number of observation points in the original observation space. 
+
+N l Number of elements in Ωl. For l ≥ 1, the number of latent tokens in the l-th latent space. 
+
+L Total number of latent spaces in the progressive hierarchy. 
+
+l Space index, where l = 0 denotes the original observation space and l ∈ { 1, . . . , L } denotes a latent space. 
+
+Spaces, observations, and tokens 
+
+Ωl The l-th space in the hierarchy, where Ω0 ⊂ RDs is the original physical domain and Ωl for l ≥ 1 is the l-th latent space. 
+
+P = {pi}N 0 
+
+> i=1
+
+Spatial observation point set, where pi ∈ Ω0.
+
+X = {xi}N 0 
+
+> i=1
+
+Input observation set, where xi ∈ RDx .
+
+Y = {yi}N 0 
+
+> i=1
+
+Ground-truth target physical field, where yi ∈ RDy .
+
+ˆY = {ˆyi}N 0 
+
+> i=1
+
+Discrete target physical field predicted by MoNo. 
+
+Gl = {gli}N l 
+
+> i=1
+
+Anchor token set in Ωl, where gli ∈ RDg .
+
+F l 
+
+> enc
+
+Encoded physical state token set in Ωl, with F l 
+
+> enc
+
+∈ RN l×Df .
+
+F l 
+
+> dec
+
+Decoded physical state token set in Ωl, with F l 
+
+> dec
+
+∈ RN l×Df .
+
+Trainable modules 
+
+Panchor Anchor embedding module that maps observation positions to the initial anchor tokens. 
+
+Pphy Physical state embedding module that maps input observations to the initial physical state tokens. 
+
+Pl MLP assignment projector that maps Gl−1 to the initial assignment scores for Ωl.
+
+Ml 
+
+> enc
+
+Encoding Transformer block that learns physical interactions in Ωl.
+
+Ml 
+
+> dec
+
+Decoding Transformer block that updates and fuses decoded physical state tokens in Ωl.
+
+CoTAP 
+
+Sl−1,l  
+
+> init
+
+Initial assignment matrix generated by Pl, with Sl−1,l  
+
+> init
+
+∈ RN l−1×N l
+
+.
+
+Sl−1,l  
+
+> init ,ij
+
+Initial assignment score between the i-th element in Ωl−1 and the j-th latent token in Ωl.
+
+Sl−1,l  
+
+> ot
+
+OT-normalized assignment matrix between Ωl−1 and Ωl with uniform marginal constraints. 
+
+Sl−1,l  
+
+> enc
+
+Encoding projection matrix from Ωl−1 to Ωl.
+
+Sl−1,l  
+
+> dec
+
+Decoding projection matrix from Ωl to Ωl−1.
+
+S Candidate transport matrix in the entropy-regularized optimal transport problem. 
+
+Cl−1,l Transport polytope with uniform marginal constraints between Ωl−1 and Ωl.
+
+T Number of Sinkhorn iterations used to solve the entropy-regularized optimal transport problem. 
+
+τ Temperature coefficient of the entropy-regularized optimal transport problem. 
+
+H(S) Entropy regularization term of the candidate transport matrix S.
+
+Continuous operator analysis 
+
+μl Probability measure defined on Ωl.
+
+Gl Continuous anchor token field associated with the discrete anchor token set Gl.
+
+Fl
+
+> enc
+
+, Fl 
+
+> dec
+
+Continuous encoded and decoded physical state token fields on Ωl.
+
+Sl−1,l  
+
+> enc
+
+, Sl−1,l  
+
+> dec
+
+Continuous CoTAP encoding and decoding operators between adjacent spaces. 
+
+rl−1,l  
+
+> Gl−1
+
+CoTAP coupling density induced by the anchor token field Gl−1.
+
+A1, α Latent self-attention operator on Ω1 and its input-dependent attention kernel. 
+
+T Composite operator formed by CoTAP and a single latent self-attention layer. 
+
+κ Input-dependent integral kernel induced by CoTAP and latent self-attention. 
+
+Wv Value projection matrix in the integral representation of latent self-attention. 
+
+Nθ MoNo neural operator parameterized by learnable parameters θ.
+
+bY Continuous target physical-field function predicted by MoNo on Ω0.
+
+Table 7: Summary of the main notation used in MoNo. Appendix C: Discrete Kernel Representation of Theorem 1 
+
+We further provide the finite-dimensional counterpart of the operator considered in Theorem 1. Using the CoTAP projection matrices defined in the main paper, we show that the composition of CoTAP encoding, one pure self-attention layer, and CoTAP decoding admits an exact input-dependent kernel-matrix representation on the discrete ob-servation space. The encoded latent features are: 
+
+F 1 =  S0,1enc 
+
+⊤ F 0enc . (19) In addition, the latent self-attention is defined as: 
+
+Q = F 1Wq ,
+
+K = F 1Wk,
+
+A(F 1) = Softmax 
+
+ QK ⊤
+
+√Da
+
+
+
+,
+
+(20) where Q and K denote the query and key feature matrices, 
+
+A(·) denotes the row-normalized attention matrix based on input, Wq and Wk denote the query and key projections, and Da denotes the query/key dimension. The correspond-ing latent attention output is A(F 1)F 1Wv . The projection matrices and the resulting CoTAP decoding are as follows: 
+
+S0,1enc = N 1S0,1ot ,
+
+S0,1dec = N 0S0,1ot ,F 0dec = S0,1dec A(F 1) ·  S0,1enc 
+
+⊤ F 0enc Wv ,
+
+(21) where F 0dec denotes the physical state feature matrix pro-jected back to the original observation space after the compo-sition of CoTAP encoding, latent self-attention, and CoTAP decoding. Therefore, the effective discrete kernel is: 
+
+K0eff 
+
+ G0, F 0enc 
+
+
+
+:= S0,1dec A(F 1)  S0,1enc 
+
+⊤
+
+=
+
+
+
+N 0S0,1ot 
+
+
+
+A(F 1)
+
+
+
+N 1S0,1ot 
+
+⊤
+
+= N 0N 1S0,1ot A
+
+
+
+N 1 
+
+S0,1ot 
+
+⊤
+
+F 0enc 
+
+
+
+·
+
+
+
+S0,1ot 
+
+⊤
+
+,
+
+(22) where K0eff ∈ RN 0×N 0
+
+acts directly on the original observa-tion space. The complete discrete composition can therefore be written as: 
+
+F 0dec = K0eff 
+
+ G0, F 0enc 
+
+ F 0enc Wv . (23) This is an exact algebraic identity for finite N 0 and N 1. The kernel is input-dependent because S0,1ot is induced by G0,while A(·) depends on F 1, which is jointly determined by 
+
+G0 and F 0enc .
+
+## Appendix D: Proof of Theorem 2 
+
+Proof. We consider the deterministic inference map of MoNo. For every l = 1 , . . . , L , assume that the CoTAP coupling between (Ω l−1, μ l−1) and (Ω l, μ l) admits a non-negative measurable density with respect to μl−1 ⊗ μl. By the continuous CoTAP construction in Equation (10), Sl−1,l 
+
+> enc
+
+and Sl−1,l  
+
+> dec
+
+are cross-space integral operators from Ωl−1 to 
+
+Ωl and from Ωl to Ωl−1, respectively. Both operators depend on the current anchor token field Gl−1.As shown in Equation (11), latent self-attention is a non-local integral operator on the corresponding latent space. Multi-head concatenation and output projection act only along the feature dimension, while LayerNorm, feed-forward networks, and activation functions act point-wise on each fea-ture field. Moreover, residual and skip addition can be written as the point-wise local operators. Thus, after lifting branched features to a product function space, every standard Trans-former block is a finite composition of latent-space nonlocal integral operators and point-wise local operators. Specifi-cally, each Ml 
+
+> enc
+
+and Ml 
+
+> dec
+
+has the same operator structure. 
+
+Single latent space. For L = 1 , the complete model is as follows: F1enc = M1enc 
+
+ S0,1enc F0enc 
+
+ ,
+
+F1dec = M1dec 
+
+ F1enc 
+
+ ,
+
+F0dec = S0,1dec F1dec ,
+
+bY = MLP out 
+
+ F0dec 
+
+ .
+
+(24) The CoTAP operators in Equation (24) are induced by 
+
+G0. Hence, these equations define a learnable mapping 
+
+(G0, F0enc ) 7 → bY from input fields on Ω0 to an output field on Ω0. By the operator characterization above, this mapping is a finite composition of cross-space integral, latent-space nonlocal, and point-wise local operators. The claim therefore holds for a single latent space. 
+
+Multiple latent spaces. For l = 1 , . . . , L , the progressive encoding recursion is: 
+
+Fl 
+
+> enc
+
+= Ml
+
+> enc
+
+ Sl−1,l  
+
+> enc
+
+Fl−1enc 
+
+ ,
+
+Gl = Sl−1,l  
+
+> enc
+
+Gl−1. (25) The base case l = 1 follows from the single-space con-struction. If (Gl−1, Fl−1enc ) is obtained from the original in-put through the permitted operators, then Equation (25) ap-plies one cross-space integral operator followed by the en-coder model in Ωl. Therefore, by forward induction, every 
+
+(Gl, Fl
+
+> enc
+
+) is a function field on Ωl produced by a finite com-position of the same operators. The progressive decoder is: 
+
+Fl 
+
+> dec
+
+=
+
+(
+
+ML
+
+> dec
+
+ FL
+
+> enc
+
+ , l = L, 
+
+Ml
+
+> dec
+
+(Fl 
+
+> enc
+
++ Sl,l +1 dec Fl+1 dec ), 1 ≤ l < L. (26) At the deepest latent space, FL 
+
+> dec
+
+is obtained by applying the decoding Transformer model ML 
+
+> dec
+
+to FL
+
+> enc
+
+. Therefore, FL
+
+> dec
+
+has the operator structure characterized above. The projected field is then combined with Fl 
+
+> enc
+
+through point-wise skip addition and subsequently updated by Ml
+
+> dec
+
+, which is a finite composition of latent-space nonlocal and point-wise local operators. Therefore, backward induction from l = L to 
+
+l = 1 shows that every decoded field Fl 
+
+> dec
+
+is produced by a finite composition of these operators. Then, the predicted physical-field function bY is obtained as: 
+
+F0dec = S0,1dec F1dec ,
+
+bY = MLP out 
+
+ F0dec 
+
+ . (27) S0,1dec maps F1dec back to the original space Ω0 through a cross-space integral operator, while MLP out transforms the resulting field into the target physical field through point-wise linear mappings and nonlinear activations. Consequently, bY
+
+is a function on Ω0 obtained through a finite composition of cross-space integral, latent-space nonlocal, and point-wise local operators. Combining the forward and backward in-ductions, MoNo defines: 
+
+Nθ :  G0, F0enc 
+
+ 7 −→ bY. (28) Combining the encoding and decoding processes, Nθ is a finite composition of cross-space integral, latent-space non-local, and point-wise local operators. Therefore, MoNo con-stitutes a neural operator that maps the original input func-tions to the target physical-field function on Ω0.
+
+## Appendix E: CoTAP Iteration 
+
+Standard Log-domain Sinkhorn Iteration 
+
+We first describe the standard log-domain Sinkhorn itera-tion (Sinkhorn 1967) for solving the entropy-regularized op-timal transport problem in CoTAP. Let Sl−1,l  
+
+> init
+
+= Sl−1,l  
+
+> init
+
+/τ ,and initialize the row and column dual variables u0 ∈ RN l−1
+
+and v0 ∈ RN l
+
+as zero vectors. Since CoTAP adopts uni-form marginal constraints, the row and column marginals in the log domain are − log N l−1 and − log N l, respectively. Therefore, at the t-th iteration, ut+1 and vt+1 are updated as: 
+
+ut+1  
+
+> i
+
+= − log N l−1 − log  
+
+> Nl
+
+X
+
+> j=1
+
+exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ vtj
+
+
+
+,vt+1  
+
+> j
+
+= − log N l − log  
+
+> Nl−1
+
+X
+
+> i=1
+
+exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ ut+1 
+
+> i
+
+
+
+,
+
+(29) where, t ∈ { 0, . . . , T − 1} denotes the iteration index, and 
+
+T denotes the total number of iterations. After T iterations, CoTAP obtains the OT-normalized assignment matrix: 
+
+Sl−1,l  
+
+> ot ,ij
+
+= exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ uTi + vTj
+
+
+
+. (30) Equation (29) alternately enforces the uniform row and column marginals in the log domain, yielding a balanced as-signment. However, the standard implementation produces large intermediate tensors at each iteration and retains the complete computation graph for automatic differentiation during training, resulting in substantial GPU memory con-sumption for large-scale observations. To address this issue, we further develop a Triton-based fused Sinkhorn solver, termed CoTAP Iteration. 
+
+Fused Forward in CoTAP Iteration 
+
+CoTAP Iteration implements the row and column dual up-dates at each iteration of Equation (29) as fused Triton ker-nels. Each Triton program processes one row or column in parallel, performs assignment scaling, log-sum-exp reduc-tion, and dual-variable update using on-chip memory, and writes only the updated dual variable back to GPU memory. After T iterations, a fused output kernel generates Sl−1,l  
+
+> enc
+
+and 
+
+Sl−1,l  
+
+> dec
+
+without separately materializing Sl−1,l  
+
+> ot
+
+.The fused forward avoids materializing intermediate ten-sors of size N l−1 × N l at each iteration and caches only the dual variables required for the backward pass. 
+
+Fused Backward in CoTAP Iteration 
+
+End-to-end training of the assignment projector Pl(·) re-quires propagating the gradient from Sl−1,l  
+
+> enc
+
+and Sl−1,l  
+
+> dec
+
+back to the initial assignment matrix Sl−1,l  
+
+> init
+
+. In the standard log-domain Sinkhorn implementation, automatic differentiation computes this gradient by retaining the complete computa-tion graph of all Sinkhorn iterations. However, the fused for-ward incorporates assignment reconstruction, log-sum-exp reductions, and dual-variable updates into Triton kernels, whose internal operations are not recorded by the automatic differentiation system. Therefore, we explicitly reverse the finite Sinkhorn iterations and accumulate reverse-mode gra-dients using the dual-variable histories cached during the forward pass. As Sl−1,l  
+
+> enc
+
+and Sl−1,l  
+
+> dec
+
+are outputs of the fused forward, their upstream gradients ∂L/∂ Sl−1,l  
+
+> enc
+
+and ∂L/∂ Sl−1,l  
+
+> dec
+
+are directly available at the backward pass, where L denotes the training loss. The fused backward first reverses the fused output operation and accumulates the gradients from both projection outputs into the final log-assignment. It then tra-verses the Sinkhorn iterations in reverse order, propagating gradients through each column dual update followed by the corresponding row dual update. This procedure yields the same gradient with respect to Sl−1,l  
+
+> init
+
+as automatic differen-tiation through the standard finite-step log-domain Sinkhorn iterations. We first describe the reverse-mode gradient accumulation with zero and one Sinkhorn iteration and then generalize it to an arbitrary number of iterations T . For simplicity, we denote the final log-assignment after T iterations by Zl−1,l :
+
+Zl−1,l ij = Sl−1,l  
+
+> init ,ij
+
++ uTi + vTj . (31) Since Sl−1,l  
+
+> enc
+
+= N lSl−1,l  
+
+> ot
+
+and Sl−1,l  
+
+> dec
+
+= N l−1Sl−1,l  
+
+> ot
+
+, the upstream gradients from the two projection outputs are ac-cumulated at Zl−1,l :
+
+∂L
+
+∂Z l−1,l ij 
+
+= ∂L
+
+∂S l−1,l 
+
+> enc ,ij
+
+∂S l−1,l 
+
+> enc ,ij
+
+∂Z l−1,l ij 
+
++ ∂L
+
+∂S l−1,l 
+
+> dec ,ij
+
+∂S l−1,l 
+
+> dec ,ij
+
+∂Z l−1,l ij 
+
+= N l ∂L
+
+∂S l−1,l 
+
+> enc ,ij
+
++ N l−1 ∂L
+
+∂S l−1,l 
+
+> dec ,ij
+
+!
+
+Sl−1,l  
+
+> ot ,ij
+
+.
+
+(32) In the fused backward, neither Zl−1,l nor Sl−1,l  
+
+> ot
+
+is cached as a complete tensor during the forward pass. Instead, both quan-tities are reconstructed element-wise on demand from Sl−1,l 
+
+> init
+
+within the backward kernel and are discarded immediately after evaluating the local gradient in Equation (32). 
+
+Backward with Zero Sinkhorn Iteration. We first consider 
+
+T = 0 as the base case for analyzing the fused output oper-ation. When T = 0 , no dual-variable update is performed. Therefore, the fused backward only needs to reverse the fused output operation. In this case, the log-assignment and result-ing assignment at each position are: 
+
+Zl−1,l ij = Sl−1,l  
+
+> init ,ij
+
+= Sl−1,l 
+
+> init ,ij
+
+τ ,Sl−1,l  
+
+> ot ,ij
+
+= exp 
+
+
+
+Zl−1,l ij 
+
+
+
+.
+
+(33) Therefore, propagating the accumulated gradient in Equa-tion (32) to the initial assignment gives: 
+
+∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= ∂L
+
+∂Z l−1,l ij 
+
+∂Z l−1,l ij 
+
+∂S l−1,l 
+
+> init ,ij
+
+= 1
+
+τ N l ∂L
+
+∂S l−1,l 
+
+> enc ,ij
+
++ N l−1 ∂L
+
+∂S l−1,l 
+
+> dec ,ij
+
+!
+
+Sl−1,l  
+
+> ot ,ij
+
+.
+
+(34) 
+
+Backward with One Sinkhorn Iteration. When T = 1 , the forward pass performs one row dual update followed by one column dual update, and constructs the final log-assignment as: 
+
+Zl−1,l ij = Sl−1,l  
+
+> init ,ij
+
++ u1 
+
+> i
+
++ v1 
+
+> j
+
+. (35) The fused backward first accumulates ∂L/∂Z l−1,l ij from the two projection outputs according to Equation (32), and then reverses the column and row dual updates. The normalized weights associated with the row and column log-sum-exp reductions are: 
+
+h0 
+
+> ij
+
+=exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ v0
+
+> j
+
+ 
+
+> Nl
+
+X
+
+> k=1
+
+exp 
+
+
+
+Sl−1,l  
+
+> init ,ik
+
++ v0
+
+> k
+
+ ,q1 
+
+> ij
+
+=exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ u1
+
+> i
+
+ 
+
+> Nl−1
+
+X
+
+> k=1
+
+exp 
+
+
+
+Sl−1,l  
+
+> init ,kj
+
++ u1
+
+> k
+
+ .
+
+(36) Directly incorporating local derivatives into the reverse-mode accumulation gives the complete gradients of the scaled initial assignment: 
+
+∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= ∂L
+
+∂Z l−1,l ij 
+
+| {z }
+
+> final log-assignment
+
+− q1
+
+> ij
+
+∂L
+
+∂v 1
+
+> j
+
+| {z } 
+
+> column dual update
+
+− h0
+
+> ij
+
+∂L
+
+∂u 1
+
+> i
+
+| {z }
+
+> row dual update
+
+.
+
+(37) Finally, propagating through the temperature scaling gives the gradient with respect to the initial assignment matrix: 
+
+∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= 1
+
+τ∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= 1
+
+τ
+
+∂L
+
+∂Z l−1,l ij 
+
+− q1
+
+> ij
+
+∂L
+
+∂v 1
+
+> j
+
+− h0
+
+> ij
+
+∂L
+
+∂u 1
+
+> i
+
+!
+
+.
+
+(38) Since the dual variables u1 and v1 are cached during the fused forward, the backward kernels can explicitly accumu-late the corresponding gradients in reverse-mode order. The normalized weights h0 and q1 are reconstructed on demand from the initial assignment and cached dual variables, with-out being stored as complete assignment-sized tensors. 
+
+Backward with an Arbitrary Number of Sinkhorn Iter-ations. For an arbitrary number of iterations T , the fused backward starts from the final log-assignment and reverses the column and row dual updates of each iteration in the oppo-site order of the forward computation. For the t-th Sinkhorn iteration, the normalized weights associated with the row and column log-sum-exp reductions are: 
+
+htij =exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ vtj
+
+ 
+
+> Nl
+
+X
+
+> k=1
+
+exp 
+
+
+
+Sl−1,l  
+
+> init ,ik
+
++ vtk
+
+ ,qt+1  
+
+> ij
+
+=exp 
+
+
+
+Sl−1,l  
+
+> init ,ij
+
++ ut+1 
+
+> i
+
+ 
+
+> Nl−1
+
+X
+
+> k=1
+
+exp 
+
+
+
+Sl−1,l  
+
+> init ,kj
+
++ ut+1 
+
+> k
+
+ ,
+
+(39) where t ∈ { 0, . . . , T −1}. Furthermore, the local derivatives of the row and column dual updates at iteration t are: 
+
+∂u t+1 
+
+> i
+
+∂S l−1,l 
+
+> init ,ij
+
+= ∂u t+1 
+
+> i
+
+∂v tj
+
+= −htij ,∂v t+1 
+
+> j
+
+∂S l−1,l 
+
+> init ,ij
+
+= ∂v t+1 
+
+> j
+
+∂u t+1 
+
+> i
+
+= −qt+1  
+
+> ij
+
+.
+
+(40) The complete reverse-mode gradient of the scaled initial as-signment is: 
+
+∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= ∂L
+
+∂Z l−1,l ij 
+
+| {z }
+
+> final log-assignment
+
+− 
+
+> T−1
+
+X
+
+> t=0
+
+qt+1 
+
+> ij
+
+∂L
+
+∂v t+1 
+
+> j
+
+| {z }
+
+> column dual updates
+
+− 
+
+> T−1
+
+X
+
+> t=0
+
+htij 
+
+∂L
+
+∂u t+1 
+
+> i
+
+| {z }
+
+> row dual updates
+
+.
+
+(41) Propagating through the temperature scaling gives the gradi-ent with respect to the initial assignment matrix: 
+
+∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= 1
+
+τ∂L
+
+∂S l−1,l 
+
+> init ,ij
+
+= 1
+
+τ
+
+"
+
+∂L
+
+∂Z l−1,l ij 
+
+− 
+
+> T−1
+
+X
+
+> t=0
+
+qt+1 
+
+> ij
+
+∂L
+
+∂v t+1 
+
+> j
+
++ htij 
+
+∂L
+
+∂u t+1 
+
+> i
+
+! # 
+
+.
+
+(42) Similar to Equation (38), all gradients with respect to the dual variables in Equation (41), including ∂L/∂v t+1  
+
+> j
+
+and 
+
+∂L/∂u t+1  
+
+> i
+
+, are explicitly accumulated by the fused back-ward kernels in reverse-mode order, while ht and qt are reconstructed on demand from the scaled initial assignment and cached dual variables. When T = 0 , the summations are empty and Equation (42) reduces to Equation (34). When 
+
+T = 1 , Equation (42) reduces to Equation (38). 
+
+Computational Efficiency of CoTAP Iteration 
+
+To evaluate the computational efficiency of CoTAP Iteration, we compare it with the standard log-domain Sinkhorn itera-tion implementation based on PyTorch. All experiments use N l−1 N l Standard Log-domain Sinkhorn Iteration CoTAP Iteration Forward (ms) ↓ Forward+Backward (ms) ↓ Peak Memory (GB) ↓ Forward (ms) ↓ Forward+Backward (ms) ↓ Peak Memory (GB) ↓                     
+
+> 4,096 512 1.34 3.87 0.50 0.74 3.57 0.22 32,768 1,024 44.16 110.76 8.00 12.05 71.19 3.50 65,536 2,048 176.24 OOM OOM 49.47 466.42 14.00
+
+Table 8: Performance comparison between standard Sinkhorn iterations and CoTAP Iteration. Peak Memory denotes the peak incremental GPU memory during forward-and-backward computation. OOM indicates that the computation exceeds the available memory of a 24-GB GPU. FP32, a batch size of 4, and four Sinkhorn iterations on an NVIDIA GeForce RTX 4090. We report the runtime over three runs after one warm-up run and the peak GPU memory during forward-and-backward computation. As shown in Table 8, CoTAP Iteration substan-tially reduces the forward runtime. When (N l−1, N l) = (32 ,768 , 1,024) , it reduces the forward time from 44.16 ms to 12.05 ms and the forward-and-backward time from 110.76 ms to 71.19 ms, corresponding to reductions of 72.7% and 35.7%, respectively. CoTAP Iteration also substantially re-duces training memory. For (N l−1, N l) = (4 ,096 , 5,12) and 
+
+(N l−1, N l) = (32 ,768 , 1,024) , CoTAP Iteration decreases the peak incremental memory from 0.50 GB and 8.00 GB to 0.22 GB and 3.50 GB, respectively, yielding reductions of approximately 56%. At the largest scale of (65 ,536 , 2,048) ,the standard implementation runs out of memory during the backward pass, whereas CoTAP Iteration completes forward-and-backward computation with 14.00 GB of peak incremen-tal memory. These results show that the fused forward and explicit fused backward effectively reduce the materialization and computational-graph storage of assignment-sized intermedi-ate tensors, enabling CoTAP to scale more efficiently to large cross-space assignments. 
+
+## Appendix F: Implementation Details 
+
+Benchmarks 
+
+We mainly adopt benchmark configurations and data splits as in previous works (Wu et al. 2024; Hu et al. 2026). 
+
+Airfoil. The Airfoil benchmark (Li et al. 2023a) evaluates Mach number prediction around different airfoil geometries. Geometries are generated by deforming the baseline NACA-0012 airfoil and discretized into structured meshes of size 
+
+221 × 51 . The input and output are the two-dimensional grid coordinates ( 221 ×51 ×2) and Mach numbers ( 221 ×51 ×1), respectively. The dataset contains 1,000 training samples and 200 testing samples. 
+
+Darcy. The Darcy benchmark (Li et al. 2020a) evaluates steady-state pressure-field prediction under different porous-medium distributions, with the original physical process dis-cretized on a 421 × 421 standard grid. The input consists of the two-dimensional coordinates ( 421 × 421 × 2) and corre-sponding porous-medium coefficient ( 421 × 421 × 1) at each grid point. The output is the pressure at each grid point, with a shape of 421 × 421 × 1. For the multiple-resolution eval-uation, we construct Darcy benchmark variants at different downsampled resolutions, including 85 × 85 , 141 × 141 , and 
+
+211 × 211 . The dataset contains 1,000 training samples and 200 testing samples. 
+
+Elasticity. The Elasticity benchmark (Li et al. 2023a) eval-uates the prediction of internal stress distributions for dif-ferent material structures. Each structure is represented by 972 point-cloud observations. The input consists of the two-dimensional coordinates of these points, with a shape of 
+
+972 × 2 The output is the stress value at each point, with a shape of 972 ×1. The dataset contains 1,000 training samples and 200 testing samples. 
+
+Navier-Stokes (NS2D). The Navier-Stokes benchmark (Li et al. 2020a), denoted as NS2D, evaluates autoregressive prediction of two-dimensional time-dependent flow fields. The flow field is discretized on a 64 × 64 Cartesian grid. The input consists of the velocity fields from the previous 10 time steps, with a shape of 64 × 64 × 10 × 1. The output contains the velocity fields for the subsequent 10 time steps with a shape of 64 × 64 × 10 × 1. The dataset contains 1,000 training samples and 200 testing samples. 
+
+Pipe. The Pipe benchmark (Li et al. 2023a) evaluates velocity-field prediction. The geometries are generated by varying the pipe centerline and are discretized into struc-tured meshes of size 129 × 129 . The input consists of the two-dimensional coordinates of the mesh points, with a shape of 129 × 129 × 2 The output is the velocity at each point, with a shape of 129 × 129 × 1. The dataset contains 1,000 training samples and 200 testing samples. 
+
+Plasticity. The Plasticity benchmark (Li et al. 2023a) eval-uates the future deformation of a plastic material. For each sample, the die geometry is discretized into a structured mesh of size 101 × 31 . The input includes the two-dimensional co-ordinates ( 101 × 31 × 2) and corresponding external force at each mesh point ( 101 × 31 × 1). The output describes the deformation of each point along four directions over the subsequent 20 time steps, with a shape of 101 × 31 × 20 × 4.Unlike the autoregressive prediction used for NS2D, Plas-ticity encodes each target time step as a time embedding and concatenates it into the model input, allowing the de-formation at each time step to be predicted independently. The dataset contains 900 training samples with different die shapes and 80 testing samples. 
+
+AirfRANS. AirfRANS (Bonnet et al. 2022) describes two-dimensional incompressible steady-state Reynolds-Averaged Navier-Stokes flows over different airfoil geometries, Reynolds numbers, and angles of attack. Each case is rep-resented by a point cloud containing a varying number of observation points. We denote the number of observation points in the i-th case by N i
+
+> AirfRANS
+
+.The input consists of two-dimensional spatial coor-dinates (N i 
+
+> AirfRANS
+
+× 2), two-dimensional inlet veloc-ity (N i 
+
+> AirfRANS
+
+× 2), Euclidean distance to the airfoil (N i 
+
+> AirfRANS
+
+× 1), and two-dimensional outward-pointing unit surface normal ( N i 
+
+> AirfRANS
+
+× 2). The output consists of the two-dimensional velocity ( N i 
+
+> AirfRANS
+
+× 2), pres-sure ( N i 
+
+> AirfRANS
+
+× 1), and turbulent kinematic viscosity (N i 
+
+> AirfRANS
+
+×1). AirfRANS contains 1,000 samples in total. Following previous works (Wu et al. 2024; Hu et al. 2026), we use different data splits according to the evaluation set-ting. For the main experiment, 720, 80, and 200 samples are used for training, validation, and testing, respectively. The de-tailed configurations of the OOD experiments are provided in Appendix H. 
+
+Evaluation Metrics 
+
+We use relative L2 error to evaluate prediction accuracy across all benchmarks. For AirfRANS, we additionally eval-uate the corresponding aerodynamic force coefficients and their Spearman rank correlations as previous works (Wu et al. 2024; Hu et al. 2026). 
+
+Relative L2 Error. For each test sample, the relative L2 error, termed ErL2 , is defined as the L2 error between the predicted and ground-truth physical fields normalized by the L2 norm of the ground truth: 
+
+ErL2 =
+
+Y − bY 2
+
+∥Y ∥2
+
+, (43) where Y and bY denote the ground-truth and predicted phys-ical fields, respectively, and ∥ · ∥ 2 denotes the L2 norm. The reported result is averaged over all testing samples. 
+
+Lift Coefficient. The lift coefficient CL is used to evaluate global aerodynamic performance on AirfRANS. It is com-puted by integrating the pressure and viscous forces over the airfoil surface to obtain the lift force, which is subsequently normalized by the freestream dynamic pressure and refer-ence area. The detailed computation follows Transolver (Wu et al. 2024) and LinearNO (Hu et al. 2026). 
+
+Spearman Rank Correlation. The Spearman rank correla-tion ρL measures the ranking consistency between the pre-dicted and ground-truth lift coefficients. Given n testing sam-ples, it is defined as the Pearson correlation between the ranks of the ground-truth and predicted lift coefficient sequences: 
+
+ρL = Cov (rank( cL), rank( bcL)) 
+
+σrank( cL)σrank( bcL)
+
+, (44) where cL and bcL denote the ground-truth and predicted lift coefficient sequences over all testing samples, respectively. 
+
+Cov( ·, ·) denotes the covariance, rank( ·) denotes the ranking operation, and σrank( ·) denotes the standard deviation. A value of ρL closer to 1 indicates stronger ranking consistency. 
+
+Baselines 
+
+For baselines, we primarily use the results reported by Lin-earNO (Hu et al. 2026). For the multiple-resolution evalu-ation, we implement and evaluate the baselines using their publicly available code. 
+
+MoNo 
+
+CoTAP. For all benchmarks, the temperature coefficient τ
+
+and the number of iterations T in CoTAP are set to 1.0 and 8, respectively. Each assignment projector Pl(·) is imple-mented as an MLP with three hidden linear layers. Except for Darcy, we further apply row-wise weight normalization to the final linear layer of P1(·). Specifically, each row of its weight matrix is first normalized by its L2 norm and then multiplied by a learnable scale initialized to 3.0. This design prevents the model from increasing the assignment scores of specific latent tokens merely by enlarging the norms of the corresponding output weights during training, thereby improving the stability of initial assignment learning. 
+
+Training. All experiments are conducted with a random seed of 0. MoNo and MoNo-light use the same training hyper-parameters on the standard benchmarks, as summarized in Table 9. Compared with LinearNO and Transolver, MoNo and MoNo-light use the same or fewer total optimization steps for each benchmark, ensuring a fair comparison. For the multiple-resolution evaluation on Darcy, MoNo and MoNo-light are trained for 500 epochs using the AdamW optimizer, relative L2 loss, a OneCycle scheduler with 100 warmup epochs, and a batch size of 4. For MoNo, the learning rate is set to 8 × 10 −4 at all resolutions. We observe that MoNo-light does not fully converge with a learning rate of 
+
+8 × 10 −4. Therefore, we use slightly larger learning rates while keeping all other training hyper-parameters unchanged. Specifically, the learning rate is set to 1 × 10 −3 at resolutions of 85 × 85 and 141 × 141 , and to 1.4 × 10 −3 at a resolution of 211 × 211 .Following previous works (Wu et al. 2024; Hu et al. 2026), we sample 32,000 points from each AirfRANS case during training and repeatedly perform sampling and prediction dur-ing inference until all points are covered. Since MoNo relies on stable mapping, we find that the fully random sampling strategy with a batch size of 1 adopted in previous works causes severe training instability. To address this issue, each sampled case contains all surface points together with ran-domly sampled volume points, yielding 32,000 points in to-tal. We further set the batch size to 4 and increase the num-ber of training epochs to preserve the same total number of optimization steps. Both MoNo and MoNo-light use the rel-ative L2 loss, AdamW optimizer, and OneCycle scheduler, with the learning rate and number of warmup epochs set to 
+
+2 × 10 −4 and 100, respectively. Following previous works, we jointly supervise the prediction of physical fields in the surrounding region and on the surface, assigning both loss terms a weight of 1.0. Both OOD Reynolds and OOD Angles experiments use the same training hyper-parameters as the main AirfRANS experiment. 
+
+Hardware and Software Environment. All experiments are conducted using a single NVIDIA GeForce RTX 4090 GPU with up to 600 GB of system memory. The core software environment consists of PyTorch 2.8.0, CUDA 12.8, cuDNN 9.10.2, and Triton 3.4.0. Benchmark Loss Epochs Warmup Epochs LR Optimizer Scheduler Batch Size Airfoil rL2 500 100 8 × 10 −4 AdamW OneCycle 4Elasticity rL2 500 100 8 × 10 −4 AdamW OneCycle 4NS2D rL2 500 100 8 × 10 −4 AdamW OneCycle 2Pipe rL2 500 100 8 × 10 −4 AdamW OneCycle 4Plasticity rL2 500 100 8 × 10 −4 AdamW OneCycle 8
+
+Table 9: Training hyper-parameters on the standard benchmarks. MoNo and MoNo-light use the same settings. 
+
+## Appendix G: Efficiency Analysis 
+
+Table 10 reports the parameter counts and computational costs. All results use FP32 inference with a batch size of one. All models use two-channel inputs and single-channel outputs for evaluation. MoNo-light consistently achieves the lowest computational cost across all input sizes, while MoNo also exhibits increasingly clear computational advantages and outperforms all baselines at larger input scales. 
+
+## Appendix H: Detailed OOD Results 
+
+The training and test ranges for the OOD Reynolds and OOD Angles settings are summarized in Table 11. Table 12 fur-ther presents the complete OOD results on AirfRANS, in-cluding the lift coefficient error CL and its Spearman rank correlation ρL. MoNo achieves the best performance across all metrics under both OOD settings. On OOD Reynolds, MoNo achieves a CL error of 0.1050, outperforming the strongest baseline, Transolver, by 35.3%, while improving the ρL from 0.9951 (LinearNO) to 0.9983. On OOD Angles, MoNo further achieves a CL error of 0.0782, outperforming the strongest baseline, LinearNO, by 20.8%, and improves ρL
+
+from 0.9963 to 0.9970. These results demonstrate that MoNo can extrapolate not only local physical fields but also global aerodynamic performance under unseen flow conditions. 
+
+## Appendix I: More Ablation Studies 
+
+Latent Token Number and Token Dimensions. Table 13 analyzes the effects of the number of latent tokens N 1 in the first latent space Ω1 and the token dimensions of an-chor tokens and physical state tokens. Increasing N 1 and the token dimensions initially improves performance across the three tasks, after which performance gradually saturates, and further scaling provides no consistent gains. Compared with the initial configuration using N 1 = 256 
+
+and token dimensions of 48, MoNo-light uses N 1 = 512 and token dimensions of 96, reducing the errors on Airfoil, Elas-ticity, and Pipe by 20.0%, 66.9%, and 27.0%, respectively. MoNo further uses N 1 = 1024 and token dimensions of 192, reducing the errors on the three tasks by 20.0%, 74.0%, and 43.2%, respectively, compared with the initial configura-tion. These results show that MoNo-light achieves a favorable balance between model scale and overall solution accuracy, while MoNo further improves overall accuracy through in-creased representational capacity. 
+
+CoTAP Hyper-parameters. Table 14 analyzes the effects of the temperature coefficient τ and the number of itera-tions T with MoNo-light. The temperature coefficient τ con-trols the sharpness of the assignment distribution. A smaller                                                      
+
+> Model Parameters (M) Input Points N0GFLOPs GNOT 6.73 1,024 6.94 2,048 13.88 4,096 27.76 8,192 55.52 16,384 111.04 32,768 222.09 65,536 444.18 Transolver 2.81 1,024 3.08 2,048 6.14 4,096 12.27 8,192 24.53 16,384 49.06 32,768 98.10 65,536 196.19 Transolver++ 1.74 1,024 1.90 2,048 3.79 4,096 7.58 8,192 15.15 16,384 30.30 32,768 60.59 65,536 121.17 LinearNO 1.77 1,024 2.08 2,048 4.15 4,096 8.30 8,192 16.60 16,384 33.21 32,768 66.41 65,536 132.83
+> MoNo-light 1.73 1,024 1.23 2,048 1.58 4,096 2.29 8,192 3.70 16,384 6.52 32,768 12.17 65,536 23.46
+> MoNo 6.90 1,024 8.41 2,048 9.82 4,096 12.64 8,192 18.28 16,384 29.56 32,768 52.13 65,536 97.26
+
+Table 10: Efficiency comparison with different numbers of input points. MoNo achieves higher computational efficiency. 
+
+τ weakens entropy regularization and produces sharper as-signments, whereas a larger τ yields smoother assignments. With T = 8 , both τ = 0 .5 and τ = 1 .0 achieve stable Split OOD Reynolds: Reynolds Number Range OOD Angles: AoA Range Training Set [3 × 10 6, 5 × 10 6] [−2.5◦, 12 .5◦]
+
+Test Set [2 × 10 6, 3 × 10 6] ∪ [5 × 10 6, 6 × 10 6] [−5◦, −2.5◦] ∪ [12 .5◦, 15 ◦]
+
+Table 11: Training and test ranges for the AirfRANS OOD Reynolds and OOD Angles evaluations. 
+
+Method AirfRANS (OOD Reynolds) AirfRANS (OOD Angles) Vol. ( ↓) Surf. ( ↓) CL (↓) ρL (↑) Vol. ( ↓) Surf. ( ↓) CL (↓) ρL (↑)MLP 0.0669 0.1153 0.6205 0.9578 0.1309 0.3311 0.4128 0.9572 PointNet (Qi et al. 2017) 0.0838 0.1403 0.3836 0.9806 0.2021 0.4649 0.4425 0.9784 Graph U-Net (Bronstein et al. 2016) 0.0538 0.1168 0.4664 0.9645 0.0979 0.2391 0.3756 0.9816 MeshGraphNet (Pfaff et al. 2020) 0.2789 0.2382 1.7718 0.7631 0.4902 1.1071 0.6525 0.8927 GNO (Li et al. 2020b) 0.0833 0.1562 0.4408 0.9878 0.1626 0.2359 0.3038 0.9884 GALERKIN (Cao 2021) 0.0330 0.0972 0.4615 0.9826 0.0577 0.2773 0.3814 0.9821 GNOT (Hao et al. 2023) 0.0305 0.0959 0.3268 0.9865 0.0471 0.3466 0.3497 0.9868 GINO (Li et al. 2023b) 0.0839 0.1825 0.4180 0.9645 0.1589 0.2469 0.2583 0.9923 LNO (Wang and Wang 2024) 0.0825 0.1762 0.7440 0.9399 0.0346 0.0790 0.3732 0.9905 Transolver (Wu et al. 2024) 0.0122 0.0550 0.1622 0.9904 0.0480 0.2335 0.2438 0.9948 LinearNO (Hu et al. 2026) 0.0112 0.0372 0.2400 0.9951 0.0464 0.2500 0.0987 0.9963 
+
+MoNo-Light (ours) 0.0090 0.0146 0.1816 0.9936 0.0222 0.0553 0.0951 0.9953 
+
+MoNo (ours) 0.0066 0.0121 0.1050 0.9983 0.0097 0.0248 0.0782 0.9970 
+
+Table 12: Comparison on the AirfRANS OOD Reynolds and OOD Angles benchmarks. We evaluate both the surrounding (Vol.) and surface (Surf.) physical fields, as well as the lift coefficient ( CL). ρL denotes Spearman’s rank correlation for CL.
+
+N 1 Dg & Df Params. (M) Airfoil Elasticity Pipe 256 48 0.44 0.0060 0.0127 0.0037 512 48 0.46 0.0053 0.0123 0.0036 512 96 1.73 0.0048 0.0042 0.0027 512 192 6.71 0.0048 0.0033 0.0022 1024 192 6.90 0.0048 0.0033 0.0021 1024 384 26.77 0.0046 0.0035 0.0021 2048 384 27.50 0.0049 0.0031 0.0023 
+
+Table 13: Ablation studies of the number of tokens in the first latent space and token dimensions in relative L2 error ( ↓). performance, whereas increasing τ to 4.0 reduces prediction performance. These results indicate that latent tokens require sufficiently sharp assignments to better represent local phys-ical information. Increasing the number of iterations allows the assignment matrix to satisfy the marginal constraints more closely, effectively imposing stronger normalization, but also makes convergence more difficult. The results show that increasing T from 8 to 12 provides no consistent per-formance improvement and noticeably reduces prediction accuracy on Elasticity. In all experiments, we use τ = 1.0 and T = 8 as the default configuration to balance assignment sharpness, marginal constraint enforcement, and training convergence. 
+
+Architectural Designs. Table 15 analyzes the input for ini-tial assignment construction and the token reduction factor between adjacent latent spaces. Constructing assignments from F l−1enc enables case-specific projections conditioned on 
+
+τ T Airfoil Elasticity Pipe 0.5 8 0.0048 0.0041 0.0023 4.0 8 0.0050 0.0046 0.0027 1.0 4 0.0045 0.0043 0.0026 1.0 12 0.0048 0.0054 0.0024 1.0 8 0.0048 0.0042 0.0027 
+
+Table 14: Ablation studies of τ and T in CoTAP by relative L2 error ( ↓). 
+
+Input for Sl−1,l  
+
+> init
+
+Reduction Factor Airfoil Elasticity Pipe 
+
+F l−1enc ×2 0.0050 0.0058 0.0031 
+
+Gl−1 ×1 0.0046 0.0050 0.0026 
+
+Gl−1 ×4 0.0048 0.0064 0.0030 
+
+Gl−1 ×2 0.0048 0.0042 0.0027 
+
+Table 15: Ablation studies of the input for initial assignment construction and the token reduction factor between adjacent latent spaces in relative L2 error ( ↓). the current physical states but substantially reduces the stabil-ity of CoTAP across latent spaces. With limited training data, this additional flexibility encourages the model to fit complex case-specific cross-space projections instead of sufficiently learning physical interactions within each latent space. For the token reduction factor, ×1 preserves the number of tokens and only redistributes them between adjacent spaces, thereby providing no effective hierarchical information ag-gregation. In contrast, ×4 compresses physical states too rapidly and causes substantial information loss. Therefore, we construct CoTAP from Gl−1 and use a token reduction factor of ×2 by default to balance cross-space projection stability, progressive information aggregation, and represen-tational capacity at each scale. 
+
+## Appendix J: The Use of Large Language Models 
+
+All major technical contributions and theoretical derivations in this work were conceived and developed by the authors. Large language models (LLMs) were used for language pol-ishing, auxiliary analysis, and checking theoretical deriva-tions. All LLM-assisted descriptions and analyses were care-fully reviewed and verified by the authors. 
+
+## References 
+
+Alkin, B.; Fürst, A.; Schmid, S. L.; Gruber, L.; Holzleitner, M.; and Brandstetter, J. 2024. Universal physics transform-ers: A framework for efficiently scaling neural operators. In 
+
+The Thirty-eighth Annual Conference on Neural Information Processing Systems .Bonnet, F.; Mazari, J. A.; Cinnella, P.; et al. 2022. Airfrans: High fidelity computational fluid dynamics dataset for ap-proximating reynolds-averaged navier–stokes solutions. In 
+
+Thirty-sixth Conference on Neural Information Processing Systems Datasets and Benchmarks Track .Bronstein, M. M.; Bruna, J.; LeCun, Y.; Szlam, A.; and Van-dergheynst, P. 2016. Geometric deep learning: going beyond euclidean data. arXiv preprint arXiv:1611.08097 .Cao, S. 2021. Choose a transformer: Fourier or galerkin. Ad-vances in neural information processing systems , 34: 24924– 24940. Hao, Z.; Wang, Z.; Su, H.; Ying, C.; Dong, Y.; Liu, S.; Cheng, Z.; Song, J.; and Zhu, J. 2023. Gnot: A general neural operator transformer for operator learning. In International conference on machine learning , 12556–12569. PMLR. Herde, M.; Raonić, B.; Rohner, T.; Käppeli, R.; Molinaro, R.; De Bezenac, E.; and Mishra, S. 2024. Poseidon: Efficient foundation models for pdes. Advances in Neural Information Processing Systems , 37: 72525–72624. Hu, W.; Liu, S.; Qiao, P.; Sun, Z.; and Dou, Y. 2026. Tran-solver is a linear transformer: Revisiting physics-attention through the lens of linear attention. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, 408– 416. Karniadakis, G. E.; Kevrekidis, I. G.; Lu, L.; Perdikaris, P.; Wang, S.; and Yang, L. 2021. Physics-informed machine learning. Nature Reviews Physics , 3(6): 422–440. Kovachki, N.; Li, Z.; Liu, B.; Azizzadenesheli, K.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2023. Neural operator: Learning maps between function spaces with ap-plications to pdes. Journal of Machine Learning Research ,24(89): 1–97. Li, X.; Li, Z.; Kovachki, N.; and Anandkumar, A. 2025. Geometric operator learning with optimal transport. arXiv preprint arXiv:2507.20065 .Li, Z.; Huang, D. Z.; Liu, B.; and Anandkumar, A. 2023a. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research ,24(388): 1–26. Li, Z.; Kovachki, N.; Azizzadenesheli, K.; Liu, B.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2020a. Fourier neural operator for parametric partial differential equations. 
+
+arXiv preprint arXiv:2010.08895 .Li, Z.; Kovachki, N.; Azizzadenesheli, K.; Liu, B.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2020b. Neural operator: Graph kernel network for partial differential equa-tions. arXiv preprint arXiv:2003.03485 .Li, Z.; Kovachki, N.; Choy, C.; Li, B.; Kossaifi, J.; Otta, S.; Nabian, M. A.; Stadler, M.; Hundt, C.; Azizzadenesheli, K.; et al. 2023b. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36: 35836–35854. Li, Z.; Meidani, K.; and Farimani, A. B. 2022. Transformer for partial differential equations’ operator learning. arXiv preprint arXiv:2205.13671 .Li, Z.; Shu, D.; and Barati Farimani, A. 2023. Scalable transformer for pde surrogate modeling. Advances in Neural Information Processing Systems , 36: 28010–28039. Liu, P.; Wang, P.; Ren, X.; Yuan, H.; Hao, Z.; Xu, C.; Cai, S.; and Ni, D. 2025. Aerogto: An efficient graph-transformer operator for learning large-scale aerodynamics of 3d vehi-cle geometries. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, 18924–18932. Lu, L.; Jin, P.; and Karniadakis, G. E. 2019. Deeponet: Learn-ing nonlinear operators for identifying differential equations based on the universal approximation theorem of operators. 
+
+arXiv preprint arXiv:1910.03193 .Luo, H.; Wu, H.; Zhou, H.; Xing, L.; Di, Y.; Wang, J.; and Long, M. 2025a. Transolver++: An accurate neural solver for pdes on million-scale geometries. arXiv preprint arXiv:2502.02414 .Luo, K.; Zhao, J.; Wang, Y.; Li, J.; Wen, J.; Liang, J.; Soek-madji, H.; and Liao, S. 2025b. Physics-informed neural net-works for PDE problems: A comprehensive review. Artificial Intelligence Review , 58(10): 323. Ma, Y.; Wu, H.; Zhou, H.; Weng, H.; Wang, J.; and Long, M. 2026. Physense: Sensor placement optimization for accurate physics sensing. Advances in Neural Information Processing Systems , 38: 35697–35725. McCabe, M.; Régaldo-Saint Blancard, B.; Parker, L.; Ohana, R.; Cranmer, M.; Bietti, A.; Eickenberg, M.; Golkar, S.; Krawezik, G.; Lanusse, F.; et al. 2025. Multiple physics pretraining for spatiotemporal surrogate models. Advances in Neural Information Processing Systems , 37: 119301– 119335. Niaki, S. A.; Haghighat, E.; Campbell, T.; Poursartip, A.; and Vaziri, R. 2021. Physics-informed neural network for mod-elling the thermochemical curing process of composite-tool systems during manufacture. Computer Methods in Applied Mechanics and Engineering , 384: 113959. Pfaff, T.; Fortunato, M.; Sanchez-Gonzalez, A.; and Battaglia, P. 2020. Learning mesh-based simulation with graph networks. In International conference on learning representations .Qi, C. R.; Su, H.; Mo, K.; and Guibas, L. J. 2017. Pointnet: Deep learning on point sets for 3d classification and segmen-tation. In Proceedings of the IEEE conference on computer vision and pattern recognition , 652–660. Qi, K.; Wang, F.; Dong, Z.; and Sun, J. 2026. SpiderSolver: A Geometry-Aware Transformer for Solving PDEs on Complex Geometries. Advances in Neural Information Processing Systems , 38: 152983–153013. Raissi, M.; Yazdani, A.; and Karniadakis, G. E. 2020. Hidden fluid mechanics: Learning velocity and pressure fields from flow visualizations. Science , 367(6481): 1026–1030. Serrano, L.; Wang, T. X.; Naour, E. L.; Vittaut, J.-N.; and Gallinari, P. 2024. Aroma: Preserving spatial structure for latent pde modeling with local neural fields. arXiv preprint arXiv:2406.02176 .Sinkhorn, R. 1967. Diagonal equivalence to matrices with prescribed row and column sums. The American Mathemat-ical Monthly , 74(4): 402–405. Tran, A.; Mathews, A.; Xie, L.; and Ong, C. S. 2021. Factorized fourier neural operators. arXiv preprint arXiv:2111.13802 .Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. Attention is all you need. Advances in neural information processing systems , 30. Villani, C.; et al. 2009. Optimal transport: old and new ,volume 338. Springer. Wandel, N.; Weinmann, M.; Neidlin, M.; and Klein, R. 2022. Spline-pinn: Approaching pdes without data using fast, physics-informed hermite-spline cnns. In Proceedings of the AAAI conference on artificial intelligence , volume 36, 8529–8538. Wang, T.; and Wang, C. 2024. Latent neural operator for solv-ing forward and inverse pde problems. Advances in Neural Information Processing Systems , 37: 33085–33107. Wang, Z.; Yang, Z.; Fu, D.; and Liu, Z. 2025. Learn-ing Material-Geometry-Aware Fourier Neural Operator for Stress-Strain Prediction and Parameter Inversion. Interna-tional Journal of Applied Mechanics , 17: 01108. Wen, G.; Li, Z.; Azizzadenesheli, K.; Anandkumar, A.; and Benson, S. M. 2022. U-FNO—An enhanced Fourier neu-ral operator-based deep-learning model for multiphase flow. 
+
+Advances in Water Resources , 163: 104180. Wen, S.; Kumbhat, A.; Lingsch, L.; Mousavi, S.; Zhao, Y.; Chandrashekar, P.; and Mishra, S. 2026. Geometry aware operator transformer as an efficient and accurate neural sur-rogate for pdes on arbitrary domains. Advances in Neural Information Processing Systems , 38: 155423–155501. Wu, G.; and Wu, Z. 2026. A multi-objective optimization framework for adaptive weighting in physics-informed ma-chine learning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, 26885–26893. Wu, H.; Hu, T.; Luo, H.; Wang, J.; and Long, M. 2023. Solving high-dimensional pdes with latent spectral models. 
+
+arXiv preprint arXiv:2301.12664 .Wu, H.; Luo, H.; Wang, H.; Wang, J.; and Long, M. 2024. Transolver: A fast transformer solver for pdes on general geometries. arXiv preprint arXiv:2402.02366 .Xiao, Z.; Hao, Z.; Lin, B.; Deng, Z.; and Su, H. 2023. Improved operator learning by orthogonal attention. arXiv preprint arXiv:2310.12487 .Yang, H.-R.; and Ren, C.-X. 2025. A Physics-preserved Transfer Learning Method for Differential Equations. arXiv preprint arXiv:2505.01281 .Yang, Z.; Qiu, Z.; and Fu, D. 2023. DMIS: Dynamic mesh-based importance sampling for training physics-informed neural networks. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 37, 5375–5383. Zhou, H.; Ma, Y.; Wu, H.; Wang, H.; and Long, M. 2024. Unisolver: Pde-conditional transformers towards universal neural pde solvers. arXiv preprint arXiv:2405.17527 .

@@ -1,0 +1,935 @@
+Title: FAST-DeepONet: Factor-Augmented Branch Representations for High-Dimensional PDE Inputs in the Small-Sample Regime
+
+URL Source: https://arxiv.org/pdf/2608.15408v1
+
+Published Time: Tue, 18 Aug 2026 00:49:45 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# FAST-DeepONet: Factor-Augmented Branch Representations for High-Dimensional PDE Inputs in the Small-Sample Regime 
+
+## Jiyong Kwon a, BongSeok Kim a and Guang Lin a,b ,∗
+
+> a
+
+School of Mechanical Engineering, Purdue University, 585 Purdue Mall, West Lafayette, 47907, IN, USA 
+
+> b
+
+Department of Mathematics, Purdue University, 150 N. University Street, West Lafayette, 47907, IN, USA 
+
+A R T I C L E I N F O 
+
+Keywords :DeepONet operator learning dimension reduction 
+
+A B S T R A C T 
+
+Deep operator networks can become statistically unstable when partial differential equation in-puts are observed at thousands of strongly correlated sensors but only a small number of operator samples is available. We introduce FAST-DeepONet, a branch representation combining a fixed spectral path with a regularized projection of the orthogonal residual, in which the directional penalty acts on the effective residual map after each of its rows is normalized. On Navier–Stokes flow a plain DeepONet degrades from 0.0394 to 0.1556 mean relative 𝐿 2 error as the branch grows from 129 to 8193 coordinates, while FAST-DeepONet stays near 0.04 , so the sensor grid can be refined without a statistical penalty. Across independent test sets for Navier–Stokes flow, Darcy flow, and signed terminal wavefield prediction it lowers mean relative 𝐿 2 error by 
+
+4.7% to 37 .0% with three to seven times fewer trainable parameters. A spectral-only branch sharing the same basis separates the two paths: the fixed spectral path carries the improvement on Navier–Stokes and Darcy, while terminal wave prediction requires the residual path together with its directional penalty. FAST-DeepONet targets coordinate-query architectures and trains on solution values alone. 
+
+## 1. Introduction 
+
+Parametric partial differential equations (PDEs) arise in climate modeling, subsurface flow, energy systems, and engineering design. Many applications require repeated solutions as coefficients, initial conditions, or physical parameters vary. Operator learning replaces repeated numerical solves by learning maps between input and output functions. DeepONet [1], motivated by operator approximation results [2], represents the input function with a branch network and the output coordinate with a trunk network. The branch input is commonly a coefficient or initial field sampled at a fixed sensor layout. A fine discretization can produce thousands of strongly dependent covariates, even when only tens of independent PDE solutions are available for training. A raw branch must then estimate its first layer in a regime where the input dimension can greatly exceed the number of operator samples. Reduced representations are a natural response, and the existing ones act on different parts of the architecture. POD-DeepONet replaces the trunk with fixed modes computed from the output fields, so it compresses the solution side and leaves the branch input untouched [3]. PCA-Net reduces both the input and the output to principal component coefficients and learns a map between them, without a coordinate query head [4]. Latent-space operator learning compresses both sides [5] and NOMAD replaces the linear output decoder [6], so both alter the output construction we keep fixed. DE-DeepONet acts on the branch input itself, using a derivative-informed subspace together with derivative supervision [7], which requires access to derivatives of the solution operator. The present work acts on the branch input but uses only solution values for supervision, so derivative-informed subspaces are unavailable here. We therefore ask whether a structured input representation estimated from solution data alone can stabilize the DeepONet branch while leaving the trunk and output construction unchanged. FAST-NN, the factor-augmented sparse-throughput neural network of Fan and Gu [8], combines common factor features with a trainable path for information outside the factor subspace in regression with high-dimensional inputs. We adapt this idea to the branch network of DeepONet. FAST-DeepONet represents each input using spectral factors estimated from the training data and a learned projection of the orthogonal residual into a small number of features. In our experiments the residual projection places above-chance weight on the coordinates that carry the localized input 
+
+> ∗
+
+Corresponding author. 
+
+kwon165@purdue.edu (J. Kwon); kim4853@purdue.edu (B. Kim); guanglin@purdue.edu (G. Lin) 
+
+> ORCID
+
+(s): 0009-0003-4426-3419 (J. Kwon); 0009-0000-9436-438X (B. Kim); 0000-0002-0976-1987 (G. Lin) 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 1 of 24 arXiv:2608.15408v1 [cs.LG] 15 Aug 2026 FAST-DeepONet for High-Dimensional PDEs 
+
+structure. The selected coordinates nonetheless vary across fits and cover only part of that structure, so we read the path as a residual representation rather than as sparse variable selection. The adaptation raises a parameterization issue. A direct penalty on the residual projection would depend on how adjacent trainable layers are scaled, even when they represent the same input map. It could also penalize components that are removed by the orthogonal residual projector. We therefore regularize the effective residual map after normalizing each of its rows. The main contributions of this work are: 1. We introduce a DeepONet branch that combines a fixed spectral path, a numerical rank safeguard, and a trainable projection of the orthogonal residual. In the present experiments this converts 4,096 to 8,193 sensor values into a branch representation of at most 32 features. The first branch layer shrinks with it, so the model trains three to seven times fewer parameters than a plain branch. 2. We identify the effective residual map as the appropriate object to regularize and apply a directional penalty after exact row normalization. This construction addresses the scaling and factor subspace ambiguities of a direct penalty on the projection parameters without assuming sparse coordinate recovery. An ablation shows that the penalty is what makes the residual path useful. 3. We evaluate FAST-DeepONet on independent test sets for Navier–Stokes flow, Darcy flow, and signed terminal wavefield prediction, where it reduces mean relative 𝐿 2 error by 4.7% to 37 .0% relative to a plain branch. A sensor and sample study on all three benchmarks shows that the advantage grows with the branch dimension at fixed sample size, and a spectral-only reference identifies which of the two paths carries it. The main comparison keeps the DeepONet trunk and output construction fixed, so only the branch representation changes. A spectral-only branch that shares the same basis but omits the residual path serves as the input-side reduced-basis reference throughout. 
+
+## 2. Preliminaries 
+
+2.1. Operator learning with DeepONet 
+
+Operator learning seeks to approximate mappings between function spaces from paired observations of input and output functions [9]. In a parametric PDE, such a mapping is induced by the solution process. Consider a family of equations written abstractly as 
+
+ (𝑠 ; 𝑎, 𝜂 ) = 0 ,
+
+where 𝑎 ∈  denotes a spatially varying input and 𝜂 ∈ ℝ𝑝 𝜂 contains additional physical parameters. Solving the equation defines an operator 
+
+ ∶  × ℝ𝑝 𝜂 → , (𝑎, 𝜂 ) ↦ (𝑎, 𝜂 ),
+
+where  is the output function space. For an evolution problem, 𝑎 may specify the initial state and the operator may return the terminal solution 
+
+𝑇 (𝑎, 𝜂 ) = 𝑠 (𝑇 , ⋅).
+
+For an elliptic problem, 𝑎 may represent a spatial coefficient and (𝑎, 𝜂 ) is the corresponding stationary solution. DeepONet represents the input function through samples collected at a fixed set of sensor locations [1]. Suppose that 𝑎 ∶ Ω → ℝ𝑑 𝑎 is observed at sensors {𝜁 𝑘 }𝑚 𝑘 =1 . The branch input is 
+
+𝑥 = [𝑎 (𝜁 1)⊤, … , 𝑎 (𝜁 𝑚 )⊤, 𝜂 ⊤]⊤ ∈ ℝ𝑝 , 𝑝 = 𝑚𝑑 𝑎 + 𝑝 𝜂 . (1) This formulation includes scalar coefficient fields as well as vector-valued initial conditions. For an output coordinate 𝜉 ∈ ℝ𝑑 , DeepONet approximates the solution operator using ̂
+
+(𝑎, 𝜂 )( 𝜉 ) = 
+
+> 𝑞
+
+∑
+
+> 𝓁 =1
+
+𝑏 𝓁 (𝑥 )𝑡 𝓁 (𝜉 ) + 𝑐, (2)   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 2 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+where the branch network 𝑏 encodes the sampled input and the trunk network 𝑡 encodes the output coordinate. This separable representation is motivated by universal approximation results for nonlinear operators [2, 1], for which error estimates are available [10]. The input sensor locations and their ordering are fixed across samples in the present study. They do not need to coincide with the output coordinates supplied to the trunk network. The output coordinates are normalized before entering the trunk, and all reported errors are evaluated on the native solver grids. Accuracy away from these grids is not considered here. 
+
+2.2. Factor augmented regression and FAST-NN 
+
+Approximate factor models describe a high-dimensional covariate as the sum of common and idiosyncratic components [11, 12, 13]: 
+
+𝑥 = 𝐵𝑓 + 𝑢, 𝐵 ∈ ℝ𝑝 ×𝑟 0 , 𝑓 ∈ ℝ𝑟 0 , 𝑢 ∈ ℝ𝑝 . (3) Here, 𝐵𝑓 captures variation shared across many coordinates, while 𝑢 contains variation not explained by the common factors. The FAST regression model, in the lineage of factor-adjusted model selection [14], assumes that the response depends on the latent factors and a small subset of the idiosyncratic coordinates: 
+
+𝑦 = 𝑚 ∗(𝑓 , 𝑢 𝐽 ) + 𝜀, 𝑢 𝐽 = ( 𝑢 𝑗 ∶ 𝑗 ∈ 𝐽 ), |𝐽 | ≪ 𝑝. (4) Because 𝑓 is not observed, FAST-NN uses a diversified projection 𝑊 DP ∈ ℝ𝑝 ×𝑟 to construct factor features [15, 8]: ̂𝑓 = 1
+
+𝑝 𝑊 ⊤
+
+> DP
+
+𝑥. (5) Substituting (3) gives ̂𝑓 = 𝐻𝑓 + 𝜍, 𝐻 = 1
+
+𝑝 𝑊 ⊤
+
+> DP
+
+𝐵, 𝜍 = 1
+
+𝑝 𝑊 ⊤
+
+> DP
+
+𝑢. (6) When the projection is sufficiently aligned with the factor loading space and the idiosyncratic components are weakly dependent, 𝐻𝑓 preserves the common factor information while the contribution of 𝜍 decreases as the ambient dimension grows. FAST-NN combines these factor features with a trainable throughput path: 
+
+𝑚 FAST (𝑥 ) = 𝑔 
+
+([ ̂𝑓 , 𝑇 𝑀 (Θ ⊤𝑥 )
+
+]) 
+
+, (7) where 𝑔 is a ReLU network, Θ ∈ ℝ𝑝 ×𝑠 is a trainable variable selection matrix, and 𝑇 𝑀 is a truncation operator. A clipped penalty on the entries of Θ [16] encourages the network to use a small number of additional input coordinates. Under the factor, dependence, and sparsity assumptions of Fan and Gu, the resulting error bounds are governed mainly by the intrinsic factor and sparse dimensions rather than by a generic nonparametric rate in 𝑝 dimensions. FAST-DeepONet retains the two-path structure but adapts it to operator learning. The fixed path uses spectral features estimated from the training inputs, while the trainable path acts explicitly on the orthogonal residual. The scalar regression network is replaced by a DeepONet branch whose output is combined with a coordinate-dependent trunk network. The FAST-NN theory motivates this construction, but its scalar regression guarantees do not directly extend to the operator setting considered here. We keep the name FAST as a record of this lineage. The throughput path and its clipped penalty are retained, but act on the orthogonal residual and are regularized through the effective map of Section 3. That map concentrates on a small fraction of the branch coordinates, though not on the same ones across fits, so we describe it as a distributed residual representation; Appendix F quantifies both. 
+
+## 3. FAST-DeepONet 
+
+FAST-DeepONet replaces the raw high-dimensional branch input with fixed spectral coordinates and a learned low-dimensional encoding of the orthogonal residual. Figure 1 summarizes the construction.   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 3 of 24
+
+FAST-DeepONet for High-Dimensional PDEs b ⊤ t + c                            
+
+> Input decomposition FAST branch encoding Coordinate query
+> input field x
+> schematic field
+> global component
+> QQ ⊤x
+> residual e
+> e=x−Q(Q⊤x)̂
+> f=cfQ⊤x/√p
+> Qand numerical rank from training data
+> residual encoder Θ
+> z= Θ eh= [ ̂f;z]
+> branch MLP b
+> directional penalty on Gduring training
+> query ξtrunk MLP
+> t
+> field prediction
+> repeat over output grid
+> fixed trained trained trained
+
+Figure 1: FAST-DeepONet architecture. A basis estimated from the training fields defines a fixed spectral path with scale 𝑐 𝑓 and an orthogonal residual path. The fixed and learned features are concatenated and mapped to the branch output 𝑏 , while the trunk network maps an output query 𝜉 to 𝑡 . Their inner product 𝑏 ⊤𝑡 + 𝑐 gives the predicted field value at that query. The diagram uses 𝑥 , 𝑄 , and 𝑝 for the field block. Standardized auxiliary parameters are appended to the fixed representation and excluded from the residual path. The dashed bracket denotes the directional penalty used only during training. 
+
+3.1. Spectral and residual branch representation 
+
+The branch input may contain a discretized field 𝑥 𝑓 ∈ ℝ𝑝 𝑓 and 𝑝 𝜂 standardized auxiliary physical parameters 
+
+𝜂 𝑠 ∈ ℝ𝑝 𝜂 . We write 
+
+𝑥 = [ 𝑥 𝑓 ; 𝜂 𝑠 ] ∈ ℝ𝑝 , 𝑝 = 𝑝 𝑓 + 𝑝 𝜂 . (8) The spectral decomposition is applied only to the field block. Let 𝑋 𝑓 ∈ ℝ𝑛 ×𝑝 𝑓 collect the transformed training fields and consider its uncentered thin singular value decomposition 
+
+𝑋 𝑓 = 𝑈 diag( 𝜎 1, 𝜎 2, …) 𝑉 ⊤. (9) The requested fixed representation has total dimension 𝑟 . Assuming 𝑟 > 𝑝 𝜂 and 𝜎 1 > 0, the requested field dimension is 
+
+𝑟 𝑓 = 𝑟 − 𝑝 𝜂 . (10) We define the numerical and effective field ranks by 
+
+𝑟 num ,𝑓 = # {𝑖 ∶ 𝜎 𝑖 > 10 −6 𝜎 1
+
+} , 𝑟 ef f ,𝑓 = max {1, min( 𝑟 𝑓 , 𝑟 num ,𝑓 )} , (11) and set 
+
+𝑟 ef f = 𝑟 ef f ,𝑓 + 𝑝 𝜂 . (12) The prescribed relative threshold discards numerically unresolved singular directions while retaining at least one field direction. Let 
+
+𝑄 𝑓 ∈ ℝ𝑝 𝑓 ×𝑟 ef f ,𝑓 [
+
+contain the leading right singular vectors, so that 
+
+𝑄 ⊤𝑓 𝑄 𝑓 = 𝐼 𝑟 ef f ,𝑓 .
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 4 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+For a fixed positive scale 𝑐 𝑓 , the spectral field features and orthogonal residual are ̂𝑓 𝑓 (𝑥 𝑓 ) = 𝑐 𝑓 
+
+𝑄 ⊤𝑓 𝑥 𝑓 
+
+√𝑝 𝑓 
+
+, 𝑒 𝑓 (𝑥 𝑓 ) = 𝑥 𝑓 − 𝑄 𝑓 (𝑄 ⊤𝑓 𝑥 𝑓 ). (13) The residual uses the unscaled orthogonal projection and is therefore independent of 𝑐 𝑓 .The complete fixed representation and residual are ̂𝑓 (𝑥 ) = [ ̂𝑓 𝑓 (𝑥 𝑓 ); 𝜂 𝑠 ], 𝑒 (𝑥 ) = [ 𝑒 𝑓 (𝑥 𝑓 ); 𝟎 𝑝 𝜂 ]. (14) Thus the auxiliary parameters are passed directly to the fixed representation and excluded from the residual path. In the reported benchmark containing an auxiliary parameter, 𝑐 𝑓 = 1 . When 𝑝 𝜂 = 0 , the auxiliary blocks are omitted and 
+
+𝑟 𝑓 = 𝑟 .Define the block residual projector 
+
+𝑃 res = diag 
+
+(
+
+𝐼 𝑝 𝑓 − 𝑄 𝑓 𝑄 ⊤𝑓 , 𝟎 𝑝 𝜂 ×𝑝 𝜂 
+
+)
+
+. (15) This matrix is symmetric and idempotent, and 𝑒 (𝑥 ) = 𝑃 res 𝑥 . The basis 𝑄 𝑓 and numerical rank 𝑟 num ,𝑓 are computed from the training fields only. The requested total rank and factor scale are fixed before test evaluation. In the implementation, the field residual is evaluated as 𝑥 𝑓 − 𝑄 𝑓 (𝑄 ⊤𝑓 𝑥 𝑓 ), without explicitly forming a dense 𝑝 𝑓 × 𝑝 𝑓 projector. A trainable matrix 
+
+Θ ∈ ℝ𝑠 ×𝑝 
+
+maps the residual to 
+
+𝑧 (𝑥 ) = Θ 𝑒 (𝑥 ) = Θ 𝑃 res 𝑥 ∈ ℝ𝑠 . (16) The input to the branch network is 
+
+ℎ(𝑥 ) = [ ̂𝑓 (𝑥 ); 𝑧 (𝑥 )] ∈ ℝ𝑟 ef f +𝑠 . (17) For an output query 𝜉 , FAST-DeepONet predicts ̂
+
+(𝑥 )( 𝜉 ) = 
+
+> 𝑞
+
+∑
+
+> 𝓁 =1
+
+𝑏 𝓁 
+
+(ℎ(𝑥 ))𝑡 𝓁 (𝜉 ) + 𝑐, (18) where 𝑏 and 𝑡 denote the branch and trunk outputs. 
+
+3.2. Directional regularization of the effective residual map 
+
+Let 𝑤 denote the width of the first branch hidden layer. Its weights can be partitioned as 
+
+𝐻 𝑓 ∈ ℝ𝑤 ×𝑟 ef f , 𝐻 𝑧 ∈ ℝ𝑤 ×𝑠 ,
+
+where 𝐻 𝑓 acts on the fixed representation and 𝐻 𝑧 acts on the learned residual features. The first-layer preactivation is 
+
+𝑎 (1) (𝑥 ) = 𝐻 𝑓 ̂ 𝑓 (𝑥 ) + 𝐻 𝑧 𝑧 (𝑥 ) + 𝛽 (1) = 𝐻 𝑓 ̂ 𝑓 (𝑥 ) + 𝐺𝑥 + 𝛽 (1) , (19) where 
+
+𝐺 = 𝐻 𝑧 Θ𝑃 res ∈ ℝ𝑤 ×𝑝 (20) is the effective map from the original branch coordinates to the residual contribution in the first hidden layer. The matrices 𝐻 𝑧 and Θ do not separately identify 𝐺 . For any invertible change of coordinates 𝐶 ∈ ℝ𝑠 ×𝑠 of the learned residual features, 
+
+Θ ↦ 𝐶 Θ, 𝐻 𝑧 ↦ 𝐻 𝑧 𝐶 −1 (21) 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 5 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+leaves 𝐺 , the first-layer preactivation, and the network prediction unchanged. Likewise, 
+
+(Θ + 𝐴 )𝑃 res = Θ 𝑃 res (22) for any 𝐴 satisfying 𝐴𝑃 res = 0 . A penalty applied directly to Θ would therefore depend on an arbitrary factorization and on components that do not affect the prediction. For each row of 𝐺 , define the exact normalization ̃𝐺 𝑖, ∶ =
+
+⎧⎪⎨⎪⎩
+
+𝐺 𝑖, ∶
+
+‖𝐺 𝑖, ∶‖2
+
+, ‖𝐺 𝑖, ∶‖2 > 0,
+
+𝟎 ⊤, ‖𝐺 𝑖, ∶‖2 = 0 .
+
+(23) No additive constant is used in the denominator, and an exactly zero row remains zero. The directional clipped penalty is 
+
+Ω( 𝐺 ; 𝜏 ) = 1
+
+𝑤𝑝 
+
+> 𝑤
+
+∑
+
+> 𝑖 =1
+> 𝑝
+
+∑
+
+> 𝑗 =1
+
+min 
+
+{ |̃𝐺 𝑖𝑗 |
+
+𝜏 , 1
+
+}
+
+. (24) Consider a positive diagonal matrix 𝐷 = diag( 𝑑 1, … , 𝑑 𝑤 ). Multiplying the incoming weights and biases of the first-layer ReLU units by 𝐷 and the corresponding columns of the next-layer weight matrix by 𝐷 −1 leaves the network function unchanged. Under this transformation, 𝐺 is replaced by 𝐷𝐺 . Since 𝑑 𝑖 > 0,̃𝐷𝐺 =̃ 𝐺, (25) including for exactly zero rows. The penalty is therefore invariant to positive rescalings of the first-layer ReLU units, the symmetry behind path-normalized optimization [17]. Together with (21), the regularizer depends on the row directions of the realized effective residual map rather than on a particular factorization or scaling of adjacent trainable layers. Exact normalization is what buys that invariance, and it costs continuity at the origin. For a row 𝑔 = 𝜖𝑒 𝑗 the normalized row is 𝑒 𝑗 for every 𝜖 > 0, so the row contributes 1∕( 𝑤𝑝 ) in the limit, whereas (23) assigns a zero row the value zero. The penalty is therefore discontinuous on the set of zero rows and is not differentiable there. We treat (24) as an objective on rows of nonzero norm; the zero-row convention only keeps the map well defined. Replacing the denominator by ‖𝐺 𝑖, ∶‖2 + 𝜖 would restore continuity but destroy the exact invariance above, which is the property the construction exists to provide. The set is never approached in practice: across every reported fit no row of 𝐺 is exactly zero and the smallest row norm is 0.265 , as Appendix F reports. Let train contain the sampled scalar query pairs from the training operator samples. The training objective is 
+
+1
+
+|train |∑
+
+> (𝑖,𝑗 )∈ train
+
+[
+
+𝑦 𝑖𝑗 −̂ (𝑥 𝑖 )( 𝜉 𝑖𝑗 )
+
+]2
+
++ 𝜆 Ω( 𝐺 ; 𝜏 𝑘 ). (26) For epochs 𝑘 = 1 , … , 𝑁 ep , the clipping threshold follows 
+
+𝜏 𝑘 = max 
+
+{
+
+0.01 , 0.1 − 0.09 𝑘 𝑁 ep 
+
+}
+
+. (27) 
+
+3.3. Training procedure 
+
+Algorithm 1 summarizes one FAST-DeepONet fit. Test fields are not used for preprocessing, optimization, or checkpoint selection. 
+
+## 4. Numerical experiments 
+
+4.1. PDE benchmarks 
+
+We consider three controlled operator learning problems: Navier–Stokes flow, Darcy flow, and signed terminal wave prediction. The governing equations are standard and the input distributions are defined for this study. All input sensors have fixed locations. For Darcy and wave, the candidate disk locations are also fixed across the training, tuning, and test sets, while the active subset and its amplitudes vary by sample. The two benchmarks use different candidate site sets.   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 6 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+Algorithm 1 FAST-DeepONet training 
+
+Require: training and tuning operator samples tr , tu 
+
+Require: fixed 𝑟, 𝑐 𝑓 , 𝑠, 𝜆 and number of epochs 𝑁 ep  
+
+> 1:
+
+estimate input and target transformations from tr  
+
+> 2:
+
+apply the transformations to tr and tu  
+
+> 3:
+
+compute 𝑄 𝑓 and 𝑟 ef f from tr using (11) and (12)  
+
+> 4:
+
+initialize Θ, the branch network, and the trunk network  
+
+> 5:
+
+for 𝑘 = 1 , … , 𝑁 ep do  
+
+> 6:
+
+draw the prescribed balanced query subset from each training field  
+
+> 7:
+
+set 𝜏 𝑘 ← max{0 .01 , 0.1 − 0 .09 𝑘 ∕𝑁 ep } 
+
+> 8:
+
+form ℎ(𝑥 ) = [ ̂𝑓 (𝑥 ); Θ 𝑃 res 𝑥 ] 
+
+> 9:
+
+update the trainable parameters using (26)  
+
+> 10:
+
+retain the checkpoint if the tuning MSE on tu decreases  
+
+> 11:
+
+end for  
+
+> 12:
+
+return retained FAST-DeepONet model 
+
+Navier–Stokes flow. We solve the incompressible Navier–Stokes equations on the periodic unit square, 
+
+𝜕 𝑡 𝒗 + ( 𝒗 ⋅ ∇) 𝒗 = −∇ 𝑝 + 𝜈 Δ𝒗 , ∇ ⋅ 𝒗 = 0 , (28) using a pseudo-spectral solver with 2∕3 dealiasing, pressure projection, explicit advection, and implicit treatment of diffusion. The solver uses a 128 × 128 grid, Δ𝑡 = 10 −3 , and 𝑇 = 0 .2. The initial velocity is 
+
+𝑣 1,0(𝑥, 𝑦 ) = − 𝑎 1 sin(2 𝜋𝑦 + 𝜙 𝑦 ) + 𝑎 3 sin(2 𝜋𝑥 ) sin(2 𝜋𝑦 ),𝑣 2,0(𝑥, 𝑦 ) = 𝑎 2 sin(4 𝜋𝑥 + 𝜙 𝑥 ) + 𝑎 3 cos(2 𝜋𝑥 ) cos(2 𝜋𝑦 ), (29) which is divergence free. Here 𝜙 𝑥 , 𝜙 𝑦 ∼  (0 , 2𝜋 ), 𝑎 1, 𝑎 2 ∼  (0 .8, 1.2) , 𝑎 3 ∼  (−0 .25 , 0.25) , and 𝜈 ∼  (0 .01 , 0.05) 
+
+independently. The branch contains both velocity components sampled on a 64 × 64 grid and the viscosity, giving 
+
+𝑝 = 2(64 2) + 1 = 8193 . We use the terminal horizontal velocity 𝑣 1(⋅, 𝑇 ) as the physical target. During training, both models predict its increment relative to a bilinear interpolation of the initial horizontal velocity; the full terminal field is reconstructed before evaluation. This common residual target removes the nearly identity part of the evolution. 
+
+Darcy flow. We consider the Darcy map from permeability to pressure head used widely in operator learning [4, 18], 
+
+−∇ ⋅ (𝑎 (𝑥 )∇ 𝑢 (𝑥 )) = 1 , 𝑢 |𝜕 (0 ,1) 2 = 0 , (30) on a 64 × 64 grid. The discretization is a five point finite difference scheme. Because the coefficient varies in space, the face transmissibilities are harmonic means of the two adjacent cell values. The branch input is the log permeability 
+
+𝑔 = log 𝑎 with background 
+
+𝑔 bg (𝑥 ) = 0 .8
+
+> 8
+
+∑
+
+> 𝑘 =1
+
+𝑓 𝑘 𝑒 −( 𝑘 −1)∕4 𝜙 𝑘 (𝑥 ), 𝑓 𝑘 ∼  (0 , 1) , (31) where {𝜙 𝑘 } are the separable Fourier modes listed in Appendix A. Each sample activates 3–6 of ten candidate disks. Every disk has radius 0.045 , an independently sampled sign, and magnitude drawn uniformly from [1 .2, 1.8] . The complete field is clipped to [−3 , 3] before setting 𝑎 = 𝑒 𝑔 . The branch and target are 𝑔 and the pressure head 𝑢 ,respectively, both on the native grid, and 𝑝 = 4096 .
+
+Signed terminal wavefield. On the periodic unit square, the heterogeneous wave equation is 
+
+𝑚 (𝑥 ) 𝜕 𝑡𝑡 𝑢 (𝑥, 𝑡 ) = Δ 𝑢 (𝑥, 𝑡 ) (32)   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 7 of 24
+
+FAST-DeepONet for High-Dimensional PDEs 
+
+with squared slowness 
+
+𝑚 (𝑥 ) = 1 + 0.35 
+
+√6
+
+> 6
+
+∑
+
+> 𝑘 =1
+
+𝑓 𝑘 𝜙 𝑘 (𝑥 ) + ∑
+
+> 𝓁 ∈𝐴
+
+𝛼 𝓁 𝟏 𝐷 𝓁 (𝑥 ). (33) The coefficients satisfy 𝑓 𝑘 ∼  (−1 , 1) . The active set 𝐴 contains 5–8 of ten candidate disks, each with radius 0.05 and 
+
+𝛼 𝓁 ∼  (0 .5, 0.8) . The initial displacement is a Gaussian centered at (0 .5, 0.5) with standard deviation 0.05 , and the initial velocity is zero. A second-order leapfrog method with the corresponding zero-velocity initialization advances the solution on a 64 × 64 grid using Δ𝑡 = 0 .004 to 𝑇 = 0 .4. The branch input is 𝑚 − 1 , so 𝑝 = 4096 , and the target is the signed terminal field 𝑢 (⋅, 𝑇 ). Appendix L shows the propagation from the localized pulse to the terminal target, while Appendix N reports CFL and refinement checks. Figure 2 shows one input and output pair from each test set, with every panel labeled by the variable it displays. The Navier–Stokes panel shows the initial horizontal velocity alone, and the wave panel shows 𝑚 rather than the stored 
+
+𝑚 − 1 .Initial horizontal velocity v1, 0 (x) Log permeability g(x) = log a(x) Squared slowness m(x)                   
+
+> Terminal horizontal velocity v1(x,T)Pressure head u(x)Signed terminal field u(x,T)
+> -1.0 01.0
+> -1.0 01.0
+> -3.0 03.0
+> 00.1
+> 0.5 2.0
+> -0.2 00.2
+> (a) Navier–Stokes (b) Darcy (c) Wave
+> Displayed input Reference output
+
+Figure 2: Representative inputs and outputs, selected without using model predictions or errors. Black contours mark the active disks in the two designed input distributions and are not supplied to the models. Each colorbar applies only to its panel. 
+
+4.2. Experimental protocol 
+
+Plain DeepONet and FAST-DeepONet use the same data, output queries, target transformations, branch and trunk depths, hidden widths, optimizer, and checkpoint rule. They differ only in the representation supplied to the branch. Both networks have three hidden layers, branch and trunk width 128 , latent dimension 128 , and ReLU activations. Dropout is not used for the point prediction experiments. Adam starts at 10 −3 , and an exponential scheduler multiplies the learning rate by 0.995 after each epoch. Each fit runs for 300 epochs with 8192 balanced scalar queries per epoch, batch size 2048 , and a fixed set of 4096 tuning queries. The checkpoint with the lowest tuning mean squared error is retained. That optimum lies inside the budget for every reported fit, and Appendix I shows the curves. Navier–Stokes and wave use periodic Fourier coordinate features through order four in the trunk. Darcy uses the raw coordinates together with the same Fourier features. Targets are divided by one scalar standard deviation estimated from the training fields. Darcy and wave targets are first centered 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 8 of 24 FAST-DeepONet for High-Dimensional PDEs                                                  
+
+> Table 1
+> Final benchmark and FAST representation settings. The rank column gives the requested and effective factor ranks. For Navier–Stokes, the effective representation contains five field directions and one separately standardized viscosity scalar. The wave training set is a fixed subset of a fresh 60 field pool. Benchmark 𝑛 tr 𝑝 Output grid Rank 𝑠 (𝑐 𝑓 , 𝜆 )
+> Navier–Stokes 60 8193 128 28∕6 8(1 ,0.01)
+> Darcy 60 4096 64 216∕16 16 (1 ,1)
+> Terminal wave 40 4096 64 26∕6 16 (8 ,1)
+> Table 2
+> Mean fieldwise relative 𝐿 2error on 100 independent test fields. Branch representation Navier–Stokes Darcy Terminal wave Plain DeepONet 0.1776 ± 0 .0057 0.1029 ± 0 .0022 0.2165 ± 0 .0030
+> FAST-DeepONet 𝟎 .𝟏𝟏𝟏𝟗 ±𝟎 .𝟎𝟎𝟐𝟏 𝟎 .𝟎𝟗𝟐𝟓 ±𝟎 .𝟎𝟎𝟏𝟗 𝟎 .𝟐𝟎𝟔𝟑 ±𝟎 .𝟎𝟎𝟐𝟔
+
+by their pointwise training mean; the Navier–Stokes increment is not centered. All transformations are reversed before evaluation, which uses every point on the native output grid. Navier–Stokes and Darcy use 60 training fields; wave uses the fixed 40 field subset in Table 1. Every benchmark has 10 tuning fields and 100 disjoint test fields. Model settings were fixed before the final test set was generated. The three studies were frozen independently and share a common evaluation protocol. Appendix A gives the split sizes, run settings, input spectra, generator details, and how each configuration was fixed. Appendix H repeats one paired seed per benchmark under a common 200 epoch cap, and Appendix J reports parameter counts and training cost. Within a benchmark, Plain and FAST share the data and query schedule. Tables report the mean and sample standard deviation of the test mean across these paired fits. Two intervals are reported for their difference: a paired Student 𝑡 interval across fits, and a percentile bootstrap that resamples fit and field indices together, keeping the models paired. The fieldwise error is 
+
+𝐸 𝑖 = ‖𝑦 𝑖 −̂𝑦 𝑖 ‖2
+
+‖𝑦 𝑖 ‖2 + 10 −12 , (34) where 𝑦 𝑖 and ̂𝑦 𝑖 denote the full target and prediction for field 𝑖 .
+
+4.3. Point prediction accuracy 
+
+Table 2 and Figure 3 report the main comparison on the independent test sets. FAST-DeepONet reduces mean relative 𝐿 2 error by 37 .0% for Navier–Stokes, 10 .1% for Darcy, and 4.7% for the signed terminal wavefield. Both intervals in Table 3 exclude zero for each benchmark. Plain FAST 0.00 0.05 0.10 0.15 Mean relative  L2 error  Navier–Stokes  
+
+> Plain FAST 0.000 0.025 0.050 0.075 0.100
+
+Darcy  
+
+> Plain FAST 0.00 0.05 0.10 0.15 0.20
+
+Wave 
+
+Figure 3: Plain and FAST test errors for the three PDE problems, where lower is better. Bars and whiskers show the mean and sample standard deviation across paired fits. Exact values are given in Table 2.   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 9 of 24
+
+FAST-DeepONet for High-Dimensional PDEs 
+
+Table 3 
+
+Paired FAST minus Plain differences in mean relative 𝐿 2 error. Negative values favor FAST. The bootstrap resamples fit and field indices while retaining model pairing. Benchmark Mean difference Paired fit 95% CI Two-way bootstrap 95% CI Navier–Stokes −0 .0657 [−0 .0737 , −0 .0578] [−0 .0816 , −0 .0511] 
+
+Darcy −0 .0104 [−0 .0143 , −0 .0064] [−0 .0159 , −0 .0048] 
+
+Terminal wave −0 .0103 [−0 .0160 , −0 .0046] [−0 .0164 , −0 .0042] 
+
+Figure 4 complements the aggregate errors with one example from each benchmark, again selected without using predictions or errors. Ground truth, Plain, and FAST share a solution scale within each benchmark, and the two error maps share a second scale. Ground truth       
+
+> Plain FAST
+> -1.0 01.0
+> v1(x,T)
+> Plain absolute error FAST absolute error
+> 00.3
+> Absolute error
+
+(a) Navier–Stokes     
+
+> Ground truth
+> Plain FAST
+> 00.1
+> u(x)
+> Plain absolute error FAST absolute error
+> 00.01
+> Absolute error
+
+(b) Darcy       
+
+> Ground truth
+> Plain FAST
+> -0.2 00.2
+> u(x,T)
+> Plain absolute error FAST absolute error
+> 00.1
+> Absolute error
+
+(c) Wave 
+
+Figure 4: Representative Plain and FAST reconstructions under the main training protocol. Each block shows the ground truth, both predictions, and absolute error maps, in which smaller values are better. 
+
+4.4. Dependence on input dimension and sample size 
+
+The main comparisons use the high-dimensional, small-sample setting that motivates the branch representation. We therefore vary the Navier–Stokes input grid over 𝑞 ∈ {8 , 16 , 32 , 64} , giving 𝑝 = 2 𝑞 2 + 1 ∈ {129 , 513 , 2049 , 8193} ,and use nested training sets with 𝑛 ∈ {20 , 60 , 240} . The sweep draws its nested subsets from a separate bank of 240 
+
+Navier–Stokes fields, so its cells are not numerically comparable with Table 2. The target and output grid remain fixed at 128 × 128 . The number of scalar queries per epoch is scaled with 𝑛 to keep the average query budget per training field approximately constant. Changing 𝑞 moves both the branch dimension and the resolved input information, so this is a joint sensor resolution and dimension diagnostic. The same diagnostic is repeated on Darcy and terminal wave over 𝑞 ∈ {16 , 32 , 64} , where the branch holds a single field and 𝑝 = 𝑞 2, each on a fresh training bank constructed in Appendix K. At 𝑛 = 240 , Plain achieves mean error 0.0394 for 𝑝 = 129 but rises to 0.1556 for 𝑝 = 8193 . FAST changes from 0.0422 to 0.0408 over the same range. Thus Plain performs normally in the low-dimensional, data-rich corner, 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 10 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+while FAST remains stable as the sensor grid grows. At 𝑛 = 20 , both methods remain near 0.2, showing that the representation does not compensate for severe sample scarcity. The two branches also differ in how much one fit depends on the training randomness. The spread of the test mean across the paired seeds is narrower for FAST at three of the four corners, by factors of 4.4 and 9.9 at 𝑝 = 8193 and 15 .1 at 𝑝 = 129 with 𝑛 = 20 . The largest of these occurs where the accuracy difference is not resolved, so reproducibility separates the two branches in a regime where the mean error does not. The exception is 𝑝 = 129 with 𝑛 = 240 , where a plain first layer is already well determined and the plain branch is the more reproducible of the two. Appendix K reports those four corners with their paired fits. Figure 5 places the three benchmarks on a common axis. At 𝑛 = 240 the reduction against a plain branch grows with the sensor grid on all three, from 8.6% to 73 .8% on Navier–Stokes, from 16 .0% to 31 .1% on Darcy, and from 
+
+−34 .3% to 5.6% on terminal wave. The wave curve stays below the other two and turns positive only at the full grid. Appendix K gives every fitted cell. 0.05 0.1 0.2           
+
+> Mean relative L 2
+> Navier–Stokes
+> 0.05 0.1
+> Darcy
+> 0.1 0.2
+> Terminal wave
+> 16×16 32×32 64×64
+> Sensor grid
+> 025 50 75
+> FAST reduction (%)
+> 16×16 32×32 64×64
+> Sensor grid
+> 010 20 30
+> 16×16 32×32 64×64
+> Sensor grid
+> −30 −15 0
+> n = 20 n = 60 n = 240 FAST-DeepONet Plain DeepONet
+
+Figure 5: Sensor resolution and sample size on the three benchmarks. Top: mean test error, lower is better. Bottom: the FAST reduction against a plain branch in the same cell, higher is better, so a rising curve means the advantage grows with the branch dimension. Corner cells carry five paired seeds and a one standard deviation whisker; interior cells carry one seed. The designed benchmarks start at 16 × 16 ; Appendix K explains why and Table K.1 keeps the 8 × 8 
+
+row. 
+
+4.5. Contribution of the spectral and residual paths 
+
+To separate the two paths we fit a spectral-only branch. It receives the same basis, effective rank, factor scale, downstream widths, data, query schedule, and model seeds as FAST-DeepONet, and omits only the residual route. This is the input-side reduced-basis reference: the branch is compressed with a fixed spectral basis estimated from the training inputs, so any remaining difference isolates the residual path. The residual path contributes differently on each benchmark. For Navier–Stokes the reference reaches 0.1108 
+
+against 0.1119 for FAST and the paired interval includes zero. For Darcy it reaches 0.0876 against 0.0925 , so the residual path costs a small amount in that configuration. For terminal wave prediction FAST lowers the reference error from 0.2557 to 0.2063 , a 19 .3% reduction. The fixed spectral path therefore accounts for essentially all of the improvement over a plain branch on two of the three benchmarks, and the question is what distinguishes the third. The retained rank is the relevant difference. We form the field residual 𝑒 𝑓 (𝑥 𝑓 ) of (13) and compare its per-coordinate variance with that of the input. At the Darcy rank of 16 the spectral path has already absorbed all but 3.8% of the input variance on the scatterer coordinates, leaving little for the residual path; at the wave rank of 6 the residual still retains 
+
+61 .5% . Across these three benchmarks the residual path contributes where the retained spectral subspace leaves a   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 11 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+substantial part of the input variation unexplained, and the spectral path is sufficient where it does not. Appendix F reports the full diagnostics and characterizes the learned map. The directional penalty is what makes that contribution possible. Refitting with 𝜆 = 0 and changing nothing else, the unregularized residual path is indistinguishable from the spectral-only reference on terminal wave and is actively harmful on Darcy. The improvement therefore comes from regularizing the map, not from adding the path. Appendix B reports the full paired contrasts and Appendix D the penalty ablation. Appendix C adds two controls: a random basis of the same rank, which loses to a plain branch on all three benchmarks, and a plain branch narrowed to the FAST parameter count, which is worse than the full-width plain branch. Appendix E reports the sensitivity to the factor scale. Appendix G collects what those studies suggest for choosing the representation parameters on a new problem. The point prediction results above use deterministic networks. Appendix M reports a separate study in which Plain and FAST are retrained with dropout and calibrated on fresh data for operator-level uncertainty quantification. 
+
+## 5. Conclusion 
+
+FAST-DeepONet combines fixed spectral factors with a regularized projection of the orthogonal residual to stabilize high-dimensional DeepONet branches. The regularizer acts on the normalized effective residual map, which removes the dependence on nonidentifiable parameter scalings. The resulting model trains three to seven times fewer parameters than a plain branch. Across the three benchmarks it lowers the error of a plain branch by 4.7% to 37 .0% . A separate sweep over the sensor grid shows how that margin depends on the regime. On all three benchmarks it grows with the branch dimension, reaching nearly a factor of four on Navier–Stokes at 𝑝 = 8193 , and it disappears when the branch is small. Neither representation compensates for severe sample scarcity. The two paths do not contribute equally. The fixed spectral path carries the gain on Navier–Stokes and Darcy, while terminal wave prediction requires the residual path together with its directional penalty. Without either one the representation falls behind a plain branch on that benchmark. These results cover three generated PDE families with input distributions designed for this study, fixed sensor layouts, and 40 to 60 training operators. Future work will consider varying sensor layouts, broader PDE distributions, and adaptive residual capacity. 
+
+## Acknowledgement 
+
+We would like to thank the support of National Science Foundation (DMS-2533878, DMS-2053746, DMS-2134209, ECCS-2328241, CBET-2347401 and OAC-2311848), and U.S. Department of Energy (DOE) Office of Science Advanced Scientific Computing Research program under the "Uncertainty Quantification for Multifidelity Operator Learning (MOLUcQ)" project (Project No. 81739), DE-SC0023161, the SciDAC LEADS Institute, and DOE–Fusion Energy Science, under grant number: DE-SC0024583. 
+
+## CRediT authorship contribution statement 
+
+Jiyong Kwon : Conceptualization, Methodology, Software, Formal analysis, Investigation, Writing – original draft. 
+
+BongSeok Kim : Data curation, Methodology, Investigation, Writing – review and editing. Guang Lin : Supervision, Conceptualization, Writing – review and editing. 
+
+## Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+## Code and data availability 
+
+The code, PDE generators, configurations, and scripts used to reproduce the reported results are available at 
+
+https://github.com/kwonji39/fast-deeponet .  
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 12 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+## Declaration of generative AI and AI-assisted technologies in the manuscript preparation process 
+
+During the preparation of this work, the authors used Anthropic Claude for language editing and assistance with code. No generative image model was used; After using these tools, the authors reviewed and verified the resulting text, code, and numerical results and take full responsibility for the content of the article. 
+
+## A. Data separation and reproducibility 
+
+Each configuration was fixed using development data before its independent final accuracy stream was opened for evaluation. The aligned table combines three independently frozen studies. Training and tuning fields may be used to estimate preprocessing, choose configurations, and retain checkpoints, while accuracy test fields are evaluation only. For the conformal study, the dropout architecture, score, levels, Monte Carlo rule, and fitting protocol were frozen before generating a further calibration stream and a disjoint UQ test stream. Neither stream enters model fitting or configuration selection. The way each benchmark was fixed should be stated plainly. Within a benchmark, the data regime and the number of training fields were chosen on development data. The rule favored the largest FAST reduction among the configurations that passed predeclared validity gates. The FAST representation parameters were then chosen by mean tuning MSE across a development seed schedule. Plain DeepONet has no corresponding parameters. Every reported number comes from a stream generated after those choices were frozen, so the selection governs which regimes are shown rather than the outcome within a regime. Appendices D and E quantify what the FAST-specific settings are worth once a regime is fixed. Table A.1 collects the run settings that are common to the three benchmarks together with the entries that differ between them. It complements Table 1, which lists the branch dimensions and the FAST representation parameters. Table A.1: Run settings for the final study. Entries spanning the three columns are shared by all benchmarks. Wave uses a fixed subset of a fresh training pool. Conformal calibration and UQ streams are independent of the accuracy test streams.                                
+
+> Setting Navier–Stokes Darcy Terminal wave
+> Data
+> Training fields 60 60 40 of 60 Tuning fields 10 Accuracy test fields 100 UQ calibration and test fields 20 and 100
+> Targets and queries
+> Prediction target increment pressure head signed terminal field Pointwise mean centering none training mean training mean Trunk coordinates Fourier raw and Fourier Fourier Fourier order 4Target scaling one training standard deviation
+> Optimization
+> Epochs, main study 300 Epochs, budget study 200 Queries per epoch 8192 training, 4096 tuning Batch size 2048 Optimizer Adam, 10 −3 , decay 0.995 per epoch Checkpoint lowest tuning MSE Model seeds 5, shared by all representations Representations Plain, spectral only, FAST
+
+The spectral-only reference shares the same seed vector, so all three representations are paired. Seed values are recorded in the released result archives, which also store the test paths, targets, fieldwise errors, predictions, selected checkpoint, and preprocessing metadata. An audit verified identical test paths and targets across the paired representations. The Navier–Stokes spectral-only fit was added after the Plain and FAST test evaluation. Its architecture,   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 13 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+preprocessing, paired seeds, and query schedule were nevertheless frozen before those fits, and none of them was selected using the test outcomes. The basis functions used in (31) and (33) are, in this order, 
+
+cos(2 𝜋𝑥 ), cos(2 𝜋𝑦 ), cos(2 𝜋𝑥 ) cos(2 𝜋𝑦 ), − sin(2 𝜋𝑥 ),
+
+− sin(2 𝜋𝑦 ), sin(2 𝜋𝑥 ) sin(2 𝜋𝑦 ), cos(4 𝜋𝑥 ), cos(4 𝜋𝑦 ),
+
+and wave uses the first six. For each heterogeneous benchmark, the ten candidate sites are generated once by selecting ten points from the 4 × 4 grid {0 .2, 0.4, 0.6, 0.8} 2 and adding independent uniform jitter in [−0 .04 , 0.04] 2. This placement is drawn once per benchmark, so the two benchmarks use different site sets and each site set remains fixed across all splits within its benchmark. Table A.2 gives training input diagnostics for the final datasets. Numerical rank uses the uncentered singular values and the tolerance in (11). Effective rank and 𝑘 95 use the centered covariance, where effective rank is the exponential of the eigenvalue entropy and 𝑘 95 is the number of components required to explain 95% of the variance. Each diagnostic is computed on the branch variable actually supplied to the model, so the wave row refers to 𝑚 − 1 . For Navier–Stokes that variable also carries the viscosity, and its numerical rank of 6 counts five field directions together with the auxiliary coordinate. The rank rule in (11) sees only the five, which with 𝑝 𝜂 = 1 gives the effective rank of 6 in Table 1. Table A.2: Training input spectral diagnostics for the final datasets. These values describe the data and are distinct from the selected factor ranks in Table 1. Benchmark Numerical rank Effective rank 𝑘 95 
+
+Navier–Stokes 6 4.05 4Darcy 31 5.05 9Terminal wave 16 10.76 12 The qualitative examples in Figure 4 use the first paired model seed and prediction-independent field rules. Navier– Stokes uses field 95, selected by a target-only dynamics score; Darcy uses the prespecified first test field; and terminal wave uses field 14, selected by a target-only anomaly score. They are presentation examples and enter no quantitative result. 
+
+## B. Spectral-only reference 
+
+Section 4.5 defines the spectral-only branch. Table B.1 reports the full comparison. The reference is a principal component reduction of the branch input, the basis that non-intrusive reduced order models pair with a network [19]. By (9) the columns of 𝑄 𝑓 are the leading right singular vectors of the uncentered training input matrix. The spectral path therefore spans the subspace of an uncentered principal component analysis, and its features differ from the corresponding scores only by the fixed factor 𝑐 𝑓 ∕√𝑝 𝑓 . A centered analysis of the same inputs is a different reduction, at a maximum principal angle of 13 .6 degrees; we use the uncentered form because the rank safeguard in (11) is defined on the uncentered singular values. Table B.1: Spectral-only reference on the independent test sets. Errors are mean ± sample standard deviation across paired fits. The difference is FAST minus the spectral-only reference, so negative values favor residual augmentation.                      
+
+> Benchmark Spectral only FAST Difference Paired fit 95% CI Navier–Stokes 0.1108 ± 0 .0055 0.1119 ± 0 .0021 0.0011 [−0 .0033 ,0.0055]
+> Darcy 0.0876 ± 0 .0026 0.0925 ± 0 .0019 0.0048 [0 .0005 ,0.0092]
+> Terminal wave 0.2557 ± 0 .0016 0.2063 ± 0 .0026 −0 .0494 [−0 .0535 ,−0 .0453]
+
+The fixed spectral path is sufficient for the low-rank Navier–Stokes family and is the more accurate reduced representation for Darcy. The residual path gives its clearest additional benefit for terminal wave prediction, where it does more than refine the reference. At the retained rank of six the spectral path alone reaches 0.2557 against 0.2165 
+
+for a plain branch, so that compression is by itself a net loss of 18 .1% . The residual path converts it into the 0.2063 of Table 2, a 4.7% gain over the same plain branch. That gain sits in the center of the error distribution: the pooled 90 th   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 14 of 24
+
+FAST-DeepONet for High-Dimensional PDEs 
+
+percentile is 0.303 for FAST against 0.291 for Plain. Appendix D shows that the directional penalty is what makes the residual path useful. Appendix F examines the resulting map and measures how much input information the spectral path leaves behind in each case. 
+
+## C. Two controls on the source of the gain 
+
+The spectral-only reference of Appendix B separates the two paths but leaves two other readings open. The gain might come from compressing the branch at all, rather than from a basis estimated from the training inputs. It might also come from fitting fewer parameters, rather than from the representation. Two controls address these in turn. Both use the reported evaluation streams, the reported five paired model seeds, and the reported settings of Table 1; each changes one thing. 
+
+A random basis in place of the spectral one. The first control replaces 𝑄 𝑓 by a random orthonormal matrix of the same effective rank, formed by a QR factorization of a Gaussian matrix and scaled by the same 1∕ √𝑝 𝑓 convention. The rank rule, the factor scale, the block handling of auxiliary parameters, and the downstream network are untouched, and the residual path is absent, so this differs from the spectral-only reference in the basis alone. 
+
+A plain branch at the FAST parameter count. The second control narrows a plain DeepONet until its trainable count is close to that of FAST-DeepONet on the same benchmark. One width sets the branch, trunk, and latent dimensions together, and it was chosen by one-epoch probes that read only the parameter count, so no accuracy entered the choice. Table C.1: The two controls beside the reported representations, on the same evaluation streams and paired seeds. Entries are mean ± sample standard deviation across fits. The matched plain widths and trainable counts are 20 
+
+(166 ,741 ) for Navier–Stokes, 40 (174 ,481 ) for Darcy, and 40 (174 ,401 ) for terminal wave, against FAST counts of 
+
+168 ,713 , 171 ,265 , and 169 ,729 .                          
+
+> Benchmark Plain Plain, matched Random basis Spectral only FAST Navier–Stokes 0.1776 ± 0 .0057 0.2504 ± 0 .0224 0.2731 ± 0 .0314 0.1108 ± 0 .0055 𝟎 .𝟏𝟏𝟏𝟗 ±𝟎 .𝟎𝟎𝟐𝟏
+> Darcy 0.1029 ± 0 .0022 0.1234 ± 0 .0038 0.1524 ± 0 .0142 0.0876 ± 0 .0026 𝟎 .𝟎𝟗𝟐𝟓 ±𝟎 .𝟎𝟎𝟏𝟗
+> Terminal wave 0.2165 ± 0 .0030 0.2462 ± 0 .0063 0.3748 ± 0 .0164 0.2557 ± 0 .0016 𝟎 .𝟐𝟎𝟔𝟑 ±𝟎 .𝟎𝟎𝟐𝟔
+
+Both controls are worse than a plain branch on all three benchmarks. The random basis loses to the spectral one by factors of 2.5, 1.7, and 1.5, and it does not even reach the raw branch it replaces, so compressing to a low-dimensional subspace is not by itself the mechanism; the subspace has to be the one the training inputs single out. The parameter-matched plain branch is also worse than the full-width plain branch, so the same budget buys less when it is spent on a narrower network than when it is spent on the representation. The parameter reduction of Appendix J is therefore a consequence of the construction rather than the reason it works. 
+
+## D. Sensitivity to the directional penalty 
+
+The penalty weight 𝜆 in (26) is the one FAST-DeepONet setting with no counterpart in Plain DeepONet, so we isolate its contribution directly. We refit FAST-DeepONet with 𝜆 = 0 on all three benchmarks; everything else reproduces the fits behind Table 2. At 𝜆 = 0 the penalty term is skipped, so the comparison removes the directional regularizer while leaving the representation intact. Both arms are scored identically and paired by model seed. This is a secondary ablation on an evaluation stream already opened for the main comparison. Table D.1 reports the outcome. Table D.1: Effect of the directional penalty. Errors are mean ± sample standard deviation across paired fits. The interval is for the selected 𝜆 minus 𝜆 = 0 , so negative values favor the penalty. The last column counts the fits in which the selected 𝜆 has the lower mean error. 
+
+Benchmark 𝜆 𝜆 = 0 Selected 𝜆 Paired fit 95% CI Wins Navier–Stokes 0.01 0.1127 ± 0 .0015 0.1119 ± 0 .0021 [−0 .0032 , 0.0016] 4/5 Darcy 1 0.1385 ± 0 .0110 0.0925 ± 0 .0019 [−0 .0578 , −0 .0342] 5/5 Terminal wave 1 0.2572 ± 0 .0079 0.2063 ± 0 .0026 [−0 .0627 , −0 .0391] 5/5 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 15 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+The penalty reduces the mean error by 33 .2% on Darcy and 19 .8% on terminal wave. Both intervals exclude zero, the selected 𝜆 wins at every fit, and the fieldwise advantage holds for 94 and 100 of the 100 test fields respectively. The penalty also narrows the spread across fits, from 0.0110 to 0.0019 on Darcy and from 0.0079 to 0.0026 on wave. For Navier–Stokes the paired interval includes zero, and the selected value is 𝜆 = 0 .01 , two orders of magnitude smaller than for the other two benchmarks. The tuning procedure had effectively turned the penalty off there, and the ablation agrees. Read together with Table B.1, these numbers separate the residual path from its regularizer. On terminal wave the spectral-only reference reaches 0.2557 and the unregularized residual path reaches 0.2572 , so adding a residual path without the penalty gains nothing, and the entire improvement to 0.2063 comes from regularizing it. On Darcy the unregularized residual path is actively harmful, raising the error from the spectral-only value of 0.0876 to 0.1385 , and the penalty recovers most but not all of that loss. The directional penalty is therefore not a refinement of the residual path but the condition under which the residual path is useful at all. 
+
+## E. Sensitivity to the factor scale 
+
+The fixed scale 𝑐 𝑓 in (13) sets the magnitude at which the spectral features enter the branch network. It leaves the orthogonal residual unchanged, so it acts only on the relative size of the two paths. Table 1 reports 𝑐 𝑓 = 1 for Darcy and 𝑐 𝑓 = 8 for terminal wave, and this appendix measures what that choice is worth. We refit both benchmarks over 
+
+𝑐 𝑓 ∈ {1 , 2, 4, 8} , holding 𝜆 at its selected value and every other setting fixed, and Table E.1 reports the grid. The tuning MSE is the statistic of interest, since that is the criterion by which 𝑐 𝑓 was chosen on development data. The question is whether the same criterion, recomputed on the final streams, still ranks the reported value first. It is comparable across the grid because the target normalization depends on the data alone. Navier–Stokes is excluded, for a reason worth stating precisely. Equation (14) defines 𝑐 𝑓 as a scale on the spectral field scores alone, with 𝜂 𝑠 appended unchanged. The released implementation applies it to the whole fixed block. The two agree exactly whenever 𝑝 𝜂 = 0 , which covers Darcy and terminal wave, and they agree at 𝑐 𝑓 = 1 for any 𝑝 𝜂 .Navier–Stokes is the one reported benchmark with 𝑝 𝜂 > 0, and it uses 𝑐 𝑓 = 1 , so no reported fit distinguishes the two readings. A grid over 𝑐 𝑓 on that benchmark would, however, also rescale the viscosity feature and would therefore not measure the quantity (14) defines, which is why it carries no grid. Table E.1: Factor-scale sensitivity, averaged over paired fits. Tuning MSE is the criterion by which 𝑐 𝑓 was selected; its minimum in each benchmark is shown in bold. Test error is the mean fieldwise relative 𝐿 2 on the evaluation stream. Darcy Terminal wave 
+
+𝑐 𝑓 Tuning MSE Test error Tuning MSE Test error 1 𝟎 .𝟎𝟔𝟐𝟑 0.0925 0.7331 0.3980 
+
+2 0.0689 0.0900 0.2784 0.2385 
+
+4 0.0693 0.0904 0.2325 0.2140 
+
+8 0.0708 0.0923 𝟎 .𝟐𝟏𝟔𝟖 0.2063 
+
+The two benchmarks behave differently. For terminal wave the scale is a first-order setting: the tuning MSE falls monotonically from 0.7331 at 𝑐 𝑓 = 1 to 0.2168 at 𝑐 𝑓 = 8 , and the test error follows the same ordering, from 0.3980 to 
+
+0.2063 . At 𝑐 𝑓 = 1 the model is worse than Plain DeepONet, so this scale has to be matched to the retained subspace rather than left at a default. The selection criterion and the held-out ordering agree on the reported value. For Darcy the scale barely matters. All four grid points lie between 0.0900 and 0.0925 , a spread of 2.7% , which is smaller than the Plain-to-FAST gap on that benchmark. The tuning MSE is lowest at the reported 𝑐 𝑓 = 1 , while the lowest test error occurs at 𝑐 𝑓 = 2 by 0.0025 . The reported value is the one the selection criterion chose, and it is not the test optimum. Taken together, 𝑐 𝑓 needs care when the retained spectral subspace is small relative to the input variation, as in the rank six wave setting, and can be left at unity otherwise. 
+
+## F. Diagnostics of the effective residual map 
+
+This appendix characterizes the learned residual map of the evaluation fits. No model is refitted; the retained checkpoints from Section 4.3 are reloaded and 𝐺 is recomputed from (20). Raw row norms are excluded from   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 16 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+the reported statistics because their magnitude is gauge dependent. They are used only to confirm that the exact normalization in (23) never encounters a zero row: across every FAST evaluation fit no row of 𝐺 is exactly zero, and the smallest nonzero row norm is 0.265 .
+
+F.1. Directional concentration 
+
+Table F.1 summarizes the column structure of the row-normalized map ̃ 𝐺 . For column norms 𝑐 𝑗 = ‖̃𝐺 ∶,𝑗 ‖2, the top column statistic is the fraction of ∑𝑗 𝑐 2 
+
+> 𝑗
+
+contained in the largest ⌈0.01 𝑝 ⌉ columns, and the participation ratio is 
+
+(∑ 𝑗 𝑐 𝑗 
+
+)2∕ ∑𝑗 𝑐 2 
+
+> 𝑗
+
+. The participation ratio equals 𝑝 for a uniform profile and 1 for a single active coordinate. Table F.1: Directional concentration of the row-normalized effective residual map (mean and range over the evaluation fits). Benchmark 𝑝 Energy in top 1% of columns Participation ratio Navier–Stokes 8193 0.741 [0 .668 , 0.862] 161 .0 [125 .2, 202 .0] 
+
+Darcy 4096 0.892 [0 .857 , 0.931] 56 .8 [50 .5, 60 .9] 
+
+Terminal wave 4096 0.857 [0 .835 , 0.890] 74 .3 [72 .1, 78 .5] 
+
+The map is therefore far from uniform over the branch coordinates, but its participation ratio still corresponds to tens of active directions rather than a handful. The distribution of 𝑐 𝑗 is heavy tailed, with a small number of columns carrying a large share of the total energy. An energy share would therefore be dominated by those few columns, so the alignment statistics below are reported as counts instead. 
+
+F.2. Relation to the generative support 
+
+The Darcy and wave input distributions activate a subset of ten fixed candidate disks per field, so a generative coordinate support is available for comparison, whereas Navier–Stokes has no localized scatterers and is omitted here. For each fit we take the union of the disk supports over its training fields, which covers 264 coordinates for Darcy and 
+
+320 for wave. We then count how many of the 100 largest columns of ̃ 𝐺 fall inside that union. Two controls accompany the comparison: the same mask transposed on the grid, and a random mask of equal size. Table F.2 reports the resulting counts. Table F.2: Number of the 100 largest columns of ̃ 𝐺 falling inside a mask, averaged over the evaluation fits. The chance column is the count expected if the largest columns were placed uniformly at random. Benchmark Chance True support Transposed Random Darcy 6.4 34 .2 [29 , 38] 12 .0 8.6
+
+Terminal wave 7.8 18 .4 [15 , 23] 3.6 6.0
+
+The largest columns are enriched on the true support by factors of 5.3 and 2.4, while both controls stay near or below chance. The residual path therefore does place above-chance weight on the coordinates where the scatterers sit. It does not, however, recover that support. Roughly two thirds of the largest columns still lie outside the disks, and the map remains spread over tens of directions. The selected coordinates also vary between fits: the Jaccard overlap of the top 100 columns is 0.085 for Darcy and 0.034 for wave, against a chance value of 0.012 . Different fits of the same configuration thus use different coordinates within a partly shared region. We consequently describe the learned path as a distributed residual representation with weak support alignment. 
+
+F.3. Residual information after the spectral path 
+
+The same checkpoints also indicate why the residual path matters on one benchmark and not on another. For each fit we form the field residual 𝑒 𝑓 (𝑥 𝑓 ) of (13) and compare its per-coordinate variance with that of the input. Table F.3 reports the fraction of input variance that survives the projection.   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 17 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+Table F.3: Fraction of the per-coordinate training input variance retained by the orthogonal residual, averaged over the evaluation fits. The effective field rank is 16 for Darcy and 6 for wave. The last column is the ratio of absolute residual variance on the support to absolute residual variance elsewhere. It is not the quotient of the two preceding columns, because those are fractions of an input variance that is itself larger on the support, by 1.99 for Darcy and 6.74 for wave; the quotient of the fractions is 34 .8 and 6.5 respectively. Benchmark Retained on support Retained elsewhere Residual variance ratio Darcy 3.8% 0.11% 69 .2
+
+Terminal wave 61 .5% 9.45% 43 .9
+
+In both benchmarks the absolute residual variance sits on the scatterer coordinates, by factors of 69 .2 and 43 .9
+
+relative to the rest of the field. What differs is how much is left there at all, and Section 4.5 reads the two cases against the accuracy they produce. 
+
+## G. Choosing the representation parameters 
+
+The settings of Table 1 were fixed as Appendix A describes. This appendix collects what the sensitivity studies suggest for a new problem. The order matters: the first two steps use training inputs only and need no fit, and they determine how much the last two can matter. 
+
+Rank 𝑟 , from the training inputs. The spectral path is estimated from 𝑋 𝑓 alone, so its diagnostics are available before any model is trained. Table A.2 reports the two that are useful: the numerical rank of (11) and 𝑘 95 , the number of centered components carrying 95% of the input variance. Requesting 𝑟 near 𝑘 95 is a reasonable starting point, and the safeguard in (11) removes the risk of asking for more than the data support. Navier–Stokes illustrates this: 𝑟 = 8 
+
+was requested and 6 retained, because the training fields resolve only five field directions. 
+
+Residual width 𝑠 , after checking what is left. Whether the residual path has anything to encode is also measurable in advance. Projecting the training inputs at the chosen rank and computing the retained variance, as in Table F.3, separates the two regimes seen here. At the Darcy rank of 16 the residual keeps 3.8% of the input variance on the scatterer coordinates and the spectral-only reference is the more accurate model; at the wave rank of 6 it keeps 61 .5% 
+
+and the residual path lowers the error by 19 .3% . A small retained fraction is a signal that capacity spent on 𝑠 will not be repaid. 
+
+Factor scale 𝑐 𝑓 , by tuning error. The scale matters when the retained subspace is small relative to the input variation and is close to irrelevant otherwise. Table E.1 shows both: on wave at rank six the tuning MSE falls from 0.7331 at 
+
+𝑐 𝑓 = 1 to 0.2168 at 𝑐 𝑓 = 8 and the held-out ordering agrees, while on Darcy at rank sixteen the four grid points span 
+
+2.7% . Selecting by mean tuning MSE reproduced the reported value on both. Leaving 𝑐 𝑓 = 1 is safe when the retained rank is generous, and is the only consistent choice when the branch carries auxiliary parameters. 
+
+Penalty weight 𝜆 , never zero. Appendix D is unambiguous on this point: an unregularized residual path gains nothing on wave and is actively harmful on Darcy. Selecting 𝜆 by mean tuning MSE is what produced the reported values, and it also produced the sensible outcome of a near-inactive penalty on Navier–Stokes, where little residual variance remains to regularize. The clipping threshold 𝜏 𝑘 of (27) was fixed a priori, so it was never tuned against an evaluation stream. These steps summarize the behavior observed across the three benchmarks. 
+
+## H. Fixed optimization-budget diagnostic 
+
+To assess sensitivity to a shorter optimization budget, we repeated one prespecified Plain/FAST seed per benchmark under a common cap of 200 epochs, with all other settings matching the final protocol. The penalty schedule is defined over this run, so it is a separate experiment and not a prefix of the longer fits. Table H.1 reports all three outcomes.   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 18 of 24
+
+FAST-DeepONet for High-Dimensional PDEs 
+
+Table H.1: Fixed-budget diagnostic using the first paired seed of each benchmark. Each entry is the mean fieldwise relative 𝐿 2 error; the retained epoch minimizes tuning MSE within the common budget. Benchmark Plain FAST Reduction Plain epoch FAST epoch Navier–Stokes 0.1737 0.1176 32 .3% 71 200 Darcy 0.1063 0.0947 10 .9% 189 200 Terminal wave 0.2153 0.2140 0.6% 139 198 Both Navier–Stokes and Darcy retain a clear reduction under the shorter budget. For terminal wave the two models are nearly tied, and the FAST checkpoint is still improving at the cap, so the wave result in Table 2 depends on the longer schedule. 
+
+## I. Training curves 
+
+No model is refitted here. Figure I.1 draws the per-epoch tuning MSE that the runners stored for the fits behind Table 2, so the curves describe the models that produced the reported errors. Each panel carries the five paired model seeds of both representations. 0 100 200 300          
+
+> Epoch
+> 4 × 10 −1
+> 5 × 10 −1
+> 7 × 10 −1
+> 10 0
+> Tuning MSE
+> Navier –Stokes (p = 8193)
+> FAST-DeepONet Plain DeepONet
+> 0100 200 300
+> Epoch
+> 5 × 10 −2
+> 10 −1
+> 2 × 10 −1
+> 5 × 10 −1
+> Darcy (p = 4096)
+> FAST-DeepONet Plain DeepONet
+> 0100 200 300
+> Epoch
+> 2 × 10 −1
+> 5 × 10 −1
+> 10 0
+> Terminal wave (p = 4096)
+> FAST-DeepONet Plain DeepONet
+
+Figure I.1: Tuning MSE against the epoch for the five paired model seeds of each representation, where lower is better. The vertical range is set separately in each panel, so the levels are comparable within a benchmark and not across benchmarks. Two readings matter. First, neither representation is stopped before its own optimum: the checkpoint rule retains the epoch of lowest tuning MSE, and that epoch lies inside the budget for every fit. The reported plain errors are therefore the best that branch reaches under this schedule. Second, the two branches leave the descent at different times. On Navier–Stokes the retained epoch is 37 to 71 for Plain and 222 to 297 for FAST, and the plain tuning MSE is 6.3% above its minimum by the final epoch against 1.1% 
+
+for FAST. The plain branch stops improving early and then drifts back, which is the behavior of a first layer that the training operators do not determine. The same ordering holds on the two smaller benchmarks with a smaller gap. 
+
+## J. Parameter count and training cost 
+
+Replacing the raw branch by the factor and residual representation changes the model size sharply, because the first branch layer no longer reads every sensor. Table J.1 reports counts taken from the retained checkpoints, so they describe the models that produced the reported errors. 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 19 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+Table J.1: Model size. The branch input dimension is 𝑟 ef f + 𝑠 for FAST and 𝑝 for Plain. Counts are taken from the retained checkpoints; the fixed buffer stores 𝑄 𝑓 and its reconstruction and carries no gradient. Benchmark Model Branch input Trainable Fixed buffer Navier–Stokes Plain 8193 1,150 ,081 0
+
+FAST 14 𝟏𝟔𝟖 ,𝟕𝟏𝟑 98 ,316 
+
+Darcy Plain 4096 625 ,921 0
+
+FAST 32 𝟏𝟕𝟏 ,𝟐𝟔𝟓 131 ,072 
+
+Terminal wave Plain 4096 625 ,665 0
+
+FAST 22 𝟏𝟔𝟗 ,𝟕𝟐𝟗 49 ,152 
+
+FAST-DeepONet trains 6.8 times fewer parameters than Plain on Navier–Stokes and 3.7 times fewer on each of the two smaller benchmarks. The reduction is structural: the Plain branch spends most of its parameters on a first layer of size 𝑤 × 𝑝 , which the representation replaces by 𝑤 × ( 𝑟 ef f + 𝑠 ).Training time moves the other way, but by much less. FAST-DeepONet forms the 𝑤 × 𝑝 effective map at every optimizer step, which brings one fit to about 1.3 times the wall-clock of a plain branch. That cost grows linearly in 𝑝 
+
+and does not depend on the number of training fields. 
+
+## K. Sensor resolution and sample size 
+
+This appendix gives the four Navier–Stokes corners behind the reproducibility statement of Section 4.4, the construction of the two fresh training banks, every fitted cell of Figure 5, and the reason the designed benchmarks start at 16 × 16 .Figure K.1 shows the four Navier–Stokes corners, each with five paired model seeds. Interior cells of that grid use one prespecified seed and are descriptive. All Navier–Stokes training subsets are nested within one fixed 240 field bank. 129 8,193 Branch dimension p    
+
+> 0.05 0.10 0.15 0.20 Mean relative  L2 error
+> n= 20
+> 129 8,193 Branch dimension p
+> n= 240
+> Plain FAST
+
+Figure K.1: Navier–Stokes results at the four corners of the sensor resolution and sample size study, where lower is better. Markers and lines show means across paired fits; whiskers show one sample standard deviation. The target grid remains 128 × 128 in every case. 
+
+K.1. The designed benchmarks 
+
+Darcy and terminal wave need a training bank larger than the reported split before the same sweep can be run. For Darcy the generator stream is continued from index 610 , since indices 0 to 609 are already allocated to the reported study; the regenerated stream reproduces files on disk at seven probe indices before anything new is written. For terminal wave the confirmatory generator supplies fresh per-sample seeds, because the earlier stream predates the zero-velocity half-step initialization used by the reported benchmark. Both banks carry the candidate sites of their benchmark and share no field with any reported split, and both sweeps are scored on the reported evaluation stream. Training subsets are nested, and the queries per epoch scale with the number of training fields. The sweep draws its subsets from banks disjoint from the reported training splits, so its cells are not numerically comparable with Table 2. They are comparable with each other.   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 20 of 24 FAST-DeepONet for High-Dimensional PDEs
+
+Table K.1 gives every fitted cell. That the wave column stays below the other two matches the reading of Appendix B: at the retained rank of six the spectral path alone is a net loss against a plain branch, and only the complete representation recovers it. Table K.1: FAST reduction in mean relative 𝐿 2 error against a plain branch at the same sensor grid and training set size. Positive values favor FAST. Reading down a column gives the dependence on the branch dimension at a fixed sample size.                                                   
+
+> Navier–Stokes Darcy Terminal wave Sensor grid 𝑛 = 20 60 240 𝑛 = 20 60 240 𝑛 = 20 60 240 8 × 8 +8 .8+14 .7−7 .1+5 .5−2 .6+12 .3+1 .0−22 .0−1 .116 × 16 +17 .7+42 .4+8 .6+1 .8+0 .9+16 .0−3 .2−9 .3−34 .332 × 32 +4 .8+53 .1+54 .6+1 .9+4 .0+21 .4−5 .0−4 .1−16 .664 × 64 +11 .0+56 .0+73 .8+9 .2+10 .5+31 .1−1 .0−1 .2+5 .6
+
+K.2. What a coarse sensor grid measures 
+
+Coarsening the grid is point sampling, not averaging, so a scatterer narrower than the sensor spacing can fall between sensors. The disks have diameter 0.09 for Darcy and 0.10 for wave, against a spacing of 0.125 at 8 × 8 and 
+
+0.0625 at 16 × 16 . Counting on the training banks, an 8 × 8 grid places a sensor inside only 30 .9% of the active Darcy disks and 8.5% of the wave disks, while from 16 × 16 onwards every active disk contains at least one sensor. The 8 × 8 
+
+row therefore samples an input distribution with most of the localized structure absent rather than a coarser view of the same one, which is why Figure 5 starts at 16 × 16 while Table K.1 keeps the row. 
+
+K.3. The reported wave configuration on a fresh bank 
+
+The sweep grid does not contain the 40 training fields of the reported wave study, so that cell was fitted separately on the fresh bank at the reported sensor grid, sample size, and query budget. Across five paired seeds FAST-DeepONet reaches 0.2206 ± 0 .0029 against 0.2357 ± 0 .0037 for a plain branch, a 6.4% reduction with paired interval 
+
+[−0 .0211 , −0 .0091] and the lower error at every seed. Table 2 reports 4.7% on the confirmatory bank, so the wave result reproduces on training fields that entered no part of the reported study. 
+
+## L. Terminal wave propagation 
+
+Figure L.1 follows the same heterogeneous medium shown in Figure 2(c). The squared slowness panel is not repeated here because it already appears in the benchmark figure. t = 0.08 t = 0.16 t = 0.24 t = 0.32 t = 0.40 
+
+> −0.243 0.000 0.243
+> Signed wavefield  u(x, t)
+
+Figure L.1: Signed wavefield snapshots from 𝑡 = 0 .08 to the terminal time 𝑇 = 0 .4. The centered pulse propagates through the heterogeneous medium and develops distorted wave fronts. All panels use one symmetric color scale, and the final panel is the learning target. 
+
+## M. Monte Carlo dropout and operator-level conformal calibration 
+
+We evaluate an optional uncertainty variant in which both Plain and FAST are retrained with dropout rate 0.1 after every ReLU hidden layer of the branch and trunk [20]. The data, seeds, schedule, and checkpoint rule match the main   
+
+> J. Kwon et al.: Preprint submitted to Elsevier Page 21 of 24
+
+FAST-DeepONet for High-Dimensional PDEs 
+
+study. At inference, the point prediction is the mean of ten Monte Carlo dropout passes with a paired random-number schedule. These dropout fits are separate from the deterministic point predictors in Tables 2 and 3. We then apply split conformal calibration [21, 22] as a secondary reliability analysis [23, 24, 25]. The dropout architecture, fitting protocol, and all calibration choices were fixed before generating the fresh calibration and UQ test fields listed in Table A.1. The absolute residual at query 𝑗 of calibration operator 𝑖 is 
+
+𝑅 𝑖𝑗 = |𝑦 𝑖𝑗 − 𝑦 MC  
+
+> 𝑖𝑗
+
+|, (M.1) where 𝑦 MC is the ten-pass mean. With 𝑚 𝑖 native grid points and 𝛽 = 0 .1, define the within-operator score 
+
+𝑘 𝛽,𝑖 = min{ 𝑚 𝑖 , ⌈(𝑚 𝑖 + 1)(1 − 𝛽 )⌉}, 𝑄 𝑖 = 𝑅 𝑖, (𝑘 𝛽,𝑖 ). (M.2) For 𝐾 = 20 calibration operators and 𝛼 = 0 .1, let 
+
+𝑘 𝛼 = min{ 𝐾, ⌈(𝐾 + 1)(1 − 𝛼 )⌉},̂ 𝑞 = 𝑄 (𝑘 𝛼 ). (M.3) The interval at a new query is [𝑦 MC −̂𝑞, 𝑦 MC +̂𝑞 ]. If all choices are fixed before calibration and the calibration operators and a new operator are exchangeable, the split conformal rank argument gives 
+
+Pr 
+
+[
+
+1
+
+𝑚 ∗
+
+> 𝑚 ∗
+
+∑
+
+> 𝑗 =1
+
+𝟏 {𝑅 ∗,𝑗 ≤̂𝑞 } ≥ 𝑘 𝛽, ∗
+
+𝑚 ∗
+
+]
+
+≥ 1 − 𝛼. (M.4) This is an operator-level statement about the fraction of covered grid points, marginal over the random calibration sample and a new operator. Table M.1 reports the independent empirical study. FAST has lower MC-mean point error on all three benchmarks. Its intervals are shorter on Navier–Stokes and Darcy, while the terminal-wave intervals are slightly wider. Field success behaves differently on each benchmark. All five FAST seeds are flagged on Navier–Stokes, both methods are flagged on Darcy, and neither method is flagged on terminal wave. A flag is a descriptive statement about one realized calibration set. The guarantee in (M.4) is marginal over the calibration draw and a new operator, so a flag does not contradict it and is not a test of it. Table M.1: Operator-level conformal evaluation of the dropout variants. MC error is measured on the aligned accuracy stream; width and coverage metrics use the independent fresh UQ stream. Entries are mean ± sample standard deviation across fitted seeds. Field success is the fraction of UQ fields attaining the spatial target in (M.2); brackets give the range across seeds. A flag is a conditional empirical diagnostic: the upper endpoint of that seed’s 95% Wilson interval, computed on one realized calibration set, lies below the nominal 0.9 field-success target. Width is in original target units.                                                           
+
+> Benchmark Model MC error Width Mean cov. P10 cov. Success range Flags Navier–Stokes Plain 0.1675 ± 0 .0029 0.5115 ± 0 .0152 0.9646 ± 0 .0050 0.8843 ± 0 .0226 0.85 –0.90 0/5 FAST 𝟎 .𝟏𝟐𝟓𝟖 ±𝟎 .𝟎𝟎𝟑𝟔 𝟎 .𝟑𝟓𝟑𝟕 ±𝟎 .𝟎𝟏𝟗𝟗 0.9438 ± 0 .0071 0.8091 ± 0 .0325 0.78 –0.82 5/5 Darcy Plain 0.1138 ± 0 .0024 0.01868 ± 0 .00138 0.9333 ± 0 .0087 0.8367 ± 0 .0182 0.68 –0.77 5/5 FAST 𝟎 .𝟏𝟎𝟕𝟏 ±𝟎 .𝟎𝟎𝟐𝟓 𝟎 .𝟎𝟏𝟔𝟑𝟐 ±𝟎 .𝟎𝟎𝟎𝟖𝟕 0.9240 ± 0 .0080 0.8208 ± 0 .0172 0.63 –0.73 5/5 Terminal wave Plain 0.2331 ± 0 .0029 𝟎 .𝟎𝟓𝟖𝟓𝟑 ±𝟎 .𝟎𝟎𝟐𝟐𝟒 0.9442 ± 0 .0049 0.9089 ± 0 .0069 0.89 –0.96 0/5 FAST 𝟎 .𝟐𝟐𝟓𝟎 ±𝟎 .𝟎𝟎𝟏𝟔 0.06079 ± 0 .00288 0.9560 ± 0 .0055 0.9226 ± 0 .0076 0.93 –0.98 0/5
+
+## N. Implementation checks 
+
+The exact row normalization, residual coordinate gauge, factor null-space gauge, and positive ReLU row scaling were tested directly. The effective map and penalty remain unchanged to floating-point tolerance under the correspond-ing transformations, while zero-row backward evaluations remain finite. We also performed a solver-only audit at five fixed accuracy-test indices spanning each stream, without loading or evaluating a learned model. Table N.1 reports float64 solver replay and refinement results. The refinement error is the relative 𝐿 2 difference between the production solution and the refined solution restricted to the production grid. 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 22 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+Table N.1: Solver verification on five fixed inputs. Replay and solver-check entries are means unless marked as maxima; refinement entries are mean (maximum). Navier–Stokes jointly refines 128 2, Δ𝑡 = 0 .001 to 256 2, Δ𝑡 = 0 .0005 ; Darcy refines 64 2 to 128 2; wave refines 64 2, Δ𝑡 = 0 .004 to 128 2, Δ𝑡 = 0 .002 .
+
+Benchmark Target replay Solver check Refinement relative 𝐿 2
+
+Navier–Stokes 2.43 × 10 −8 div. RMS 2.90 × 10 −14 6.23 × 10 −4 (7.24 × 10 −4 )Darcy 2.54 × 10 −8 linear residual 1.61 × 10 −13 1.60 × 10 −2 (2.91 × 10 −2 )Terminal wave 2.76 × 10 −8 max CFL 0.323 < 0.707 4.25 × 10 −2 (4.84 × 10 −2 )
+
+The Navier–Stokes divergence and Darcy linear residual are evaluated on the float64 replay before serialization; target replay quantifies the subsequent float32 storage difference. Darcy refinement also changes the grid representation of discontinuous disk interfaces. For wave, regeneration from the saved seed reproduces the stored arrays exactly. The table instead reports re-solving the stored medium, with the refined periodic field sampled at the coarse cell centers. These checks support numerical consistency of the generators. 
+
+## References 
+
+[1] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3):218–229, 2021. doi: 10.1038/s42256-021-00302-5. URL 
+
+https://doi.org/10.1038/s42256-021-00302-5 .[2] Tianping Chen and Hong Chen. Universal approximation to nonlinear operators by neural networks with arbitrary activation functions and its application to dynamical systems. IEEE Transactions on Neural Networks , 6(4):911–917, 1995. doi: 10.1109/72.392253. [3] Lu Lu, Xuhui Meng, Shengze Cai, Zhiping Mao, Somdatta Goswami, Zhongqiang Zhang, and George Em Karniadakis. A comprehensive and fair comparison of two neural operators (with practical extensions) based on fair data. Computer Methods in Applied Mechanics and Engineering , 393:114778, 2022. doi: 10.1016/j.cma.2022.114778. URL https://doi.org/10.1016/j.cma.2022.114778 .[4] Kaushik Bhattacharya, Bamdad Hosseini, Nikola B. Kovachki, and Andrew M. Stuart. Model reduction and neural networks for parametric PDEs. The SMAI Journal of Computational Mathematics , 7:121–157, 2021. doi: 10.5802/smai-jcm.74. [5] Katiana Kontolati, Somdatta Goswami, George Em Karniadakis, and Michael D. Shields. Learning nonlinear operators in latent spaces for real-time predictions of complex dynamics in physical systems. Nature Communications , 15:5101, 2024. doi: 10.1038/s41467-024-49411-w. [6] Jacob H. Seidman, Georgios Kissas, Paris Perdikaris, and George J. Pappas. NOMAD: Nonlinear manifold decoders for operator learning. In 
+
+Advances in Neural Information Processing Systems , volume 35, 2022. [7] Yuan Qiu, Nolan Bridges, and Peng Chen. Derivative-enhanced deep operator network. In Advances in Neural Information Processing Systems , volume 37, pages 20945–20981, 2024. doi: 10.52202/079017-0660. URL https://proceedings.neurips.cc/paper_files/ paper/2024/hash/25297252dcd3f4b11eec7ec7ab06bc80-Abstract-Conference.html .[8] Jianqing Fan and Yihong Gu. Factor augmented sparse throughput deep relu neural networks for high dimensional regression. Journal of the American Statistical Association , 119(548):2680–2694, 2024. doi: 10.1080/01621459.2023.2271605. URL https://doi.org/10.1080/ 01621459.2023.2271605 .[9] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. [10] Samuel Lanthaler, Siddhartha Mishra, and George Em Karniadakis. Error estimates for DeepONets: a deep learning framework in infinite dimensions. Transactions of Mathematics and Its Applications , 6(1):tnac001, 2022. doi: 10.1093/imatrm/tnac001. [11] James H. Stock and Mark W. Watson. Forecasting using principal components from a large number of predictors. Journal of the American Statistical Association , 97(460):1167–1179, 2002. doi: 10.1198/016214502388618960. [12] Jushan Bai and Serena Ng. Determining the number of factors in approximate factor models. Econometrica , 70(1):191–221, 2002. doi: 10.1111/1468-0262.00273. [13] Jianqing Fan, Yuan Liao, and Martina Mincheva. Large covariance estimation by thresholding principal orthogonal complements. Journal of the Royal Statistical Society: Series B , 75(4):603–680, 2013. doi: 10.1111/rssb.12016. [14] Jianqing Fan, Yuan Ke, and Kaizheng Wang. Factor-adjusted regularized model selection. Journal of Econometrics , 216(1):71–85, 2020. doi: 10.1016/j.jeconom.2020.01.006. [15] Jianqing Fan and Yuan Liao. Learning latent factors from diversified projections and its applications to over-estimated and weak factors. 
+
+Journal of the American Statistical Association , 117(538):909–924, 2022. doi: 10.1080/01621459.2020.1831927. [16] Jianqing Fan and Runze Li. Variable selection via nonconcave penalized likelihood and its oracle properties. Journal of the American Statistical Association , 96(456):1348–1360, 2001. doi: 10.1198/016214501753382273. [17] Behnam Neyshabur, Ruslan Salakhutdinov, and Nati Srebro. Path-SGD: Path-normalized optimization in deep neural networks. In 
+
+Advances in Neural Information Processing Systems , volume 28, 2015. URL https://proceedings.neurips.cc/paper/2015/hash/ eaa32c96f620053cf442ad32258076b9-Abstract.html .[18] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations , 2021. URL 
+
+https://openreview.net/forum?id=c8P9NQVtmnO .[19] Jan S. Hesthaven and Stefano Ubbiali. Non-intrusive reduced order modeling of nonlinear problems using neural networks. Journal of Computational Physics , 363:55–78, 2018. doi: 10.1016/j.jcp.2018.02.037. 
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 23 of 24 FAST-DeepONet for High-Dimensional PDEs 
+
+[20] Yarin Gal and Zoubin Ghahramani. Dropout as a bayesian approximation: Representing model uncertainty in deep learning. In Proceedings of the 33rd International Conference on Machine Learning , volume 48 of Proceedings of Machine Learning Research , pages 1050–1059, 2016. URL https://proceedings.mlr.press/v48/gal16.html .[21] Vladimir Vovk, Alexander Gammerman, and Glenn Shafer. Algorithmic Learning in a Random World . Springer, New York, 2005. doi: 10.1007/b106715. URL https://doi.org/10.1007/b106715 .[22] Jing Lei, Max G’Sell, Alessandro Rinaldo, Ryan J. Tibshirani, and Larry Wasserman. Distribution-free predictive inference for regression. 
+
+Journal of the American Statistical Association , 113(523):1094–1111, 2018. doi: 10.1080/01621459.2017.1307116. URL https://doi. org/10.1080/01621459.2017.1307116 .[23] Anastasios N. Angelopoulos and Stephen Bates. Conformal prediction: A gentle introduction. Foundations and Trends in Machine Learning ,16(4):494–591, 2023. doi: 10.1561/2200000101. [24] Christian Moya, Amirhossein Mollaali, Zecheng Zhang, Lu Lu, and Guang Lin. Conformalized-DeepONet: A distribution-free framework for uncertainty quantification in deep operator networks. Physica D: Nonlinear Phenomena , 471:134418, 2025. doi: 10.1016/j.physd.2024. 134418. [25] Ziqi Ma, David Pitt, Kamyar Azizzadenesheli, and Anima Anandkumar. Calibrated uncertainty quantification for operator learning via conformal prediction. Transactions on Machine Learning Research , 2024. URL https://openreview.net/forum?id=cGpegxy12T .
+
+J. Kwon et al.: Preprint submitted to Elsevier Page 24 of 24

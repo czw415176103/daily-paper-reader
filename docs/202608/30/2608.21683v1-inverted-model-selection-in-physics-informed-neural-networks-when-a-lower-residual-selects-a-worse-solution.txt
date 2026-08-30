@@ -1,0 +1,342 @@
+Title: Inverted model selection in physics-informed neural networks: when a lower residual selects a worse solution
+
+URL Source: https://arxiv.org/pdf/2608.21683v1
+
+Published Time: Tue, 25 Aug 2026 00:17:13 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+Machine Learning: Science and Technology manuscript No. 
+
+(will be inserted by the editor) 
+
+# Inverted model selection in physics-informed neural networks 
+
+when a lower residual selects a worse solution 
+
+Rabiu Musah 
+
+> Received: August 25, 2026() / Accepted: date
+
+Abstract Physics-informed neural networks (PINNs) are commonly compared, tuned and reported through a sin-gle aggregate residual. That practice rests on an assumption which, to my knowledge, has not been tested directly: that a smaller residual indicates a better solution. Across three constrained PDE systems I find the assumption can fail, and fail systematically. In matched pairs of solvers differing only in whether a defining structural identity is hard-wired or imposed as a penalty, the penalised variant frequently attains the lower equation residual while vio-lating that identity by several orders of magnitude; the variant satisfying the identity exactly is then ranked worse. Over 64 matched pairs spanning two systems, four network variants and eight seeds, this inversion occurs in 83% of cases (95% Wilson CI 72–90%), though not universally: rates run from 72% to 94% across the two systems. Re-peating the comparison across six architecture families—MLP, cPINN, XPINN, hp-VPINN, and physics-informed DeepONet and FNO—inverts in 46 of 48 pairs, indicating that the variability is problem-dependent rather than specific to the approximator. A third, larger vorticity–streamfunction problem shows the same ordering, with the residual-optimal solver violating its structural identity by more than six orders above tolerance, though there the residual margin between the two is only 9.37%. Because a scalar loss cannot expose this, I pair the diagnosis with a lexicographic admissibility gate—structural identity, boundary trace, and a solvability integral that must vanish independently of the equation residual—and require all three before residuals are permitted to compete. The gate catches three artefact classes but demonstrably not a fourth: a prescribed-structure prior yields fields that pass every single-run check, and only deleting the source term reveals that 97% of the reported structure survives removal of the physics. Reference data and figures accompany the paper. 
+
+Keywords physics-informed neural networks, verification, benchmark, constrained PDE, solution admissibility, scientific machine learning 
+
+Mathematics Subject Classification (2020) 65M75 · 68T07 · 65M60 
+
+1 Introduction 
+
+Reported success in the PINN literature is usually mediated by a single number: a training loss, or a residual norm evaluated after convergence. By the conventions of computational physics this is an unusually thin standard. A finite-element or finite-volume code is normally accepted only after it has been shown to respect the constraints of the system it claims to solve—incompressibility, boundary data, conservation laws—to a stated tolerance, on data withheld from fitting. Whether that difference matters is an empirical question, and it is the question this paper addresses. Most PDE systems of physical interest are constrained, and when a constraint enters as a penalty rather than by construction, the composite objective admits minimisers that trade constraint violation against equation residual. There is no guarantee that the trade settles somewhere harmless. A scalar loss, in any case, cannot report where it settled. The experiments reported below indicate that the trade often settles badly, and in a particular direction. Com-paring solvers that differ only in how a defining identity is imposed, the penalised variant tends to reach a lower equation residual precisely because it is free to violate the identity; ranking by residual then prefers it. Following  
+
+> M. rabiu Department of Applied Physics, Faculty of physical Sciences, University for Development Studies, Tamale, Ghana Tel.: +233-54-5843562 E-mail: mrabiu@uds.edu.gh arXiv:2608.21683v1 [physics.comp-ph] 21 Aug 2026 2Rabiu Musah
+
+the relaxation argument of Section 7, this is what one should expect when the penalty weight is small; I refer to it as an inversion of model selection. On the systems examined here it is common rather than exceptional, occurring in roughly six of every seven matched pairs—but it is not universal, and one of the three systems inverts only about seven times in ten, which I take as evidence that the effect depends on the problem in ways not yet understood. Section 2 places the work against existing accounts of PINN failure. Sections 3 and 4 introduce the benchmark and the gate built from its checks. The artefact classes appear in Section 5 and the generality experiments in Section 6. Section 7 gives the relaxation argument. What I could not settle is collected in Section 8, and Section 9 closes with two limitations that appear inherent. A note on provenance: none of the four artefact classes was invented for this paper. Each was encountered while developing a PINN solver for a magnetohydrodynamic vortex problem, where they were initially mistaken for convergence difficulties. The benchmark was constructed afterwards, to isolate and reproduce them under controlled conditions. 
+
+2 Related work 
+
+The PINN formulation of Raissi et al. [2019] embeds the residual of a governing equation in the training objective, with boundary and initial data entering as additional penalty terms. Difficulties with that formulation are by now well documented. Krishnapriyan et al. [2021] show that PINNs fail to recover the correct solution for convection and reaction problems whose finite-difference treatment is unremarkable, and trace the failure to the optimisation landscape rather than to expressivity. Wang et al. [2021] identify a stiffness in the gradient flow when loss terms of differing scale are combined, and Wang et al. [2022] reach a similar conclusion through the neural tangent kernel, showing that the effective convergence rate of each term depends on its weight. My observations are consistent with that literature, but concern a different question: not whether the optimiser reaches a good solution, but whether the reported residual allows one to tell. Removing constraints from the objective altogether is an established remedy. Lu et al. [2021b] impose hard constraints for inverse design, and Sukumar and Srivastava [2022] construct distance functions that satisfy bound-ary data exactly. The structural formulation used here belongs to that family, and my contribution is to quantify what the penalised alternative costs in model selection rather than in accuracy alone. Architectural variants—cPINN [Jagtap et al., 2020a], XPINN [Jagtap and Karniadakis, 2020b], hp-VPINN [Kharazmi et al., 2021]—and operator-learning methods such as DeepONet [Lu et al., 2021a] and Fourier neural operators [Li et al., 2021] address other limitations of the basic formulation. None is examined here, for reasons given in Section 6. The practice advocated here is standard elsewhere in computational physics. Code verification through grid convergence and the method of manufactured solutions [Roache, 2002], and the broader verification and validation framework of Oberkampf and Roy [2010], both rest on the principle that a solver must be shown to satisfy the constraints it claims to enforce before its accuracy is discussed. Very little of that apparatus has migrated into the PINN literature. 
+
+3 Benchmark problem 
+
+On the unit disk Ω = {r < 1} I solve the steady forced vorticity transport problem 
+
+ν∇2ω − u · ∇ω + S(r) = 0, (1) 
+
+ω + ∇2ψ = 0, (2) 
+
+u = ( ∂yψ, −∂xψ), (3) 
+
+ψ = 0 on r = 1, (4) with ν = 2×10 −2 and an annular source S(r) = A exp [−(( r −r0)/w)2], A = 1, r0 = 0.60, w = 0.12. This is referred to as problem S1. The problem is deliberately minimal, but it carries three checks that are logically independent of (1): 
+
+(i) Structural identity Equation (2) couples the two fields. A solver may output ψ and ω independently and enforce (2) by penalty, in which case Rstr = ⟨(∇2ψ + ω)2⟩ measures a genuine violation; or it may define ω := −∇2ψ, in which case Rstr ≡ 0 by construction. 
+
+(ii) Boundary trace Rbc = ⟨ψ2⟩r=1, evaluated on a rim sample disjoint from the training set. Inverted model selection in physics-informed neural networks 3a source S(r) b ψ c ω d |u| 
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> −0.6 −0.4 −0.2 0.0 0.2 0.4 0.6
+> −3 −2 −1 0123
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Fig. 1 Benchmark problem and finite-difference reference: annular source, stream function, vorticity and speed.
+
+(iii) Solvability identity With u given by (3), the advection term is a Jacobian, u · ∇ω = {ψ, ω}, whose integral over Ω vanishes. Hence 
+
+Rsol =
+
+Z
+
+> Ω
+
+u · ∇ω dA (5) must vanish for any admissible field, independently of whether (1) is satisfied. The check is inexpensive—one quadrature over the collocation sample, at negligible cost relative to a single training step—and requires no refer-ence solution. 3.1 Reference solution The reference is a second-order finite-difference discretisation on a masked disk with a direct sparse Poisson solve, relaxed to steady state. Because ψ is obtained from ω by solving (2), the structural identity is imposed rather than penalised, and the Dirichlet trace (4) is imposed inside the solve. At n = 121 the relaxed reference reaches an equation-residual root-mean-square of 3 .62 × 10 −4 on its own grid. I write this ∥R∥rms to distinguish it from RPDE ,which throughout denotes the mean square of the same physical residual evaluated on held-out collocation points; the two differ by a square root and by sample, so the reference row of Table 2 reads RPDE = 1.31 × 10 −7 ≃ ∥ R∥2rms .The reference satisfies Rstr = 8.1 × 10 −25 , Rbc = 0 and Rsol = 1.8 × 10 −6 (Fig. 1). 3.2 Verification of the reference solver Every admissibility judgement is made against the reference, so the reference itself requires code verification. Using the method of manufactured solutions with a stream function prescribed as, 
+
+ψe(x, y) = A (1 − x2 − y2)4 cos πx 
+
+> 2
+
+cos πy 
+
+> 2
+
+, (6) from which ωe = −∇2ψe and ue follow, and the manufactured source Smms = − ν∇2ωe − ue ·∇ωe
+
+ is derived symbolically so that ωe solves the continuous problem exactly. No derivative is taken by hand. The exponent in (6) is not decorative. The discretisation masks ω to zero outside the disk, so a manufactured field must satisfy both ψe = 0 and ∇2ψe = 0 on r = 1; otherwise the boundary mismatch propagates through the elliptic solve and pollutes the interior. Writing ψe = ( 1 − r2)ng gives ∇2[( 1 − r2)n] = −4n(1 − r2)n−1 + 4n(n −
+
+1)r2(1 − r2)n−2, which vanishes at r = 1 for n ≥ 3 and any smooth g. Taking n = 4 leaves ωe = O(( 1 − r2)2) near the rim, so the residual mismatch at the discrete mask r = 1 − ∆ x is O(∆ x2) and does not degrade a second-order scheme. With n = 1 the observed orders were −0.06: the errors grew under refinement, and restricting the norm to r < 0.7 did not help, confirming that the contamination was global rather than a boundary layer. Errors are measured against ωe in the L2 and L∞ norms, 
+
+∥Ek∥L2 =
+
+s
+
+1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+ ωki − ωe,i
+
+2, ∥Ek∥L∞ = max  
+
+> i
+
+ωki − ωe,i , (7) with the empirical order of accuracy taken from successive refinements at constant ratio r = ∆ xk/∆ xk+1,
+
+p = ln  ∥Ek∥/∥Ek+1∥
+
+ln r . (8) Grid uncertainty is reported as the Grid Convergence Index GCI = Fs |ε|
+
+rp − 1 , ε = fk − fk+1
+
+fk+1
+
+, (9) 4 Rabiu Musah 
+
+with Fs = 1.25 and fk the discrete L2 norm of ω on grid k. The relative change is taken on a solution functional rather than on the error norm, since the GCI is intended to bound the uncertainty in a computed quantity without reference to an exact answer.                                                            
+
+> Table 1 Discretisation verification of the reference solver by manufactured solution. Grids are chosen for a constant refinement ratio r=1.6. The asymptotic order approaches the nominal second order of the central scheme from above.
+> n∆x∥E∥L2pL2∥E∥L∞pL∞GCI (%) 51 4.000 ×10 −22.743 ×10 −2—9.126 ×10 −2——81 2.500 ×10 −29.290 ×10 −32.30 3.334 ×10 −22.14 1.414 129 1.563 ×10 −23.654 ×10 −31.99 1.307 ×10 −21.99 0.893 205 9.804 ×10 −31.448 ×10 −31.99 5.162 ×10 −31.99 0.527
+
+Both norms converge at 1.99 on the finest pair, against a nominal order of two, and the GCI falls from 1.41% to 0.89%. Two qualifications belong with the table. The verification is run diffusion-dominated ( ν = 1, A = 1), where the steady problem is solved by Picard iteration in thirteen sweeps; at the benchmark value ν = 2 × 10 −2 the global P´ eclet number is large enough that the lagged-velocity iteration does not contract, and an explicit pseudo-time relaxation is limited by the advective step. The order of a scheme does not depend on ν, but this study verifies the discretisation rather than the benchmark’s operating regime. The asymptotic-range ratio, GCI 21 /(rpGCI 32 ) = 
+
+0.62, also indicates the coarsest grid is not yet fully asymptotic, consistent with the observed order falling from 2.30 to 1.99 as the mesh refines. 
+
+4 The admissibility gate 
+
+Every candidate is evaluated on a held-out sample of 6000 interior points and 1024 rim points, never the training collocation set, and apply the following criterion. A candidate is deemed admissible if Rstr ≤ εstr , Rbc ≤ εbc , Rsol ≤ εsol , and the enstrophy exceeds a non-triviality floor Zmin . Only admissible candidates are ranked, and they are ranked by RPDE .with εstr = εbc = 10 −6, εsol = 5 × 10 −2, Zmin = 10 −4.These values are not arbitrary. Neither are they derived from the problem. The two identity tolerances sit roughly two orders above the reference values they must not reject ( Rstr = 8 × 10 −25 , Rbc = 0) and several orders below the violations they must catch ( Rstr ∼ 10 −1), so the gate is insensitive to their precise placement across that gap; I verified that varying them between 10 −8 and 10 −4 changes no verdict in Table 2. The solvability tolerance is looser because Rsol is a Monte-Carlo estimate of an integral and carries sampling error at the 10 −3 level for the sample size used. The non-triviality floor is the weakest of the four and I return to it in Section 9. The ordering is lexicographic by design: a residual comparison between a constraint-satisfying and a constraint-violating field is not meaningful, so the comparison is simply not permitted until admissibility is established. 
+
+5 Artefact classes and results 
+
+Four artefact classes are examined, each realised by a switch in an otherwise identical PINN (64 × 5 tanh network, Adam followed by strong-Wolfe L-BFGS, ψ hard-constrained to vanish on the rim). They are labelled throughout as follows. A1 (trivial capture / weak penalty) the structural identity is imposed by penalty at λstr = 10 −3.A2 (soft-constraint violation) the same, at λstr = 1. A3 (solvability diagnostic) violation of the Jacobian-integral condition (5) from zero, evaluated independently for every candidate. A4 (architectural bias) a bounded template prior pulls ω toward four prescribed sites; run twice, with the source term present and absent. Fig. 2 shows the resulting vorticity fields, which are visually plausible in every case. Inverted model selection in physics-informed neural networks 5a A1 soft structural (weak) b A2 soft structural (unit) c structural ω : = −∇ 2ψ d A4 site prior, physics ON e A4 prior, physics OFF 
+
+Fig. 2 Vorticity fields for the artefact classes and the structural formulation. All reach small aggregate residual; three of the five are inadmissible or depend on an imposed prior. 
+
+Table 2 All candidates on the benchmark, held-out evaluation. Rows ordered by RPDE . The reference is ground truth, not a competitor. candidate RPDE Rstr Rbc Rsol verdict reference (FD) 1.31 × 10 −7 8.1 × 10 −25 0 7.4 × 10 −4 admissible A1 soft-structural (weak) 6.01 × 10 −3 3.3 × 10 0 1.4 × 10 −17 3.6 × 10 −2 reject 
+
+structural PINN 6.09 × 10 −3 0 3.1 × 10 −17 7.4 × 10 −3 admissible A4 prior, physics OFF 6.35 × 10 −3 0 5.2 × 10 −18 3.8 × 10 −3 admissible A4 prior, physics ON 8.68 × 10 −2 0 5.5 × 10 −18 1.1 × 10 −2 admissible A2 soft-structural (unit) 1.12 × 10 −1 7.1 × 10 −3 1.3 × 10 −17 1.4 × 10 −2 reject 10 −7     
+
+> 10 −6 10 −5
+> 10 −4 10 −3 10 −2 10 −1
+
+⟨R2PDE ⟩
+
+> A1 soft(weak) A2 soft(unit) A4 prior, physics OFF A4 prior, physics ON reference structural
+
+a aggregate residual alone     
+
+> 10 −23 10 −19 10 −15 10 −11 10 −7
+> 10 −3
+
+check value (dotted = tolerance) 
+
+> A1 soft(weak) A2 soft(unit) A4 prior, physics OFF A4 prior, physics ON reference structural
+
+b the three independent checks 
+
+> structural bc solvability
+
+Fig. 3 (a) Aggregate residual alone; red bars are inadmissible. (b) The three independent checks against their tolerances. (c) Ranking before and after the gate: the residual-optimal PINN is inadmissible. 
+
+5.1 A1, A2: soft-constraint violation, and the inversion Imposing (2) by penalty with weight λstr produces fields that satisfy the transport equation well and the structural identity poorly. At λstr = 10 −3 the solver reaches RPDE = 6.01 × 10 −3—the lowest of any PINN candidate—while 
+
+Rstr = 3.3, more than six orders of magnitude above tolerance. At λstr = 1 the violation falls to 7 .1 × 10 −3 but is still rejected, and the residual worsens by more than an order. Ranking the five candidates by RPDE selects A1; applying the gate first removes A1 and A2, and a different solver is selected. The rejected winner carried the lower residual, though on this system only by 9.37% (5 .79 ×
+
+10 −3 against a structural PINN of 5 .43 × 10 −4; Table 2). The margin is slender enough that S1 alone would not settle the matter, which is why the frequency studies of Section 6 carry the weight of the claim. Even there the separation is variable rather than uniformly large: across inverting pairs the structural member’s residual exceeds the penalised member’s by a median factor of 33 .9 in the system study and 19 .7 in the architecture study, with individual pairs ranging from 1 .1 to 481. What is consistent is the direction of the ordering and the size of the constraint violation that accompanies it, not the size of the residual gap. On this system, then, residual-based selection prefers a field that does not satisfy one of the defining relations of the governing equations. Whether that behaviour is peculiar to this problem is taken up in Section 6. 6 Rabiu Musah structural boundary solvability enstrophy 10 −23    
+
+> 10 −19
+> 10 −15
+> 10 −11
+> 10 −7
+> 10 −3
+> 10 1
+> check value
+> areference vs. an artefact, check by check
+> reference A1
+> enstrophy ⟨R2PDE ⟩
+> 10 −1
+> b
+> site prior: structure survives physics removal (enstrophy ratio OFF/ON = 0.95)
+> physics ON physics OFF
+> Fig. 4 (a) Reference against artefact A1, check by check. (b) The architectural-bias ablation: structure persists when the source is removed.
+
+5.2 A3: solvability violation 
+
+Rsol of (5) is the least expensive of the three checks and requires no reference solution. It is reported scale-free, as |⟨ u · ∇ω⟩| /⟨| u · ∇ω|⟩ : the absolute form carries a Monte-Carlo sampling error that grows with the amplitude of the field, so a fixed absolute tolerance would penalise a better-trained solver for being larger. On S1 no candidate exceeds the tolerance: the largest value is 3 .6 ×10 −2 for A1 against a reference of 7 .4 ×10 −4, so A3 contributes no rejection here and appears as a column of Table 2 rather than as a candidate of its own. The check earns its place on the other benchmarks, where it rejects the penalised member in 38 of 64 system pairs and in all 48 architecture pairs, and never rejects a structural member. I report it as a check that is essentially free and, in systems possessing a Casimir, can be made exact. 5.3 A4: architectural bias I add a bounded template prior that pulls ω toward Gaussians at four prescribed sites, of the kind used to en-courage an expected structure. With the physics active the solver reports enstrophy 0 .601 and passes every check. With the driving source term removed while retaining the remaining model architecture and constraints, the same architecture reports enstrophy 0 .569 and also passes every check. Ninety-five per cent of the reported structure survives deletion of the physics that supposedly generated it (Fig. 4). 
+
+6 Does the inversion generalise? 
+
+A single system cannot settle the question, so I repeated the comparison on two further constrained problems chosen to share the same structure while differing in dimension, linearity and physical content: 
+
+– S2, mixed-form Poisson on [−1, 1]2: −∇·q = f with q = ∇u. Structural identity q − ∇u; solvability identity H q·n ds + R f dA = 0. 
+
+– S3, steady viscous Burgers in mixed form on [0, 1]: νv′ − uv + s(x) = 0 with v = u′. Structural identity v − u′;solvability identity R uu ′ dx = 0. For each system I trained matched pairs—identical in every respect except whether the structural identity is hard-wired or penalised at λstr = 10 −3—over four network variants—two widths crossed with two activations (48 × 4 and 32 × 6, tanh and SiLU)—and eight random seeds, giving 64 system pairs. That total differs from the 48 architecture pairs of Table 4, so the two studies cannot be confused by their counts. A pair is scored as an inversion when the penalised member has the smaller residual and is inadmissible and the structural member is admissible. Frequencies are reported with Wilson score intervals [Wilson, 1927], which for k successes in n trials at confidence level z are 11 + z2/n
+
+"
+
+ˆp + z2
+
+2n ± z
+
+r ˆp(1 − ˆp)
+
+n + z2
+
+4n2
+
+#
+
+, ˆp = k/n, (10) preferred here over the normal approximation because one of the two systems returns ˆ p = 1, where the normal interval degenerates. Inverted model selection in physics-informed neural networks 7               
+
+> Table 3 Inversion frequency with 95% Wilson confidence intervals. Four network variants ×eight seeds per system. system inversions rate 95% CI S2 mixed Poisson 23/32 72% 55–84% S3 mixed Burgers 30/32 94% 80–98% pooled 53/64 83% 72–90%
+
+Against the null hypothesis that residual ranking selects the admissible and inadmissible member with equal probability, the pooled count of 53 inversions in 64 pairs gives a one-sided binomial p = 5.0 × 10 −8. The pooled rate (Table 3, Fig. 6) therefore indicates that the effect is common across these systems rather than an artefact of one. It is not universal. S2 inverts in roughly seven trials of ten and S3 in nine of ten. Where a pair fails to invert, the usual cause is that the penalised solver happened to satisfy the structural identity closely enough to pass the gate. The network variant leaves a weaker but visible trace. Counting inversions by variant gives 13 /16 and 10 /16 for the two tanh networks against 9 /16 and 11 /16 for the SiLU network, so the smooth activation appears slightly less prone to the effect. With sixteen pairs per variant the intervals overlap heavily and I do not read this as established. One run requires comment. In a single S3 pair the penalised member returned a non-finite residual, its opti-misation having diverged. That pair is scored as a non-inversion, which is the conservative treatment: a diverged solver is not a case of residual ranking preferring an inadmissible field, it is a training failure, and counting it either way would misrepresent what happened. I have no theory that predicts which problems invert and which do not, and regard that as the most interesting question left open here. Two caveats bound this evidence, the second of which the relaxation argument in Section 7 makes precise. The network variants examined are all fully-connected multilayer perceptrons differing in width, depth and activation; the wider architecture families were examined only to the extent that the matched-pair experiment remains well posed for them, which differs from family to family. Five of the six families (run on benchmark S3) inverted in every seed, under the gate already defined. Two of them, DeepONet and FNO, approximate a solution operator rather than a single field, so they are trained physics-informed over the source family s(x; A, c) with A ∈ [0.5, 1.5], c ∈ [0.35 , 0.65 ], and then scored at the reference source (A0, c0), which places all six on the same problem instance. Interface conditions for cPINN (solution and conservative flux) and XPINN (solution, derivative and residual) enter as penalties in the usual way, with the seam at x = 0.30; siting it at x = 0.50, coincident with the source centre, splits the domain where the forcing peaks and leaves a jump the soft continuity never closes ( |u0 − u1| = 9.7 × 10 −2, |v0 − v1| = 1.33), which the solvability check duly rejects; hp-VPINN tests the residual against φk = sin (kπx) with the diffusive term integrated by parts; the FNO is scored on the grid stencil it was trained on rather than through an interpolant.                          
+
+> Table 4 Inversion frequency by architecture family on benchmark S3, eight seeds each, with Wilson intervals. family inversions rate 95% CI MLP 8/8 100% 68–100% cPINN 8/8 100% 68–100% XPINN 8/8 100% 68–100% hp-VPINN 6/8 75% 41–93% DeepONet 8/8 100% 68–100% FNO 8/8 100% 68–100% pooled 46/48 96% 86–99%
+
+Five of the six families inverted in every seed; hp-VPINN inverted in six of eight, the two exceptions being runs whose structural member was itself rejected on the solvability check (Table 4, Fig. 5). The weak formulation tests the residual only against sin (kπx), which does not pin the strong-form product u · ∇ω pointwise, so its integral cancels less exactly; I read this as a property of the variational method rather than a defect of the gate. The magnitude of the violation incurred by the penalised member spans four orders across families, from Rstr ≈ 0.8 for hp-VPINN to ≈ 9 for DeepONet, yet in all cases it sits far above tolerance while the equation residual sits below that of the structural member. Within the architectures and benchmark configurations tested here, the variation in inversion frequency is more strongly associated with the PDE problem than with the choice of approximator. That is, the same MLP that inverts in 30 /32 trials on S3 inverts in only 23 /32 on S2. 8 Rabiu Musah 10 −6 10 −4 10 −2 10 0
+
+PDE penalised 
+
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> PDE  structural
+
+a above the diagonal = inversion     
+
+> MLP cPINN XPINN hp-VPINN DeepONet FNO
+> 025 50 75 100
+
+inversion frequency (%), 95% Wilson CI 
+
+> MLP cPINN XPINN hp-VPINN DeepONet FNO
+
+b every family inverts on S3 
+
+> MLP cPINN XPINN hp-VPINN DeepONet FNO
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> str  of the penalised member
+
+c violation size, all above tolerance 
+
+Fig. 5 (a) Penalised against structural residual for all 48 architecture pairs; points above the diagonal are inversions. (b) Frequency by family with Wilson intervals. (c) Structural violation of the penalised member, which exceeds tolerance in every run. 10 −6 10 −4 10 −2 10 0
+
+PDE soft (inadmissible) 
+
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> PDE  structural (admissible)
+
+a points above the diagonal are inversions     
+
+> 025 50 75 100
+
+inversion frequency (%), 95% Wilson CI 
+
+> S2 mixed Poisson S3 mixed Burgers overall
+
+b frequency by system  
+
+> S2 S3 020 40 60 80 100
+> inversion (%)
+
+c by network variant 
+
+> 48x4 tanh 32x6 tanh 48x4 silu 32x6 silu
+
+Fig. 6 (a) Residual of the penalised member against the structural member for all 48 pairs; points above the diagonal are inversions. (b) Frequency by system with Wilson intervals. (c) Breakdown by network variant. 
+
+I had expected the operator families to be exempt, on the grounds that a solution operator learned from input– output pairs carries no penalised constraint to relax. That expectation does not hold for the physics-informed formulations considered here, in which a PDE residual does enter the objective and a structural identity may be imposed either way. The relaxation argument applies to them unchanged, and the measurements agree. 
+
+7 Why the inversion should be expected 
+
+The phenomenon has a simple constrained-optimisation interpretation, which also accounts for its failing to be universal. Write the constrained problem as minimisation of ∥RPDE (θ )∥2 over the manifold M = {θ : Rstr (θ ) = 0} on which the structural identity holds. The penalised problem replaces this with minimisation of 
+
+Jλ (θ ) = ∥RPDE (θ )∥2 + λ ∥Rstr (θ )∥2 (11) over the whole parameter space Θ ⊃ M . Since M ⊂ Θ , and since λ ∥Rstr ∥2 vanishes on M ,min 
+
+Θ ∥RPDE ∥2 ≤ min 
+
+M ∥RPDE ∥2. (12) The penalised formulation is a relaxation: its attainable equation residual is bounded above by that of the structural formulation, and is strictly smaller whenever the unconstrained minimiser lies off M . A lower residual is therefore Inverted model selection in physics-informed neural networks 9
+
+not evidence of a better solution. For small λ it is what one should expect from having enlarged the feasible set. Whatever advantage (12) buys is paid for in ∥Rstr ∥, and the aggregate loss does not separate the two. Two qualifications follow, and they are what make the effect probabilistic rather than certain. Inequality (12) concerns global minima, whereas neither formulation is solved to global optimality; if the optimiser fails to exploit the relaxation, no residual advantage appears. And the advantage may be real yet small enough that ∥Rstr ∥ stays inside tolerance, in which case the penalised solution is admissible and no inversion is recorded. Both mechanisms predict that inversion becomes more frequent as λ decreases, which is what Table 2 shows for S1: raising λstr from 10 −3 to 1 reduces the structural violation by more than two orders while the equation residual rises by more than one. The argument is heuristic in one respect. It explains why the penalised formulation can attain a lower residual, and why the effect should weaken with increasing λ , but it does not predict the inversion frequency for a given problem, which would require knowing how far the unconstrained minimiser lies from M and how reliably the optimiser finds it. S2 and S3 differ by more than twenty percentage points, while six different approximators on S3 all invert in every trial. This indicates the missing quantity is a property of the problem rather than of the network. I have not identified it. Section 8 records what the data do and do not constrain about it. 
+
+8 Open questions 
+
+Two questions are left unresolved, and I state precisely what the measurements bound. Why does S2 not always invert? In the nine non-inverting S2 pairs the penalised solver satisfied the structural identity closely enough to pass the gate. The relaxation existed but was not large enough to matter. What distin-guishes those runs is not visible in any quantity I recorded. Since all six approximators behave identically on S3, a resolution should be sought in the geometry of M for a given operator, not in properties of the network. Does the effect persist at larger λ ? My sweeps used a weak penalty, λstr = 10 −3, with a single comparison at 
+
+λstr = 1 on S1. The relaxation argument predicts the advantage shrinks as λ grows and vanishes in the limit, but the crossover value—at which a practitioner would be safe ranking by residual—was not mapped, and is likely problem-dependent for the same unidentified reason. A third question I consider settled by Table 4: whether the effect is peculiar to fully-connected networks. It is not. 
+
+9 Limitations 
+
+Two limitations are inherent rather than incidental, and I state them because they bound the method’s claims. 
+
+The gate cannot detect architectural bias. Both A4 variants pass all three checks. This is not a tolerance-tuning failure: a prescribed-structure prior produces fields that are internally consistent, respect the boundary condition, and satisfy the solvability identity. No quantity evaluated on a single converged run distinguishes structure gen-erated by the physics from structure generated by the prior. Detection requires the ablation of §5.3, in which the physics is removed and the reported structure is re-measured. I therefore recommend that any PINN result invoking a structural prior be accompanied by such an ablation as a matter of routine. 
+
+An absolute non-triviality floor is insufficient. The “physics OFF” variant is admissible and has a residual 11 ×
+
+lower than the structural PINN, despite never having seen the source term. Its enstrophy, 0 .249, clears the absolute floor Zmin = 10 −4 easily while being only 1 .6% of the reference value 15 .7. The floor should therefore be set relative to a reference solution where one exists. I deliberately do not re-tune Zmin to repair the ranking, since doing so would fit the criterion to the result it is meant to test. 
+
+10 Reproduction 
+
+vortexbench.py defines the problem, the reference solver, the PINN with its artefact switches, and the gate; 
+
+run benchmark.py reproduces Table 2; make figures.py regenerates all figures. Seeds are fixed ( 20260812 ). Total runtime is approximately ten minutes on one CPU core. No GPU is required. The code and associated materials are available from the corresponding author upon reasonable formal request. 10 Rabiu Musah 
+
+11 Conclusion 
+
+The evidence assembled here indicates that a small aggregate residual should not, on its own, be read as evidence that a PINN has solved a constrained PDE system. In matched comparisons across three systems the solver with the lower residual was frequently the one violating a defining identity, and on the pooled sample this occurred in 83% of pairs. The effect is frequent without being universal. This matters because the loss alone does not indicate whether a particular training run lies in an inverting regime. That means residual-based selection is not reliably wrong, which is precisely what makes it hazardous, since a practitioner has no way of telling from the loss alone which regime they are in. Where a formulation permits a structural identity to be imposed by construction, doing so removes this par-ticular structural-violation failure mode by construction, although its effect on optimisation and approximation accuracy remains problem-dependent. The residual advantage of the penalised variant disappears along with it, which is consistent with the relaxation argument of Section 7. Where a penalty cannot be avoided, constraint resid-uals deserve separate reporting from equation residuals, on held-out samples. Solvability integrals of the kind used here are computationally inexpensive and need no reference solution. For results that rest on a structural prior, the physics-off ablation of Section 5.3 remains the only diagnostic I have found capable of separating learned structure from imposed structure. What remains unresolved is why some problems invert and others do not. My S2 results show the effect is contingent on something beyond the presence of a penalised constraint, and identifying that quantity would turn an empirical caution into a predictive criterion. 
+
+Declarations Funding. No funding was received for this work. 
+
+Conflicts of interest. The author declares no competing interests. 
+
+Code and data availability. All code, reference data, trained checkpoints and figure sources accompany this submission. 
+
+Ethics approval. Not applicable. 
+
+References 
+
+A. D. Jagtap, E. Kharazmi, G. E. Karniadakis, Conservative physics-informed neural networks on discrete domains for conservation laws: applications to forward and inverse problems, Comput. Methods Appl. Mech. Engrg. 365 (2020) 113028. A. D. Jagtap, G. E. Karniadakis, Extended physics-informed neural networks (XPINNs), Commun. Comput. Phys. 
+
+28 (5) (2020) 2002–2041. E. Kharazmi, Z. Zhang, G. E. Karniadakis, hp-VPINNs: variational physics-informed neural networks, Comput. Methods Appl. Mech. Engrg. 374 (2021) 113547. A. S. Krishnapriyan, A. Gholami, S. Zhe, R. M. Kirby, M. W. Mahoney, Characterizing possible failure modes in physics-informed neural networks, Adv. Neural Inf. Process. Syst. 34 (2021) 26548–26560. Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, A. Anandkumar, Fourier neural operator for parametric partial differential equations, in: Int. Conf. on Learning Representations (ICLR) , 2021. L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, Learning nonlinear operators via DeepONet, Nature Machine Intelligence 3 (2021) 218–229. L. Lu, R. Pestourie, W. Yao, Z. Wang, F. Verdugo, S. G. Johnson, Physics-informed neural networks with hard constraints for inverse design, SIAM J. Sci. Comput. 43 (6) (2021) B1105–B1132. W. L. Oberkampf, C. J. Roy, Verification and Validation in Scientific Computing , Cambridge University Press, 2010. M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks, J. Comput. Phys. 378 (2019) 686– 707. P. J. Roache, Code verification by the method of manufactured solutions, J. Fluids Eng. 124 (1) (2002) 4–10. N. Sukumar, A. Srivastava, Exact imposition of boundary conditions with distance functions in physics-informed deep neural networks, Comput. Methods Appl. Mech. Engrg. 389 (2022) 114333. S. Wang, Y. Teng, P. Perdikaris, Understanding and mitigating gradient flow pathologies in physics-informed neural networks, SIAM J. Sci. Comput. 43 (5) (2021) A3055–A3081. S. Wang, X. Yu, P. Perdikaris, When and why PINNs fail to train: a neural tangent kernel perspective, J. Comput. Phys. 449 (2022) 110768. Inverted model selection in physics-informed neural networks 11 
+
+E. B. Wilson, Probable inference, the law of succession, and statistical inference, J. Amer. Statist. Assoc. 22 (158) (1927) 209–212.

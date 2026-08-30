@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-23</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-30</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 32 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 37 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>19</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>24</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-23 20:30:58 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-08-30 23:18:35 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,7 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读19篇，核心聚焦“物理可解释符号回归”在材料性质预测上的突破；最值得关注两篇满分/高分工作，分别用机器学习符号回归发现MOF吸附CO2表达式及预测碱硼酸盐玻璃转变温度；建议优先精读符号回归与领域知识结合的建模思路，可迁移至其他材料筛选任务。</p>
+<p>今日共处理37篇论文，精读24篇、速读13篇，重点覆盖神经ODE与物理信息神经网络方向。</p>
+<p>最值得关注的是满分论文《Symbolic Neural ODEs》，展示了从时序数据提取可解释模型的新思路；物理信息神经网络用于玻色星解族学习也达到9分高评价。</p>
+<p>建议普通读者优先了解神经ODE的可解释建模优势，以及PINN在物理问题求解中的实用潜力，二者均有清晰案例支撑。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -71,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">19 篇</strong>
+    <strong class="dpr-home-dashboard-count">24 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Discovering Physically Interpretable Mathematical Expression for Predicting CO2 Adsorption in Metal-Organic Frameworks via Machine Learning-Symbolic Regression">Discovering Physically Interpretable Mathematical Expression for Predicting CO2 Adsorption in Metal-Organic Frameworks via Machine Learning-Symbolic Regression</span></li><li><span class="dpr-home-dashboard-paper-title" title="Physics-Informed Symbolic Regression for Predicting the Glass Transition Temperature of Alkali Borate Glasses">Physics-Informed Symbolic Regression for Predicting the Glass Transition Temperature of Alkali Borate Glasses</span></li><li><span class="dpr-home-dashboard-paper-title" title="Evo-Harness: Context-to-Harness Skill Compilation for Self-Evolving Agents">Evo-Harness: Context-to-Harness Skill Compilation for Self-Evolving Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Symbolic Neural ODEs: Learning interpretable models from time-series data">Symbolic Neural ODEs: Learning interpretable models from time-series data</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Boson Star Solution Families with Physics-Informed Neural Networks">Learning Boson Star Solution Families with Physics-Informed Neural Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="HiDiffTIR: Hierarchical Difficulty-Aware Policy Optimization for Multi-Turn Tool-Integrated Reasoning">HiDiffTIR: Hierarchical Difficulty-Aware Policy Optimization for Multi-Turn Tool-Integrated Reasoning</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>8</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>7</strong></span><span class="dpr-home-dashboard-tag">sr <strong>4</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>14</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>8</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -87,9 +89,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="MoRSE: Task-Oriented Multi-Agent System with Mixture of Role-Subtask Experts">MoRSE: Task-Oriented Multi-Agent System with Mixture of Role-Subtask Experts</span></li><li><span class="dpr-home-dashboard-paper-title" title="SkillSentry: Reliable Skill Execution for LLM Agents via Runtime Assurance">SkillSentry: Reliable Skill Execution for LLM Agents via Runtime Assurance</span></li><li><span class="dpr-home-dashboard-paper-title" title="Coordinate-Residual Physics-Driven Neural Network for Electromagnetic Inverse Scattering">Coordinate-Residual Physics-Driven Neural Network for Electromagnetic Inverse Scattering</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Field Accuracy: Two-Axis Diagnosis of Inverse-PINN Parameter Error">Beyond Field Accuracy: Two-Axis Diagnosis of Inverse-PINN Parameter Error</span></li><li><span class="dpr-home-dashboard-paper-title" title="Agent Gym: A Framework for Continuous Evaluation and Evolution of LLM Agents Through Human-in-the-Loop Feedback">Agent Gym: A Framework for Continuous Evaluation and Evolution of LLM Agents Through Human-in-the-Loop Feedback</span></li><li><span class="dpr-home-dashboard-paper-title" title="TaoLive Digital Avatar Agent Technical Report: Training Agents to Evolve with Their Harness">TaoLive Digital Avatar Agent Technical Report: Training Agents to Evolve with Their Harness</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>7</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>8</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>5</strong></span></div>
 </section>
 </div>
 

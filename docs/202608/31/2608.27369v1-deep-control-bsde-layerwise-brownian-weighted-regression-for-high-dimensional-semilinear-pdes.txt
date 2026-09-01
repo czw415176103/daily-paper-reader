@@ -1,0 +1,3521 @@
+Title: Deep-Control BSDE: Layerwise Brownian-Weighted Regression for High-Dimensional Semilinear PDEs
+
+URL Source: https://arxiv.org/pdf/2608.27369v1
+
+Published Time: Fri, 28 Aug 2026 01:23:31 GMT
+
+Number of Pages: 41
+
+Markdown Content:
+# Deep-Control BSDE: Layerwise Brownian-Weighted Regression for High-Dimensional Semilinear PDEs 
+
+Mingcan Wang and Xiangjun Wang 
+
+School of Mathematics and Statistics, Huazhong University of Science and Technology Wuhan 430074, China Corresponding author: xjwang@hust.edu.cn 
+
+Abstract 
+
+High-dimensional semilinear parabolic partial differential equations arise in stochastic control, financial engineering, and uncertainty quantification, but classical spatial discretiza-tions suffer from the curse of dimensionality. Motivated by Gaussian perturbation and condi-tional regression in denoising score matching, we propose Deep-Control BSDE ( DC–BSDE ), a layerwise control-regression method for Markovian backward stochastic differential equa-tions. From an implicit Euler scheme, we identify the discrete ideal control zπn = Mnuπn+1 
+
+as the conditional projection coefficient of the successor value response onto the one-step Brownian increment. At each time level, the method freezes the successor value function, ap-proximates the resulting Brownian conditional-moment target using finitely many branches, regresses the control, and then fits the value through the implicit BSDE relation. A frozen linear-response baseline and antithetic pairing reduce finite-branch fluctuations while pre-serving the conditional target, and a within-layer correction coordinates the value and con-trol approximations. We establish backward stability through a contraction property of the Brownian projection and derive conditional consistency when discretization, local learn-ing, numerical, and finite-branch errors vanish jointly. Experiments across six benchmarks demonstrate that DC–BSDE achieves a favorable overall balance among value accuracy, control accuracy, and dynamic consistency while exhibiting generally stable performance across random seeds. These results support the use of DC–BSDE in applications requiring reliable joint approximation of the value and control processes. 
+
+Keywords: High-dimensional semilinear parabolic PDEs; backward stochastic differential equations; Brownian-weighted regression; variance-reduction control variates; denoising score matching 
+
+MSC 2020: 65C30; 60H35; 65M75; 60H10; 35K58; 68T07 
+
+## 1 Introduction 
+
+High-dimensional semilinear parabolic partial differential equations (PDEs) arise in stochastic control, financial pricing and hedging, reaction–diffusion systems, and uncertainty quantifica-tion. Finite-difference, finite-element, and spectral methods have well-developed theories of stability, convergence, and error analysis for low-dimensional problems [1, 2, 3]. Their numbers of degrees of freedom, however, typically grow rapidly with the spatial dimension. This curse of dimensionality makes direct application to problems with tens or hundreds of dimensions prohibitively expensive [10, 12]. A central question in high-dimensional scientific computing is therefore how to approximate both the PDE solution and its diffusion-directional gradient without constructing an explicit high-dimensional spatial grid. Physics-informed neural networks (PINNs)[16, 25] and the Deep Galerkin Method (DGM) [17] represent the PDE solution by a space–time neural network and 1arXiv:2608.27369v1 [stat.CO] 27 Aug 2026 minimize residuals of the governing equation, terminal condition, and boundary conditions using automatic differentiation. These approaches produce a continuous space–time approximation directly. In high-dimensional, stiff, or low-regularity regimes, however, the automatic differenti-ation of high-order derivatives, insufficient coverage of the state space by collocation points, and scale imbalance among different loss terms may substantially complicate optimization [18, 19]. Stochastic analysis provides an alternative mesh-free route for high-dimensional semilinear PDEs. Pardoux and Peng [4] established the connection between nonlinear backward stochastic differential equations (BSDEs) and semilinear parabolic PDEs. In the Markovian setting and under suitable regularity assumptions, the nonlinear Feynman–Kac formula turns the compu-tation of the value function and its diffusion-directional gradient into the numerical solution of a BSDE. The Deep BSDE method propagates a time-discretized BSDE in forward form, treats the initial value and the control approximations at all time levels as trainable objects, and jointly optimizes them through the global terminal loss Lterm (θ) = E
+
+[∣∣Y θN − g(XN )∣∣2]
+
+[10, 11]. In contrast to global pathwise optimization, DBDP1 and DBDP2 proceed backward from the terminal condition according to a dynamic-programming relation: DBDP1 jointly approxi-mates the value and control functions through a one-step BSDE quadratic loss, whereas DBDP2 learns the value function and recovers the control from its spatial gradient [12]. More recently, Deep Picard Iteration (DPI) has reformulated high-dimensional PDE solution as a sequence of space–time regression problems with value and gradient labels derived from Feynman–Kac and variance-reduced Bismut–Elworthy–Li representations [13]. Although these sampling-based methods avoid high-dimensional spatial grids, they still incur errors from time discretization, Monte Carlo sampling, function approximation, and layerwise backward propagation, with con-trol identification remaining particularly delicate. In particular, neither DBDP1 nor DBDP2 constructs, from a frozen successor value function, a separate computable conditional-regression target for the current control that supports variance reduction and independent analysis. De-veloping such explicit control supervision is the main focus of this work. Our point of departure is the gradient-learning paradigm of denoising score matching (DSM) [22, 21]. In Gaussian corruption models, DSM uses the conditional score of a known transition kernel to construct random labels and then recovers the score of the unknown marginal density by conditional regression. The control of a Markovian BSDE, Z = σ⊤∇xu, is likewise a gradient-related quantity. This analogy suggests that a one-step Brownian perturbation may be used to construct explicit supervision for Z. It is important, however, to distinguish the two objects. DSM learns the logarithmic gradient of a probability density, ∇x log p, whereas the present method learns the diffusion-directional gradient of a value function, σ⊤∇xu. All control targets below are therefore derived rigorously from the chosen discrete BSDE rather than defined by analogy with score matching. Malliavin weights and conditional-moment identities provide the corresponding stochastic-analytic basis for explicit control supervision. Previous work combines Malliavin-weight rep-resentations with least-squares regression to approximate the value and control processes of BSDEs [9]. The One Step Malliavin method further develops BSDE discretizations based on Malliavin derivatives together with deep-regression implementations [14]. Takahashi et al. con-struct control variates for Deep BSDE solvers through a linear–nonlinear decomposition [15]. The main contributions of this paper are as follows. (i) A control-first layerwise backward formulation with explicit Brownian super-vision. Starting from an implicit Euler discretization, we identify the discrete ideal con-trol as zπn = Mnuπn+1 and distinguish it from the frozen population target ztar  
+
+> n
+
+= MnU snap  
+
+> n+1
+
+,the finite-branch label ̂ ZMn , and the learned approximation Zθn. Freezing the successor value function turns the Brownian conditional moment into a fixed and analyzable su-pervision target for the current control. Each layer then follows the sequence “freeze the successor value–regress the control–fit the implicit value–coordinate and store the snap-2shots.” Relative to global end-to-end formulations, the layerwise backward organization localizes the optimization at each time level and makes the propagation of approximation errors through frozen snapshots explicit. This provides a distinct control-identification mechanism from the joint value–control residual of DBDP1 and the value-gradient recov-ery of DBDP2. (ii) Conditional-mean-preserving variance reduction and backward error analysis. 
+
+Frozen centering, a matched linear-response baseline, and antithetic Brownian pairing re-duce finite-branch fluctuations without changing the population control target. We prove the Brownian projection contraction hn|M ne(x)|2 ≤ (Pn|e|2)( x) − | (Pne)( x)|2, and use it to establish stability of the exact discrete operators and local-residual-driven backward recursions. The resulting error decomposition separates time-discretization, local learning and numerical, and finite-branch errors, yielding conditional consistency when these error classes vanish jointly. (iii) Joint numerical assessment of value accuracy, control accuracy, and dynamic consistency. We evaluate the methods using value and control errors together with one-step BSDE residuals and terminal-rollout errors. Experiments across six benchmarks and multiple paired random seeds, with comparisons against established deep BSDE solvers, are complemented by structural comparisons, component ablations, and wall-clock-matched tests. The results demonstrate a favorable overall balance among value accuracy, control accuracy, and dynamic consistency, together with generally stable per-formance across random seeds, while also showing that these criteria need not produce the same method ranking. The remainder of the paper is organized as follows. Section 2 introduces the PDE–BSDE correspondence and derives the hierarchy of discrete ideal controls, frozen population targets, finite-branch labels, and variance-reduction mechanisms. Section 3 presents the layerwise back-ward DC–BSDE algorithm and its optional structural interfaces, followed by the error de-composition, backward stability, conditional consistency, and complexity analysis. Section 4 compares DC–BSDE with established deep BSDE solvers through joint value–control and dy-namic diagnostics, structural comparisons, component ablations, and wall-clock-matched tests. Section 5 summarizes the main findings and future directions. The appendices provide the benchmark definitions, complete numerical results, and LogHeat experiments. 
+
+## 2 Theoretical Foundations 
+
+This section starts from the Markovian BSDE representation of a semilinear PDE and develops the discrete objects underlying our control-regression method. Following the terminology com-monly used for BSDE solvers, we refer to Z as the BSDE control process [10]. More precisely, 
+
+Z is the martingale integrand in the stochastic integral of the BSDE. In the regular Markovian setting, it coincides with the diffusion-weighted gradient of the value function, σ⊤∇xu.For a fixed time-discretization scheme, we distinguish four objects: the discrete ideal control 
+
+zπn , the frozen population target ztar  
+
+> n
+
+, the finite-branch random label ̂ ZMn , and the learned func-tion approximation Zn. These objects are respectively associated with time-discretization error, error in the frozen successor function, finite-branch sampling error, and function-approximation and optimization errors. We first define the discrete ideal control and the frozen population target. We then establish the equivalence between random-label regression and the correspond-ing population regression risk, and analyze conditional-mean-preserving variance reduction. Backward-propagation stability is deferred to Section 3, after the algorithmic operators have been introduced. 32.1 Semilinear PDEs, the BSDE Control Process, and Baseline Assumptions 
+
+Let (Ω , F, F, P) be a complete filtered probability space satisfying the usual conditions. Let 
+
+W = ( Wt)0≤t≤T be an m-dimensional standard Brownian motion, and let F = ( Ft)0≤t≤T be its augmented natural filtration. We use the Euclidean norm | · | for vectors and the Frobenius norm ‖ · ‖ F for matrices. The Euclidean inner product is denoted by 〈· , ·〉 , and A⊤ denotes the transpose of a matrix A.We consider the terminal-value problem 
+
+
+
+∂tu(t, x ) + Lu(t, x ) + f
+
+(
+
+t, x, u (t, x ), σ (t, x )⊤ ∇xu(t, x )
+
+)
+
+= 0 , (t, x ) ∈ [0 , T ) × Rd,u(T, x ) = g(x), x ∈ Rd,
+
+(1) where 
+
+Lϕ(t, x ) = μ(t, x )⊤∇xϕ(t, x ) + 12 tr 
+
+(
+
+σ(t, x )σ(t, x )⊤D2
+
+> x
+
+ϕ(t, x )
+
+)
+
+.
+
+Here, μ : [0 , T ] × Rd → Rd and σ : [0 , T ] × Rd → Rd×m are the drift and diffusion coefficients, respectively; f : [0 , T ] × Rd × R × Rm → R is the generator; and g : Rd → R is the terminal function. By the nonlinear Feynman–Kac representation, for any initial condition ( t, x ) the corre-sponding forward diffusion and BSDE are 
+
+Xt,x s = x +
+
+∫ st
+
+μ(r, X t,x r ) d r +
+
+∫ st
+
+σ(r, X t,x r ) d Wr, s ∈ [t, T ], (2) 
+
+Y t,x s = g(Xt,x T ) + 
+
+∫ Ts
+
+f (r, X t,x r , Y t,x r , Z t,x r ) d r −
+
+∫ Ts
+
+(Zt,x r )⊤dWr. (3) The following assumptions are used for the baseline Lipschitz theory developed in this paper. 
+
+(H1) Forward coefficients. The mappings μ and σ are continuous in ( t, x ). There exists a constant LX > 0 such that, for all t, s ∈ [0 , T ] and x, x ′ ∈ Rd,
+
+|μ(t, x ) − μ(t, x ′)| + ‖σ(t, x ) − σ(t, x ′)‖F ≤ LX |x − x′|,
+
+|μ(t, x )| + ‖σ(t, x )‖F ≤ LX (1 + |x|),
+
+|μ(t, x ) − μ(s, x )| + ‖σ(t, x ) − σ(s, x )‖F ≤ LX (1 + |x|)|t − s|1/2.
+
+Consequently, for every p ≥ 2, the forward SDE admits a unique strong solution satisfying the standard moment estimate 
+
+E
+
+[
+
+sup  
+
+> r∈[t,T ]
+
+|Xt,x r |p
+
+]
+
+≤ Cp(1 + |x|p).
+
+(H2) Generator and terminal data. The mapping f is continuous in all variables. There exist nonnegative constants Lx, L y , L z , L t such that 
+
+|f (t, x, y, z ) − f (t, x ′, y ′, z ′)| ≤ Lx|x − x′| + Ly|y − y′| + Lz |z − z′|,
+
+and 
+
+|f (t, x, y, z ) − f (s, x, y, z )| ≤ Lt(1 + |x| + |y| + |z|)|t − s|1/2.
+
+In addition, ∫ T 
+
+> 0
+
+|f (t, 0, 0, 0) |2 dt < ∞, and g is globally Lipschitz continuous. Under (H1)–(H2), both the forward SDE and the Lipschitz BSDE are well posed. If PDE (1) admits a sufficiently smooth classical solution, the nonlinear Feynman–Kac formula gives 
+
+Y t,x s = u(s, X t,x s ), Zt,x s = σ(s, X t,x s )⊤∇xu(s, X t,x s ). (4) 4Under weaker regularity, u may be interpreted as a viscosity solution. We invoke the gradient representation in (4) only when the corresponding Sobolev regularity and probabilistic represen-tation justify it. In arguments that do not require this representation, Z is always understood as the martingale integrand of the BSDE. 
+
+Remark 2.1 (Theoretical assumptions and extended benchmarks) . Assumptions (H1)–(H2) are imposed to establish the baseline Lipschitz theory. Benchmarks with quadratic-gradient gener-ators, nonsmooth terminal data, only local growth control, or degenerate boundary structures are included as empirical robustness extensions beyond this baseline setting. 
+
+2.2 Implicit Euler Discretization and Markovian Recursion 
+
+Let π = {0 = t0 < t 1 < · · · < t N = T } be a time grid. Set hn = tn+1 − tn, |π| = max 0≤n<N hn,and ∆ Wn = Wtn+1 − Wtn , and write En[ · ] := E[ · | F tn ]. The Brownian increment ∆ Wn is independent of Ftn and follows N (0 , h nIm). To distinguish the continuous-time state from its time-discrete approximation, we denote the Euler–Maruyama state by ¯Xn:¯Xn+1 = Φ n( ¯Xn, ∆Wn) := ¯Xn + μ(tn, ¯Xn)hn + σ(tn, ¯Xn)∆ Wn. (5) The term “discrete state” refers only to the temporal grid. The random variable ¯Xn remains continuously valued in Rd.We take the implicit Euler BSDE with the generator evaluated at the current time as the reference discretization [7, 8]: 
+
+Y πN = g( ¯XN ), (6a) 
+
+Zπn = 1
+
+hn
+
+En
+
+[Y πn+1 ∆Wn
+
+] , (6b) 
+
+Y πn = En[Y πn+1 ] + hnf (tn, ¯Xn, Y πn , Z πn ). (6c) We further assume 
+
+|π|Ly < 1. (7) Then, for fixed ( tn, x, z ) and any a ∈ R, the mapping y 7 → a + hnf (tn, x, y, z ) is a contraction, and the current-layer implicit scalar equation in (6c) has a unique solution. Condition (7) is sufficient for a Picard iteration, but it is not necessary in general. Fix the current state x, let w ∼ N (0 , h nIm), and let Ew denote expectation only with respect to the next Brownian increment. For a suitably integrable scalar function ϕ : Rd → R, define the one-step transition operator Pn and the Brownian-weighted operator Mn by (Pnϕ)( x) := Ew[ϕ(Φ n(x, w ))] , (Mnϕ)( x) := Ew
+
+[
+
+ϕ(Φ n(x, w )) whn
+
+]
+
+.
+
+Along the Euler state chain, these definitions are equivalently written as (Pnϕ)( ¯Xn) = E[ϕ( ¯Xn+1 ) | F tn ], (Mnϕ)( ¯Xn) = 1
+
+hn
+
+E[ϕ( ¯Xn+1 )∆ Wn | F tn ].
+
+Thus, Pn maps a scalar function at the next time level to a scalar function at the current level, whereas Mn maps it to an Rm-valued function at the current level. In the Markovian setting, write Y πn = uπn( ¯Xn) and Zπn = zπn ( ¯Xn). Then 
+
+zπn (x) = ( Mnuπn+1 )( x), (8a) 
+
+uπn(x) = ( Pnuπn+1 )( x) + hnf (tn, x, u πn(x), z πn (x)) . (8b) Equation (8a) defines the discrete ideal control associated with the chosen time-discretization scheme. 52.3 Conditional Projection, Gaussian Integration by Parts, and Gradient Interpretation 
+
+Equation (6b) can also be derived from a conditional least-squares projection. More precisely, 
+
+Zπn is the unique optimal coefficient in 
+
+Zπn = argmin  
+
+> ζ∈L2(Ftn ;Rm)
+
+E
+
+[∣∣∣Y πn+1 − En[Y πn+1 ] − ζ⊤∆Wn
+
+∣∣∣2]
+
+.
+
+Define the projection residual Rproj ,π n+1 := Y πn+1 − En[Y πn+1 ] − (Zπn )⊤∆Wn. It satisfies the orthogo-nality conditions En[Rproj ,π n+1 ] = 0 , En[Rproj ,π n+1 ∆Wn] = 0 . Therefore, Zπn is the projection coefficient of the centered successor value response onto the conditional linear space spanned by the com-ponents of ∆ Wn. It extracts the first-order Brownian component of the one-step response, without requiring Y πn+1 to be exactly linear in ∆ Wn. Equation (6b) is an exact identity for the selected discrete scheme. Relative to the continuous-time control z(tn, x ) = σ(tn, x )⊤∇xu(tn, x ), however, it still contains time-discretization error. Let qhn denote the density of N (0 , h nIm) and define the one-step Brownian–Stein weight 
+
+Hn(w) := whn = −∇ w log qhn (w). If Φ n(x, ·) and ϕ are weakly differentiable and the relevant integrability conditions hold, Gaussian integration by parts gives 
+
+Ew
+
+[
+
+ϕ(Φ n(x, w )) whn
+
+]
+
+= Ew
+
+[
+
+DwΦn(x, w )⊤∇ϕ(Φ n(x, w )) 
+
+]
+
+.
+
+For the Euler–Maruyama map (5), DwΦn(x, w ) = σ(tn, x ), and hence (Mnϕ)( x) = Ew
+
+[
+
+σ(tn, x )⊤∇ϕ(Φ n(x, w )) 
+
+]
+
+. (9) Thus, the Brownian-weighted conditional moment equals the conditional average of the diffusion-directional gradient of the successor function [23]. 
+
+Remark 2.2 (Relation to denoising score matching) . Let the latent variable be ξ and the cor-rupted variable be ˜ξ = ξ + √h ε , where ε ∼ N (0 , I ). DSM constructs random supervision from the conditional score −ε/ √h of the corruption kernel and recovers the logarithmic gradient of the marginal density by conditional regression. The weight w/h n = −∇ w log qhn (w) used here is the corresponding Gaussian Stein weight. The two settings share Gaussian conditional regres-sion and integration-by-parts identities, but they weight different responses and target different quantities. DSM learns ∇ log p, whereas the present method weights a successor value response and identifies a discrete BSDE control. DSM therefore provides motivation for the supervision design only; the target definition, conditional-mean property, and error analysis in this paper are all determined by the discrete BSDE. A strict intersection of the two constructions for the log-heat equation is discussed in Appendix C. 
+
+Remark 2.3 (Difference from continuous-time Malliavin weights) . The factor w/h n is an integration-by-parts weight for the current one-step Gaussian transition. We refer to it as a one-step Brownian–Malliavin or Brownian–Stein weight. In general, it is not the continuous-time Bismut–Elworthy–Li weight, which typically depends on a stochastic-flow Jacobian, information along an entire path segment, and corresponding nondegeneracy conditions [6, 5, 9]. 
+
+2.4 Frozen Population Targets and Population Regression Risk 
+
+Before entering time level n, the trained successor function U snap  
+
+> n+1
+
+is frozen strictly. Let Gpre 
+
+> n
+
+denote the algorithmic information available before the current outer states and Brownian branches are generated, including the training history, frozen functions, and predetermined variance-control terms. 6Fix a Gpre  
+
+> n
+
+-measurable state x and independently draw w ∼ N (0 , h nIm). Define the one-step future response by Ψn(x, w ) := U snap  
+
+> n+1
+
+(Φ n(x, w )) . (10) The current-layer population target induced by the frozen function is 
+
+ztar  
+
+> n
+
+(x) := ( MnU snap  
+
+> n+1
+
+)( x) = Ew
+
+[
+
+Ψn(x, w ) whn
+
+]
+
+. (11) The corresponding raw one-branch label is 
+
+T raw  
+
+> n
+
+(x; w) := Ψ n(x, w )Hn(w) = Ψ n(x, w ) whn
+
+. (12) By conditional independence of the current increment and Gpre  
+
+> n
+
+,
+
+E[T raw  
+
+> n
+
+(x; w) | G pre  
+
+> n
+
+] = ztar  
+
+> n
+
+(x). (13) Thus, the raw label is conditionally unbiased for the frozen population target, but it is not a pathwise realization of the discrete ideal control zπn . The difference between the two targets satisfies the exact identity 
+
+ztar  
+
+> n
+
+(x) − zπn (x) = 
+
+[
+
+Mn
+
+(U snap  
+
+> n+1
+
+− uπn+1 
+
+)]
+
+(x). (14) If uπn+1 were known, the ideal control risk under a prescribed state design measure νdes 
+
+> n
+
+would be 
+
+Lideal  
+
+> Z,n
+
+(F ) := 12
+
+∫
+
+> Rd
+
+|F (x) − zπn (x)|2 νdes  
+
+> n
+
+(d x).
+
+Choosing νdes  
+
+> n
+
+= Law( ¯Xn) yields the risk under the path distribution. Since uπn+1 is unknown, the algorithm learns the frozen population target ztar  
+
+> n
+
+instead. 
+
+Proposition 2.1 (Random labels and the population regression target) . Suppose that, condi-tional on Gpre  
+
+> n
+
+, the distribution of Xdes  
+
+> n
+
+is the predetermined design measure νdes  
+
+> n
+
+, and that the random label ̂ Tn satisfies 
+
+E
+
+[̂ 
+
+Tn | G pre  
+
+> n
+
+, X des 
+
+> n
+
+]
+
+= ztar  
+
+> n
+
+(Xdes  
+
+> n
+
+), (15) 
+
+with a finite second moment. Then, for any F ∈ L2(νdes  
+
+> n
+
+; Rm) fixed before the current design states and labels are generated, 
+
+E
+
+[
+
+|F (Xdes  
+
+> n
+
+) −̂ Tn|2 | G pre 
+
+> n
+
+]
+
+= ‖F − ztar  
+
+> n
+
+‖2  
+
+> L2(νdes
+> n)
+
++ Vn, (16) 
+
+where Vn := E
+
+[
+
+|̂Tn − ztar  
+
+> n
+
+(Xdes  
+
+> n
+
+)|2 | G pre 
+
+> n
+
+]
+
+is independent of F . Therefore, over an unrestricted function class, the unique minimizer of the population risk is ztar  
+
+> n
+
+, νdes  
+
+> n
+
+-almost everywhere. Within a prescribed function class Hn, minimizing the population risk is equivalent to minimiz-ing the L2(νdes  
+
+> n
+
+) approximation error to ztar  
+
+> n
+
+over Hn.Proof. Add and subtract ztar  
+
+> n
+
+(Xdes  
+
+> n
+
+) on the left-hand side of (16). By (15), the conditional mean of the cross term is zero given ( Gpre  
+
+> n
+
+, X des  
+
+> n
+
+), which yields the stated orthogonal decomposition. 
+
+Proposition 2.1 closes the population-level argument from “the label preserves the condi-tional mean” to “neural regression learns the frozen population target.” 72.5 Label Variance and Conditional-Mean-Preserving Variance-Control Terms 
+
+Let the one-step mean of the frozen response be μtar  
+
+> n
+
+(x) := ( PnU snap  
+
+> n+1
+
+)( x). The raw label admits the decomposition 
+
+T raw  
+
+> n
+
+(x; w) = μtar  
+
+> n
+
+(x) whn
+
++ [Ψ n(x, w ) − μtar  
+
+> n
+
+(x)] whn
+
+.
+
+The first term has conditional mean zero, but its conditional second moment is 
+
+Ew
+
+[∣∣∣∣μtar  
+
+> n
+
+(x) whn
+
+∣∣∣∣
+
+> 2
+
+]
+
+= m|μtar  
+
+> n
+
+(x)|2
+
+hn
+
+.
+
+Hence, when hn is small, the Brownian dimension m is large, and the response level is non-negligible, the raw label may contain substantial zero-mean fluctuations of order h−1 
+
+> n
+
+.
+
+Remark 2.4 (Conditionally affine responses) . Suppose that, conditional on ( Gpre  
+
+> n
+
+, x ), the re-sponse is affine: Ψ n(x, w ) = cn(x) + an(x)⊤w. Then 
+
+Ew
+
+[|T raw  
+
+> n
+
+(x; w) − an(x)|2] = m|cn(x)|2
+
+hn
+
++ ( m + 1) |an(x)|2.
+
+This special case makes the two sources of variance explicit: the h−1 
+
+> n
+
+term is caused by the constant response level, while the linear response itself also induces fluctuations that grow with the Brownian dimension. To avoid confusion with the BSDE control process Z, we refer to Monte Carlo control variates as variance-control terms . Let bn(x) ∈ R be a frozen scalar center and Bn(x) ∈ Rm a frozen linear-response coefficient. Both must be determined before the current Brownian branches are generated. With scalar centering only, define 
+
+T ctr  
+
+> n
+
+(x; w) := [Ψ n(x, w ) − bn(x)] whn
+
+.
+
+When an approximately linear response is removed as well, define 
+
+T cv  
+
+> n
+
+(x; w) := Bn(x) + [Ψ n(x, w ) − bn(x) − Bn(x)⊤w] whn
+
+.
+
+Proposition 2.2 (Conditional-mean preservation of Brownian-weighted labels) . Suppose that 
+
+U snap  
+
+> n+1
+
+, bn, Bn, and the current state x are Gpre  
+
+> n
+
+-measurable, and that w ∼ N (0 , h nIm) is condi-tionally independent of Gpre  
+
+> n
+
+. If the relevant expectations are finite, then 
+
+E[T raw  
+
+> n
+
+(x; w) | G pre  
+
+> n
+
+] = E[T ctr  
+
+> n
+
+(x; w) | G pre  
+
+> n
+
+]= E[T cv  
+
+> n
+
+(x; w) | G pre  
+
+> n
+
+]= ztar  
+
+> n
+
+(x).
+
+(17) 
+
+Proof. Conditioning on Gpre  
+
+> n
+
+and using Ew[w] = 0 and Ew[ww ⊤] = hnIm gives 
+
+Ew[T ctr  
+
+> n
+
+] = ztar  
+
+> n
+
+,
+
+Ew[T cv  
+
+> n
+
+] = Bn + ztar  
+
+> n
+
+− 1
+
+hn
+
+Ew[( B⊤ 
+
+> n
+
+w)w] = ztar  
+
+> n
+
+.
+
+The statement for the raw label follows directly from its definition. 
+
+8Remark 2.5 (Scaling of the linear-response term) . If λn(x) is fixed before the current branches are generated, the conditional-mean-preserving scaled form must be written as 
+
+λnBn + [Ψ n − bn − λnB⊤ 
+
+> n
+
+w] whn
+
+.
+
+Scaling only the linear term inside the residual while retaining the unscaled external compen-sation Bn introduces the additional bias (1 − λn)Bn.Gaussian integration by parts also suggests a natural linear-response baseline. Let 
+
+x0
+
+> n+1
+
+(x) := Φ n(x, 0) .
+
+If U snap  
+
+> n+1
+
+is differentiable at this point, the local linear coefficient of the future response with respect to w at w = 0 is 
+
+Blin  
+
+> n
+
+(x) := DwΦn(x, 0) ⊤∇U snap  
+
+> n+1
+
+(x0
+
+> n+1
+
+(x)) . (18) For the Euler–Maruyama transition, (18) reduces to 
+
+Blin  
+
+> n
+
+(x) = σ(tn, x )⊤∇U snap  
+
+> n+1
+
+(x0
+
+> n+1
+
+(x)) . (19) At the final time level, U snap  
+
+> N
+
+= g, so one may use 
+
+Bgrad  
+
+> N−1
+
+(x) = DwΦN −1(x, 0) ⊤∇g(x0 
+
+> N
+
+(x)) . (20) These quantities approximate only the local linear component of the future response with respect to the current Brownian increment. In general, they are not equal to the discrete ideal control 
+
+zπn (x). If automatic differentiation is unstable or the terminal function is nonsmooth, one may use a prespecified weak gradient, a smoothed gradient, a future control snapshot, or a zero baseline. Whatever the choice, it must be frozen before the current branches are generated. Valid freezing guarantees preservation of the conditional mean. 
+
+2.6 Antithetic Brownian Pairing and Finite-Branch Labels 
+
+Using w d
+
+= −w, define the odd part of the future response with respect to the current increment by 
+
+Dn(x, w ) := Ψn(x, w ) − Ψn(x, −w)2 . (21) Any scalar center independent of w cancels automatically in this difference. Let the total budget of future-function evaluations be an even integer M , set K = M/ 2, draw independent increments w(k) ∼ N (0 , h nIm), and evaluate both the positive and negative branches for each increment. Define 
+
+C(k) 
+
+> n
+
+(x) := [ Dn(x, w (k)) − Bn(x)⊤w(k)] w(k)
+
+hn
+
+, (22) ̂
+
+ZMn (x) := Bn(x) + 1
+
+K
+
+> K
+
+∑
+
+> k=1
+
+C(k) 
+
+> n
+
+(x). (23) By Gaussian symmetry, 
+
+Ew
+
+[
+
+Dn(x, w ) whn
+
+]
+
+= ztar  
+
+> n
+
+(x),
+
+and therefore 
+
+E[̂ZMn (x) | G pre  
+
+> n
+
+] = ztar  
+
+> n
+
+(x).
+
+9If the branch pairs are conditionally independent, the finite-branch mean-square fluctuation satisfies 
+
+E
+
+[∣∣∣̂ ZMn (x) − ztar  
+
+> n
+
+(x)
+
+∣∣∣2 ∣∣∣∣ Gpre 
+
+> n
+
+]
+
+= 1
+
+K E
+
+[∣∣∣C(1)  
+
+> n
+
+(x) − (ztar  
+
+> n
+
+(x) − Bn(x))∣∣∣2 ∣∣∣∣ Gpre 
+
+> n
+
+]
+
+. (24) Exploiting Gaussian symmetry, antithetic pairing extracts the odd response by canceling the even component, which has zero population contribution under the odd Brownian weight w/h n,thereby reducing finite-branch variance without changing the conditional control target [24]. 
+
+## 3 The Layerwise Backward Deep-Control BSDE Algorithm 
+
+Section 2 established the relationship among the discrete ideal control, the frozen population control target, and the finite-branch Brownian labels. Building on these objects, we now con-struct the layerwise backward Deep-Control BSDE ( DC–BSDE ) algorithm, organized as a control-first recursion from the terminal condition. 
+
+3.1 Algorithmic Components and Single-Layer Backward Dependencies 
+
+Set U snap  
+
+> N
+
+= g. The superscript “snap” denotes a self-contained immutable function snapshot comprising the network parameters, state preprocessing, active feature transformations, struc-tural projections, and associated interface configuration. Upon entering level n, U snap  
+
+> n+1
+
+and any future-control snapshots required by the discretization have already been fixed and are treated as immutable. The frozen successor value defines the population control target and its finite-branch labels, from which the current control is regressed. The trained control, together with the conditional mean of the successor value, then determines the implicit value target. After within-layer coordination, the resulting pair is stored as ( U snap  
+
+> n
+
+, Z snap  
+
+> n
+
+). Consequently, subse-quent updates to shared parameters affect only the current trainable representation and cannot alter the backward targets defined by previously completed time levels. The method consists of three groups of components: the discrete backward backbone, generic training and within-layer coordination mechanisms, and a unified equation-informed structural screening interface. Table 1 summarizes the roles of the three groups. Table 1: Three component groups of DC–BSDE 
+
+Component group Main objects Role in the computational pipeline Discrete backward backbone Frozen successor functions, Brownian control targets, the implicit value op-erator, and immutable snapshots Defines the population control and value targets at the current level and specifies the layerwise backward depen-dency structure Generic training and coordination mecha-nisms Antithetic pairing, a shared control trunk with time-local residual heads, replay, implicit fixed-point solves, com-patibility regularization, control refit-ting, and value polishing Reduces finite-sample fluctuations, sta-bilizes shared training across time lev-els, and coordinates the independently learned Un and Zn
+
+Unified equation-informed structural screening interface Verified symmetry projections, auto-matically screened equation-informed value features, and validated linear-response baselines with automatic-differentiation or zero fallbacks Screens and activates prespeci-fied structural candidates using component-specific validity and con-ditioning checks, freezes the retained configuration before training, and invokes generic fallbacks when a can-didate is unavailable or rejected 
+
+Figure 1 illustrates the computational dependencies at time level n. The middle row repre-sents the discrete algorithmic backbone, the lower green row contains the generic training and 10 Use frozen successor snapshot         
+
+> Usnap
+> n+1
+> Generate finite-branch control labels ̂ZMn
+> Control regression
+> Zinit
+> n
+> Construct implicit value target ̂
+> Yinit
+> n
+> Value re-gression
+> Uinit
+> n
+> Coordinate and store snapshot (Usnap
+> n, Z snap
+> n)Validated control enhancements response baseline and equivariant control projection Screened value features and verified in-variant projection Antithetic pairing, label refreshing, and variance estimation Shared trunk, time-local head, and replay distillation Conditional-mean estimation and implicit fixed-point solve Value–control compatibility regularization
+> Zrefitting, value polishing, and constant-bias calibration
+
+Figure 1: Within-layer computational dependencies at time level n
+
+within-layer coordination mechanisms, and the upper dashed orange row contains candidate structural enhancements. The remainder of this section follows the actual order of computation shown in the figure. 
+
+3.2 Pretraining Setup and Interface Conventions 
+
+The outer states determine the design measures for function regression, whereas the inner Brownian branches approximate conditional means and Brownian-weighted conditional mo-ments. Training, replay, structural verification, bias calibration, validation, and testing data serve distinct purposes. The control labels, initial value targets, value-polishing targets, and bias-calibration targets use mutually independent inner random streams so that the Monte Carlo fluctuations of the different stages can be assessed separately. Let νtr  
+
+> n
+
+, νrep  
+
+> n
+
+, νbias  
+
+> n
+
+, and νval  
+
+> n
+
+denote the training, replay, bias-calibration, and validation state distributions, respectively. The default training design is Law( ¯Xn). When stronger iden-tification is needed near the deterministic initial condition or in low-probability regions, locally perturbed states may be mixed with on-path states. The mixture proportion, perturbation scale, and state preprocessing are fixed before training. In particular, when ¯X0 = x0 is deter-ministic and the compatibility term σ⊤∇U0 is used at level zero, local perturbations provide the neighborhood coverage required to compute spatial gradients. If only U0(x0) and Z0(x0)are required, one may simply take νtr 0 = δx0 .Before backward training, the unified equation-informed structural screening interface evalu-ates four optional components: a value projection PU,n , a control projection PQZ,n , value features 
+
+ϕn, and an explicit response baseline Bprob  
+
+> n
+
+. Candidates are retained only after the correspond-ing validity or conditioning checks. When the corresponding structure is unavailable, we set 
+
+PU,n = I, PQZ,n = I, ϕn = ϕgen  
+
+> n
+
+or ∅, Bprob  
+
+> n
+
+= ∅.
+
+The retained configuration is then fixed for all training stages. These components affect only the finite-sample representation or label variance; they do not alter the population control target, the implicit value operator, or the layerwise backward order. 
+
+Optional symmetry projections. Let Rcx := 2 c − x. For a candidate center c ∈ Rd and an orthogonal involution Qn ∈ Rm×m, suppose that 
+
+g(Rcx) = g(x), Φn(Rcx, Q nw) = RcΦn(x, w ), f (tn, Rcx, y, Q nz) = f (tn, x, y, z ),
+
+11 and that the discrete recursion has a unique solution. Then 
+
+uπn(Rcx) = uπn(x), zπn (Rcx) = Qnzπn (x).
+
+The associated projections are (PU,n F )( x) := F (x) + F (Rcx)2 , (PQZ,n FZ )( x) := FZ (x) + QnFZ (Rcx)2 .
+
+They impose the corresponding invariance or equivariance on the value model, the direct control network, and the gradient-induced control [20]. 
+
+3.3 Brownian-Weighted Control Labels and Control Regression 
+
+3.3.1 Frozen successor value and the current control target 
+
+At time level n, we first freeze U snap  
+
+> n+1
+
+. By (11), the population target for the current control is ztar  
+
+> n
+
+= MnU snap  
+
+> n+1
+
+, which depends only on the successor snapshot and the one-step transition. Hence, Zn can be trained before Un. This ordering separates the control-regression error associ-ated with the Brownian-weighted conditional moment from the value-regression error associated with the successor conditional mean and the implicit generator relation. 
+
+3.3.2 Frozen linear-response baselines and antithetic labels 
+
+To stabilize the finite-branch control labels, we combine a frozen linear-response baseline with antithetic pairing. The baseline subtracts an approximation to the dominant first-order re-sponse, while antithetic pairing cancels the even component of the successor response. Let sg( ·) denote the stop-gradient operator. The generic local linear-response baseline Blin 
+
+> n
+
+is defined in (18). For 0 ≤ n ≤ N − 2, a frozen control from the adjacent future layer may alternatively provide the response scale 
+
+Bfut  
+
+> n
+
+(x) := sg [Zsnap  
+
+> n+1
+
+(Φ n(x, 0)) ] . (25) Here, Bfut  
+
+> n
+
+approximates the neighboring response shape; it is not used as the current control. At the terminal-adjacent level n = N − 1, this future-control baseline is unavailable, and the terminal-gradient baseline in (20) may be used instead. The response interface may also supply a validated analytic candidate Bprob  
+
+> n
+
+. Because the external compensation and the internal linear term in (23) form a matched pair, the selected baseline changes finite-branch fluctuations without altering the population target MnU snap  
+
+> n+1
+
+.Let the total successor-evaluation budget per outer state be an even integer M , and set 
+
+K = M/ 2 ≥ 2. Draw independent increments w(k) ∼ N (0 , h nIm), evaluate the positive and negative branches, and construct ̂ ZMn (x) according to (21)–(23). Since the Gaussian law is symmetric and the Brownian weight is odd, the even response component has zero population contribution; antithetic pairing cancels it within each sample pair, thereby reducing finite-branch variance without changing the conditional target ztar  
+
+> n
+
+.Define 
+
+Cn(x) := 1
+
+K
+
+> K
+
+∑
+
+> k=1
+
+C(k) 
+
+> n
+
+(x).
+
+If the sample pairs are conditionally independent and identically distributed given the frozen information, an unbiased estimator of the conditional covariance trace of the label mean is ̂
+
+vMn (x) := 1
+
+K(K − 1) 
+
+> K
+
+∑
+
+> k=1
+
+∣∣∣C(k) 
+
+> n
+
+(x) − Cn(x)
+
+∣∣∣2
+
+. (26) This quantity monitors state-dependent label fluctuations and is later used to assess the finite-sample reliability of the Brownian labels during control refitting. 12 3.3.3 Shared temporal trunk, local residual heads, and replay distillation 
+
+The shared trunk captures time–state structure common across time levels, while the local resid-ual heads represent level-specific deviations. This design balances sample and parameter reuse with per-level flexibility, avoiding both the limited expressiveness of a fully shared model and the loss of temporal coupling associated with independent networks. We therefore parameterize the control as 
+
+˜Ztrain  
+
+> n
+
+(x) = Zsh  
+
+> θsh
+
+(tn, x ) + ηZ,n N Zψn (x), Ztrain  
+
+> n
+
+(x) = PQZ,n ˜Ztrain  
+
+> n
+
+(x).
+
+Here, Zsh  
+
+> θsh
+
+learns a representation shared across time levels, N Zψn learns the residual specific to level n, ηZ,n ≥ 0 controls the scale of the local component, and PQZ,n imposes a verified control equivariance on the final output. The local head is initialized with zero output so that training at the current level starts from the shared representation and gradually absorbs level-specific information. When time level n is trained, the shared parameters continue to change. Future-layer functions reconstructed from the live shared trunk may therefore drift away from the snapshots stored at previously completed time levels. To stabilize backward training, let In ⊂ { n +1, . . . , N − 1} be the replay-layer set and define 
+
+Zlive 
+
+> j←n
+
+(x) := PQZ,j 
+
+[
+
+Zsh  
+
+> θsh
+
+(tj , x ) + ηZ,j N Zψsnap 
+
+> j
+
+(x)
+
+]
+
+.
+
+The replay-distillation loss is 
+
+Lrep ,n := ∑
+
+> j∈I n
+
+ωn,j Ex∼νrep 
+
+> j
+
+[∣∣∣Zlive 
+
+> j←n
+
+(x) − sg 
+
+(
+
+Zsnap  
+
+> j
+
+(x)
+
+)∣ ∣∣2]
+
+,
+
+where ωn,j ≥ 0. This loss constrains the live reconstruction of the shared trunk on completed time levels and thereby suppresses cross-layer representational drift. The frozen snapshots themselves remain unchanged and continue to define the functional targets in the backward recursion. The initial control regression minimizes 
+
+Linit  
+
+> Z,n
+
+= LMZ,n + λrep ,n Lrep ,n , LMZ,n = Ex∼νtr 
+
+> n
+
+[∣∣∣Ztrain  
+
+> n
+
+(x) − sg 
+
+(̂ 
+
+ZMn (x)
+
+)∣ ∣∣2]
+
+. (27) Here λrep ,n ≥ 0. Control labels are refreshed at a fixed frequency so that the network continues to observe new samples of the conditional moment. At the end of this stage, the current composite control function is deep-copied as Zinit  
+
+> n
+
+, which provides a fixed control input for the implicit value target. 
+
+3.4 A Unified Implicit Value Operator and Value Regression 
+
+3.4.1 Population targets, finite-branch targets, and fixed-point solution 
+
+After the control regression, the current value is determined jointly by the conditional mean of the successor value and Zinit  
+
+> n
+
+. Given a successor function V and a current control function ¯Z,define the two-input implicit value operator Un[V, ¯Z] by 
+
+Un[V, ¯Z]( x) = ( PnV )( x) + hnf (tn, x, Un[V, ¯Z]( x), ¯Z(x)) .
+
+When hnLy < 1, this scalar implicit equation is contractive in the value variable and therefore admits a unique solution. The population target for the first value regression is Un
+
+[U snap  
+
+> n+1
+
+, Z init 
+
+> n
+
+].
+
+The two-input notation allows the initial value regression and the subsequent value polishing to 13 use the same operator: the successor value function governs the conditional-mean term, whereas the current control function enters the generator. Given KU Brownian increments w = ( w(1) , . . . , w (KU )), define the finite-branch operator ̂
+
+Un,K U [V, ¯Z; w] as the unique solution of ̂
+
+Un,K U [V, ¯Z; w]( x) = 1
+
+KUKU∑
+
+> ℓ=1
+
+V
+
+(
+
+Φn(x, w (ℓ))
+
+)
+
++ hnf
+
+(
+
+tn, x, ̂ Un,K U [V, ¯Z; w]( x), ¯Z(x)
+
+)
+
+. (28) The initial value label is ̂
+
+Y init  
+
+> n
+
+(x) := ̂ Un,K U
+
+[U snap  
+
+> n+1
+
+, Z init  
+
+> n
+
+; wn,U 
+
+](x),
+
+where wn,U is independent of the branches used for the control labels. Because of the implicit nonlinearity, the finite-branch value label is generally not exactly unbiased. Its deviation from the population value target is nevertheless controlled by the sampling error of the conditional mean: ∣∣∣̂ Un,K U [V, ¯Z; w]( x) − Un[V, ¯Z]( x)
+
+∣∣∣
+
+≤ 11 − hnLy
+
+∣∣∣∣∣
+
+1
+
+KUKU∑
+
+> ℓ=1
+
+V
+
+(
+
+Φn(x, w (ℓ))
+
+)
+
+− (PnV )( x)
+
+∣∣∣∣∣ .
+
+(29) Increasing KU therefore improves the Monte Carlo accuracy of the successor conditional mean directly, and this improvement is transferred to the implicit value target through the factor (1 − hnLy )−1.Let ̂
+
+mn,K U [V ]( x) := 1
+
+KUKU∑
+
+> ℓ=1
+
+V
+
+(
+
+Φn(x, w (ℓ))
+
+)
+
+.
+
+Starting from y(0) =̂ mn,K U [V ]( x), solve the finite-branch implicit equation through the Picard iteration 
+
+y(r+1) =̂ mn,K U [V ]( x) + hnf
+
+(
+
+tn, x, y (r), ¯Z(x)
+
+)
+
+. (30) With a fixed maximum iteration count Jfp and tolerance εfp , convergence is declared when the fixed-point residual rfp := ∣∣y(r) −̂ mn,K U [V ]( x) − hnf (tn, x, y (r), ¯Z(x)) ∣∣ satisfies rfp ≤ εfp (1 + 
+
+|y(r)|). 
+
+3.4.2 Explicit-baseline–neural-residual value model 
+
+The value model separates dominant low-order variation from the remaining nonlinear correc-tion: 
+
+˜U train  
+
+> n
+
+(x) = βn, 0 + ϕn(x)⊤βn + sr,n N Uφn (x), U train  
+
+> n
+
+(x) = PU,n ˜U train  
+
+> n
+
+(x).
+
+Here, ϕn is a feature vector after fixed preprocessing, βn, 0 is an intercept, βn contains explicit feature coefficients, sr,n is a stop-gradient scale estimated from the training residual, N Uφn is a neural residual initialized with zero output, and PU,n imposes a verified value invariance. The value model follows the generic representation “explicit baseline + neural residual.” The explicit baseline captures the dominant low-dimensional variation, while the neural residual represents the remaining nonlinear structure. Validated equation-informed features and value projections may be incorporated through the common structural interface; otherwise, generic or empty features and the identity projection are used. By reducing the residual scale, this decomposition may also improve the stability of the automatically differentiated gradient used in control coordination. 14 Given training targets {(xi,̂ Y init  
+
+> n
+
+(xi)) }N tr 
+
+> n
+> i=1
+
+, the ridge baseline is determined by (̂βn, 0,̂ βn) ∈ argmin 
+
+> b0,b
+
+{
+
+1
+
+N tr  
+
+> nNtr
+> n
+
+∑
+
+> i=1
+
+∣∣∣b0 + ϕn(xi)⊤b −̂ Y init  
+
+> n
+
+(xi)
+
+∣∣∣2
+
++ λridge ,n |b|2
+
+}
+
+,
+
+where the intercept is not penalized. After fitting, ( ̂βn, 0,̂ βn) is frozen, and the neural residual is trained separately so that the explicit baseline and nonlinear correction perform distinct approximation tasks. 
+
+3.4.3 Value–control compatibility regularization 
+
+The control function is supervised directly by a Brownian conditional moment, whereas the value function is supervised directly by an implicit conditional-mean target. At the population level these two targets satisfy the Markovian relation. Finite branch counts and finite function classes, however, may cause their learned approximations to disagree. Define the current control induced by a value function as 
+
+Gn[V ]( x) := PQZ,n 
+
+[
+
+σ(tn, x )⊤∇xV (x)
+
+]
+
+.
+
+The gradient is taken with respect to the physical state x. If the network input contains standardization, logarithmic transformations, or other state transformations, automatic differ-entiation applies the complete chain rule and returns ∇xV .After the ridge baseline has been frozen, the neural residual is trained by minimizing 
+
+Linit  
+
+> U,n
+
+= Ex∼νtr 
+
+> n
+
+[∣∣∣U train  
+
+> n
+
+(x) − sg 
+
+(̂ 
+
+Y init  
+
+> n
+
+(x)
+
+)∣ ∣∣2]
+
++ λU Z,n Ex∼νtr 
+
+> n
+
+[∣∣Gn[U train  
+
+> n
+
+]( x) − sg (Zinit  
+
+> n
+
+(x))∣ ∣2]
+
+,
+
+(31) which yields U init  
+
+> n
+
+. The first term fits the implicit value target. The second coordinates the value gradient and current control without replacing the direct Brownian supervision of the control. The parameter λU Z,n balances the two objectives. Setting λU Z,n = 0 recovers value regression without a within-layer compatibility constraint. 
+
+3.5 Within-Layer U–Z Coordination, Value Calibration, and Snapshot Freez-ing 
+
+After the initial control and value are learned from Brownian conditional-moment and implicit conditional-mean targets, respectively, within-layer coordination combines direct Brownian su-pervision with the smooth value-gradient proxy through variance-aware control refitting, fol-lowed by value polishing under the final control and constant-level calibration. 
+
+3.5.1 Variance-aware control refitting 
+
+Construct the stop-gradient proxy from the initial value function: 
+
+Z∇Un (x) := sg (Gn[U init  
+
+> n
+
+]( x)) .
+
+The finite-sample Monte Carlo fluctuation of ̂ ZMn can be estimated directly, whereas Z∇Un
+
+inherits the approximation and differentiation errors of the value network. We define a gating weight from the relative fluctuation of the Brownian label: 
+
+γn(x) := clip 
+
+(̂ 
+
+vMn (x)̂
+
+vMn (x) + τ 2 
+
+> γ
+
+(|̂ZMn (x)| + εZ )2 , γ min , γ max 
+
+)
+
+,
+
+15 where clip( r, a, b ) := min {b, max {a, r }} , τ γ > 0, εZ > 0, and 0 ≤ γmin ≤ γmax ≤ 1. When the relative fluctuation of the Brownian label is large, γn(x) increases and the refitting stage gives more weight to the value-gradient proxy. When the label is stable, direct Brownian supervision receives greater weight. Initialize the control function from Zinit  
+
+> n
+
+, freeze U init  
+
+> n
+
+, and minimize 
+
+Lcorr  
+
+> Z,n
+
+= Ex∼νtr 
+
+> n
+
+[
+
+(1 − γn(x)) 
+
+∣∣∣Ztrain  
+
+> n
+
+(x) − sg 
+
+(̂ 
+
+ZMn (x)
+
+)∣ ∣∣2
+
++ γn(x) ∣∣Ztrain  
+
+> n
+
+(x) − Z∇Un (x)∣∣2]
+
++ λcorr rep ,n Lrep ,n ,
+
+(32) to obtain Zfinal  
+
+> n
+
+. This stage performs a state-dependent soft fusion of the direct control label and the value-gradient proxy, while replay continues to preserve the shared representation across completed time levels. 
+
+3.5.2 Value polishing under the final control 
+
+The first value target corresponds to Zinit  
+
+> n
+
+. After control refitting has produced Zfinal  
+
+> n
+
+, the value target is rebuilt so that the final stored value function and the control function actually used by the subsequent backward recursion correspond to the same two-input implicit operator. Using fresh independent branches, define ̂
+
+Y corr  
+
+> n
+
+(x) := ̂ Un,K corr 
+
+> U
+
+[U snap  
+
+> n+1
+
+, Z final  
+
+> n
+
+; wcorr 
+
+> n,U
+
+](x). (33) Keep the feature set, preprocessing, and ridge coefficients fixed, and update only the neural residual for a short budget by minimizing 
+
+Lcorr  
+
+> U,n
+
+= Ex∼νtr 
+
+> n
+
+[∣∣∣U train  
+
+> n
+
+(x) − sg 
+
+(̂ 
+
+Y corr  
+
+> n
+
+(x)
+
+)∣ ∣∣2]
+
++ λcorr 
+
+> U Z,n
+
+Ex∼νtr 
+
+> n
+
+[∣∣∣Gn[U train  
+
+> n
+
+]( x) − sg 
+
+(
+
+Zfinal  
+
+> n
+
+(x)
+
+)∣ ∣∣2]
+
+.
+
+(34) Denote the resulting function by U corr  
+
+> n
+
+. If control refitting is disabled, set Zfinal  
+
+> n
+
+= Zinit  
+
+> n
+
+, and the value-polishing stage may be skipped. A short polishing stage may still be performed under the same control when one wishes only to continue optimizing the current implicit target. 
+
+3.5.3 Constant value calibration and immutable snapshots 
+
+Finite-branch conditional means, the intercept of the explicit baseline, and short-budget op-timization may leave an approximately constant level bias in the value function. Constant calibration changes only the function level and leaves ∇xUn unchanged. It therefore does not directly alter the control induced by the value gradient. Let Dbias  
+
+> n
+
+= {xbias  
+
+> n,i
+
+}N bias  
+
+> n
+> i=1
+
+be an indepen-dent set of bias-calibration states. For each state, construct a value target ̂ Y bias  
+
+> n,i
+
+of the same implicit form using fresh Brownian branches and Zfinal  
+
+> n
+
+, and estimate 
+
+a⋆n := arg min 
+
+> a∈R
+
+1
+
+N bias  
+
+> nNbias
+> n
+
+∑
+
+> i=1
+
+∣∣∣U corr 
+
+> n
+
+(xbias 
+
+> n,i
+
+) + a −̂ Y bias 
+
+> n,i
+
+∣∣∣2
+
+= 1
+
+N bias  
+
+> nNbias
+> n
+
+∑
+
+> i=1
+
+[̂ 
+
+Y bias  
+
+> n,i
+
+− U corr 
+
+> n
+
+(xbias 
+
+> n,i
+
+)]
+
+,U final  
+
+> n
+
+(x) := U corr  
+
+> n
+
+(x) + a⋆n.
+
+(35) When the function class or symmetry type requires a zero constant component, set a⋆n = 0. After the current layer has been completed, deep-copy the network parameters, pre-processing, feature transformations, and projection operators of U final  
+
+> n
+
+and Zfinal  
+
+> n
+
+to obtain (U snap  
+
+> n
+
+, Z snap  
+
+> n
+
+), which are used at the next backward time level. 16 3.6 Complete Algorithm 
+
+The inputs are the PDE data ( μ, σ, f, g ), the one-step transition maps {Φn}N −1
+
+n=0 , the time grid 
+
+π, outer-state design measures, inner-branch budgets, a common adaptive structural interface, and network and optimization parameters. The outputs are the frozen value family {U snap 
+
+n }Nn=0 
+
+and the frozen control family {Zsnap 
+
+n }N −1
+
+n=0 , with U snap 
+
+N = g. Algorithm 1 presents the complete layerwise backward procedure. 
+
+Algorithm 1 Layerwise backward training of DC–BSDE 
+
+Input: PDE data (μ, σ, f, g ); one-step transition maps {Φn}N−1 
+
+> n=0
+
+; time grid π = {tn}Nn=0 ; state-design measures 
+
+{νtr  
+
+> n
+
+, ν rep  
+
+> n
+
+, ν bias  
+
+> n
+
+, ν val  
+
+> n
+
+}; control branch budget M = 2 K; value branch budgets KU and Kcorr  
+
+> U
+
+; a unified equation-informed structural screening interface; network architectures; and optimization parameters. 
+
+Output: Frozen function families {U snap  
+
+> n
+
+}Nn=0 and {Zsnap  
+
+> n
+
+}N−1 
+
+> n=0
+
+.
+
+1: Fix the outer-state designs, inner random streams, label-refresh frequencies, fixed-point rules, and stopping criteria for all training stages. 
+
+2: Through the unified equation-informed structural screening interface, select and configure the candidate value projec-tions PU,n , control projections PQZ,n , value features ϕn, and response baselines Bprob  
+
+> n
+
+. ⊲ Adaptive structural configuration 
+
+3: For candidates that are unavailable or not retained, set PU,n = I and PQZ,n = I, and use generic or empty value features together with an automatic-differentiation or zero response baseline. 
+
+4: Initialize the terminal snapshot U snap  
+
+> N
+
+← g, the shared control trunk, the time-local heads, and the replay buffer. 
+
+5: for n = N − 1, N − 2, . . . , 0 do 
+
+6: Use the frozen successor snapshot U snap  
+
+> n+1
+
+and the admissible future-control snapshots. ⊲ Discrete backward backbone 
+
+7: Select Bn ∈ { Bprob  
+
+> n
+
+, B lin  
+
+> n
+
+, B fut  
+
+> n
+
+, 0} for n ≤ N − 2, and BN−1 ∈ { Bprob 
+
+> N−1
+
+, B grad 
+
+> N−1
+
+, B lin  
+
+> N−1
+
+, 0} for n = N − 1. 
+
+8: For x ∼ νtr  
+
+> n
+
+, draw K independent Brownian increments, pair each increment with its negative, and construct (̂ZMn (x),̂ vMn (x)) using (23) and (26). ⊲ Finite-branch control labels 
+
+9: Minimize (27) using the shared temporal trunk, time-local residual head, control projection, and replay distillation. 
+
+10: Store a deep copy of the trained current-layer control as Zinit  
+
+> n
+
+. ⊲ Initial control regression 
+
+11: Using Brownian branches independent of those used for the control labels, construct the finite-branch implicit value equation in (28). 
+
+12: Solve the implicit equation by (30) to obtain the initial within-layer value labels ̂ Y init  
+
+> n
+
+.
+
+13: Fit and freeze the explicit value baseline, and then minimize (31) to obtain U init  
+
+> n
+
+. ⊲ Initial value regression 
+
+14: if control refitting is enabled then 
+
+15: Compute the state-dependent gate γn from ̂ vMn , and construct the value-gradient proxy Z∇Un from U init  
+
+> n
+
+.
+
+16: Minimize (32) to obtain Zfinal  
+
+> n
+
+.
+
+17: else 
+
+18: Set Zfinal  
+
+> n
+
+← Zinit  
+
+> n
+
+.
+
+19: end if 
+
+20: if value polishing under the final control is enabled then 
+
+21: Using fresh independent branches, reconstruct the value target under Zfinal  
+
+> n
+
+according to (33). 
+
+22: Minimize (34) to obtain U corr  
+
+> n
+
+.
+
+23: else 
+
+24: Set U corr  
+
+> n
+
+← U init  
+
+> n
+
+.
+
+25: end if 
+
+26: if constant-bias calibration is enabled and the function class permits a nonzero constant component then 
+
+27: Estimate a⋆n on independent calibration states using (35). 
+
+28: Set U final  
+
+> n
+
+← U corr  
+
+> n
+
++ a⋆n.
+
+29: else 
+
+30: Set a⋆n ← 0 and U final  
+
+> n
+
+← U corr  
+
+> n
+
+.
+
+31: end if 
+
+32: Deep-copy the final value and control functions together with their preprocessing, feature transformations, and projection operators: 
+
+U snap  
+
+> n
+
+← DeepCopy (U final 
+
+> n
+
+), Zsnap  
+
+> n
+
+← DeepCopy (Zfinal 
+
+> n
+
+).
+
+33: Update the replay buffer and continue to the next backward time level. 
+
+34: end for 
+
+35: return {U snap  
+
+> n
+
+}Nn=0 and {Zsnap  
+
+> n
+
+}N−1 
+
+> n=0
+
+.
+
+For a deterministic initial state x0, the algorithm returns U snap 0 (x0) and Zsnap 0 (x0). Pathwise outputs are obtained by evaluating {U snap 
+
+n , Z snap 
+
+n } along the corresponding discrete forward states. 17 3.7 Error Decomposition, Backward Stability, and Complexity Analysis 
+
+3.7.1 Separating discretization error from local algorithmic error 
+
+Let ( U θn, Z θn) denote the frozen functions after all training, coordination, and calibration stages at the current time level, and set 
+
+zπn = Mnuπn+1 , z(tn, x ) = σ(tn, x )⊤∇xu(tn, x ).
+
+The control error can be decomposed as 
+
+Zθn − z(tn, ·) = 
+
+(
+
+Zθn − M nU θn+1 
+
+)︸ ︷︷ ︸
+
+> current-layer control residual
+
++ Mn
+
+(
+
+U θn+1 − uπn+1 
+
+)︸ ︷︷ ︸
+
+> propagated successor-value error
+
++ (zπn − z(tn, ·)) 
+
+︸ ︷︷ ︸
+
+> time-discretization error
+
+. (36) Likewise, using the two-input value operator, 
+
+U θn − u(tn, ·) = 
+
+(
+
+U θn − Un[U θn+1 , Z θn]
+
+)︸ ︷︷ ︸
+
+> current-layer value residual
+
++
+
+(
+
+Un[U θn+1 , Z θn] − Un[uπn+1 , z πn ]
+
+)︸ ︷︷ ︸
+
+> propagated successor-value and control errors
+
++ (uπn − u(tn, ·)) 
+
+︸ ︷︷ ︸
+
+> time-discretization error
+
+.
+
+(37) Here uπn = Un[uπn+1 , z πn ]. Equations (36)–(37) separate three sources of error: the time-discretization error between the continuous problem and the discrete recursion, propagation of successor-function errors through the exact discrete operators, and local residuals generated at the current level by finite branching, function approximation, optimization, and coordination. 
+
+3.7.2 Brownian projection contraction and stability of the exact backward back-bone 
+
+Define 
+
+Zn[V ] := MnV, Un[V ] := Un[V, Zn[V ]] .
+
+Thus, Un inserts the successor value function into both the conditional-mean term and the ideal discrete control, and is the exact discrete backward operator for the implicit Euler scheme. 
+
+Lemma 3.1 (Conditional contraction of the Brownian projection) . For every square-integrable function e : Rd → R,
+
+hn |(Mne)( x)|2 ≤ (Pn|e|2)( x) − | (Pne)( x)|2. (38) 
+
+Proof. Let ¯ ex(w) := e(Φ n(x, w )) − (Pne)( x). Since Ew[w] = 0, (Mne)( x) = 1
+
+hn
+
+Ew[¯ ex(w)w].
+
+For any unit vector a ∈ Rm, the Cauchy–Schwarz inequality and Ew[( a⊤w)2] = hn imply 
+
+|a⊤(Mne)( x)|2 ≤ 1
+
+hn
+
+Ew|¯ex(w)|2.
+
+Taking the supremum over a and using Ew|¯ex(w)|2 = ( Pn|e|2)( x) − | (Pne)( x)|2 yields the result. This contraction converts the h−1 
+
+> n
+
+Brownian weight into a conditional-variance term. 18 Proposition 3.2 (One-step stability of the exact discrete backward operator) . Assume that the generator satisfies 
+
+|f (t, x, y, z ) − f (t, x, y ′, z ′)| ≤ Ly |y − y′| + Lz |z − z′|,
+
+and that hnLy < 1. Then, for any square-integrable successor functions V, V ′,
+
+hn|Z n[V ]( x) − Z n[V ′]( x)|2 ≤ (Pn|V − V ′|2)( x), (39) 
+
+and 
+
+|U n[V ]( x) − U n[V ′]( x)|2 ≤ αn(Pn|V − V ′|2)( x), (40) 
+
+where 
+
+αn := 1 + hnL2
+
+> z
+
+(1 − hnLy)2 .
+
+Proof. Let e = V − V ′. The control estimate follows directly from Lemma 3.1. For the value operator, its definition and the Lipschitz continuity of the generator give (1 − hnLy)|U n[V ]( x) − U n[V ′]( x)| ≤ | (Pne)( x)| + hnLz |(Mne)( x)|.
+
+Set a := |(Pne)( x)| and b := √hn|(Mne)( x)|. Lemma 3.1 yields a2 + b2 ≤ (Pn|e|2)( x), whereas (a + √hnLzb)2 ≤ (1 + hnL2
+
+> z
+
+)( a2 + b2). Combining the two inequalities proves (40). For any scalar- or vector-valued function F with finite second moment, define ‖F ‖2 
+
+> n, 2
+
+:= 
+
+E[|F ( ¯Xn)|2] , where the expectation is also taken over algorithmic randomness when F is ran-dom. Taking expectations at ¯Xn and iterating backward gives 
+
+‖Un − U ′
+
+> n
+
+‖2 
+
+> n, 2
+
+≤ exp( C(T − tn)) ‖UN − U ′ 
+
+> N
+
+‖2
+
+> N, 2
+
+.
+
+3.7.3 Backward stability under local residuals 
+
+The exact-operator estimate describes the propagation of successor errors. To cover finite-branch regression and neural training, define the normalized local residuals of the final frozen functions relative to the population discrete recursion: 
+
+RθU,n (x) := 1
+
+hn
+
+(
+
+U θn(x) − (PnU θn+1 )( x) − hnf (tn, x, U θn (x), Z θn(x)) 
+
+)
+
+,
+
+RθZ,n (x) := Zθn(x) − (MnU θn+1 )( x).
+
+(41) After division by hn, the value residual has the same scale as the generator. Consequently, the local value and control errors both enter the global energy estimate with an hn weight. 
+
+Proposition 3.3 (Local-residual-driven backward stability) . Under Assumption (H2) , there exist constants h0 > 0, c0 > 0, and C0 > 0 depending only on Ly and Lz such that, whenever 
+
+|π| ≤ h0, the errors 
+
+en := U θn − uπn, qn := Zθn − zπn
+
+satisfy the one-step estimate 
+
+|en(x)|2 + c0hn|qn(x)|2 ≤ (1 + C0hn)( Pn|en+1 |2)( x) + C0hn
+
+(
+
+|RθU,n (x)|2 + |RθZ,n (x)|2)
+
+. (42) 
+
+Moreover, there exists a constant C > 0 depending only on T, L y, L z such that, for every 0 ≤
+
+n ≤ N ,
+
+‖en‖2 
+
+> n, 2
+
++ c0 
+
+> N−1
+
+∑
+
+> j=n
+
+hj ‖qj ‖2 
+
+> j, 2
+
+≤ C
+
+[
+
+‖eN ‖2 
+
+> N, 2
+
++ 
+
+> N−1
+
+∑
+
+> j=n
+
+hj
+
+(
+
+‖RθU,j ‖2 
+
+> j, 2
+
++ ‖RθZ,j ‖2
+
+> j, 2
+
+)]
+
+. (43) 19 Proof. Fix a time level and state x, abbreviate h = hn, and set 
+
+m = ( Pnen+1 )( x), ζ = ( Mnen+1 )( x), p = ( Pn|en+1 |2)( x).
+
+By the exact discrete recursion and (41), 
+
+en(x) = m + h δf n(x) + hRθU,n (x), qn(x) = ζ + RθZ,n (x), (44) where 
+
+δf n(x) := f (tn, x, U θn (x), Z θn(x)) − f (tn, x, u πn(x), z πn (x)) satisfies |δf n| ≤ Ly|en| + Lz |qn|. Lemma 3.1 gives 
+
+p ≥ | m|2 + h|ζ|2. (45) Let κ := 1 + 12 L2 
+
+> z
+
+. When κh < 1, Young’s inequality yields 
+
+|m|2 =
+
+∣∣∣en − h(δf n + RθU,n )
+
+∣∣∣2
+
+≥ (1 − κh )|en|2 − hκ |δf n + RθU,n |2
+
+≥
+
+(
+
+1 − κh − 3L2
+
+> y
+
+κ h
+
+)
+
+|en|2 − 3L2
+
+> z
+
+κ h|qn|2 − 3
+
+κ h|RθU,n |2.
+
+On the other hand, ζ = qn − RθZ,n , and hence 
+
+h|ζ|2 ≥ 12 h|qn|2 − h|RθZ,n |2.
+
+Since 3 L2 
+
+> z
+
+/κ ≤ 1/4, substituting these two bounds into (45) gives 
+
+p ≥ (1 − Ah )|en|2 + 14 h|qn|2 − C1h
+
+(
+
+|RθU,n |2 + |RθZ,n |2)
+
+,
+
+where A = κ + 3 L2 
+
+> y
+
+/κ , and C1 depends only on Ly, L z . Choose h0 such that Ah 0 ≤ 1/2 and absorb (1 − Ah )−1 into 1 + C0h. This proves (42). Taking expectations at x = ¯Xn and using E[( Pn|en+1 |2)( ¯Xn)] = ‖en+1 ‖2 
+
+> n+1 ,2
+
+gives 
+
+‖en‖2 
+
+> n, 2
+
++ c0hn‖qn‖2 
+
+> n, 2
+
+≤ (1 + C0hn)‖en+1 ‖2 
+
+> n+1 ,2
+
++ C0hn
+
+(
+
+‖RθU,n ‖2 
+
+> n, 2
+
++ ‖RθZ,n ‖2
+
+> n, 2
+
+)
+
+.
+
+Multiplying by the discrete integrating factor ∏
+
+> k<n
+
+(1 + C0hk), summing from n to N − 1, and using ∏jk=n(1 + C0hk) ≤ exp( C0(T − tn)) proves (43). Proposition 3.3 reduces the global error of the complete algorithm to the terminal error and the population-recursion residual at each time level. Replay, structured parameterization, compatibility regularization, control refitting, value polishing, and constant calibration all enter the same stability bound through the final residuals RθU,n and RθZ,n .
+
+3.7.4 Local learning errors and finite-branch errors 
+
+To connect the stability estimate more directly with the actual training targets, let ̂ ZMn be the finite-branch control label constructed from U θn+1 . Let ̂ Y br  
+
+> n
+
+denote the finite-branch implicit value target solved exactly under the final control Zθn, and let ̂ Y cmp  
+
+> n
+
+denote the target actually returned by the fixed-point iteration. Define the control-side errors 
+
+ℓZ,n := Zθn −̂ ZMn , ξZ,n := ̂ ZMn − M nU θn+1 , (46) 20 and the normalized value-side errors 
+
+ℓU,n := U θn −̂ Y cmp 
+
+> n
+
+hn
+
+, εfp ,n := ̂ Y cmp  
+
+> n
+
+−̂ Y br 
+
+> n
+
+hn
+
+,ξU,n := ̂ Y br  
+
+> n
+
+− Un[U θn+1 , Z θn]
+
+hn
+
+.
+
+(47) Here, ℓZ,n and ℓU,n collect the local learning discrepancy remaining after function approximation, empirical-risk generalization, optimization, replay, and within-layer coordination. The term εfp ,n 
+
+is the numerical fixed-point error, whereas ξZ,n and ξU,n are the finite-Brownian-branch errors relative to the corresponding population targets. By definition, 
+
+RθZ,n = ℓZ,n + ξZ,n . (48) Next let Y pop  
+
+> n
+
+:= Un[U θn+1 , Z θn]. Since Y pop  
+
+> n
+
+= PnU θn+1 + hnf (tn, ·, Y pop  
+
+> n
+
+, Z θn), 
+
+|RθU,n | ≤ (1 + hnLy)
+
+∣∣∣∣
+
+U θn − Y pop 
+
+> n
+
+hn
+
+∣∣∣∣
+
+≤ (1 + hnLy) ( |ℓU,n | + |εfp ,n | + |ξU,n |) .
+
+(49) When the labels and trained outputs contain algorithmic randomness, the norms below av-erage over both the discrete state chain and the algorithmic randomness. Define the aggregated local learning and numerical error by 
+
+Eloc (π) := ‖U θN − g‖2 
+
+> N, 2
+
++ 
+
+> N−1
+
+∑
+
+> n=0
+
+hn
+
+(‖ℓZ,n ‖2 
+
+> n, 2
+
++ ‖ℓU,n ‖2 
+
+> n, 2
+
++ ‖εfp ,n ‖2
+
+> n, 2
+
+) , (50) and the finite-branch error by 
+
+Ebr (π) :=  
+
+> N−1
+
+∑
+
+> n=0
+
+hn
+
+(‖ξZ,n ‖2 
+
+> n, 2
+
++ ‖ξU,n ‖2
+
+> n, 2
+
+) . (51) 
+
+Corollary 3.4 (Learning–branch decomposition of the error to the discrete solution) . Under the conditions of Proposition 3.3, there exists a constant C > 0, independent of the grid and the network parameters, such that 
+
+max  
+
+> 0≤n≤N
+
+‖U θn − uπn‖2 
+
+> n, 2
+
++ 
+
+> N−1
+
+∑
+
+> n=0
+
+hn‖Zθn − zπn ‖2 
+
+> n, 2
+
+≤ C (Eloc (π) + Ebr (π)) . (52) 
+
+Proof. Equations (48)–(49) and the finite-sum inequality imply  
+
+> N−1
+
+∑
+
+> n=0
+
+hn
+
+(
+
+‖RθU,n ‖2 
+
+> n, 2
+
++ ‖RθZ,n ‖2
+
+> n, 2
+
+)
+
+≤ C (Eloc (π) + Ebr (π)) .
+
+Substituting this estimate into (43) and maximizing over the starting level n proves the result. The finite-branch terms are controlled directly by the label analysis in Section 2. On the control side, (24) gives the conditional mean-square error of ξZ,n . On the value side, (29) yields 
+
+|ξU,n (x)| ≤ 1
+
+hn(1 − hnLy)
+
+∣∣∣̂ mn,K U [U θn+1 ]( x) − (PnU θn+1 )( x)
+
+∣∣∣ . (53) Thus, the number of control branches determines the accuracy of the Brownian conditional moment, while the number of value branches determines the accuracy of the conditional mean on a one-time-step scale. Together, the two branch budgets govern Ebr (π). 21 3.7.5 Consistency under vanishing discretization, local learning, and finite-branch errors 
+
+Define the discretization error of the implicit Euler scheme relative to the continuous Markovian solution by 
+
+Edisc (π) := max  
+
+> 0≤n≤N
+
+‖uπn − u(tn, ·)‖2 
+
+> n, 2
+
++ 
+
+> N−1
+
+∑
+
+> n=0
+
+hn‖zπn − z(tn, ·)‖2
+
+> n, 2
+
+. (54) Under Assumptions (H1)–(H2) and the corresponding temporal regularity, consistency of the selected implicit Euler scheme means that Edisc (π) → 0. 
+
+Corollary 3.5 (Total consistency when all three error classes vanish) . Consider a sequence of 
+
+DC–BSDE approximations with |π| → 0. Suppose that the stability constants in Proposition 3.3 remain uniformly bounded. Then 
+
+max  
+
+> 0≤n≤N
+
+‖U θn − u(tn, ·)‖2 
+
+> n, 2
+
++ 
+
+> N−1
+
+∑
+
+> n=0
+
+hn‖Zθn − z(tn, ·)‖2
+
+> n, 2
+
+≤ C (Edisc (π) + Eloc (π) + Ebr (π)) .
+
+(55) 
+
+In particular, if 
+
+Edisc (π) + Eloc (π) + Ebr (π) −→ 0, (56) 
+
+then 
+
+max  
+
+> 0≤n≤N
+
+‖U θn − u(tn, ·)‖2 
+
+> n, 2
+
++ 
+
+> N−1
+
+∑
+
+> n=0
+
+hn‖Zθn − z(tn, ·)‖2 
+
+> n, 2
+
+−→ 0. (57) 
+
+Proof. For both value and control, add and subtract the discrete solution ( uπn, z πn ), apply the squared triangle inequality, and combine Corollary 3.4 with (54). This gives (55). Equation (57) then follows from (56). Equation (55) makes explicit the route to conditional consistency of the learned approx-imation. Grid refinement controls Edisc . Function-class approximation, empirical-risk gener-alization, optimization, fixed-point solution, and within-layer coordination control Eloc . The inner branch budgets for control and value determine Ebr . These three error classes accumulate through the backward energy estimate of Proposition 3.3, rather than being amplified by a fixed factor at every time level. 
+
+3.7.6 Computational complexity and storage requirements 
+
+We separate the complexity into target construction, network optimization, and snapshot stor-age. Let N out 
+
+> Z,n
+
+, N out 
+
+> U,n
+
+, and N out  
+
+> C,n
+
+be the numbers of outer states used at level n for the control labels, initial value targets, and value-correction targets, respectively. Let RZ,n , RU,n , and 
+
+RC,n be the corresponding numbers of target refreshes. Let KU , Kcorr  
+
+> U
+
+, and Kbias  
+
+> U
+
+be the inner branch counts used in the three value stages. The dominant number of evaluations of the frozen successor value function is 
+
+Csucc = 
+
+> N−1
+
+∑
+
+> n=0
+
+(
+
+RZ,n M N out  
+
+> Z,n
+
++ RU,n KU N out  
+
+> U,n
+
++ RC,n Kcorr  
+
+> U
+
+N out  
+
+> C,n
+
++ Kbias  
+
+> U
+
+N bias 
+
+> n
+
+)
+
+.
+
+Here M = 2 K already counts both positive and negative Brownian branches. If validation diagnostics call the successor value function again, those evaluations should be added in the same way. Fixed-point solution is performed after the branch average has been formed. If 22 each target at level n uses, on average, Jfp ,n generator evaluations, the additional number of generator calls is 
+
+Cfp = O
+
+(N −1∑
+
+> n=0
+
+Jfp ,n 
+
+(RU,n N out  
+
+> U,n
+
++ RC,n N out  
+
+> C,n
+
++ N bias 
+
+> n
+
+))
+
+.
+
+To describe the optimization cost, let Iinit 
+
+> Z,n
+
+, Icorr  
+
+> Z,n
+
+, Iinit  
+
+> U,n
+
+, and Icorr  
+
+> U,n
+
+be the numbers of gradient steps in the four training stages. Let BZ,n and BU,n be the corresponding batch sizes. Let 
+
+CZ (PZ,n ) and CU (PU,n ) denote the per-sample forward–backward costs for control and value networks with parameter counts PZ,n and PU,n . Let C∇U (PU,n ) be the automatic-differentiation cost of the physical-state gradient, and let Crep ,n be the cost of one replay batch. Ignoring hardware parallelism and constant factors, the network-training cost is 
+
+Ctrain = O
+
+( N −1∑
+
+> n=0
+
+{
+
+Iinit 
+
+> Z,n
+
+BZ,n CZ (PZ,n ) + Icorr  
+
+> Z,n
+
+BZ,n CZ (PZ,n )+ Iinit  
+
+> U,n
+
+BU,n 
+
+[CU (PU,n ) + C∇U (PU,n )]
+
++ Icorr  
+
+> U,n
+
+BU,n 
+
+[CU (PU,n ) + C∇U (PU,n )] + (Iinit  
+
+> Z,n
+
++ Icorr 
+
+> Z,n
+
+) Crep ,n 
+
+})
+
+.
+
+(58) When control refitting, value polishing, the gradient-compatibility term, or replay is disabled, the corresponding terms are removed from (58). Let S(U snap  
+
+> n
+
+) and S(Zsnap  
+
+> n
+
+) denote the storage required by the complete immutable value and control snapshots at level n. Let Slive denote the storage for the live shared trunk, local heads, and optimizer state, and let Scache denote replay and nested-branch caches. The final storage and peak working storage satisfy 
+
+Sfinal = O
+
+( N∑
+
+> n=0
+
+S(U snap  
+
+> n
+
+) +  
+
+> N−1
+
+∑
+
+> n=0
+
+S(Zsnap  
+
+> n
+
+) + Smeta 
+
+)
+
+,Speak = O
+
+(
+
+Slive + max 
+
+> 0≤n<N
+
+{S(U snap  
+
+> n+1
+
+) + Scache ,n 
+
+})
+
+,
+
+(59) where Smeta includes state preprocessing, feature selection, and structural-projection informa-tion. If all snapshots remain resident on the accelerator, their total storage must also be added to the peak device-memory requirement. If snapshots are stored in host memory or on disk and loaded one layer at a time, the main additional cost is data transfer rather than a larger number of simultaneously trainable parameters. Relative to methods that do not construct explicit control labels, the principal additional costs of DC–BSDE are Brownian-branch evaluations, a separate control regression, and im-mutable snapshots. 
+
+## 4 Numerical Experiments 
+
+This section evaluates DC–BSDE numerically. We first compare end-to-end accuracy and then assess the learned value process U , control process Z, and discrete dynamic consistency. We finally examine the roles of the main algorithmic components and whether the observed differences can be attributed solely to training time. 
+
+4.1 Experimental Setting and Evaluation Criteria 
+
+The experiments cover six benchmark problems. Each problem–method combination uses 
+
+n = 10 independent random seeds, paired across methods within each benchmark. For paired 23 descriptive bootstrap intervals, the common seed indices are resampled jointly within each benchmark so that the method pairing is preserved. Appendix A specifies the forward coeffi-cients ( μ, σ ), generator f , terminal condition g, reference information, and evaluation endpoints. Table 2 summarizes the main-comparison configurations. Table 2: Numerical configurations and prespecified primary metrics.                                                     
+
+> Benchmark class Configuration dTNReference information Primary metric HJB HJB-Quadratic 50 1.0 40 Analytic path reference U-path RMSE HJB Paper-HJB 100 1.0 20 Monte Carlo initial-value reference |U0−U0,ref |
+> Allen–Cahn Allen–Cahn 100 0.3 20 Branching-diffusion initial-value reference |U0−U0,ref |
+> Burgers Burgers–20 20 1.0 80 Analytic path reference U-path RMSE Quadratic-gradient Quadratic-gradient 100 1.0 30 Manufactured path reference U-path RMSE Reaction–diffusion Reaction–diffusion 100 1.0 30 Manufactured path reference U-path RMSE
+
+The classical baselines are DeepBSDE-style, DBDP1, and DBDP2. DeepBSDE-style op-timizes the initial value and all time-level controls through a global terminal loss. DBDP1 proceeds backward and jointly approximates Un and Zn using a one-step loss, whereas DBDP2 approximates the value function and recovers the control from its spatial gradient. By contrast, at each level DC–BSDE constructs an explicit Brownian conditional-moment label from the frozen successor value, trains the control, solves the implicit value target, and performs the within-layer coordination described in Section 3. We additionally compare DC–BSDE with DPI, a recent regression-based solver for high-dimensional PDEs [13]. At each Picard iteration, DPI generates value and gradient labels from Feynman–Kac and variance-reduced Bismut–Elworthy–Li representations and fits a space–time network through gradient-augmented regression. Within each benchmark, all five methods use the same forward discretization, paired training and test seeds, and evaluation grid. Network architectures, optimizers, batch sizes, learning rates, training steps, stopping rules, and method-specific budgets were fixed before the formal runs. Reference solutions and test metrics were reserved for final evaluation. Experiments were conducted on five NVIDIA GeForce RTX 5090 GPUs using Python 3.12.3, PyTorch 2.8.0, and CUDA 12.8. Each training run used one GPU, with independent benchmark–method–seed jobs distributed across devices; wall-clock runs were executed without competing jobs on the same GPU. For HJB-Quadratic, Burgers–20, Quadratic-gradient, and Reaction–diffusion, pathwise ref-erences are available, and the primary metric is RMSE U, path =
+
+[
+
+1
+
+N 
+
+> N−1
+
+∑
+
+> n=0
+
+E
+
+∣∣∣̂ Un( ¯Xn) − u(tn, ¯Xn)
+
+∣∣∣2
+
+]1/2
+
+. (60) Here, for each evaluated trained method, we denote its returned value and control approxima-tions by ̂
+
+Un := U snap  
+
+> n
+
+,̂ Zn := Zsnap  
+
+> n
+
+.
+
+For Allen–Cahn and Paper-HJB, only an independently computed initial-value reference is available, so the primary metric is 
+
+E0 =
+
+∣∣∣̂ U0(x0) − U0,ref 
+
+∣∣∣ . (61) Because these metrics evaluate different quantities, rankings and ratios are reported only within the same benchmark and under the same metric. When a reference control path is available, we also report RMSE Z, path =
+
+[
+
+1
+
+N 
+
+> N−1
+
+∑
+
+> n=0
+
+E
+
+∥∥∥̂ Zn( ¯Xn) − σ(tn, ¯Xn)T∇xu(tn, ¯Xn)
+
+∥∥∥22
+
+]1/2
+
+. (62) 24 Two reference-free diagnostics assess the discrete dynamics. The one-step BSDE residual is ̂
+
+rn =̂ Un+1 ( ¯Xn+1 ) −̂ Un( ¯Xn)+ hnf
+
+(
+
+tn, ¯Xn,̂ Un( ¯Xn),̂ Zn( ¯Xn)
+
+)
+
+−̂ Zn( ¯Xn)T∆Wn, (63) The corresponding pathwise residual RMSE is RMSE res := 
+
+[
+
+1
+
+N 
+
+> N−1
+
+∑
+
+> n=0
+
+E|̂rn|2
+
+]1/2
+
+. (64) For the terminal-rollout diagnostic, initialize ˜Y0 =̂ U0( ¯X0) and propagate 
+
+˜Yn+1 = ˜Yn − hnf
+
+(
+
+tn, ¯Xn, ˜Yn,̂ Zn( ¯Xn)
+
+)
+
++̂ Zn( ¯Xn)T∆Wn. (65) The corresponding RMSE is RMSE roll := 
+
+(
+
+E
+
+∣∣∣ ˜YN − g( ¯XN )
+
+∣∣∣2)1/2
+
+. (66) The one-step residual measures local discrete consistency, whereas the terminal rollout mea-sures accumulated discrepancy. 
+
+4.2 Benchmark Comparison under the Primary Metrics 
+
+(Comparison with established deep BSDE solvers. Tables 3 and 4 report the primary value metrics. Entries are the mean ± sample standard deviation of the corresponding error metric over n = 10 paired seeds. Boldface indicates the smallest observed mean in each row. Across the six configurations, DC–BSDE attains the smallest observed mean in five. On Burgers–20, DeepBSDE-style yields a slightly smaller mean U -path RMSE than DC–BSDE (0 .0091 versus 0.0108). Table 3: Prespecified primary value errors, U − pathRM SE , for the four benchmarks with pathwise value references. 
+
+Benchmark DC–BSDE DeepBSDE-style DBDP1 DBDP2 HJB-Quadratic 0.1173 ± 0.0239 2.3177 ± 0.4904 20 .2363 ± 0.1260 20 .3243 ± 0.1323 Burgers–20 0.0108 ± 0.0019 0.0091 ± 0.0019 0.0664 ± 0.0099 0.0611 ± 0.0091 Quadratic-gradient 0.0373 ± 0.0004 0.1868 ± 0.0040 0.0733 ± 0.0046 0.0695 ± 0.0041 Reaction–diffusion 0.0041 ± 5.352 × 10 −4 0.0129 ± 0.0021 0.0667 ± 0.0028 0.0608 ± 0.0037 
+
+Table 4: Prespecified primary value errors, |U0 − U0,ref |, for the two benchmarks with indepen-dently computed initial-value references.                                                   
+
+> Benchmark DC–BSDE DeepBSDE-style DBDP1 DBDP2 Allen–Cahn 9.940 ×10 −5±1.310 ×10 −52.926 ×10 −4±2.943 ×10 −42.311 ×10 −4±1.910 ×10 −41.542 ×10 −4±9.951 ×10 −5
+> Paper-HJB 7.544 ×10 −4±2.613 ×10 −40.0093 ±0.0037 3.9906 ±3.640 ×10 −50.0102 ±0.0047
+
+Figure 2 compares DC–BSDE with the baseline having the smallest observed mean within each configuration. The ratio is defined as “best observed baseline/ DC–BSDE ”; values above 1 favor DC–BSDE , whereas values below 1 favor the selected baseline. Comparisons with all three baselines are reported in Appendix B. 25 10 0 10 1
+
+> Strongest baseline / DC-BSDE primary error (log scale) HJB-Quadratic Allen-Cahn Burgers-20 Paper-HJB Quadratic-gradient Reaction-diffusion
+> Problem-specific paired descriptive comparison
+
+Figure 2: Ratio of the primary error of the best observed baseline to that of DC–BSDE , with 95% paired descriptive bootstrap intervals The largest observed separations occur on HJB-Quadratic and Paper-HJB, where the best-baseline/ DC–BSDE ratios are 19 .753 and 12 .347, respectively. The corresponding ratios are 1.864 for Quadratic-gradient, 3 .164 for Reaction–diffusion, and 1 .551 for Allen–Cahn, all favor-ing DC–BSDE .The ranking is reversed on Burgers–20, where DeepBSDE-style attains a smaller mean value-path error, corresponding to a best-baseline/ DC–BSDE ratio of 0 .844. Thus, the primary value metric does not establish uniform dominance by any method and motivates the joint examination of control accuracy and discrete dynamic consistency. The comparatively strong DeepBSDE-style result on Burgers–20 may be attributed to the smooth solution’s effectively one-dimensional dependence on the averaged state and to the effectiveness of its global terminal objective in transmitting a stable end-to-end training signal. This advantage is confined to the primary value metric; the control and dynamic diagnostics below reveal a different accuracy trade-off. 
+
+Comparison with Deep Picard Iteration. All 60 DPI benchmark–seed jobs completed the pre-scribed computational workflow. However, a post-hoc stability audit identified divergent runs on HJB-Quadratic and Paper-HJB. Table 5 reports the DPI pass counts and value errors computed only over runs that passed the audit, whereas the DC–BSDE statistics use all ten seeds. Table 5: Descriptive comparison of DPI and DC–BSDE under the benchmark-specific primary value metrics.                                                                                     
+
+> Benchmark Primary metric DPI passes DPI: conditional mean ±SD DC–BSDE : mean ±SD DPI/ DC–BSDE
+> HJB-Quadratic U-path RMSE 5/10 11 .9935 ±0.4734 0.1173 ±0.0239 102 .217 Allen–Cahn E010 /10 6.828 ×10 −4±1.782 ×10 −49.940 ×10 −5±1.310 ×10 −56.869 Paper-HJB E01/10 0.9168 ( n= 1) 7.544 ×10 −4±2.613 ×10 −41215 .209 Burgers–20 U-path RMSE 10 /10 0.00298 ±5.015 ×10 −40.01084 ±0.0019 0.275 Quadratic-gradient U-path RMSE 10 /10 0.0935 ±0.0054 0.0373 ±3.985 ×10 −42.508 Reaction–diffusion U-path RMSE 10 /10 0.0128 ±0.0011 0.0041 ±5.352 ×10 −43.135
+
+For Allen–Cahn, Burgers–20, Quadratic-gradient, and Reaction–diffusion, all ten DPI runs passed the stability audit, allowing direct comparisons based on the same number of paired seeds. DC–BSDE attains smaller primary value errors on Allen–Cahn, Quadratic-gradient, 26 and Reaction–diffusion. On Burgers–20, however, DPI performs better, reducing the mean 
+
+U -path RMSE from 0 .01084 to 0 .00298, or to 27 .5% of the DC–BSDE error. DPI exhibits non-convergent runs on both HJB-Quadratic and Paper-HJB, with only five and one of the ten runs, respectively, passing the stability audit. Even among the passing runs, the conditional mean errors of DPI are substantially larger than the corresponding uncondi-tional ten-seed means of DC–BSDE , with DPI/ DC–BSDE ratios of 102 .217 and 1215 .209, respectively. 
+
+4.3 Control Accuracy and Dynamic Diagnostics 
+
+Comparison with established deep BSDE solvers. Table 6 reports the control-path error and two reference-free dynamic diagnostics. For each benchmark, the selected baseline is the method with the smallest observed mean primary value error. A dash indicates that no validated reference control path is available. Complete diagnostics for all four methods are reported in Appendix B. Table 6: Mean control and dynamic-consistency diagnostics for DC–BSDE and the baseline with the smallest observed mean primary value error.                                                        
+
+> Benchmark Selected baseline Z-path RMSE BSDE residual RMSE Terminal-rollout RMSE
+> DC–BSDE Baseline DC–BSDE Baseline DC–BSDE Baseline HJB-Quadratic DeepBSDE-style 0.0768 0.7567 0.1631 1.3471 0.9686 1.5729 Allen–Cahn DBDP2 ——3.881 ×10 −42.35 ×10 −30.00152 0.00520 Burgers–20 DeepBSDE-style 0.0138 0.0317 0.00958 0.0108 0.0481 0.0472
+> Paper-HJB DeepBSDE-style ——0.00757 0.0381 0.0337 0.0518 Quadratic-gradient DBDP2 0.0660 0.1568 0.0161 0.0947 0.1168 0.3756 Reaction–diffusion DeepBSDE-style 0.00651 0.0211 0.0112 0.0141 0.0585 0.0622
+
+Figure 3 displays the joint value–control errors for the four benchmarks with complete pathwise references. Both axes are logarithmic; movement toward the lower-left corner indicates simultaneous reductions in the U - and Z-path RMSEs. 27 10 −1 10 0 10 1      
+
+> U RMSE ↓ 10 −1
+> 10 0
+> Z RMSE ↓
+> DBDP1 DBDP2 DeepBSDE DC -BSDE
+>   -uadratic
+> 10 −2 2 × 10 −2 3 × 10 −2
+> 4 × 10 −2 6 × 10 −2
+> U RMSE ↓ 10 −1
+> Z RMSE ↓
+> DBDP1 DBDP2 DeepBSDE DC -BSDE
+> ur ers-
+> 10 −1 4 × 10 −2 6 × 10 −2 2 × 10 −1
+> U RMSE ↓ 10 −1
+> Z RMSE ↓
+> DBDP1 DBDP2 DeepBSDE DC -BSDE
+> uadratic-radient
+> 10 −2
+> U RMSE ↓ 10 −2
+> 10 −1
+> Z RMSE ↓
+> DBDP1 DBDP2 DeepBSDE DC -BSDE
+> eaction-diffusion
+> 
+
+ain matri post-training static accuracy trade-off 
+
+Figure 3: Joint U -path and Z-path errors after training On HJB-Quadratic, Quadratic-gradient, and Reaction–diffusion, DC–BSDE has smaller mean U - and Z-path errors than the selected baseline. Its Z-path RMSE is approximately 10 .1%, 42 .1%, and 30 .9% of the corresponding baseline error, respectively. These results are consistent with the intended role of explicit Brownian control supervision: control accuracy can improve independently of the scalar value error rather than arising only as a by-product of value fitting. For Allen–Cahn and Paper-HJB, no validated reference control path is available, so no direct conclusion about Z accuracy can be drawn. Nevertheless, DC–BSDE yields smaller mean BSDE-residual and terminal-rollout errors than the selected baseline on both benchmarks, supporting improved discrete dynamic consistency. Burgers–20 exhibits a different trade-off. DeepBSDE-style has the smaller mean U -path RMSE, 0 .0091 compared with 0 .0108, whereas the DC–BSDE Z-path RMSE, 0 .0138, is only 43 .6% of the corresponding DeepBSDE-style error. The two methods therefore occupy different positions on the empirical U –Z Pareto front: DeepBSDE-style is preferable under the value-only endpoint, while DC–BSDE provides the more accurate control approximation. 
+
+Comparison with Deep Picard Iteration. The comparison with DPI reveals benchmark-dependent value–control trade-offs. On Burgers–20, all ten DPI runs passed the stability audit, and DPI achieves smaller mean U -path RMSE (0 .00298 versus 0 .01084) and Z-path RMSE (0 .0021 versus 0 .0138) than DC–BSDE . On Quadratic-gradient and Reaction–diffusion, 
+
+DC–BSDE has the smaller mean U error, whereas DPI has the smaller mean Z error; the corresponding DPI/ DC–BSDE ratios for the Z-path RMSE are approximately 0 .488 and 0.477. On HJB-Quadratic, DC–BSDE has smaller mean errors in both U and Z than the DPI runs that passed the stability audit. This comparison is conditional because only five of the ten DPI runs passed the audit, whereas all ten DC–BSDE runs completed stably. 28 Thus, although neither method uniformly dominates the other, DC–BSDE exhibits a more consistent overall balance between value and control accuracy across these benchmarks, together with stronger cross-seed stability on the HJB problems. Figure 4 illustrates the seed-dependent DPI instability on the HJB benchmarks. The val-idation losses of runs that failed the audit increase by several orders of magnitude after a seed-dependent number of Picard iterations. Solid curves denote runs passing the post-hoc stability audit, red dashed curves denote runs failing it, and the vertical axes are logarithmic.                                        
+
+> 010 20 00Picard iteration 10 2
+> 10 
+> alidation loss
+>   -uadratic
+> 010 20 0 0Picard iteration 0 
+> 10121
+> 1 
+> 1 
+> alidation loss 1e- llen-an
+> 010 20 0 0Picard iteration 000 02
+> 0  00  
+> 000 02
+> 0  0
+> 
+> alidation loss
+> Paper- 
+> 020 000Picard iteration 10 −4
+> 10 −3
+> 
+> lid  tion lo  ur ers-!"
+> 010 20 30 40 Pi #$rd iter $tion 0 0%
+> 0 10 0 11 0 12 0 13 0 14 0 15 0 16 0 1
+> lid  tion lo  uadratic-radient
+> 010 20 30 40 Pi #$rd iter $tion 10 −3
+> 10 −2
+> 
+> lid  tion lo &eaction-diffusion
+> DP ' (onver )en (e*mon ) +( ientifi ( * lly + u( ( e+ +  ful +eed +
+> 0, 10 1, 20 2, -0- ,  .0Picard iteration 10 /
+> 10 10
+> 10 21
+> 10 21
+> 10 23
+> 10 02
+> 10 04
+> 10 35
+> 10 52
+> 10 /0
+> 10 //
+> 10 10
+> 10 41
+> 10 41
+> 10 10 36
+> alidation loss (symlog)
+> 78  9-:uadratic
+> Scientific success Catastrophic di ;ergence 0, 10 1, 20 2, - 0-, .0Picard iteration 10 0
+> 10 1
+> 10 15
+> 10 20
+> 10 2 2
+> 10 0 0
+> 10 01
+> 10 35
+> 10 50
+> 10 /2
+> 10 1 0
+> 10 11
+> 10 45
+> 10 10 0
+> 10 112
+> 6
+> alidation loss (symlog)
+> Paper-78  9
+> DP < numerical instability diagnostic
+
+Figure 4: DPI validation-loss trajectories and divergence diagnostics on the two HJB bench-marks The quadratic Hamiltonian may act as an error-amplification channel during Picard iter-ation. For q(z) = − 12 ‖z‖22, a perturbation e gives q(z + e) − q(z) = −zTe − 12 ‖e‖22. Because the fitted network is reused in subsequent iterations, control errors may be repeatedly propa-gated and amplified. The available DPI theory assumes global Lipschitz continuity and does not provide a uniform contraction bound for this quadratic setting [13]. 
+
+4.4 Component Ablations and Structural-Interface Sensitivity 
+
+We conduct two complementary controlled studies. Component ablations disable selected train-ing, variance-reduction, or within-layer coordination mechanisms in the locked full DC–BSDE 
+
+configuration, whereas the structural-interface study varies the candidate sources supplied to the common screening interface. In both studies, the equation data, discrete backward back-bone, prescribed training budget, frozen population control target, and layerwise backward order remain unchanged. 
+
+4.4.1 Ablation of Selected Training and Coordination Mechanisms 
+
+Starting from the locked full DC–BSDE configuration, we disable selected training and co-ordination mechanisms. The local-only variant removes the shared temporal trunk and its associated replay constraint, retaining independent time-local control representations. The 
+
+neural-only U variant suppresses the feature-based explicit branch while keeping the candidate pool and screening outcome fixed. The no antithetic sampling , no control baseline , and no Z
+
+refit variants disable antithetic pairing, the frozen linear-response baseline, and control refitting, respectively. Quadratic-gradient and Reaction–diffusion both use d = 100, T = 1, and N = 30, with manufactured references for u and z evaluated along common test paths. This permits joint assessment of value error, control error, and the one-step dynamic residual under comparable discretizations. Table 7 reports error ratios relative to the locked full configuration. 29 Table 7: Component-ablation results relative to the locked full DC–BSDE configuration. 
+
+Benchmark Ablated variant Primary-U
+
+ratio 95% paired interval 
+
+Z
+
+ratio Residual ratio Quadratic-gradient local-only 0.925 [0 .918 , 0.932] 2.160 2.509 Quadratic-gradient neural-only U 1.878 [1 .862 , 1.894] 2.496 3.506 Quadratic-gradient no antithetic sampling 0.940 [0 .929 , 0.949] 1.342 2.904 Quadratic-gradient no control baseline 0.932 [0 .919 , 0.946] 1.386 2.895 Quadratic-gradient no Z refit 1.030 [1 .017 , 1.043] 0.909 0.986 Reaction–diffusion local-only 0.991 [0 .886 , 1.109] 73.957 6.462 Reaction–diffusion neural-only U 4.827 [4 .500 , 5.227] 6.169 2.382 Reaction–diffusion no antithetic sampling 1.203 [1 .084 , 1.337] 64.948 5.603 Reaction–diffusion no control baseline 1.135 [1 .081 , 1.199] 69.344 6.746 Reaction–diffusion no Z refit 1.658 [1 .553 , 1.781] 1.444 1.010 
+
+Figure 5 displays the primary-U error ratios and their 95% paired descriptive bootstrap intervals. The horizontal axis is logarithmic, and the reference line at 1 separates decreases from increases relative to the full configuration. The corresponding control-error and residual ratios are reported in Table 7.         
+
+> 10 02 × 10 0= × 10 0> × 10 0
+> Ablation / DC-BSDE primary ? error (log scale) Q-grad | local-only Q-grad | neural-only ?
+> Q-grad | no antithetic Q-grad | no control baseline Q-grad | no @ refit R-D | local-only R-D | neural-only ?
+> R-D | no antithetic R-D | no control baseline R-D | no @ refit
+> A
+
+umerical ablations 
+
+Figure 5: Primary-U error ratios for the component ablations 
+
+Feature-based value representation. Suppressing the feature-based explicit branch increases the primary U error by factors of 1 .878 and 4 .827 on Quadratic-gradient and Reaction–diffusion, respectively, while the corresponding Z-error ratios increase to 2 .496 and 6 .169. This joint deterioration is consistent with the “explicit baseline + neural residual” representation reducing the approximation burden on the neural residual and supporting the final control approximation through value–control coordination. 
+
+Shared–local control representation and replay. On Quadratic-gradient, the local-only variant slightly reduces the primary U error but increases the Z error and dynamic residual by factors 30 of 2 .160 and 2 .509. On Reaction–diffusion, its primary U error remains close to that of the full method, whereas its Z-error and residual ratios reach 73 .957 and 6 .462. This pattern is consistent with the shared–local representation and replay constraint primarily supporting control learning across time levels rather than uniformly improving a value-only endpoint. 
+
+Finite-branch variance reduction. Disabling antithetic sampling or the control-label response baseline substantially increases the control error on Reaction–diffusion, with Z-error ratios of 64 .948 and 69 .344, respectively. On Quadratic-gradient, the same ablations slightly reduce the primary U error while increasing both the Z error and dynamic residual. This metric-dependent response is consistent with the intended role of these mechanisms: they act directly on the finite-branch Brownian labels, and their effect is therefore more visible in control accuracy and dynamic consistency than in every value-only metric. 
+
+Within-layer control refitting. Removing control refitting slightly increases the primary U error on Quadratic-gradient while reducing the Z error and residual to 0 .909 and 0 .986 of their full-configuration values, respectively. On Reaction–diffusion, the corresponding U -, Z-, and residual ratios are 1 .658, 1 .444, and 1 .010. Thus, control refitting can improve joint value– control performance. 
+
+4.4.2 Sensitivity to the Structural-Interface Configuration 
+
+The structural-interface study keeps the discrete backward backbone, generic training and coor-dination mechanisms, and prescribed budgets fixed while varying the candidate-source policies A–D. Table 8 defines the four policies, with D denoting the full DC–BSDE configuration and A–no-symmetry denoting a diagnostic variant of A in which both symmetry projections are set to the identity. Table 8: Candidate-source policies used by the common structural-screening interface.          
+
+> Configuration Symmetry candidate Value-feature candidates Response-baseline candidate AAutomatically proposed and verified; identity if rejected Generic automatic feature library Automatic differentiation; zero if unavailable BSame as A Screened equation-informed features Same as A CSame as A Generic automatic feature library Validated equation-informed response; automatic-differentiation fallback DVerified equation-declared candidate preferred; otherwise the rule of A Screened equation-informed features Validated equation-informed response; automatic-differentiation fallback
+
+HJB-Quadratic is used to assess the effect of the symmetry projection, whereas Quadratic-gradient and Reaction–diffusion are used to examine sensitivity to the sources of the retained value features and response baselines. Table 9 reports error ratios relative to the locked full 
+
+DC–BSDE configuration. A ratio below 1 indicates a smaller error for the candidate policy on the corresponding metric. The reported intervals are 95% paired descriptive bootstrap intervals for the primary-U error ratios. 31 Table 9: Sensitivity to the structural-interface configuration.                                                        
+
+> Benchmark Candidate policy Primary-U
+> ratio 95% paired interval
+> Z
+> ratio Residual ratio HJB-Quadratic A1.000 [1 .000 ,1.000] 1.000 1.000 HJB-Quadratic A–no-symmetry 10.267 [9 .320 ,11 .367] 3.901 1.037 Quadratic-gradient C0.826 [0 .814 ,0.837] 1.288 2.439 Quadratic-gradient B1.000 [1 .000 ,1.000] 1.000 1.000 Quadratic-gradient A0.826 [0 .815 ,0.837] 1.288 2.439 Quadratic-gradient A–no-symmetry 0.988 [0 .975 ,1.001] 2.253 2.522 Reaction–diffusion C1.115 [1 .058 ,1.184] 69.302 5.964 Reaction–diffusion B1.000 [1 .000 ,1.000] 1.000 1.000 Reaction–diffusion A1.115 [1 .058 ,1.183] 69.302 5.964
+
+Symmetry projection. For HJB-Quadratic, policy A induces the same effective configuration as the full policy, whereas forcing the symmetry projections to the identity increases the primary 
+
+U error by a factor of 10 .267 and the Z error by a factor of 3 .901. The residual ratio increases only to 1 .037. Within this benchmark, the contrast is consistent with the verified symmetry projection reducing the effective hypothesis class by imposing the known invariance. The limited change in the residual also shows that a small one-step residual need not imply an accurate value or control approximation. 
+
+Value-feature and response-source sensitivity. For Quadratic-gradient, policies A and C induce the same effective retained configuration. Their primary U error is 0 .826 of the full-configuration error, while their Z and residual ratios increase to 1 .288 and 2 .439. Policy B induces the full configuration. The A–no-symmetry variant produces a primary U ratio close to one, but its Z
+
+and residual ratios rise to 2 .253 and 2 .522. Hence, a candidate-source policy that improves the function-value metric need not simultaneously improve control accuracy or dynamic consistency. For Reaction–diffusion, policies A and C again induce the same effective retained configu-ration, whereas policy B maps to the full configuration. Relative to the full method, A and C increase the primary U error to 1 .115 and the Z error to 69 .302. The much larger change in the control metric shows that the primary value error is comparatively insensitive to the deterioration in the learned control. This comparison is consistent with the alternative retained configuration providing a more suitable joint value–control representation for this benchmark. 
+
+4.5 Computational Cost and Wall-Clock Comparison 
+
+Both DBDP2 and DC–BSDE train backward one time level at a time, but they use different mechanisms to identify the control. In the wall-clock-matched experiments, DBDP2 is trained for approximately the same elapsed time as the complete DC–BSDE pipeline. This tests whether the accuracy gap can be explained merely by the shorter native training time of DBDP2. Table 10 reports the resulting descriptive comparison. The error ratio is “matched DBDP2/ DC– BSDE .” Table 10: Wall-clock-matched comparison with DBDP2.                          
+
+> Benchmark Matched budget (s) DC–BSDE time (s) DBDP2 time (s) Time ratio DC–BSDE error DBDP2 error [min,max] Error ratio Quadratic-gradient 2121.579 2121.6 2122.3 1.000 0.0373 0.1186 [0 .0979 ,0.1704] 3.18 Reaction–diffusion 1411.963 1390.4 1412.7 1.016 0.00408 0.0286 [0 .0231 ,0.0422] 7.01
+
+The matched time ratios are 1 .000 and 1 .016, whereas the corresponding DBDP2/ DC– BSDE primary-error ratios are 3 .18 and 7 .01. Every paired seed favors DC–BSDE on both equations. Within these two configurations, merely extending the DBDP2 training time there-fore does not remove the observed accuracy gap. 32 5 Conclusion 
+
+Motivated by Gaussian perturbation and conditional regression in denoising score matching, we proposed Deep-Control BSDE ( DC–BSDE ), a layerwise control-regression method for high-dimensional Markovian BSDEs. At each time level, the frozen successor value function defines an explicit Brownian conditional-moment target for the current control. The control is regressed first, the value is then updated through the implicit BSDE relation, and the two approximations are coordinated before being stored as immutable snapshots. The Gaussian–Stein identity further relates this control target to the diffusion-directional gradient of the successor value function. The hierarchy zπn , ztar  
+
+> n
+
+,̂ ZMn , and Zθn separates time-discretization, successor-propagation, finite-branch, and local learning errors. Antithetic Brownian pairing and a frozen linear-response baseline reduce finite-branch fluctuations without changing the conditional mean of the labels. Generic coordination mechanisms stabilize layerwise training, while optional equation-informed structural interfaces improve representation without altering the population control target or the backward dependency structure. We establish stability of the exact discrete operators, residual-driven backward stability of the learned recursion, and conditional consistency when the discretization, local learning and numerical, and finite-branch errors vanish jointly. Across six numerical configurations, DC–BSDE achieves the lowest mean primary error in five cases. Among benchmarks with complete pathwise references, it simultaneously improves the U - and Z-path errors in three cases. Burgers–20 instead exhibits a clear Pareto trade-off between value and control accuracy. Structural comparisons and component ablations further show that a small value error does not necessarily imply an accurate or stable value gradient, highlighting the importance of jointly evaluating value accuracy, control accuracy, and dynamic consistency. Wall-clock-matched experiments also indicate that the observed gains cannot gen-erally be reproduced by simply extending the training time of a baseline method. Beyond estimating u(0 , x 0), DC–BSDE provides approximations Un(x) ≈ u(tn, x ), Zn(x) ≈
+
+σ(tn, x )⊤∇xu(tn, x ) at multiple time levels. It is therefore particularly suitable for applications requiring reliable joint approximation of the value and control processes, gradient sensitiv-ities, or feedback policies, especially when control errors significantly affect backward value propagation through the generator. Future work will extend the analysis beyond the global Lipschitz setting, develop adaptive allocation of time steps, training states, Brownian branches, and coordination budgets, and evaluate whether improved control accuracy translates into better performance in stochastic control, risk management, derivative pricing and hedging, and high-dimensional feedback-policy learning. 
+
+## A Benchmark Equations, Reference Information, and Evalua-tion Endpoints 
+
+This section gives a unified description of the continuous models, temporal discretization pa-rameters, terminal conditions, reference information, and evaluation endpoints used for the six main numerical configurations and the supplementary stress tests. Unless stated otherwise, all pathwise errors are computed along independent test trajectories. Unless otherwise specified, every benchmark is written in the form dXt = μ(t, X t) d t + σ(t, X t) d Wt, X0 = x0,Yt = g(XT ) + 
+
+∫ Tt
+
+f (s, X s, Y s, Z s) d s −
+
+∫ Tt
+
+ZT 
+
+> s
+
+dWs.
+
+33 We adopt the Markovian convention 
+
+Yt = u(t, X t), Zt = σ(t, X t)T∇xu(t, X t),
+
+so that the corresponding semilinear parabolic PDE is 
+
+
+
+∂tu + μ(t, x )T∇xu + 12 tr 
+
+(
+
+σ(t, x )σ(t, x )T D2
+
+> x
+
+u
+
+)
+
++ f
+
+(
+
+t, x, u, σ (t, x )T∇xu
+
+)
+
+= 0 ,u(T, x ) = g(x).
+
+The forward processes have constant diffusion coefficients, and all benchmarks use Euler– Maruyama time discretization. The appendix contains both benchmarks satisfying the baseline Lipschitz assumptions of Section 2 and empirical extensions beyond that setting. HJB-Quadratic, Paper-HJB, and Quadratic-gradient contain quadratic-gradient terms. Allen–Cahn contains a cubic reaction term that is not globally Lipschitz. The Burgers equation contains a multiplicative value– control coupling. These examples are used to test finite-budget robustness beyond the scope of the baseline theory. 
+
+A.1 HJB-Quadratic 
+
+d = 50 , T = 1 , N = 40 , x0 = 0,
+
+and dXt = d Wt, f (t, x, y, z ) = − 12 ‖z‖22, g(x) = ‖x‖22.
+
+The corresponding PDE is 
+
+∂tu + 12 ∆u − 12 ‖∇ xu‖22 = 0 , u(T, x ) = ‖x‖22.
+
+The analytic solution and control are 
+
+u(t, x ) = d
+
+2 log(1 + 2( T − t)) + ‖x‖22
+
+1 + 2( T − t) ,z(t, x ) = 2x
+
+1 + 2( T − t) .
+
+The primary metric is the U -path RMSE, and the Z-path RMSE is also reported. The initial value is u(0 , 0) = 25 log 3 ≈ 27 .4653. The solution depends only on ‖x‖22 and therefore has an explicit orthogonal-invariance structure. 
+
+A.2 Cole–Hopf HJB (Paper-HJB) 
+
+To distinguish it from HJB-Quadratic, we refer to the 100-dimensional HJB benchmark from the literature as Cole–Hopf HJB; its experiment-archive label is Paper-HJB. The parameters are 
+
+d = 100 , T = 1 , N = 20 , x0 = 0,
+
+with dXt = √2 d Wt, f (t, x, y, z ) = − 12 ‖z‖22, g(x) = log 
+
+( 1 + ‖x‖22
+
+2
+
+)
+
+.
+
+The corresponding PDE is 
+
+∂tu + ∆ u − ‖∇ xu‖22 = 0 , u(T, x ) = log 
+
+( 1 + ‖x‖22
+
+2
+
+)
+
+.
+
+34 The Cole–Hopf transformation gives the probabilistic representation 
+
+u(t, x ) = − log E
+
+[
+
+exp 
+
+(
+
+−g(x + √2WT −t
+
+))] 
+
+.
+
+The experiments use the independent Monte Carlo reference 
+
+uref (0 , x 0) = 4 .5901 and take |̂u(0 , x 0) − 4.5901 | as the primary metric [10]. This initial-value reference is not used to construct a full-path reference without independent error control. 
+
+A.3 Allen–Cahn 
+
+This benchmark follows the standard 100-dimensional Allen–Cahn setting [10]: 
+
+d = 100 , T = 0 .3, N = 20 , x0 = 0,
+
+with dXt = √2 d Wt, f (t, x, y, z ) = y − y3, g(x) = 12 + 25 ‖x‖22
+
+.
+
+The corresponding PDE is 
+
+∂tu + ∆ u + u − u3 = 0 , u(T, x ) = 12 + 25 ‖x‖22
+
+,
+
+and Zt = √2 ∇xu(t, X t). The experiments use the independent branching-diffusion reference 
+
+uref (0 , x 0) = 0 .052802 and take |̂u(0 , x 0) − 0.052802 | as the primary metric. 
+
+A.4 Burgers–20 
+
+For a given dimension d, let dXt = d dWt, σ = dI d,
+
+and 
+
+f (t, x, y, z ) = 
+
+(
+
+y − d + 2 2d
+
+) d∑
+
+> i=1
+
+zi,g(x) = sigmoid 
+
+(
+
+T + 1
+
+d
+
+> d
+
+∑
+
+> i=1
+
+xi
+
+)
+
+.
+
+The corresponding PDE is 
+
+∂tu + d2
+
+2 ∆u + d
+
+(
+
+u − d + 2 2d
+
+) d∑
+
+> i=1
+
+∂xi u = 0 .
+
+The analytic solution and control are 
+
+u(t, x ) = sigmoid 
+
+(
+
+t + 1
+
+d
+
+> d
+
+∑
+
+> i=1
+
+xi
+
+)
+
+,z(t, x ) = u(t, x )[1 − u(t, x )]1d.
+
+Burgers–20 uses 
+
+d = 20 , T = 1 , N = 80 , x0 = 0,
+
+and is a main-text configuration with U -path RMSE as the primary metric, u(0 , 0) = 1 /2. The solution depends only on the coordinate mean and therefore has a low-dimensional ridge structure. 35 A.5 Quadratic-Gradient 
+
+d = 100 , T = 1 , N = 30 , x0 = 0, α = 0 .4,
+
+and define 
+
+s(t, x ) = T − t + ‖x‖22, F (s) = sin( sα), ψQG (t, x ) = F (s(t, x )) .
+
+The required derivatives are 
+
+F ′(s) = αs α−1 cos( sα),F ′′ (s) = α(α − 1) sα−2 cos( sα) − α2s2α−2 sin( sα),∂tψQG = −F ′(s),
+
+∇xψQG = 2 F ′(s)x, 
+
+∆ψQG = 2 dF ′(s) + 4 ‖x‖22F ′′ (s).
+
+The forward process is d Xt = d Wt. Define 
+
+f (t, x, y, z ) = ‖z‖22 − ‖∇ xψQG (t, x )‖22 − ∂tψQG (t, x ) − 12 ∆ψQG (t, x ),
+
+and 
+
+g(x) = sin (‖x‖2α
+
+> 2
+
+) .
+
+Then 0 = ∂tu + 12 ∆u + ‖∇ xu‖22 − ‖∇ xψQG ‖22 − ∂tψQG − 12 ∆ψQG .
+
+and the manufactured exact solution and control are 
+
+u(t, x ) = ψQG (t, x ) = sin [( T − t + ‖x‖22
+
+)α] ,z(t, x ) = 2 F ′(s(t, x )) x. 
+
+The primary metric is the U -path RMSE, and the Z-path RMSE is also reported. The initial value is u(0 , 0) = sin(1) ≈ 0.8414709848. Since α < 1, the negative powers in the derivatives can be numerically unstable as s ↓ 0. The implementation evaluates the relevant derivatives using the safeguard sε = max {s, 10 −12 }, while retaining the original terminal function and analytic function values for evaluation. 
+
+A.6 Reaction–Diffusion 
+
+This manufactured-solution benchmark uses 
+
+d = 100 , T = 1 , N = 30 , x0 = 0, κ = 0 .6, λ = d−1/2,
+
+and 
+
+ψRD (t, x ) = 1 + κ + sin 
+
+(
+
+λ
+
+> d
+
+∑
+
+> i=1
+
+xi
+
+)
+
+exp 
+
+[ λ2d
+
+2 (t − T )
+
+]
+
+.
+
+The forward process is d Xt = d Wt, and the generator and terminal condition are 
+
+f (t, x, y, z ) = min 
+
+{
+
+1, [y − ψRD (t, x )] 2}
+
+,g(x) = 1 + κ + sin 
+
+(
+
+λ
+
+> d
+
+∑
+
+> i=1
+
+xi
+
+)
+
+.
+
+36 The corresponding PDE is 
+
+∂tu + 12 ∆u + min 
+
+{
+
+1, [u − ψRD (t, x )] 2}
+
+= 0 .
+
+Its exact solution and control are 
+
+u(t, x ) = ψRD (t, x ),z(t, x ) = λ cos 
+
+(
+
+λ
+
+> d
+
+∑
+
+> i=1
+
+xi
+
+)
+
+exp 
+
+[ λ2d
+
+2 (t − T )
+
+]
+
+1d.
+
+The primary metric is the U -path RMSE, and the Z-path RMSE is also reported. The initial value is u(0 , 0) = 1 + κ = 1 .6. 
+
+## B Complete Results for the Main Experiments 
+
+B.1 Primary-Error Comparisons with Classical Baselines and DPI 
+
+Table 11 reports the comparisons with DeepBSDE-style, DBDP1, and DBDP2. These methods use the original main-matrix primary metrics and the common paired-seed protocol, with ten paired runs for every benchmark–method combination. Table 12 combines the DPI primary-error comparisons with the available DPI control-path diagnostics. The primary-error ratios use the same benchmark-specific absolute primary metrics as in the main text. For HJB-Quadratic and Paper-HJB, the DPI numerator is the conditional mean over the 5 and 1 runs passing the stated stability audit, respectively, whereas the remain-ing four DPI comparisons use all ten runs. The DC–BSDE denominator always uses all ten seeds. The HJB-Quadratic and Paper-HJB ratios are therefore audit-conditioned descriptive summaries. Table 11: Classical baseline– DC–BSDE comparisons under the common paired-seed protocol 
+
+Benchmark Baseline Baseline/ DC–BSDE 
+
+95% paired descriptive bootstrap interval HJB-Quadratic DeepBSDE-style 19.753 [15 .763 , 24 .303] HJB-Quadratic DBDP1 172.468 [153 .551 , 194 .144] HJB-Quadratic DBDP2 173.218 [154 .365 , 195 .759] Allen–Cahn DeepBSDE-style 2.943 [1 .492 , 5.072] Allen–Cahn DBDP1 2.325 [1 .218 , 3.480] Allen–Cahn DBDP2 1.551 [1 .001 , 2.166] Burgers–20 DeepBSDE-style 0.844 [0 .709 , 0.975] Burgers–20 DBDP1 6.122 [5 .292 , 7.037] Burgers–20 DBDP2 5.638 [4 .919 , 6.479] Paper-HJB DeepBSDE-style 12.347 [8 .596 , 17 .565] Paper-HJB DBDP1 5289.680 [4399 .983 , 6639 .882] Paper-HJB DBDP2 13.533 [9 .132 , 19 .478] Quadratic-gradient DeepBSDE-style 5.011 [4 .945 , 5.079] Quadratic-gradient DBDP1 1.967 [1 .896 , 2.047] Quadratic-gradient DBDP2 1.864 [1 .802 , 1.934] Reaction–diffusion DeepBSDE-style 3.164 [2 .830 , 3.538] Reaction–diffusion DBDP1 16.332 [15 .000 , 17 .912] Reaction–diffusion DBDP2 14.890 [13 .630 , 16 .373] 
+
+37 Table 12: DPI primary-error comparisons and available control-path diagnostics 
+
+Benchmark Runs used/planned DPI/ DC–BSDE 
+
+primary-error ratio DPI Z-path RMSE: mean ± sample SD HJB-Quadratic 5/10 102.217 0.5622 ± 0.0663 Allen–Cahn 10 /10 6.869 N/A Burgers–20 10 /10 0.275 0.0021 ± 1.440 × 10 −4
+
+Paper-HJB 1/10 1215.209 N/A Quadratic-gradient 10 /10 2.508 0.0322 ± 0.0031 Reaction–diffusion 10 /10 3.135 0.0031 ± 3.972 × 10 −4
+
+B.2 Available Secondary Diagnostics for the Six Configurations 
+
+Tables 13–14 report the secondary diagnostics for DC–BSDE , DeepBSDE-style, DBDP1, and DBDP2. The three metrics quantify, respectively, control-path accuracy, one-step pathwise innovation consistency, and accumulated terminal consistency. All entries for these four methods are reported as the group mean followed by the minimum–maximum range over the ten seeds. In the Z-path column, N/A indicates that no validated reference control path is available for the corresponding benchmark. Table 13: Secondary diagnostics for HJB-Quadratic, Allen–Cahn, and Burgers–20 
+
+Benchmark Method Z-path RMSE: mean [min,max] BSDE residual RMSE: mean [min,max] Terminal rollout RMSE: mean [min,max] HJB-Quadratic DC–BSDE 0.0768 [0 .0687 , 0.0847] 0.1631 [0 .1628 , 0.1635] 0.9686 [0 .9636 , 0.9713] HJB-Quadratic DeepBSDE-style 0.7567 [0 .7082 , 0.8463] 1.3471 [1 .1040 , 1.8609] 1.5729 [1 .4770 , 1.7145] HJB-Quadratic DBDP1 5.0045 [5 .0039 , 5.0055] 22 .490 [22 .412 , 22 .561] 50 .357 [50 .330 , 50 .379] HJB-Quadratic DBDP2 5.0058 [5 .0057 , 5.0058] 5.5226 [5 .4244 , 5.6416] 12 .403 [12 .180 , 12 .601] Allen–Cahn DC–BSDE N/A 3.881 × 10 −4 [3 .870 × 10 −4, 3.896 × 10 −4] 0.00152 [0 .00152 , 0.00153] Allen–Cahn DeepBSDE-style N/A 0.00185 [0 .00149 , 0.00248] 0.00254 [0 .00208 , 0.00271] Allen–Cahn DBDP1 N/A 0.00242 [0 .00240 , 0.00244] 0.00562 [0 .00558 , 0.00568] Allen–Cahn DBDP2 N/A 0.00235 [0 .00232 , 0.00238] 0.00520 [0 .00517 , 0.00523] Burgers–20 DC–BSDE 0.0138 [0 .0114 , 0.0179] 0.00958 [0 .00948 , 0.00973] 0.0481 [0 .0474 , 0.0495] Burgers–20 DeepBSDE-style 0.0317 [0 .0299 , 0.0339] 0.0108 [0 .0101 , 0.0113] 0.0472 [0 .0464 , 0.0482] Burgers–20 DBDP1 0.1547 [0 .1402 , 0.1735] 0.0307 [0 .0290 , 0.0325] 0.1001 [0 .0946 , 0.1165] Burgers–20 DBDP2 0.1530 [0 .1422 , 0.1639] 0.0248 [0 .0239 , 0.0265] 0.1023 [0 .0953 , 0.1143] 
+
+Table 14: Secondary diagnostics for Paper-HJB, Quadratic-gradient, and Reaction–diffusion 
+
+Benchmark Method Z-path RMSE: mean [min,max] BSDE residual RMSE: mean [min,max] Terminal rollout RMSE: mean [min,max] Paper-HJB DC–BSDE N/A 0.00757 [0 .00756 , 0.00758] 0.0337 [0 .0336 , 0.0338] Paper-HJB DeepBSDE-style N/A 0.0381 [0 .0231 , 0.0656] 0.0518 [0 .0504 , 0.0539] Paper-HJB DBDP1 N/A 1.7112 [1 .7031 , 1.7208] 3.8293 [3 .8103 , 3.8520] Paper-HJB DBDP2 N/A 0.0639 [0 .0631 , 0.0655] 0.1504 [0 .1495 , 0.1509] Quadratic-gradient DC–BSDE 0.0660 [0 .0646 , 0.0675] 0.0161 [0 .0161 , 0.0162] 0.1168 [0 .1164 , 0.1174] Quadratic-gradient DeepBSDE-style 0.1552 [0 .1542 , 0.1565] 0.0865 [0 .0806 , 0.1003] 0.3761 [0 .3751 , 0.3777] Quadratic-gradient DBDP1 0.1581 [0 .1556 , 0.1621] 0.0965 [0 .0948 , 0.1000] 0.3724 [0 .3701 , 0.3739] Quadratic-gradient DBDP2 0.1568 [0 .1543 , 0.1592] 0.0947 [0 .0909 , 0.0969] 0.3756 [0 .3733 , 0.3789] Reaction–diffusion DC–BSDE 0.00651 [0 .00562 , 0.00724] 0.0112 [0 .0111 , 0.0113] 0.0585 [0 .0584 , 0.0587] Reaction–diffusion DeepBSDE-style 0.0211 [0 .0192 , 0.0226] 0.0141 [0 .0135 , 0.0153] 0.0622 [0 .0614 , 0.0628] Reaction–diffusion DBDP1 0.1334 [0 .1254 , 0.1402] 0.4808 [0 .4753 , 0.4848] 2.0563 [2 .0551 , 2.0577] Reaction–diffusion DBDP2 0.1249 [0 .1169 , 0.1387] 0.0468 [0 .0459 , 0.0482] 0.1749 [0 .1699 , 0.1806] 
+
+## C LogHeat: A Verifiable Intersection between the Score and the BSDE Control 
+
+For a general BSDE, the control process is not the score of a probability density. The LogHeat problem nevertheless provides a verifiable special case in which the two objects coincide after multiplication by the diffusion matrix. Let the positive function ρ solve the backward heat equation generated by the diffusion matrix σ:
+
+∂tρ(t, x ) + 12 tr (a∇2
+
+xρ(t, x )) = 0 , ρ(T, x ) = ρT (x) > 0, a = σσ ⊤. (67) 38 Set u = log ρ. Then 
+
+∂tu + 12 tr (a∇2
+
+> x
+
+u) + 12
+
+∥∥∥σT∇xu
+
+∥∥∥22 = 0 , u(T, x ) = log ρT (x).
+
+For the forward process d Xt = σ dWt, the associated BSDE has generator f (z) = 12 ‖z‖22, and 
+
+Zt = σ⊤∇xu(t, X t) = σ⊤∇x log ρ(t, X t). (68) Thus, if s(t, x ) = ∇x log ρ(t, x ) denotes the density score, then Z = σTs. This identity is specific to the logarithmically transformed class described by equations (67)–(68). It does not imply that the control process of a general BSDE is the score of a state-marginal density. The experiment uses a positive Gaussian-mixture terminal density and considers only the setting d = 100 and N = 20. Control error is the prespecified evaluation endpoint. Each of the four BSDE methods uses n = 5 paired random seeds. The main tabulated results are evaluated along paired BSDE path states. The time-layer plot additionally compares the control error on states sampled from the score density. Table 15 reports the relative L2 error of the Z-path and the relative Z-error on the primary evaluation states. Table 15: Control errors for the d = 100 LogHeat problem.                             
+
+> Method nRelative L2error of the Z-path 95% descriptive interval Relative Z-error on primary evaluation states DBDP1 51.9137 [1 .9057 ,1.9218] 2.2034 DBDP2 52.7607 [2 .4009 ,3.1204] 2.4865 DeepBSDE-style 50.3681 [0 .2277 ,0.5084] 0.3324
+> DC–BSDE 50.0601 [0.0586 ,0.0615 ]0.0714
+
+The relative L2 error of the Z-path for DC–BSDE is 0 .0601, below those of all three BSDE baselines. The corresponding errors for DeepBSDE-style, DBDP1, and DBDP2 are 0.3681, 1 .9137, and 2 .7607, respectively. In this special case, where the control–score relation is analytically verifiable, the results indicate that layerwise Brownian control supervision recovers the control path accurately. Figure 6 shows that the DSM score baseline maintains a low error under direct score su-pervision. Among the four BSDE solvers, DC–BSDE exhibits the lowest and most stable control error. DeepBSDE-style ranks second, whereas DBDP1 and DBDP2 show larger biases or greater cross-seed variability at several time layers. The comparison demonstrates that di-rect score learning provides a strong auxiliary baseline when a genuine density-score structure is available, while DC–BSDE remains capable of recovering the corresponding control within a general BSDE-solver framework.        
+
+> 0B C  0B D  0B E 0B F  0B G  0B H  0B I
+> BSDE time fraction t/ J
+> 10 −1
+> 10 0
+> Z rel K tive LM error ↓
+> Paired N OP Q -pat R states
+> 0B 30B 40B50B60B G  0B H  0B I
+> BSDE time fr STtion t U J
+> 10 −2
+> 10 −1
+> 10 0
+> Z rel K tive LM error ↓
+> Ocore-density states
+> VoW XeYt d Z100 [ ZY \ \ ur Y \ yY \ ross time l Y yers
+> GSussi Sn s T ore DSM s Tore DBDP1 DBDP2 DeepBSDE -style DC-BSDE
+
+Figure 6: Relative L2 error of Z across time layers for the d = 100 LogHeat problem 39 References 
+
+[1] Morton, K. W., Mayers, D. F. Numerical Solution of Partial Differential Equations: An Introduction . 2nd ed., Cambridge University Press, Cambridge, 2005. [2] Thom´ ee, V. Galerkin Finite Element Methods for Parabolic Problems . 2nd ed., Springer Series in Computational Mathematics, vol. 25, Springer, Berlin, Heidelberg, 2006. doi: 10.1007/3-540-33122-0. [3] Canuto, C., Hussaini, M. Y., Quarteroni, A., Zang, T. A. Spectral Methods: Fundamentals in Single Domains . Springer, Berlin, Heidelberg, 2006. doi: 10.1007/978-3-540-30726-6. [4] Pardoux, E., Peng, S. Backward stochastic differential equations and quasilinear parabolic partial differential equations. In: Rozovskii, B. L., Sowers, R. B. (eds), Stochastic Partial Differential Equations and Their Applications , Lecture Notes in Control and Information Sciences, vol. 176, pp. 200–217. Springer, 1992. doi: 10.1007/BFb0007334. [5] Ma, J., Zhang, J. Representation theorems for backward stochastic differential equations. 
+
+The Annals of Applied Probability , 12(4):1390–1418, 2002. doi: 10.1214/aoap/1037125868. [6] Elworthy, K. D., Li, X.-M. Formulae for the derivatives of heat semigroups. Journal of Functional Analysis , 125(1):252–286, 1994. doi: 10.1006/jfan.1994.1124. [7] Zhang, J. A numerical scheme for BSDEs. The Annals of Applied Probability , 14(1):459– 488, 2004. doi: 10.1214/aoap/1075828058. [8] Gobet, E., Lemor, J.-P., Warin, X. A regression-based Monte Carlo method to solve back-ward stochastic differential equations. The Annals of Applied Probability , 15(3):2172–2202, 2005. doi: 10.1214/105051605000000412. [9] Gobet, E., Turkedjiev, P. Approximation of backward stochastic differential equations us-ing Malliavin weights and least-squares regression. Bernoulli , 22(1):530–562, 2016. doi: 10.3150/14-BEJ667. [10] E, W., Han, J., Jentzen, A. Deep learning-based numerical methods for high-dimensional parabolic partial differential equations and backward stochastic differen-tial equations. Communications in Mathematics and Statistics , 5(4):349–380, 2017. doi: 10.1007/s40304-017-0117-6. [11] Han, J., Jentzen, A., E, W. Solving high-dimensional partial differential equations using deep learning. Proceedings of the National Academy of Sciences , 115(34):8505–8510, 2018. doi: 10.1073/pnas.1718942115. [12] Hur´ e, C., Pham, H., Warin, X. Deep backward schemes for high-dimensional nonlinear PDEs. Mathematics of Computation , 89(324):1547–1579, 2020. doi: 10.1090/mcom/3514. [13] Han, J., Hu, W., Long, J., Zhao, Y. Deep Picard Iteration for High-Dimensional Nonlinear PDEs. SIAM Journal on Scientific Computing , 48(1):C1–C24, 2026. doi: 10.1137/24M169312X. [14] N´ egyesi, B., Andersson, K., Oosterlee, C. W. The One Step Malliavin scheme: new dis-cretization of BSDEs implemented with deep learning regressions. IMA Journal of Numer-ical Analysis , 44(6):3595–3647, 2024. doi: 10.1093/imanum/drad092. [15] Takahashi, A., Tsuchida, Y., Yamada, T. A new efficient approximation scheme for solving high-dimensional semilinear PDEs: Control variate method for Deep BSDE solver. Journal of Computational Physics , 454:110956, 2022. doi: 10.1016/j.jcp.2022.110956. 40 [16] Raissi, M., Perdikaris, P., Karniadakis, G. E. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear par-tial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. [17] Sirignano, J., Spiliopoulos, K. DGM: A deep learning algorithm for solving partial differential equations. Journal of Computational Physics , 375:1339–1364, 2018. doi: 10.1016/j.jcp.2018.08.029. [18] Wang, S., Teng, Y., Perdikaris, P. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 43(5):A3055– A3081, 2021. doi: 10.1137/20M1318043. [19] Krishnapriyan, A. S., Gholami, A., Zhe, S., Kirby, R. M., Mahoney, M. W. Characterizing possible failure modes in physics-informed neural networks. Advances in Neural Information Processing Systems , 34:26548–26560, 2021. [20] Puny, O., Atzmon, M., Ben-Hamu, H., Misra, I., Grover, A., Smith, E. J., Lipman, Y. Frame averaging for invariant and equivariant network design. International Conference on Learning Representations , 2022. https://openreview.net/forum?id=zIUyj55nXR .[21] Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. Score-based generative modeling through stochastic differential equations. International Conference on Learning Representations , 2021. https://openreview.net/forum?id=PxTIG12RRHS .[22] Vincent, P. A connection between score matching and denoising autoencoders. Neural Com-putation , 23(7):1661–1674, 2011. doi: 10.1162/NECO a 00142. [23] Stein, C. M. Estimation of the mean of a multivariate normal distribution. The Annals of Statistics , 9(6):1135–1151, 1981. doi: 10.1214/aos/1176345632. [24] Glasserman, P. Monte Carlo Methods in Financial Engineering . Stochastic Modelling and Applied Probability, vol. 53. Springer, New York, 2004. doi: 10.1007/978-0-387-21617-1. [25] Zhang, Y., Duan, Y., Wang, X., Zhang, Z. Solving Fokker–Planck–Kolmogorov equation by distribution self-adaptation normalized physics-informed neural net-works. Physica A: Statistical Mechanics and its Applications , 684:131251, 2026. doi: 10.1016/j.physa.2025.131251. 41

@@ -1,0 +1,959 @@
+Title: Geometry-Constrained Kolmogorov-Arnold Networks: Learning Edge Geometry via Banach Duality
+
+URL Source: https://arxiv.org/pdf/2608.25807v1
+
+Published Time: Thu, 27 Aug 2026 01:04:07 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Geometry-Constrained Kolmogorov–Arnold Networks: Learning Edge Geometry via Banach Duality 
+
+K. S. Sesh Kumar Brevan Howard Centre for Financial Analysis Imperial Business School 
+
+skarri@imperial.ac.uk 
+
+August 27, 2026 
+
+Abstract 
+
+Kolmogorov–Arnold Networks (KANs) replace fixed activations in deep architectures with learnable univariate edge functions, making the choice of edge parametrisation central. Existing variants rely on fixed bases such as splines, polynomials, or Fourier features, which impose a function-space geometry before data are observed. We introduce geometry-constrained KANs, a family of edge activations derived from Banach duality maps in which the geometry itself is learned through a scalar exponent p > 1 per edge. This exponent controls the qualitative response: sub-Euclidean values produce sharp, threshold-like behaviour reminiscent of the ℓ1 (LASSO) geometry, p = 2 recovers the linear regime, and larger values produce flatter responses near the origin. Across 50 symbolic-regression targets ( 40 from the AI Feynman benchmark plus 10 synthetic stress tests), geometry-constrained KANs match or beat every fixed-basis baseline on median NRMSE (Banach-KAN 0.030 , tying Chebyshev and improving on splines); on average rank Banach-KAN is best on the 18 -equation core ( 2.00 ) and statistically tied with the strongest spline on the full benchmark ( 2.32 vs. 2.34 ). The clearest gains appear under measurement noise: as σ grows from 
+
+0 to 1, ℓp-KAN degrades only 3.7×—below even a cross-validated spline ( ≈ 11 ×)—while an unregularised spline degrades 21 .6×; Banach-KAN degrades 8.8×, comparable to a tuned spline but far more stable than the unregularised one. Banach-KAN also takes the most per-equation wins in the small-sample regime, with fixed-basis models catching up only as the training set grows. Learned exponents provide an interpretable, relative signal: at a fixed initialisation they reveal a consistent, target-dependent geometric ordering across equation families and input dimensions. 
+
+# 1 Introduction 
+
+Many scientific regression problems are governed by low-dimensional nonlinear dependencies: pendulum periods depend on amplitude, radiation laws on temperature, and traffic speeds on density. Kolmogorov– Arnold Networks (KANs) [15] are designed for this setting by replacing fixed activations in standard neural networks with learnable univariate edge functions, summing their responses at each node. The central modelling decision in KANs is therefore the choice of edge function. Existing approaches fix this choice through a basis: B-splines [15], radial basis functions [14], wavelets [5], Chebyshev polynomials [20], Jacobi polynomials [1], or Fourier features [22]. Each basis implicitly imposes a function-space geometry—such as smoothness, periodicity, or locality—before any data are observed. This choice is not benign. 1arXiv:2608.25807v1 [cs.LG] 26 Aug 2026 0.5                 
+
+> 0.0 0.5
+> Heaviside step
+> (x)
+> NRMSE 0.17
+> B-spline (21 params)
+> NRMSE 0.18
+> Chebyshev (21 params)
+> NRMSE 0.16
+> RBF (21 params)
+> NRMSE 0.06
+> Wavelet (21 params)
+> NRMSE 0.21
+> Fourier (21 params)
+> NRMSE 0.06
+> p*[1.00, 1.82]
+> Lp-KAN (21 params)
+> 101
+> x
+> 0.5
+> 0.0 0.5
+> Five-level staircase
+> (x)
+> NRMSE 0.13
+> 101
+> x
+> NRMSE 0.14
+> 101
+> x
+> NRMSE 0.14
+> 101
+> x
+> NRMSE 0.17
+> 101
+> x
+> NRMSE 0.24
+> 101
+> x
+> NRMSE 0.14
+> p*[1.00, 3.42]
+
+Figure 1: Fixed bases lock in geometry. All columns use a matched budget of 21 trainable parameters, and each target is fit from N = 2000 samples under label noise σ = 0 .03 , so every panel is a noisy fit rather than a noiseless interpolation. Different bases fail differently on the same targets, so no single fixed geometry is uniformly appropriate across both; the geometry-adaptive ℓp-KAN adapts to each rather than committing to one. A budget sweep across {13 , 21 , 41 , 125 } parameters is reported in Section M. Figure 1 shows that even at a matched parameter budget, different fixed bases fail in different ways when fitting simple discontinuous targets such as a Heaviside step or a multi-level staircase. No fixed basis performs uniformly well across both tasks. The limitation is not representational capacity but geometric mismatch: smooth bases approximate discontinuities by spreading them across coefficients, leading to oscillations or bias. These observations suggest that the key modelling choice is not the basis itself, but the geometry it induces. Rather than fixing this geometry a priori, we seek a way to adapt it to the data. The behaviour of a function class—its smoothness, sharpness, and growth—is governed by the geometry of the space it inhabits, which is determined by its underlying norm. A natural way to parameterise such geometries is through a one-parameter family that continuously interpolates between qualitatively different regimes. This perspective leads to the ℓp family (Section 2.4), where a single exponent p controls the geometry. Rather than selecting a basis, we parameterise each edge using the duality map associated with this family and learn p directly from data. Our goal is not to develop a full generalisation theory, but to provide a minimal, interpretable parameterisation of function-space geometry whose empirical effects we study. 
+
+This yields geometry-constrained KANs : edge activations whose form is fixed by the underlying geometry but whose geometry is adaptive. The exponent p becomes a simple, interpretable control that moves each edge between sharp, linear, and saturating regimes. 
+
+Contributions. 
+
+• We introduce geometry-constrained KANs, where edge activations are derived from duality maps with a learned exponent. • We provide a unified interpretation of KAN edge functions as geometry-controlled mappings rather than basis expansions. • We show empirically that learning geometry (i) improves robustness under measurement noise—the ℓp
+
+edge degrades less than cross-validated spline regularisation—and (ii) yields better approximation than 2basis-based KANs in the small-sample regime, outperforming fixed bases and explicit spline regularisation. • We derive a testable prediction from the geometry—a trainable-depth condition p > 3/2 (Theorem 1)— and isolate the geometry effect from generic parametric flexibility through matched-budget controls (Section 5.1). • We demonstrate that learned exponents give an interpretable, init-anchored signal that reflects the structure of the underlying task. 
+
+# 2 Background and Geometry 
+
+We develop a geometric perspective on KANs in which the choice of edge function is understood as a choice of function-space geometry. This viewpoint allows us to move from fixed basis constructions to a parameterisation in which the geometry itself is learned. 
+
+2.1 Kolmogorov–Arnold Networks 
+
+Kolmogorov–Arnold Networks (KANs) replace fixed nonlinear activations with learnable univariate functions on edges. A layer is defined as 
+
+(Φ ℓ(x)) j =
+
+> dℓ−1
+
+X
+
+> i=1
+
+ϕ(ℓ) 
+
+> j,i
+
+(xi), j = 1 , . . . , d ℓ, (1) so the model class is determined by the edge functions ϕj,i . In contrast to standard neural networks, which fix the activation and learn affine weights, KANs fix the aggregation and learn the nonlinear transformations. 
+
+2.2 Fixed bases as implicit geometry 
+
+Existing KAN variants parameterise ϕj,i using fixed basis expansions, including B-splines [15], radial basis functions [14], wavelets [5], Chebyshev polynomials [20], Jacobi polynomials [1], and Fourier features [22]. Although these constructions differ, they share a common limitation: the function space is fixed before observing any data. Each basis encodes a particular inductive bias—such as smoothness, periodicity, or locality—which determines how functions are represented. Figure 1 illustrates the consequences. Even with matched parameter budgets, different bases exhibit distinct failure modes when fitting discontinuous targets such as steps and staircases. Smooth bases approximate discontinuities by distributing them across coefficients, leading to oscillations or bias. This reflects a mismatch between the imposed geometry and the structure of the target. 
+
+2.3 Adaptive activations 
+
+A related line makes the activation itself trainable: adaptive-activation methods [11] learn an input slope 
+
+inside a fixed-shape nonlinearity σ(ax ), which accelerates convergence without leaving the activation’s regularity class. The construction we develop differs in kind. The exponent p changes the shape and regularity class itself —threshold-like as p → 1, linear at p = 2 , and flattened for large p—so it is the induced geometry, not the input scale, that adapts. The learnable-shape-parameter idea is therefore not new, but adapting geometry rather than slope is; we isolate the two effects empirically in Section 5.1, where at a matched per-edge budget a slope-adaptive edge is never competitive with the geometry-adaptive one. 33 2 1 0 1 2 3                    
+
+> z
+> 012345678
+> (z)
+> (a) Convex Potentials
+> Orlicz: log cosh( z)
+> Ball: |z|2.0 /2.0
+> Ball: |z|2.5 /2.5
+> Ball: |z|4.0 /4.0
+> 3210123
+> z
+> 4
+> 2
+> 024
+> (z)
+> (b) Gradients = Duality Maps
+> log cosh = tanh
+> (| z|2.0 /2.0) = J2.0
+> (| z|2.5 /2.5) = J2.5
+> (| z|4.0 /4.0) = J4.0
+> 21012
+> z1
+> 2.0
+> 1.5
+> 1.0
+> 0.5
+> 0.0 0.5 1.0 1.5 2.0
+> z2
+> (c) Unit Balls (Sublevel Sets)
+> Orlicz ball
+> 2.0 ball
+> 2.5 ball
+> 4.0 ball
+
+Figure 2: Geometry induces activation. Convex potentials define the geometry, their gradients act as activations, and the unit balls illustrate how the geometry varies. 
+
+2.4 Geometry, duality, and activations 
+
+To move beyond fixed bases, we consider geometry at a more fundamental level. Let us consider Banach spaces [17, 7], where geometry is induced by a norm: the norm determines the shape of the unit ball and therefore how distances, variations, and gradients are measured. A norm also induces a canonical convex potential that encodes this geometry. For the ℓp family, this potential is 
+
+Ψp(z) = 1 
+
+> p
+
+|z|p,
+
+whose level sets coincide with scaled unit balls. The gradient of this potential defines the associated duality map, 
+
+Jp(z) = ∇Ψp(z) = sign( z)( |z| + ε)p−1,
+
+which converts geometric structure into a nonlinear transformation [7]. This establishes a direct correspondence: norm ⇒ geometry ⇒ convex potential ⇒ activation .
+
+Figure 2 visualises this relationship. The convex potentials define the geometry, their gradients define the activations, and the unit balls illustrate how geometry varies with p. Smaller values of p produce sharper responses, while larger values flatten behaviour near the origin and amplify tails. This perspective extends beyond ℓp geometries. For example, the convex potential 
+
+Ψ( z) = log cosh( z)
+
+induces the activation 
+
+∇Ψ( z) = tanh( z).
+
+Unlike the power-law growth of ℓp, this potential grows quadratically near the origin and linearly in the tails, leading to bounded, saturating activations. As shown in Figure 2, these two geometries induce qualitatively different response behaviours. Taken together, this yields a unifying view: activation functions arise as gradients of convex potentials determined by geometry. Rather than selecting an activation directly, one selects a geometry, and the activation follows. Learning the exponent p therefore corresponds to learning the underlying geometry. 43 2 1 0 1 2 3
+
+Pre-activation z         
+
+> 4
+> 2
+> 024
+> Activation output
+> bounded (saturation) unbounded (power growth)
+> (a) Two Duality Maps
+> Orlicz: tanh( z) = log cosh( z)
+> Ball: J2.5 (z) = sign( z)| z|1.5
+> 3210123
+
+Pre-activation z  
+
+> 2
+> 1
+> 01234(b) Banach-KAN Edge Functions
+> Saturating (Orlicz-led) Power-law (Ball-led) Non-monotone (mixed) Asymmetric (high p)
+
+Figure 3: (a) The two duality maps compared: Orlicz duality ( tanh ) saturates at ±1, providing bounded expressivity; ball duality ( J2.5) grows as |z|1.5, providing adaptive power-law geometry. (b) Banach-KAN edge functions span diverse shapes by combining both: saturating curves (Orlicz-led), power-law growth (ball-led), non-monotone functions (mixed), asymmetric responses (high p). 
+
+2.5 A design gap 
+
+The preceding discussion highlights a structural limitation in existing approaches. Current KAN variants implicitly fix the underlying function-space geometry through their choice of basis, while standard neural networks fix the activation and learn affine weights. In both cases, the geometry is specified a priori and remains unchanged during training. This is restrictive: the experiments in Figure 1 show that no single fixed geometry is well-suited across different target behaviours. Smooth bases struggle with discontinuities, while bounded activations cannot capture unbounded growth. These limitations arise not from insufficient capacity, but from a mismatch between the imposed geometry and the structure of the data. This suggests that the key modelling choice is not the basis or the activation itself, but the geometry it induces. A more flexible approach would allow this geometry to adapt during learning. Concretely, we seek a parametrisation that: • retains the simple edge-wise structure of KANs, • avoids discrete basis selection or architectural search, • exposes geometry through a small number of continuous, interpretable parameters. In the next section, we show that this can be achieved by promoting the exponent p to a learnable parameter on each edge, yielding geometry-constrained KANs. 
+
+# 3 Geometry-Constrained KANs 
+
+We now define three KAN architectures that form a controlled family, each isolating a specific aspect of the geometry–expressivity trade-off (see Figures 2 and 3). In all three cases, the edge function ϕj,i in Eq. (1) takes the form of a parameterized univariate activation with an affine pre-activation z = wx + b.53.1 Tanh-KAN: Expressivity Without Geometric Adaptation 
+
+Each edge function is 
+
+ϕ(x) = a · tanh( wx + b) + d, (2) with 4 learnable parameters {a, w, b, d } per edge. As discussed in Section 2, tanh arises from Orlicz duality, and is also one of the most widely studied and deployed activations in practice: the canonical gating nonlinearity in LSTM and GRU units [9, 6], theoretically analysed in classical feedforward training studies [13], and a universal approximator for sigmoidal networks [8, 10]. Because Banach-KAN contains this branch as its a2 = 0 special case (Table 1), the family inherits universal approximation, so expressivity rather than universality is the binding constraint at a fixed budget. This yields bounded, smooth edge functions with strong expressivity, but offers no learnable 
+
+geometric constraint. 
+
+3.2 ℓp-KAN: Geometric Adaptation 
+
+Each edge function is 
+
+ϕ(x) = a · Jp(wx + b) + d, Jp(z) = sign( z)( |z| + ε)p−1, (3) with 5 learnable parameters {a, w, b, d, p } per edge; here ε = 10 −8 is a numerical smoothing, and the everywhere-C1 form of Jp actually used in training is given in Section 4. The exponent is parameterised as 
+
+p = 1 + exp( θ) with θ ∈ R, allowing unconstrained optimisation. The exponent p governs how each edge responds to its input. Figure 3 shows how varying p produces qualitatively different behaviours: sharp, threshold-like responses for p → 1, approximately linear behaviour near p = 2 , and flatter responses near the origin for larger p. Unlike fixed-basis constructions, this control is continuous and learned directly from data. This makes p a compact descriptor of local regularity: instead of selecting a basis or tuning a regularization parameter, the model adapts its geometry directly. 
+
+3.3 Banach-KAN: Dual-Geometry Composition 
+
+The two constructions above correspond to distinct duality structures: Orlicz geometry (bounded, saturating) and ℓp geometry (unbounded, power-law). A natural question is whether these can be combined in a principled way. Both activations are gradients of convex potentials: 
+
+tanh = ∇Ψ1, Ψ1(z) = log cosh( z), Jp = ∇Ψ2, Ψ2(z) = |z|p
+
+p .
+
+The Banach-KAN edge combines them: 
+
+ϕ(x) = a1 tanh( w1x + b1) + a2Jp(w2x + b2) + d, (4) with 8 learnable parameters {a1, a 2, w 1, w 2, b 1, b 2, d, p } per edge. If both branches share the same pre-activation u = wx + b, the edge reduces to ∇(Ψ 1 + Ψ 2)( u). By standard convex duality [3], the corresponding dual representation is given by the infimal convolution 
+
+Ψ∗
+
+> 1
+
+□Ψ∗
+
+> 2
+
+, producing a principled blend of entropic (near-zero) and power-law (tail) behaviour. 6In practice, the architecture uses independent affine parameters (w1, b 1) and (w2, b 2), which breaks this exact identity but strictly generalizes it: each geometry can attend to a different projection of the input. This trades exact convex structure for increased expressivity while retaining the geometric interpretation. We are explicit that the reported model is only loosely tied to the duality construction: the tied-affine edge that preserves the exact ∇(Ψ 1 + Ψ 2) identity is reported as a control in Section N, where it is competitive— matching or beating the independent form under moderate noise and degrading more gently—but trails on clean and small-sample data, so the independent form remains the model we report. The resulting edge operates in a product of two geometric families, combining bounded and unbounded responses. Structurally, tanh has bounded derivative while Jp grows as a power law, so the combined gradient spans response regimes that neither branch reaches alone—which is why the conjunction, rather than either branch, is the operative model (Section 5.1). Figure 3 shows that this produces a diverse class of behaviours not achievable by either geometry alone. 
+
+3.4 Geometry-dependent sensitivity 
+
+The exponent p does not only change the shape of the edge function; it also controls how perturbations are amplified through the activation. Consider an ℓp edge 
+
+ϕ(x) = aJ p(wx + b) + d, Jp(z) = sign( z)( |z| + ε)p−1.
+
+The smoothed duality map has derivative 
+
+J′
+
+> p
+
+(z) = ( p − 1)( |z| + ε)p−2, z̸ = 0 .
+
+On a bounded input domain |x| ≤ R with |z| ≤ M := |w|R + |b|, the edge ϕ(x) = aJ p(wx + b) + d is therefore Lipschitz with 
+
+Lip( ϕ) ≤ | a| | w| (p − 1) sup 
+
+> |z|≤ M
+
+(|z| + ε)p−2. (5) For Banach-KAN, the tanh branch is |a1|| w1|-Lipschitz, since | tanh ′(z)| ≤ 1. Combining the two branches gives 
+
+Lip( ϕ) ≤ | a1|| w1| + |a2|| w2|(p − 1) sup 
+
+> |z|≤ M2
+
+(|z| + ε)p−2. (6) The bound in Eq. (5) is non-monotone in p: it is small for p near 2 and large in both limits p → 1+
+
+(because εp−2 → ∞ ) and p → ∞ (because M p−2 → ∞ for M > 1). 
+
+3.5 What the geometry predicts: trainable depth 
+
+The sensitivity analysis above is local. A complementary, global consequence of the exponent is a condition for trainability at depth, and it is the one place where the geometric perspective makes a derived, testable prediction rather than motivating a form. Consider the exact map Jp in a plain feedforward stack with Gaussian preactivations, and let χ1 be the mean squared singular value of a layer’s Jacobian—the standard order parameter for signal propagation. 
+
+Proposition 1 (Trainable depth) . For the exact duality map Jp(z) = sign( z)|z|p−1 in a plain feedforward network whose preactivations are Gaussian with any variance q > 0,
+
+χ1 = σ2 
+
+> w
+
+(p − 1) 2 q p−2 EZ∼N (0 ,1) 
+
+|Z|2p−4 ,
+
+which is finite if and only if p > 3/2, for every q. When p > 3/2 a unique critical weight scale σw solving 
+
+χ1 = 1 exists; at or below p = 3 /2 none exists at any q.
+
+7Table 1: Members of the geometry-constrained KAN family. Top: special-value members of Banach-KAN. Bottom: standalone variants.                                                  
+
+> Method Specialisation Edge form ϕ(x)Free parameters per edge
+> linear p= 2 in ℓpa(wx +b) + d(a, w, b, d )
+> tanh a2= 0 atanh( wx +b) + d(a, w, b, d )
+> lp_fixed pfixed aJ p(wx +b) + d(a, w, b, d )
+> lp learned pin ℓpaJ p(wx +b) + d(a, w, b, d, θ )
+> banach full Orlicz ⊕ℓpa1tanh( w1x+b1) + a2Jp(w2x+b2) + d(a1, a 2, w 1, w 2, b 1, b 2, d, θ )
+
+Proof. With weights i.i.d. N (0 , σ 2
+
+> w
+
+/fan-in ) the preactivation is z = √q Z , Z ∼ N (0 , 1) , and χ1 = σ2 
+
+> w
+
+E[J′
+
+> p
+
+(z)2]
+
+with J′
+
+> p
+
+(z) = ( p − 1) |z|p−2; hence χ1 = σ2
+
+> w
+
+(p − 1) 2q p−2 E|Z|2p−4. Since E|Z|s = 2 s/ 2Γ( s+1 2 )/√π is finite iff 
+
+s > −1, the moment E|Z|2p−4 = 2 p−2Γ( p− 32 )/√π is finite iff p > 3/2, for every q. For p > 3/2 the coefficient of σ2 
+
+> w
+
+is a finite positive constant, so χ1 = 1 has the unique solution σ2 
+
+> w
+
+= [( p − 1) 2q p−2E|Z|2p−4]−1 > 0; at or below p = 3 /2 the moment diverges, so χ1 = + ∞ for every σw > 0 and no critical scale exists at any 
+
+q.
+
+Remark 1. The implemented ε- and C1-regularised maps keep χ1 finite for all p > 1, but for p < 3/2 the critical scale behaves as σw ∼ ε(3 −2p)/2 and vanishes as ε → 0: sub-Euclidean edges have no ε-independent critical initialisation—the same near-origin blow-up that triggers the clipping in Section 4. This is a mechanism, not a proof of untrainability, since residual connections can preserve trainability off criticality; it nonetheless predicts p > 3/2 as the trainable-depth condition, a claim that bites only in a deep stack and whose direct deep test we leave to future work. The shallow symbolic-regression models trained here carry only 1.2–5.4% sub-3/2 edges (Section H), so no counterexample arises. 
+
+# 4 Practical Implementation and Inference 
+
+We now describe how geometry-constrained KANs are fit in practice. The goal is to estimate the per-edge exponent θ together with the standard activation parameters from training data. 
+
+Loss and optimiser. Given training pairs {(xi, y i)}ni=1 ⊂ Rd × R, we minimise the empirical mean squared error 
+
+L(Θ) = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+ fΘ(xi) − yi
+
+2,
+
+with Θ collecting the per-edge parameters (a, w, b, d, θ ). Optimisation is unconstrained on θ, with p =1 + exp( θ) enforcing p > 1. We use Adam [12] with cosine annealing for 5,000 steps and gradient clipping at 
+
+10 . The optimisation is low-dimensional per edge, with θ as the only non-standard parameter. 
+
+Initialisation from the Euclidean reference. The exponent admits a natural reference point at p = 2 .5, slightly above the Euclidean value, where the activation is sufficiently nonlinear to provide useful expressivity but not so peaked as to cause numerical difficulties at z = 0 . This corresponds to 
+
+θ = log(1 .5) ≈ 0.405 . In practice we initialise every edge from this point and rely on gradient descent to redistribute exponents across edges. Empirically, this initialisation gives stable training across all our experiments in Section 5 and recovers a wide spread of final exponents. In the benchmark-equations 82 0 21.0                  
+
+> 0.5
+> 0.0 0.5 1.0
+> Jp(z)
+> p= 1.25
+> 2021
+> 01
+> p= 1.5
+> 2024
+> 2
+> 024
+> p= 2.5
+> exact Jp
+> additive-
+> C1map
+> 101
+> z
+> 02468
+> J′
+> p(z)
+> exact J′
+> p
+> additive-
+> C1map
+> 101
+> z
+> 012345101
+> z
+> 0123
+
+Figure 4: The C1 duality map approximates the exact map and regularises its gradient. Top: the exact map Jp(z) = sign( z)|z|p−1 (dashed), the additive-ε smoothing sign( z)( |z| + ε)p−1, and the adopted C1 map 
+
+z(z2 + ε2)(p−2) /2 coincide away from the origin; near z = 0 the additive-ε map has a jump of 2εp−1 for p < 2,whereas the C1 map passes through the origin smoothly. Bottom: the gradient—the exact (p − 1) |z|p−2 is singular at z = 0 for p < 2, and the C1 map replaces it with a bounded, smooth peak of height εp−2, the quantity the gradient clip acts on. A visible ε = 0 .1 is shown for legibility; the experiments use ε = 10 −8,for which the curves are indistinguishable outside an ε-neighbourhood of 0.experiment of Section 5.1, only 1.2% of edges remain within ±0.01 of the initialisation, and edges genuinely explore both the sub-Euclidean and super-Euclidean regimes. 
+
+Numerical stabilisation and the C1 map. The exact ℓp duality map Jp(z) = sign( z)|z|p−1 has a singular derivative at z = 0 for p < 2. The additive smoothing sign( z)( |z| + ε)p−1 that appears in the display equations removes the singular value but is not itself differentiable at the origin: for 1 < p < 2 it retains a jump of 2εp−1 there, and the corresponding potential 1 
+
+> p
+
+(|z| + ε)p has a corner. We therefore implement the everywhere-C1 duality map 
+
+Jεp (z) = z (z2 + ε2)(p−2) /2 = ∇
+
+h 1 
+
+> p
+
+(z2 + ε2)p/ 2i
+
+,
+
+the gradient of a convex, everywhere-differentiable potential, with ε = 10 −8 and no per-task tuning. This is the correct realisation of differentiability at z = 0 and preserves the geometric interpretation, agreeing with 
+
+|z|p−1 in the tails (Figure 4); empirically it reproduces the additive-ε numbers—clean medians within 0.5% 
+
+and the same noise-degradation ratios (Table 2)—so the correction changes no result-table entry. Gradient clipping at 10 controls the near-origin sensitivity: the slope Jε′ 
+
+> p
+
+(0) = εp−2 ≈ 10 4 for (p, ε ) = (1 .5, 10 −8), so the clip fires routinely on sub-Euclidean edges and keeps training stable. 9Table 2: The C1 map reproduces the ε-map: noise-degradation ratio ( σ=0 → 1) under three realisations of 
+
+Jp; clean medians agree within 0.5% , so the differentiability correction changes no result-table entry.             
+
+> Realisation of Jpℓpdegr. Banach degr. additive ε-map (paper) 3.7 ×8.8 ×
+> Adam re-run 3.5 ×8.9 ×
+> C1map (adopted) 3.6 ×8.7 ×
+
+Remarks. Additional implementation details are provided in the appendices: the preregistered Spline– Adam control schedule (Section A), per-equation training-time breakdowns (Section B), and the CV protocol for the spline regularisation baseline (Section C). 
+
+# 5 Experiments 
+
+In this section we report results of geometry-constrained KANs on synthetic and real datasets. 
+
+Protocol. Symbolic regression — predominantly the AI Feynman benchmark [21] augmented with custom stress-test targets — is the primary evaluation; PMLB [19] is a tabular sanity check. All benchmark-equation results report median NRMSE = RMSE /std( ytest ); all methods share the same train/test splits and input normalisation. 
+
+Baselines. Four comparators: Spline G=3 (B-spline KAN [15] via pykan, G = 3 , k = 3 , L-BFGS), Spline CV (cross-validated regularised B-spline KAN; details in Section C), Cheby-KAN [20] (degree-4
+
+Chebyshev polynomials), and a 50 -unit ReLU MLP. An L-BFGS-vs-Adam optimiser control for the spline baseline (Section A) does not affect the overall results. 
+
+Datasets. 
+
+• Benchmark equations : 50 targets in 2–6D, 40 from AI Feynman [21] and 10 synthetic stress tests (Section L). Types: polynomial, rational, trigonometric, compositional, exponential, logarithmic, hyperbolic. The Core 18 subset is used for noise, small-sample, and fixed-p sweeps. • PMLB [19]: 12 regression datasets, d ∈ [2 , 10] , n ∈ [108 , 1,000] , covering geophysics, pollution monitoring, computing, and epidemiology. All KAN models use architecture [d, K, 1] with K = 5 for d ≤ 2, K = 4 for d ∈ { 3, 4}, and K = 3 for d ≥ 5.Counted as trainable weights, the pykan spline uses 8 per edge—the same as Banach-KAN, and more than Cheby-KAN’s 7 (the spline’s larger nominal footprint is non-trained grid, mask, and bias buffers)—so we make no parameter-efficiency claim; the fairness of the comparison rests instead on the matched-budget controls of Section 5.1. The full 50 -equation list (Section L), PMLB descriptions (Section J), per-dimension parameter counts (Section B), and a pendulum-period interpretability case study (Section I; a near-boundary logarithmic singularity that local-basis splines cannot extrapolate to) are provided in the appendices. 
+
+5.1 Benchmark equations 
+
+Baseline. Table 3 shows three diagnostic patterns. First, Spline G=3 takes the most wins ( 21 /50 ) yet loses on median NRMSE: a bimodal error signature in which the spline is sharp where its grid resolution suffices and brittle elsewhere. Cheby-KAN is the inverse—uniformly close to the front, rarely strictly best, reflecting global polynomial expressivity without local adaptivity. The wins-vs-median gap therefore separates sharp-but-fragile bases from uniformly competent ones. Second, Banach-KAN attains the best average rank on both subsets ( 2.32 on 50 eq, 2.00 on the core 18 ) and is the only family member that wins 10 Table 3: Clean-data baseline ( n = 500 , σ = 0 ). Two column groups: “Full 50 equations” uses the complete benchmark, “Core 18 equations” uses the subset re-used in the noise and small-sample sweeps. 
+
+Full 50 equations Core 18 equations Model Median NRMSE Wins Rank Median NRMSE Wins Rank Spline G=3 0.037 21 2.34 0.037 7 2.39 Tanh 0.067 0 5.18 0.089 0 5.28 Banach 0.030 11 2.32 0.030 6 2.00 
+
+ℓp 0.060 0 4.78 0.068 0 4.72 MLP 0.049 8 3.80 0.048 4 3.89 Cheby 0.030 10 2.58 0.029 1 2.72 
+
+Table 4: Left: median NRMSE under noise at n = 500 (best per column in bold ). Right: number of equations won at σ = 0 for each sample size (out of 18 ). 5 seeds.                                                                                        
+
+> Noise robustness ( n= 500 , median NRMSE) Small-sample wins out of 18 (σ= 0 )Model σ= 0 0.10.30.51.0n= 50 100 200 500 1000
+> Spline G=3 0.037 0.077 0.197 0.346 0.789 32426Spline CV 0.036 0.054 0.132 0.187 0.403 03161Tanh 0.089 0.094 0.112 0.185 0.283 00000Banach 0.030 0.041 0.098 0.145 0.263 87553
+> ℓp0.068 0.077 0.108 0.138 0.249 32000MLP 0.048 0.073 0.148 0.200 0.381 43344Cheby 0.029 0.047 0.120 0.202 0.435 01514
+
+consistently under both aggregations; Tanh-KAN and ℓp-KAN, each carrying only one ingredient (bounded saturation or adaptive power-law geometry), never win outright on clean data, so the Banach conjunction is what is operative. Third, MLP becomes competitive only at 20 –30 × more parameters, so its ranks are bought rather than earned at parity. Stratifying by input dimension makes the regime explicit: Spline G=3 dominates at low d where its 7 control points per edge cover the input, while at d ≥ 4 the budget runs out and wins fragment across Banach, Cheby, and MLP with no single dominant model—exactly the regime where adaptive geometry should pay over a fixed prior (Section B). Learned exponents on the same set are interpretable and target-specific. Across 4,465 Banach-KAN edges, 18 .7% learn p < 2, only 1.2% remain within ±0.01 of the initialisation p = 2 .5, and the within-run standard deviation of p exceeds 0.5 in 77% of runs—edges specialise rather than collapse. The distribution by equation type is consistent across runs: families with sharper local behaviour (logarithmic, hyperbolic, exponential, trigonometric) push edges below p = 2 , while smoother polynomial and power targets stay above. The sub-Euclidean fraction grows monotonically with input dimension ( 11% at 2D to 34% at 6D), and exponents are stable under noise (mean absolute shift from σ = 0 to σ = 0 .3 is 0.094 ), so p tracks the target rather than the noise level (Section H). We are precise about what this asserts: the per-equation mean exponent is seed-noisy (between-equation spread exceeds within-equation spread), and the sub-Euclidean fraction is stable across seeds (across-seed SD 0.079 ) only at a fixed initialisation—initialising near p = 2 
+
+leaves almost none—so the claim is a relative, aggregate, init-anchored signal (sharper targets receive lower 
+
+p), not a per-edge or absolute-threshold property. 
+
+Noisy data. Table 4 (left) sweeps σ ∈ { 0, 0.1, 0.3, 0.5, 1.0} at n = 500 . Fixed-basis models degrade 11 Table 5: Median NRMSE under noise, unified Adam (Core 18 , 5 seeds); “Degr.” is the σ=0 → 1 ratio. Right column: mean rank over the σ-sweep {0, 0.1, 0.3, 0.5, 1.0} across the eight edge models.                                                        
+
+> Model (params/edge) σ=0 0.30.51.0Degr. Rank ( σ-sweep) Banach ( 8)0.029 0.095 0.149 0.259 8.9 ×2.12
+> ℓp(5)0.071 0.110 0.140 0.250 3.5 ×4.03 RBF ( 7)0.031 0.110 0.193 0.411 13.2 ×3.51 Cheby ( 7)0.029 0.119 0.204 0.435 14.9 ×4.29 Jacobi ( 7)0.034 0.118 0.198 0.453 13.5 ×4.51 Wavelet ( 6)0.047 0.137 0.229 0.489 10.4 ×6.40 Fourier ( 8)0.031 0.134 0.233 0.515 16.5 ×6.12 spline ( 8)0.018 0.140 0.239 0.625 34.8 ×5.01
+
+more under measurement noise (Spline G=3 21 .6×, Cheby-KAN 14 .9× from σ = 0 to σ = 1 .0) than the geometry-constrained KANs ( ℓp-KAN 3.7×, Tanh-KAN 3.2×, Banach-KAN 8.8×). Among the three geometry-constrained variants, Banach-KAN is the lowest-NRMSE model at low noise, whereas at σ = 1 .0
+
+the ℓp and Tanh variants overtake it. The comparison holds against recent fixed-basis KANs as well: adding RBF- [14], Fourier- [22], Wavelet- [5], and Jacobi-KAN [1] at matched per-edge budget under a single Adam protocol, all four degrade by 10 –17 × from σ = 0 to σ = 1 , joining Spline and Cheby, while the geometry family degrades least; averaged over the σ-sweep Banach-KAN holds the best rank ( 2.12 ), ahead of every fixed basis, and at σ ≥ 0.5 no fixed basis wins a single equation (Table 5). Per-equation breakdowns are in Section E. 
+
+Small-sample approximation. Table 4 (right) sweeps n ∈ { 50 , 100 , 200 , 500 , 1000 } at σ = 0 and reports per-condition wins (out of 18 ). Banach-KAN approximates targets better than basis-based KANs in the small-sample regime : 8/18 wins at n = 50 and 7/18 at n = 100 , the most of any single model. Basis-based KANs need data—Spline G=3 climbs from 3/18 at n = 50 to 6/18 at n = 1000 ; Cheby-KAN from 0 to 4; Spline CV takes most of its wins at n = 500 (6/18 ). Across the 90 cells, Banach-KAN wins 28 
+
+(Spline G=3 17 , Spline CV 11 , MLP 18 , Cheby 11 , ℓp 5, Tanh 0); Banach-KAN is the only family member uniformly competitive across the budget range (per-equation breakdowns in Section F). 
+
+Architecture dissection. The three geometry-constrained models—Tanh-KAN (bounded expressivity, no geometric adaptation), ℓp-KAN (geometric adaptation, no bounded saturation), and Banach-KAN (the conjunction)—form a controlled ablation of the expressivity–geometry trade-off. In the three-way comparison (Section G), Banach wins clean data, ℓp wins in the scarce noisy regime, and Tanh contributes under moderate noise. Freezing a2 = 0 disables Jp while keeping tanh trainable: median clean-data NRMSE degrades by 1.91 ×, all 18 /18 equations worsen, with the largest gap 5.0× (Section D). Within ℓp-KAN, learned p wins 17 /18 against any fixed p choice (Section H), confirming that the departure from Euclidean geometry—not a power-law activation per se—is the operative mechanism. A single-edge probe (Section K) shows Banach reproducing four univariate targets (sigmoid, cubic, scaled Bessel J0, exponential) at NRMSE 
+
+< 0.04 while ℓp fails on the bounded sigmoid—direct evidence that the tanh branch supplies expressivity the Jp branch lacks. 
+
+Isolating geometry from parametric flexibility. Banach-KAN can also be read as a compact parametric edge, which raises the question of whether its gains come from the geometry or simply from a more flexible activation with more parameters. We isolate this with a panel of parametric-activation controls—a learnable-power edge, a rational/Padé edge [18, 4], a mixture of standard activations [16], and a slope-adaptive edge in the style of adaptive activations [11]—each at its family’s natural per-edge budget 12 Table 6: Parametric-activation controls, clean data, unified Adam (Core 18 , 5 seeds). “Rank” is the mean rank within the seven-model set; “Small-sample” is wins out of 90 . The Banach–mixture clean gap is −0.023 
+
+(95% CI [−0.039 , −0.001] ) by paired equation-bootstrap.                                   
+
+> Edge (params/edge) Clean NRMSE Wins/ 18 Rank (7-model) Small-sample/ 90
+> Banach ( 8)0.029 15 1.17 60
+> mixture ( 7)0.052 32.39 16 rational/Padé ( 8)0.066 04.22 2
+> ℓp(5)0.071 04.33 6learnable-power ( 5)0.086 04.89 2
+> tanh (4)0.089 05.00 2slope-adaptive ( 5)0.105 06.00 2
+
+Table 7: Extrapolation (train inner 60% , test out-of-range): median NRMSE and per-model wins out of 18 .                
+
+> Model NRMSE Wins/ 18
+> Banach 0.35 7
+> ℓp0.42 6spline 0.73 0Cheby 0.80 3RBF 0.86 0
+> tanh 1.10 2Fourier 1.66 0
+
+under one Adam/cosine/gradient-clip protocol (Core 18 , 5 seeds). Banach’s 8 parameters per edge sit at the upper end of this range; the two controls at its own budget, mixture ( 7) and rational ( 8), still lose ( 0.052 and 
+
+0.066 clean median NRMSE against Banach’s 0.029 ), so the effect is not a parameter-count artefact. Against the four controls Banach-KAN wins clean 15 /18 (rank 1.17 within the seven-model set) and small-sample 
+
+60 /90 ; a bare learnable-power edge sits close to ℓp-KAN and far from Banach ( 0.086 ), and the slope-adaptive edge, swept over three learning rates and three slope initialisations, is best at ∼ 2.8× Banach’s error ( 0.071 
+
+vs 0.026 )—never competitive, and not a tuning artefact. Together with the single-scalar learned-p vs fixed-p
+
+test (learned p wins 17 /18 ), this places the gain on the learned geometry rather than on generic parametric flexibility (Table 6). 
+
+Extrapolation. Because Jp is globally power-law, geometry-constrained edges carry a controlled behaviour outside the training range that local bases lack. On a Core-18 protocol that trains on the inner 
+
+60% of each input box and tests out-of-range ( 3 seeds), Banach-KAN and ℓp-KAN attain the lowest median NRMSE ( 0.35 and 0.42 ), ahead of Spline ( 0.73 ), Cheby ( 0.80 ), RBF ( 0.86 ), and Fourier ( 1.66 ); the bounded Tanh edge is worst among the geometry variants ( 1.10 ), consistent with saturation. This mirrors the pendulum-period case study of Section I, where a near-boundary logarithmic singularity defeats local-basis splines (Table 7). 
+
+Scaling and scope. Our scope is deliberately low-to-mid-dimensional regression, and we do not compete with deep architectures on their own ground, where an MLP matches these targets only at 20 –30 × the parameters (Table 3). As a boundary probe, replacing only the final-layer activation of a ResNet backbone by the geometry map—leaving all other activations as ReLU—gives Banach-KAN 0.881 vs ReLU 0.911 on CIFAR-10 and 0.598 vs 0.634 on CIFAR-100, with a larger gap on STL-10 ( 0.44 –0.49 vs 0.79 ). This is a readout rather than a depth test: it sits outside Theorem 1, and the plausible limiter is the sensitivity of 13 Table 8: Test accuracy, matched parameters; final-layer geometry only, ReLU backbone.                  
+
+> Dataset Geometry (readout) ReLU Gap CIFAR-10 Banach 0.881 0.911 −3.0pt CIFAR-100 Banach 0.598 0.634 −3.6pt STL-10 0.44 –0.49 0.79 −30 pt
+
+Table 9: Per-dataset median NRMSE ( 5 seeds, lower is better, best per row in bold ) on 12 PMLB regression datasets. The geometry-constrained family wins 10 /12 datasets; Spline G=3 wins zero. Last two rows aggregate over the table.                                                                                                                         
+
+> Dataset Domain dnSpline Tanh Banach ℓpMLP
+> 712_chscase_geyser1 geophysics 2222 1.02 0.46 0.48 0.46 0.48
+> 678_vis_environmental environmental 3111 1.80 0.86 0.99 0.91 0.92
+> 1027_ESL ordinal 4488 0.52 0.37 0.40 0.41 0.40
+> 1030_ERA ordinal 41000 0.81 0.81 0.81 0.81 0.81
+> 210_cloud meteorology 5108 0.69 0.41 0.51 0.41 0.35
+> 230_machine_cpu computing 6209 0.76 0.27 0.31 0.33 0.27
+> 665_sleuth_case2002 biology 6147 2.01 1.14 1.21 1.03 1.22
+> 561_cpu computing 7209 0.08 0.05 0.04 0.06 0.10
+> 522_pm10 pollution 7500 1.56 0.94 1.17 0.92 1.04
+> 547_no2 pollution 7500 1.34 0.69 0.91 0.75 0.87
+> 666_rmftsa_ladata epidemiology 10 508 1.08 0.69 2.05 0.66 0.83
+> 1028_SWD ordinal 10 1000 0.82 0.80 0.81 0.81 0.82 Wins (out of 12) –––05141Mean rank –––4.83 1.67 3.08 2.25 3.17
+
+an unbounded power-law readout, whose Lipschitz constant grows with p (Section 3.4), which we flag as a hypothesis. The faithful inner-layer variant did not complete within budget, so a direct depth test remains future work. We report the negative to mark the boundary of the regime, not because we entered a contest for it (Table 8). 
+
+Beyond symbolic regression: tabular data. To check that the mechanism extends beyond synthetic targets, we evaluate on 12 PMLB regression datasets [19] ( d ∈ [2 , 10] , n ∈ [108 , 1,000] ), 5 seeds, 80 /20 split, standardised features and target. The pattern matches the benchmark-equation results (Table 9): Tanh-KAN is the strongest single model (5 wins, mean rank 1.67 ); ℓp-KAN takes 4 datasets with power-law/heavy-tailed structure. Spline G=3 wins zero and has the worst mean rank ( 4.83 ), often with NRMSE above 1 where geometry-aware models stay below 0.5. The geometry-constrained family wins 10 /12 ; MLP wins one despite several-times-more parameters. Learned p on the Banach branch concentrates near [2 .5, 3.3] , consistent with super-Euclidean geometry on noisy real-world data. 
+
+# 6 Discussion and Conclusion 
+
+The operative choice in KANs is function-space geometry , not the basis or activation. A learned per-edge p
+
+matches or improves upon fixed alternatives without tuning. On the clean-data benchmark, Banach-KAN takes the best average rank on the Core 18 ( 2.00 ) and is statistically tied with the strongest spline on 14 the full 50-equation set ( 2.32 vs. 2.34 ), while matching or beating fixed-basis baselines on the median NRMSE. Under measurement noise the geometry-constrained variants degrade less than fixed-basis baselines as σ rises ( ℓp 3.7× and Tanh 3.2×—below even a cross-validated spline ( ≈ 11 ×)—versus 21 .6× for the unregularised spline, with Banach at 8.8×, from σ = 0 to σ = 1 ), and Banach-KAN takes the highest number of per-equation wins in the small-sample regime. The three geometry variants play distinct empirical roles: Banach is the lowest-NRMSE model at low noise and small n, ℓp takes over at high noise, and Tanh contributes a bounded-saturation component that ℓp alone cannot supply. Learned exponents provide an interpretable, init-anchored signal across equation families and input dimensions: edges specialise rather than collapse, the sub-Euclidean fraction grows monotonically with input dimension, and the per-equation exponent distribution is preserved under noise, even though individual per-edge values are seed-dependent and the signal is relative to a fixed initialisation. Our robustness claims concern measurement noise, not worst-case perturbations, which lie outside the symbolic-regression setting; the rigorous object for the latter is the per-edge Lipschitz certificate of Section 3.4, and empirically the worst noise-degrader (the spline) carries the larger Lipschitz constant under noise—a bounded mechanism rather than a uniform law. We also do not claim reduced spectral bias: our edges are global rather than local, so the Gram conditioning grows with basis size and the spline-locality property does not transfer. Our approach has two limitations, each suggesting a concrete future-work direction. First, the per-edge form has a capacity ceiling that fixed-basis KANs close as n grows; we plan to mitigate this by composing geometry-constrained edges with a small learnable basis component, retaining the geometric prior while expanding local expressive power, and by exploring deeper geometry-constrained compositions. Second, our evaluation covers symbolic regression and tabular data only; we will scale geometry-constrained KANs to higher-dimensional modalities (sequence and image data) by using them as drop-in replacements for MLP heads inside standard backbones. Beyond these, we plan to characterise KAN and MLP function classes through the variation-norm space [2] to formalise the differences observed empirically, and to develop a more structured combination of the tanh and ℓp branches (for instance tied-affine, gated, or regime-adaptive) so that each branch contributes where its empirical strengths lie, rather than summing both with independent affines. The contribution is orthogonal to the choice of basis. Casting edge activations as gradients of convex potentials makes existing activations special cases of one construction rather than competing bases, and promoting the exponent to a learnable per-edge parameter makes geometry itself the adaptable degree of freedom—so the learned p is a geometric readout of the target, not a tuned knob. We do not position this against deep architectures on their own ground: an MLP matches these targets only at 20 –30 × the parameters, and the ResNet readout marks the boundary of the regime rather than a contest we entered. The claim is a design principle at an operating point—at comparable per-edge budget, under measurement noise, and at small n, it is the induced geometry, not raw expressivity, that governs what is learned well, and at that budget learned geometry beats both generic bases and generic parametric activations. What we offer is a principle, an interpretable mechanism, and a regime where learned geometry is the right tool—not a state-of-the-art benchmark number. 15 References 
+
+[1] Alireza Afzal Aghaei. fKAN: Fractional Kolmogorov–Arnold networks with trainable Jacobi basis functions. Neurocomputing , 623:129414, 2025. 1, 3, 12 [2] Francis Bach. Breaking the Curse of Dimensionality with Convex Neural Networks. Journal of Machine Learning Research , 18(19):1–53, 2017. 15 [3] Heinz H. Bauschke and Patrick L. Combettes. Convex Analysis and Monotone Operator Theory in Hilbert Spaces . CMS Books in Mathematics. Springer, 2nd edition, 2017. 6 [4] Nicolas Boullé, Yuji Nakatsukasa, and Alex Townsend. Rational neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , 2020. 12 [5] Zavareh Bozorgasl and Hao Chen. Wav-KAN: Wavelet Kolmogorov-Arnold networks. arXiv preprint arXiv:2405.12832, 2024. 1, 3, 12 [6] Kyunghyun Cho, Bart van Merriënboer, Caglar Gulcehre, Dzmitry Bahdanau, Fethi Bougares, Holger Schwenk, and Yoshua Bengio. Learning phrase representations using RNN encoder–decoder for statistical machine translation. In Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pages 1724–1734, Doha, Qatar, October 2014. Association for Computational Linguistics. 6 [7] Ioana Ciorănescu. Geometry of Banach Spaces, Duality Mappings and Nonlinear Problems , volume 62 of Mathematics and Its Applications . Kluwer Academic Publishers, Dordrecht, 1990. 4 [8] G. Cybenko. Approximation by superpositions of a sigmoidal function. Mathematics of Control, Signals and Systems , 2(4):303–314, 1989. 6 [9] S. Hochreiter and J. Schmidhuber. Long short-term memory. Neural Computation , 9(8):1735–1780, 1997. 6 [10] K. Hornik, M. Stinchcombe, and H. White. Multilayer feedforward networks are universal approximators. 
+
+Neural Networks , 2(5):359–366, 1989. 6 [11] Ameya D. Jagtap, Kenji Kawaguchi, and George Em Karniadakis. Adaptive activation functions accelerate convergence in deep and physics-informed neural networks. Journal of Computational Physics ,404:109136, 2020. 3, 12 [12] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980, 2014. 8 [13] Yann LeCun, Léon Bottou, Genevieve B. Orr, and Klaus-Robert Müller. Efficient BackProp. In Neural Networks: Tricks of the Trade , Lecture Notes in Computer Science, pages 9–50. Springer-Verlag, Berlin, Heidelberg, 1998. 6 [14] Ziyao Li. Kolmogorov-Arnold networks are radial basis function networks. arXiv preprint arXiv:2405.06721, 2024. 1, 3, 12 16 [15] Ziming Liu, Yixuan Wang, Sachin Vaidya, Fabian Ruehle, James Halverson, Marin Soljacic, Thomas Y. Hou, and Max Tegmark. KAN: Kolmogorov–Arnold networks. In The Thirteenth International Conference on Learning Representations (ICLR) , 2025. 1, 3, 10 [16] Franco Manessi and Alessandro Rozza. Learning combinations of activation functions. In International Conference on Pattern Recognition (ICPR) , 2018. 12 [17] R. E. Megginson. An Introduction to Banach Space Theory , volume 183 of Graduate Texts in Mathematics .Springer, 1998. 4 [18] Alejandro Molina, Patrick Schramowski, and Kristian Kersting. Padé activation units: End-to-end learning of flexible activation functions in deep networks. In International Conference on Learning Representations (ICLR) , 2020. 12 [19] Joseph D Romano, Trang T Le, William La Cava, John T Gregg, Daniel J Goldberg, Praneel Chakraborty, Natasha L Ray, Daniel Himmelstein, Weixuan Fu, and Jason H Moore. PMLB v1.0: an open-source dataset collection for benchmarking machine learning methods. Bioinformatics , 38(3):878– 880, 2022. 10, 14 [20] Sidharth SS, Keerthana AR, Gokul R, and Anas KP. Chebyshev polynomial-based Kolmogorov-Arnold networks: An efficient architecture for nonlinear function approximation. arXiv preprint arXiv:2405.07200, 2024. 1, 3, 10 [21] Silviu-Marian Udrescu and Max Tegmark. AI Feynman: a physics-inspired method for symbolic regression. arXiv preprint arXiv:1905.11481, 2020. 10, 30 [22] Jinfeng Xu, Zheyu Chen, Jinze Li, Shuo Yang, Wei Wang, Xiping Hu, and Edith Ngai. Enhancing graph collaborative filtering with FourierKAN feature transformation. arXiv preprint arXiv:2406.01034, 2025. 1, 3, 12 17 Appendix 
+
+This document collects the exhaustive empirical results and ablations referenced from the main paper. Per-equation breakdowns and full sweeps for every experiment in the main paper are reported here. Section labels are reused from the main paper where natural; figures and tables are numbered fresh. 
+
+# A Preregistered Spline–Adam sweep 
+
+The Spline † configuration in the main paper (Adam, 10 ,000 steps, lr = 10 −2, λ = 0 ) was selected before 
+
+running the 18-equation ablation, by a preliminary sweep on two held-out equations ( I.12.1 , 2D polynomial, and I.34.14 , 3D power). Table 10 reports the sweep results. Table 10: Preregistered Spline–Adam sweep on two held-out equations (5 seeds each). Step count and learning rate for the main run ( bold ) selected before observing the 18-equation results.                              
+
+> Configuration I.12.1 NRMSE I.34.14 NRMSE Time/config lr = 3 ×10 −3, 5k steps 0.0072 0.0197 55 s lr = 1 ×10 −3, 5k steps 0.0138 0.0317 54 s lr = 3 ×10 −4, 5k steps 0.0333 0.0637 56 s
+> lr = 1 ×10 −2, 10k steps 0.0075 0.0098 93 s
+
+At 5,000 steps, the best learning rate (lr = 3 × 10 −3) leaves the harder 3D equation a factor of 2 short of converged. Doubling to 10,000 steps at lr = 10 −2 closes that gap. Larger step counts were not explored beyond 10,000 because the per-equation cost (93 s/config) already exceeds the L-BFGS baseline’s cost (34.7 s/config) by 2.7×.
+
+Per-equation clean-data ratio. On the 18-equation clean baseline, the Spline † / Spline-LBFGS ratio is highly equation-dependent. Adam matches or beats L-BFGS on harder equations ( I.34.10 : 0.28 ×; I.8.14 :
+
+0.55 ×; III.17.37 : 0.80 ×; III.14.14 : 0.83 ×) and loses on simple 2D polynomials ( I.12.1 : 3.81 ×; I.14.4 :
+
+3.49 ×; I.25.13 : 3.62 ×). The > 3× gap is confined to the 2–3 simplest 2D polynomial equations; on the remaining 15 equations the ratio is at or below 2×, with 8 of 18 showing near-parity ( ⩽ 1.2×). 
+
+# B Architectures and parameter counts 
+
+All KAN models use architecture [d, K, 1] with K = 5 for d ≤ 2, K = 4 for d ∈ { 3, 4}, and K = 3 for 
+
+d ≥ 5. Per-edge parameter counts follow Table 1: Tanh-KAN ( 4/edge), ℓp-KAN ( 5/edge), Banach-KAN (8/edge), Cheby-KAN (degree 4, 7/edge with tanh normalisation), Spline G=3 ( k = 3 , G + k + 1 = 7 control points per edge), and a 50 -unit ReLU MLP. Total parameter counts per model and per input dimension are summarised in Table 11. Counted as trainable weights, Banach-KAN matches the pykan spline at 8 per edge (Cheby-KAN’s 7 is cheaper), so we make no parameter-efficiency claim over the spline; the fairness of the comparison rests instead on the matched per-edge budget. The MLP, by contrast, uses 20 –30 × more parameters than any KAN at d ≥ 4.18 Table 11: Parameter counts per model by input dimension.                                    
+
+> Tanh ℓpBanach Cheby Spline G=3 MLP 2D 60 75 120 105 304 201 3D 64 80 128 112 314 251 4D 80 100 160 140 380 2851 5D 72 90 144 126 348 2901 6D 84 105 168 147 400 2951
+
+Wins by input dimension. Stratifying the 50-equation clean baseline by input dimension shows a clean regime split (Table 12). Spline G=3 dominates at low dimensions ( 7/7 at 2D, 8/17 at 3D); at d ≥ 4 the wins split among Banach-KAN, Cheby-KAN, and the MLP, with no single model dominating. The MLP becomes competitive at 5D ( 4/11 wins) at the cost of 20 –30 × more parameters than the KAN models. Table 12: Optimal geometry by input dimension ( 50 equations, clean data). Entries are equations won.                                         
+
+> Spline G=3 Tanh Banach ℓpMLP Cheby 2D ( 7eq.) 7000003D ( 17 eq.) 8040144D ( 13 eq.) 204034
+> 5D ( 11 eq.) 3030416D ( 2eq.) 100001
+
+Compute resources. All experiments run on CPU only (no GPU). On a single 22 -core node, the supplementary reproducer’s Core 18 single-seed clean baseline ( 108 trainings, 5,000 Adam steps each) completes in about 75 minutes of wall-clock time and consumes 61 CPU-minutes in total. Per-training wall-clock by model is summarised in Table 13; spline LBFGS dominates the budget. The full paper’s experimental matrix (50-equation clean baseline, noise sweep, small-sample sweep, dissection and fixed-p
+
+ablations, five seeds) comprises roughly 7,000 trainings and was run as PBS array jobs on a 64 -core node with 72 -hour walltime, approximately 60 CPU-hours of effective compute. Table 13: Per-training wall-clock (seconds) on a single 22 -core node, Core 18 equations, single seed, 5,000 
+
+Adam steps. Statistics over 18 equations per model.                             
+
+> Model Mean Median Min Max Spline G=3 107 .199 .656 .3183 .0
+> Banach 28 .919 .615 .083 .1
+> Cheby 23 .416 .810 .461 .1
+> ℓp19 .212 .09.365 .6
+> Tanh 15 .713 .67.338 .1
+> MLP 9.98.87.725 .0
+
+19 C Spline regularisation under noise: CV vs oracle λ
+
+We evaluate Spline G=3 with L1-entropy regularisation at λ ∈ { 0, 10 −3, 10 −2, 10 −1} across noise levels (Table 14). The optimal λ scales with noise: no regularisation for clean data, light regularisation ( λ = 10 −3)at σ = 0 .1, and moderate regularisation ( λ = 10 −2) from σ = 0 .3 onward. Table 14: Median NRMSE across 18 equations for each λ. Best λ per row in bold .
+
+σ λ = 0 λ = 10 −3 λ = 10 −2 λ = 10 −1 Best λ
+
+0.0 0.035 0.047 0.128 0.793 λ = 0 
+
+0.1 0.077 0.054 0.101 0.763 10 −3
+
+0.3 0.196 0.167 0.132 0.550 10 −2
+
+0.5 0.342 0.360 0.187 0.530 10 −2
+
+1.0 0.788 0.732 0.403 0.467 10 −2
+
+CV vs oracle. CV-selected λ (5-fold cross-validation on the training set) tracks the oracle-tuned λ
+
+(best λ per equation × noise) within 3% at every noise level. The gap between regularised spline and geometry-constrained KANs is therefore not an oracle-tuning artefact. 
+
+Win counts: best regularised spline vs geometry-constrained. Even with the best λ per equation (oracle), the regularised spline still loses the per-equation race once σ ⩾ 0.1 (Table 15). Table 15: Per-equation wins against oracle-tuned regularised spline (18 equations). 
+
+σ Best Reg. Spline Banach-KAN ℓp-KAN Tanh-KAN 0.0 11 7 0 00.1 4 10 3 10.3 3 7 6 20.5 3 4 10 11.0 0 2 13 3
+
+# D Banach a2 = 0 ablation 
+
+To verify that Banach-KAN’s dominance is not driven entirely by the tanh component, we freeze a2 = 0 to disable the Jp branch while keeping the tanh branch trainable (denoted Banach a2=0 ). Table 16: Jp branch ablation: Banach-KAN with a2 frozen at 0 (tanh-only) vs. full Banach-KAN, by input dimension (18 core equations, clean data, median NRMSE over 5 seeds). 
+
+2D (3 eq.) 3D (6 eq.) 4D (4 eq.) 5D (4 eq.) 6D (1 eq.) Overall Full Banach-KAN 0.0042 0.0220 0.0775 0.0573 0.0776 0.0298 Banach a2=0 (tanh-only) 0.0116 0.0294 0.1411 0.1319 0.0975 0.0556 Ratio (tanh-only / full) 2.74 × 1.33 × 1.82 × 2.30 × 1.26 × 1.91 ×
+
+20 The median degradation is 1.91 ×; full Banach-KAN beats the ablated variant on all 18 equations by at least 10%, with the largest single-equation gap reaching 5.00 × on the trigonometric equation III.17.37 .The degradation is present at every dimension, with the largest ratios at 2D ( 2.74 ×) and 5D ( 2.30 ×): the 
+
+Jp branch is not redundant at any scale. 
+
+Banach with fixed p = 2 . Within the Banach-KAN family, the analogue ablation freezes p = 2 (disabling geometry learning while keeping both branches active). The learned-p Banach beats the fixed-p = 2 Banach on 15/18 clean and 14/18 noisy equations; the fixed wins are marginal (Capacitor, Doppler, Barometric). 
+
+# E Per-equation noise tables 
+
+We report the median NRMSE per equation per noise level for all 18 core benchmark equations. Seeds: 1729–1733. Best per row in bold .
+
+E.1 σ = 0 (clean) 
+
+Per-equation median NRMSE on the 18 core equations at σ = 0 , n = 500 , across 5 seeds. Best of the four models in bold ; Spline G=3 takes 10 /18 wins, Banach-KAN 8/18 , while Tanh-KAN and ℓp-KAN take none on the clean benchmark. The pattern is consistent with the Table 3 reading: the spline takes localised wins (sharp where its grid resolution matches), while Banach is uniformly competent and wins the average rank. Table 17: Clean-data NRMSE per equation (18 core equations).                                                                                                                   
+
+> Equation Type dSpline G=3 Tanh Banach ℓp
+> I.12.1 Coulomb poly 20.0014 0.0093 0.0041 0.0061 I.14.4 Spring poly 20.0014 0.0095 0.0042 0.0073 I.25.13 Capacitor rat 20.0015 0.0128 0.0082 0.0172 I.34.14 Rel. Doppler pow 30.0091 0.0446 0.0167 0.0321 I.14.3 Grav. PE poly 30.0184 0.0372 0.0153 0.0296 I.18.12 Torque trig 30.0275 0.1291 0.0322 0.1509 I.34.10 Doppler rat 30.0356 0.0336 0.0274 0.0590 I.47.23 Sound pow 30.0086 0.0245 0.0111 0.0205 III.17.37 Ang. dist. trig 30.0915 0.1830 0.0507 0.1134 I.8.14 Euclid. comp 40.2815 0.2281 0.1379 0.2458 I.13.4 Kinetic poly 40.0376 0.0384 0.0111 0.0259 I.29.16 Cosines comp 40.1648 0.3303 0.2011 0.2811 III.4.32 Bose–Einst. exp 40.0333 0.0662 0.0170 0.0418 I.12.11 Lorentz trig 50.0725 0.2315 0.0544 0.1381 I.44.4 Entropy log 50.0508 0.3552 0.0602 0.0773 II.35.21 Magnet. hyp 50.0691 0.1424 0.0826 0.1221 III.14.14 Diode exp 50.0943 0.1428 0.0509 0.2111 I.40.1 Barometric exp 60.0510 0.1120 0.0776 0.2099
+
+E.2 σ ∈ { 0.1, 0.3, 0.5, 1.0}
+
+Aggregate medians by noise level (Table 18); winner counts shift from Banach-led (low σ) to ℓp-led (high σ), confirming the geometry transition. 21 Table 18: Aggregate noise-by-model median NRMSE (18 equations, 5 seeds). Best per row in bold .
+
+σ G=3 G=5 G=10 G=20 Tanh Banach ℓp MLP 0.0 0.037 0.064 0.104 0.122 0.089 0.030 0.068 0.048 0.1 0.077 0.085 0.144 0.170 0.094 0.041 0.077 0.073 0.3 0.197 0.245 0.332 0.282 0.112 0.098 0.108 0.148 0.5 0.346 0.374 0.414 0.408 0.185 0.145 0.138 0.200 1.0 0.789 0.805 0.767 0.772 0.283 0.263 0.249 0.381 
+
+Win counts per noise level. Within the geometry-constrained family the leader transitions from Banach to ℓp as σ grows (Table 19). Table 19: Number of equations (out of 18) where each model achieves the lowest median NRMSE. 
+
+σ G=3 G=5 G=10 G=20 Tanh Banach ℓp MLP 0.0 6 2 1 0 0 6 0 30.1 1 0 0 0 1 11 2 30.3 0 0 0 0 2 8 6 20.5 0 0 0 0 1 5 10 21.0 0 0 0 0 3 2 12 1
+
+Degradation analysis. The ratio of median NRMSE at σ = 1 .0 to σ = 0 separates fixed-basis from learnable-geometry models cleanly (Table 20). Table 20: Degradation factor (NRMSE at σ = 1 .0 / NRMSE at σ = 0 ). 
+
+Model NRMSE at σ = 0 NRMSE at σ = 1 .0 Degradation Spline G=3 0.037 0.789 21 .6×
+
+Spline G=5 0.064 0.805 12 .6×
+
+Spline G=10 0.104 0.767 7.4×
+
+Spline G=20 0.122 0.772 6.3×
+
+Spline CV ( G=3 ) 0.036 0.403 11 .2×
+
+MLP 0.048 0.381 8.0×
+
+Banach-KAN 0.030 0.263 8.8×
+
+ℓp-KAN 0.068 0.249 3.7×
+
+Tanh-KAN 0.089 0.283 3.2×
+
+ℓp-KAN and Tanh-KAN degrade least ( 3–4×); Spline G=3 degrades most ( 21 .6×). All spline variants converge to NRMSE around 0.75 –0.80 at σ = 1 .0, rendering them essentially useless. 22 F Per-equation small-sample tables 
+
+Table 21: Aggregate small-sample median NRMSE ( σ = 0 , 18 core equations, 5 seeds). Best per row in 
+
+bold .                                                
+
+> nG=3 G=5 G=10 G=20 Tanh Banach ℓpMLP 50 0.246 0.316 0.425 0.670 0.207 0.102 0.190 0.179 100 0.087 0.203 0.348 0.346 0.150 0.075 0.100 0.096 200 0.045 0.098 0.186 0.253 0.121 0.037 0.069 0.069 500 0.037 0.058 0.106 0.123 0.089 0.030 0.068 0.048 1000 0.029 0.046 0.074 0.088 0.058 0.020 0.059 0.036
+
+Table 22: Number of equations (out of 18) where each model wins per sample size at σ = 0 (across 8 models including spline grids G=5,10,20).                                                 
+
+> nG=3 G=5 G=10 G=20 Tanh Banach ℓpMLP 50 30000834100 50000724200 52001703500 521007031000 70100604
+
+Banach-KAN takes the most wins at every n ≤ 500 and remains close to the front at n = 1000 . Spline G=3 increases its win count monotonically with n (3 → 7), consistent with basis-based KANs needing more samples to identify their per-edge parameters; the larger spline grids (G=5, G=10, G=20) win rarely at any 
+
+n in this range. Geometry-constrained models (Banach + ℓp) and the small spline (G=3) together account for the bulk of wins at every sample size. 
+
+Per-equation best model. Table 23 reports the winning model for each equation at three representative sample sizes (under σ = 0 ). 23 Table 23: Per-equation best model in the clean small-sample regime ( σ = 0 ). 
+
+# Equation Type d n = 50 n = 500 n = 1000 
+
+1 I.12.1 Coulomb poly 2 ℓp G=5 G=3 2 I.14.4 Spring poly 2 G=3 G=3 G=3 3 I.25.13 Capacitor rat 2 Banach G=5 G=3 4 I.34.14 Rel. Doppler pow 3 Banach G=3 G=3 5 I.14.3 Grav. PE poly 3 Banach Banach Banach 6 I.18.12 Torque trig 3 Banach G=3 Banach 7 I.34.10 Doppler rat 3 G=3 G=10 G=10 8 I.47.23 Sound pow 3 Banach G=3 Banach 9 III.17.37 Ang. dist. trig 3 Banach Banach Banach 10 I.8.14 Euclid. comp 4 MLP MLP MLP 11 I.13.4 Kinetic poly 4 ℓp Banach Banach 12 I.29.16 Cosines comp 4 MLP MLP MLP 13 III.4.32 Bose–Einst. exp 4 Banach Banach Banach 14 I.12.11 Lorentz trig 5 ℓp Banach MLP 15 I.44.4 Entropy log 5 Banach G=3 G=3 16 II.35.21 Magnet. hyp 5 MLP MLP MLP 17 III.14.14 Diode exp 5 G=3 Banach G=3 18 I.40.1 Barometric exp 6 MLP Banach G=3 
+
+# G Architecture dissection per equation 
+
+The 3-way race between Tanh, ℓp, and Banach across regimes (Table 24) shows that the conjunction story holds equation by equation, not just on aggregate. 24 Table 24: Dissection winner per equation by regime. B = Banach, L = ℓp, T = Tanh; columns are clean (σ = 0 , n = 500 ) and noisy ( σ = 0 .3, n = 500 ). 
+
+# Equation Type d Clean Noisy 1 I.12.1 poly 2 B L2 I.14.4 poly 2 B B3 I.25.13 rat 2 B T4 I.34.14 pow 3 B L5 I.14.3 poly 3 B B6 I.18.12 trig 3 B B7 I.34.10 rat 3 B T8 I.47.23 pow 3 B L9 III.17.37 trig 3 B B10 I.8.14 comp 4 B B11 I.13.4 poly 4 B L12 I.29.16 comp 4 B B13 III.4.32 exp 4 B L14 I.12.11 trig 5 B B15 I.44.4 log 5 B L16 II.35.21 hyp 5 B B17 III.14.14 exp 5 B B18 I.40.1 exp 6 B B
+
+In the clean regime, Banach wins 18 /18 ; under noise ( σ = 0 .3) Banach wins 10 , ℓp wins 6, and Tanh wins 2. The pattern matches the design intuition: power-law geometry is most useful when label information is weak, while the bounded tanh branch is most useful when fine compositional structure must be tracked. 
+
+# H Learned geometry: full distributional analysis 
+
+Sub-Euclidean fraction by dimension. Across 4,465 Banach-KAN edges (50 equations × 5 seeds), the fraction of edges with p < 2 scales monotonically with input dimension (Figure 5 and Table 25). 1 2 3 4 5 6 
+
+> Learned p (edges with p>6 clipped to 6)
+> 050 100 150 200 250 300 350 400 Edge count
+> Distribution of learned p (n=4,465 edges, 50 eq × 5 seeds)
+> Euclidean (p=2) Init (p=2.5) compos expone hyperb logari polyno power ration trigon 123456
+> Learned p
+> p distribution by equation type
+
+Figure 5: Distribution of learned exponents p across 4,465 Banach-KAN edges, broken out by input dimension. 25 Table 25: Fraction of edges with p < 2 and edge counts by dimension.                           
+
+> Dimension 2D 3D 4D 5D 6D Edge count 525 1,275 1,040 1,320 305 Fraction with p < 2(%) 11 15 16 29 34 Fraction with p < 1.5(%) 1.2 1.4 1.8 4.0 5.4
+
+Within-run specialisation. In 77% of training runs the within-run standard deviation of learned p across edges exceeds 0.5, confirming that distinct edges converge to distinct geometries rather than collapsing to a shared value. By equation type, hyperbolic (31%), logarithmic (28%), and trigonometric (26%) equations push edges toward p < 2, while polynomial (11%) and power (9%) equations keep most edges above 2. 
+
+Mean learned p by equation type. Aggregate means obscure the within-type spread documented above (Table 26). Table 26: Learned exponent p aggregated by equation type (Banach-KAN, 50 equations, clean data).                             
+
+> Equation type Mean pStd Range Trigonometric 2.73 1.49 1.14–22.2 Polynomial 2.64 0.86 1.34–9.0 Power 2.61 0.80 1.37–8.2 Compositional 2.63 0.92 1.04–11.1 Rational 2.50 0.85 1.09–10.3 Exponential 2.49 2.01 1.13–53.2 Logarithmic 2.46 1.00 1.33–8.4 Hyperbolic 2.60 1.82 1.26–15.8
+
+Stability under noise. Mean learned p across 18 equations is stable as σ grows (Table 27); the standard deviation widens only slightly. Table 27: Mean learned p across 18 equations at each noise level (with std across equations).                             
+
+> σℓpmean pℓpstd Banach mean pBanach std 0.0 2.50 0.15 2.56 0.15 0.1 2.49 0.16 2.59 0.14 0.3 2.52 0.18 2.63 0.14 0.5 2.51 0.18 2.64 0.16 1.0 2.61 0.19 2.74 0.19
+
+Fixed vs learned p (full per-equation, clean). For ℓp-KAN with frozen p vs learned p on 18 equations under clean data, learned p wins 17 /18 outright. The single fixed-p win lands on I.29.16 Cosines , where 
+
+p = 3 .0 achieves 0.269 vs. learned at 0.283 (within 5% ). 26 Table 28: ℓp-KAN fixed-p vs learned-p NRMSE per equation (clean, n = 500 ). Best per row in bold .                                                                                                                                                                                
+
+> #Equation Type dp= 1 .5p= 2 .0p= 2 .5p= 3 .0p= 4 .0Learned 1I.12.1 poly 20.081 0.266 0.025 0.048 0.046 0.018
+> 2I.14.4 poly 20.080 0.351 0.031 0.026 0.044 0.022
+> 3I.25.13 rat 20.083 0.405 0.097 0.070 0.076 0.042
+> 4I.34.14 pow 30.102 0.213 0.097 0.088 0.109 0.055
+> 5I.14.3 poly 30.120 0.376 0.116 0.099 0.109 0.061
+> 6I.18.12 trig 30.233 0.714 0.182 0.187 0.171 0.157
+> 7I.34.10 rat 30.109 0.284 0.132 0.127 0.100 0.069
+> 8I.47.23 pow 30.092 0.289 0.108 0.102 0.110 0.039
+> 9III.17.37 trig 30.386 0.929 0.237 0.205 0.207 0.134
+> 10 I.8.14 comp 40.649 1.009 0.303 0.323 0.346 0.240
+> 11 I.13.4 poly 40.138 0.295 0.054 0.062 0.091 0.047
+> 12 I.29.16 comp 40.416 0.904 0.275 0.269 0.406 0.283 13 III.4.32 exp 40.171 0.566 0.284 0.229 0.202 0.087
+> 14 I.12.11 trig 50.292 0.606 0.250 0.275 0.235 0.159
+> 15 I.44.4 log 50.245 0.611 0.330 0.270 0.219 0.104
+> 16 II.35.21 hyp 50.185 0.370 0.196 0.220 0.226 0.150
+> 17 III.14.14 exp 50.306 0.615 0.367 0.330 0.388 0.190
+> 18 I.40.1 exp 60.272 0.561 0.267 0.253 0.267 0.212
+
+The fixed p = 2 column (Euclidean) is consistently the worst choice, confirming that the departure from Hilbert geometry is beneficial. 
+
+# I Pendulum interpretability case study 
+
+As an illustrative interpretability experiment, we consider the nonlinear correction to the small-angle pendulum period. With T = 4 pL/g K (sin 2(θ0/2)) and T0 = 2 πpL/g , the correction factor R(θ0) = 
+
+T /T 0 = (2 /π )K(sin 2(θ0/2)) is smooth, monotone, and has a logarithmic singularity as θ0 → π.
+
+Visual comparison: spline vs. Jp on the pendulum target. Figure 6 contrasts how a small B-spline stack and a small Jp-stack approximate R(θ0) when trained on [0 .01 , 2.0] at n = 500 and asked to extrapolate on (2 .0, 2.8] toward the singularity at θ0 = π. The spline (a local basis tied to its grid) collapses past the training boundary because the basis carries no information about behaviour outside the grid; the Jp-stack (a global functional form parameterised by p) extrapolates with the correct power-law shape because the activation itself encodes the singular geometry. The same contrast appears at a cusp f (x) = sign( x)|x|0.7,where a single Jp edge with learned p ≈ 1.7 reproduces the cusp exactly while the spline rounds it. The figure uses parameter-matched pedagogical implementations (a few-edge spline stack and a few-edge Jp
+
+stack) rather than the full pykan / Banach-KAN architectures of Tables 29–30, so the absolute extrapolation NRMSE values shown in the legend are larger than those reported in the tables; the qualitative gap between local and global parameterisations is the point. 
+
+Setup. Two formulations: 1D ( θ0 → R) and 3D ( (L, g, θ 0) → T ). Three regimes: interpolation on 
+
+[0 .01 , 2.8] , extrapolation (train on [0 .01 , 2.0] , test on [2 .0, 2.8] ), and noise on the interpolation regime. 
+
+1D interpolation. ℓp-KAN dominates at every sample size (Table 29), achieving NRMSE 0.0012 at 
+
+n = 500 —a relative error below 0.2%. 27 0.0 0.5 1.0 1.5 2.0 2.5 3.0                      
+
+> 0(rad)
+> 1.00 1.25 1.50 1.75 2.00 2.25 2.50 2.75
+> R( 0) =  T/T0
+> =
+> singularity
+> Pendulum: log singularity local basis collapses past training
+> extrapolation toward =
+> target R() (pendulum)
+> train spline (extr NRMSE = 2.88)
+> Jp(extr NRMSE = 1.18)
+> 1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00 x1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00 0.25 0.50 0.75 1.00 f(x)
+> x=0 cusp
+> Algebraic cusp: C2spline cannot represent the corner
+> target f(x) = sign( x)| x|0.7
+> train spline (31 params, NRMSE = 0.014)
+> Jp(5 params, NRMSE = 0.000; learned p= 1.70)
+
+Figure 6: Two regularity-mismatch failure modes for fixed bases (parameter-matched pedagogical models; train [0 .01 , 2.0] at n = 500 , extrapolate on (2 .0, 2.8] ). Left : pendulum correction R(θ0) with a log singularity at θ0 = π. The spline (blue) extrapolates flat past the training interval; the Jp-stack (red) extrapolates with the correct power-law shape. Extrapolation NRMSE is reported in the legend; absolute values exceed those in Table 30 because of the smaller per-edge parameter budget used here for visual clarity, but the relative ordering matches the full experiments. Right : algebraic cusp f (x) = sign( x)|x|0.7. A single Jp edge with learned p ≈ 1.7 recovers the cusp; a same-budget spline cannot. Table 29: 1D pendulum interpolation NRMSE (median over 5 seeds). 
+
+n Spline G=3 Tanh Banach ℓp MLP 50 0.0066 0.0053 0.0032 0.0025 0.0136 100 0.0031 0.0043 0.0029 0.0018 0.0130 200 0.0018 0.0038 0.0031 0.0013 0.0090 500 0.0015 0.0044 0.0024 0.0012 0.0068 1000 0.0015 0.0043 0.0023 0.0014 0.0063 
+
+1D extrapolation. Banach-KAN dominates the out-of-distribution regime, despite training only on 
+
+[0 .01 , 2.0] .Table 30: 1D pendulum extrapolation NRMSE (train on [0 .01 , 2.0] , test on [2 .0, 2.8] ). 
+
+n Spline G=3 Tanh Banach ℓp MLP 200 0.675 1.139 0.364 0.394 0.907 500 0.708 1.132 0.356 0.390 0.868 1000 0.690 1.130 0.348 0.394 0.881 
+
+The Tanh and MLP baselines exceed NRMSE 1 (worse than mean prediction) on extrapolation. Spline reaches ∼ 0.7. Banach’s dual-geometry composition transfers best to the unseen near-singularity region. 28 Learned exponents. For Banach-KAN on 1D pendulum, the learned p across 5 seeds is 2.9 ± 0.1 (mean), with individual edges ranging from 2.3 to 4.9. This is consistent with the regularity structure of K(m) near the upper training boundary. 
+
+Connection to K(m) singularity. K(m) ∼ 12 log(4 /(1 − m)) as m → 1, so with m = sin 2(θ0/2) and 
+
+ε = π − θ0,
+
+1 − m = cos 2(θ0/2) ∼ ε2/4, K(m) ∼ log(4 /ε ), R(θ0) ∼ (2 /π ) log(4 /ε ).
+
+Derivatives near θ0 = π: R′(θ0) ∼ (1 /π ) log(4 /ε )/ε and R′′ (θ0) ∼ (1 /π )(1 + log(4 /ε )) /ε 2. At the upper training boundary θ0 = 2 .8, ε = 0 .34 , R′′ ∼ 9.5—bounded but large. Although R is C∞ on [0 .01 , 2.8] ,derivatives scale as ε−k log(1 /ε ), controlled by the distance to the singularity. The local Hölder-like exponent of R near the boundary is encoded in this distance-to-singularity structure. The activation 
+
+Jp(z) = sign( z)|z|p−1 has nonlinearity order p − 1. For R’s local behaviour ( log(1 /ε )/ε , a composite of log and inverse-power), the optimal p would satisfy p − 1 ∼ α for some effective regularity exponent α
+
+that absorbs the log factor; the observed p ≈ 2.9 is consistent with this picture. We frame the precise approximation-theoretic derivation as an open problem. 
+
+# J PMLB tabular benchmark: additional notes 
+
+The per-dataset table is reported in Table 9. Two additional observations not in the main paper: • Learned p clusters around 2.5–3.0 across PMLB datasets, with the environmental dataset pushing higher (p ≈ 3.9), consistent with smoother target functions favouring higher-order polynomial growth. • The dominance of Tanh-KAN on tabular data suggests Orlicz geometry is sufficient when compositional structure is weak; ℓp and hybrid geometries provide their largest advantages in structured scientific settings. 
+
+# K Memorisation and edge-expressivity toy experiments 
+
+To complement the symbolic regression results, four toy memorisation tasks evaluate noise robustness on synthetic targets: exp(sin x1 + x22), J0(20 x) (Bessel), x1x2 (multiplication), and a 4D compositional target. Across these tasks Tanh-KAN, Banach-KAN, and Spline-KAN show the same pattern as on Feynman: • No universal winner across all four; the choice depends on smoothness and dimensionality. • Banach-KAN is the best all-rounder at moderate-to-large data sizes. • Tanh-KAN outperforms Spline on noisy 2D and 3D targets, consistent with the implicit-regularisation reading. The edge-expressivity ablation fits a single learnable activation to four univariate targets (sigmoid, cubic, scaled Bessel J0, and an exponential). Banach-KAN reproduces all four (NRMSE < 0.04 on each), while ℓp-KAN succeeds on the two power-law-shaped targets and underperforms on the bounded sigmoid—providing a geometric explanation for the conjunction story: the tanh branch is needed precisely when the target saturates. 29 L Full benchmark (50 equations) 
+
+The first 18 equations form the core subset used for noise, small-sample, dissection, and fixed-p ablations; all 
+
+50 are used for the clean baseline. Of the 50 equations, 40 are taken from the AI Feynman benchmark [21] with the original equation IDs preserved (so that the formula at any I.#.# / II.#.# / III.#.# entry matches the corresponding Feynman entry verbatim); the remaining 10 entries (prefixed F. ) are synthetic stress-test targets we constructed to broaden coverage of the polynomial, trigonometric, exponential, logarithmic, hyperbolic and compositional types in 3–6D. Table 31: All 50 benchmark equations. Entries with IDs I.#.# , II.#.# , III.#.# are taken from [21]; entries prefixed F. are synthetic stress-test targets we constructed for this work. “Core” denotes membership in the 18-equation subset. 
+
+# ID Name Type d Formula Core 1 I.12.1 Coulomb (linear) poly 2 μ N ✓
+
+2 I.14.4 Spring energy poly 2 12 kx 2 ✓
+
+3 I.25.13 Capacitor voltage rat 2 q/C ✓
+
+4 I.34.14 Relativistic Doppler pow 3 ωp(1 + v/c )/(1 − v/c ) ✓
+
+5 I.14.3 Gravitational PE poly 3 mgz ✓
+
+6 I.18.12 Torque trig 3 rF sin θ ✓
+
+7 I.34.10 Doppler effect rat 3 ω0/(1 − v/c ) ✓
+
+8 I.47.23 Speed of sound pow 3 pγp/ρ ✓
+
+9 III.17.37 Angular distribution trig 3 β(1 + α cos θ) ✓
+
+10 I.8.14 Euclidean distance comp 4 p(x2 − x1)2 + ( y2 − y1)2 ✓
+
+11 I.13.4 Kinetic energy poly 4 12 m(v2 + u2 + w2) ✓
+
+12 I.29.16 Law of cosines comp 4
+
+q
+
+x21 + x22 − 2x1x2 cos( t1 − t2) ✓
+
+13 III.4.32 Bose–Einstein exp 4 1/(exp( hω/ 2πk B T ) − 1) ✓
+
+14 I.12.11 Lorentz force trig 5 q(Ef + Bv sin θ) ✓
+
+15 I.44.4 Entropy change log 5 nk B T ln( V2/V 1) ✓
+
+16 II.35.21 Magnetisation hyp 5 nρμ tanh( μB/k B T ) ✓
+
+17 III.14.14 Diode equation exp 5 I0(exp( qV /k B T ) − 1) ✓
+
+18 I.40.1 Barometric formula exp 6 n0 exp( −mgx/k B T ) ✓
+
+19 II.6.15a Dipole field trig 3 p cos θ/r 2
+
+20 I.12.4 Electric field rat 2 q/r 2
+
+21 I.10.7 Relativistic mass pow 2 m0/p1 − β2
+
+22 I.6.20a Normal distribution exp 2 e−θ2/2σ2
+
+/(√2πσ )
+
+23 F.43 Velocity correction poly 3 v + u + αvu 
+
+24 I.16.6 Velocity addition rat 3 (u + v)/(1 + uv/c 2)
+
+25 I.27.6 Thin lens rat 3 1/(1 /d 1 + n/d 2)
+
+26 II.2.42 Heat conduction rat 3 κ ∆T /d 
+
+27 II.15.4 Magnetic PE trig 3 μB cos θ
+
+28 III.15.12 Tight binding trig 3 2U (1 − cos( kd )) 
+
+29 I.18.16 Angular momentum trig 4 mrv sin θ
+
+30 II.11.17 Density fluctuation trig 4 n0(1 + pd cos θ/k B T )
+
+31 I.37.4 Interference comp 3 I1 + I2 + 2 √I1I2 cos δ
+
+32 I.26.2 Snell’s law trig 2 arcsin( n sin θ)
+
+33 F.33 Mixed trig product trig 5 abc sin θ cos ϕ
+
+34 F.34 Phase-shift product trig 5 ab sin( ϕ1 + ϕ2)c
+
+35 III.10.19 Magnetic moment comp 4 μ
+
+q
+
+B2 
+
+> x
+
++ B2 
+
+> y
+
++ B2
+
+> z
+
+36 I.15.3t Lorentz time comp 4 (t − ux/c 2)/p1 − u2/c 2
+
+37 I.24.6 Oscillator energy poly 4 14 m(ω2 + ω20 )x2
+
+38 I.18.4 Centre of mass rat 4 (m1r1 + m2r2)/(m1 + m2)
+
+39 I.13.12 Grav. PE difference rat 5 Gm 1m2(1 /r 2 − 1/r 1)
+
+40 F.40 Inverse-sqrt field comp 4 qk/ 
+
+q
+
+r21 + r22
+
+41 I.39.11 Polytropic energy rat 3 pV / (γ − 1) 
+
+30 # ID Name Type d Formula Core 42 I.48.20 Relativistic energy pow 3 mc 2/p1 − v2/c 2                                                              
+
+> 43 II.11.27 Boltzmann factor exp 4n0exp( −μE f/k BT)
+> 44 F.44 Fermi–Dirac exp 41/(exp( Eℏ/k BT) + 1)
+> 45 F.45 Saturating exp. exp 3A(1 −exp( −t/τ ))
+> 46 F.46 Saturating response hyp 5nμ tanh( B/k BT)
+> 47 F.31 Polarisation rat 5qE f/(m(ω20−ω2))
+> 48 F.48 Nested logarithm log 5nln(1 + EV /k BT)
+> 49 F.49 6D multiplicative exp 6n0Aexp( −mg/k BT)
+> 50 III.21.1 Current density poly 5ρqAv/m
+
+# M Budget-matched reproduction of Figure 1 
+
+Figure 1 fixes every column at a matched 21 -parameter budget; Table 32 sweeps that budget to {13 , 21 , 41 , 125 }
+
+parameters under the same noisy protocol ( σ = 0 .03 , N = 2000 , seed 1729 ). On the Heaviside step the geometry-adaptive edge sits at the noise floor and beats every smooth basis at every budget; a Haar wavelet, whose piecewise-constant geometry matches a step exactly, is indistinguishable from it there. On the five-level staircase the geometry edge instead scales with budget ( 0.177 at 13 p → 0.124 at 21 p → 0.090 at 
+
+125 p, vs. B-spline 0.135 and RBF 0.141 at 21 p), while Haar loses the staircase ( 0.177 at 21 p)—no single fixed geometry is uniformly appropriate. Table 32: Heaviside step, NRMSE by parameter budget (seed 1729 ). The geometry-adaptive edge is budget-invariant at the noise floor; smooth bases need budget to catch up. 
+
+Basis K=12 K=21 K=42 K=126 
+
+geometry-adaptive edge 0.059 0.059 0.059 0.059 Haar wavelet 0.064 0.063 0.063 0.062 
+
+B-spline 0.201 0.173 0.109 0.078 RBF 0.186 0.163 0.108 0.079 Fourier 0.267 0.211 0.156 0.103 
+
+# N Tied-affine exact-duality variant 
+
+The tied-affine edge shares one (w, b ) between the tanh and Jp branches ( 6 parameters/edge) and is the exact ∇(Ψ 1 + Ψ 2) variant; the reported model uses independent affines (Section 3.3). Table 33 compares the three (they compete only against each other, which is why Banach-independent’s small-sample count differs from Table 6). The exact-duality construction is competitive—matching or beating the independent form at moderate noise and degrading more gently—but trails on clean and small-sample data, so we report the independent form. Table 33: Tied- vs. independent-affine (median NRMSE); “Degr.” is the σ=0 → 1 ratio, “Small-sample” wins out of 90 .
+
+Model σ=0 σ=0 .3 σ=1 .0 Degr. Small-sample/ 90 
+
+Banach independent ( 8/edge) 0.029 0.095 0.259 8.9 × 55 
+
+Banach tied ( 6/edge) 0.034 0.096 0.274 8.0 × 17 Banach tied, C1 (6/edge) 0.034 0.092 0.269 7.8 × 18 
+
+31

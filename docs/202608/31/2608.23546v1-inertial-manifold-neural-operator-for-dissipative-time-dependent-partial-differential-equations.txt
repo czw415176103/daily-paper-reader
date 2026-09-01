@@ -1,0 +1,1999 @@
+Title: Inertial Manifold Neural Operator for Dissipative Time-Dependent Partial Differential Equations
+
+URL Source: https://arxiv.org/pdf/2608.23546v1
+
+Published Time: Tue, 25 Aug 2026 02:28:01 GMT
+
+Number of Pages: 45
+
+Markdown Content:
+# Inertial Manifold Neural Operator for Dissipative Time-Dependent Partial Differential Equations 
+
+# Xiaoyang Xie ∗ and Clarence W. Rowley †
+
+# August 25, 2026 
+
+# Abstract 
+
+In this paper, we introduce the Inertial Manifold Neural Operator (IMNO) for solving dissipative time-dependent partial differential equations (PDEs). The long-time dynamics of such systems often exhibit an effective low-dimensional structure due to dissipation. Unlike standard neural operator ar-chitectures such as the Fourier Neural Operator (FNO), IMNO explicitly leverages the low-dimensional structure to achieve better physical interpretability, accuracy, and stability in long-horizon autoregres-sive training and prediction for nonlinear dissipative PDEs. For shift-equivariant PDEs, we further introduce a shift-equivariant variant (IMNO-SE) of the proposed neural operator, ensuring that a spatial shift in the input induces the same spatial shift in the output. This symmetry-preserving in-ductive bias substantially improves its performance in shift-equivariant PDEs. Extensive benchmark experiments are presented to evaluate IMNO’s performance numerically. 
+
+# 1 Introduction 
+
+Dissipative partial differential equations model the evolution of systems in which certain functionals of the state—such as energy or enstrophy—are dissipated by mechanisms like viscosity, diffusion, or relaxation. This dissipative structure is central to models in many areas, such as fluid dynamics, chemistry, and biology [13, 32, 34]. Understanding their behavior is therefore important for modeling and predicting complex systems in nature and engineering. Although these equations are typically infinite-dimensional and may generate intricate nonlinear dynamics, dissipation often suppresses transient degrees of freedom over time, leading to a simpler finite-dimensional description of the long-time dynamics [24]. Reduced-order modeling (ROM) is a practical way to exploit such low-dimensional structure by approximating the original system with a low-dimensional model. This can greatly reduce simulation cost while also improving understanding of the dominant mechanisms in the systems. A large body of work has been developed along this direction, ranging from classical approaches such as proper orthogonal decomposition (POD) [1, 27, 30] to later data-driven methods such as dynamic mode decomposition (DMD) [33, 36]. Inertial manifold theory provides a rigorous theoretical framework for understanding why the long-time behavior of many dissipative partial differential equations can be described by finite-dimensional dynamics [6, 11, 16, 25, 26]. Its central idea is that, although the dynamics of such PDEs are defined on an infinite-dimensional function space, their eventual behavior are governed by a finite-dimensional invariant manifold that exponentially attracts all trajectories. So, the asymptotic dynamics can be reduced, at least in principle, to a finite-dimensional system evolving on that manifold. Some ROMs have also been developed based on ideas from inertial manifold theory, aiming to approximate the effective long-time dynamics of dissipative PDEs on a low-dimensional manifold [7, 20]. However, 
+
+> ∗Program in Applied and Computational Mathematics (PACM), Princeton University, Princeton, 08540, New Jersey, United States. Email: xiaoyangxie@princeton.edu.
+> †Department of Mechanical and Aerospace Engineering, Princeton University, Princeton, 08540, New Jersey, United States. Email: cwrowley@princeton.edu.
+
+1arXiv:2608.23546v1 [math.NA] 24 Aug 2026 because a ROM is ultimately a low-dimensional model, it can only represent dynamics on a low-dimensional manifold itself. As a result, it inevitably neglects the transient behavior outside that manifold, even though such behavior may still be important for accurately recovering the full dynamics. In recent years, neural operators have emerged as a powerful class of methods in scientific machine learning [2, 4, 9, 10, 18, 19, 21, 22]. Unlike conventional neural networks that operate on finite-dimensional vectors, neural operators are designed to learn mappings between infinite-dimensional function spaces, and can be trained to approximate solution operators of partial differential equations. Once trained on data, a neural operator can efficiently evaluate new input functions and can often be applied across different spatial discretizations. Because of these advantages, they have been successfully applied to many scientific problems, including fluid dynamics, materials science, and climate modeling [12, 35, 38]. Among neural-operator architectures, the Fourier Neural Operator (FNO) has emerged as one of the most influential and effective frameworks [18]. By parameterizing the operator in Fourier space, FNO can efficiently capture nonlocal interactions and exhibit good accuracy, while maintaining a relatively small computational complexity. These advantages make FNO an effective and widely used framework for operator learning across many PDE tasks. However, despite its success, FNO still has several limitations. First, like many purely data-driven neural operators, it lacks physical interpretability: the learned dynamics are represented in a largely black-box manner and do not explicitly reflect the underlying structure of the PDE. Second, although FNO often performs well in one-step prediction, its training process can become unstable in multi-step autoregressive rollout, especially over long time horizons. The discussion above suggests a combination of the structural interpretability of reduced-order modeling with the expressive power of neural operators. Motivated by this perspective, we develop the Inertial Manifold Neural Operator (IMNO), a new neural-operator architecture that learns both the dominant long-time dynamics on a low-dimensional manifold and a function-valued residual correction for transient off-manifold behavior. Unlike traditional reduced-order models, which mainly describe the dynamics of the reduced system and often neglect the remaining components outside it, IMNO explicitly decomposes the solution into a manifold component and a residual component. This allows the model to retain the interpretability and compact structure of reduced-order modeling, while using neural operators to preserve the expressive power needed to reconstruct the full PDE dynamics. More-over, this decomposition makes the learning problem more structured and better conditioned, which can improve training stability in long-horizon autoregressive rollout. Extensive numerical experiments demonstrate the performance of the proposed neural operator. We observe that IMNO remains stable in long-horizon multistep rollout training, achieves good accuracy, and is able to effectively extract the underlying low-dimensional long-time dynamics. The remainder of this paper is organized as follows. Section 2 reviews the necessary background on neural operators and inertial manifold theory. Section 3 provides a detailed description of the Inertial Manifold Neural Operator (IMNO). Section 4 introduces the shift-equivariant variant of the proposed neural operator. Section 5 presents numerical experiments on several dissipative PDE benchmarks. Section 6 concludes the paper, and the appendix gives a proof of the universal approximation theorem for our formulation. 
+
+# 2 Background 
+
+# 2.1 Problem Setting 
+
+We consider nonlinear dissipative time-dependent partial differential equations posed on a spatial domain Ω ⊂ Rd. Let H be a Banach or Hilbert space of functions on Ω, and let u(t) ∈ H denote the state of the system at time t. The evolution is governed by a PDE that generates a solution semigroup 
+
+S(t) : H → H, u0 7 → u(t; u0),
+
+where u(t; u0) is the solution at time t with initial condition u0.In operator-learning tasks, the objective is not merely to approximate a finite-dimensional map between discretized vectors, but rather to learn the infinite-dimensional solution operator associated with the PDE. In particular, given a time step ∆ t > 0, we are interested in the one-step evolution 2operator 
+
+G : H → H, G(u) = S(∆ t)u, 
+
+repeated application of this operator then produces an autoregressive rollout of the full trajectory. We assume access to N trajectories generated by the PDE, 
+
+D =
+
+n
+
+u(j)
+
+> n
+
+oTn=0 
+
+Nj=1 
+
+, u (j) 
+
+> n
+
+:= u(tn; u(j)0 ), tn = n∆t, 
+
+where each initial condition u(j)0 is sampled from an underlying probability distribution on H.Accordingly, our goal is to construct a parametric neural operator 
+
+Gθ : H → H, Gθ (u) ≈ S(∆ t)u
+
+that approximates G. At inference time, for any given initial condition u0, the learned operator is applied autoregressively to generate a multi-step forecast: 
+
+un+1 = Gθ (un), n = 0 , 1, . . . , N t − 1,
+
+producing the predicted trajectory {un}Nt
+
+> n=0
+
+.
+
+Difference between Operator Learning and Vector-to-Vector Function Learning Unlike standard vector-to-vector function learning, operator learning aims to approximate a function-to-function map; therefore, the learned model should satisfy two key properties. First, it should be resolution-independent. In practice, input functions and output functions are only available as samples on spatial grids, but these sampled vectors are discretizations of underlying functions in H. Hence, if the model is trained on one spatial resolution, it should remain valid when evaluated on different resolutions. Second, the model class should be genuinely operator-valued rather than a fixed finite-dimensional surrogate. Concretely, for suitable parameters, the image {G θ u : u ∈ H} should not be contained in any finite-dimensional linear subspace of H.
+
+# 2.2 Neural Operators 
+
+One of the most popular neural operator frameworks is the kernel-based operators introduced in [15], which provides the architectural foundation for the operator developed in this work. These kernel-based operators can extend to the more general setting where the input and output belong to different function spaces. More specifically, let Ω denote a bounded domain in Rd, and let 
+
+X (Ω; Rk) and Y(Ω; Rk′
+
+) denote Banach spaces of vector-valued functions over Ω. The neural operator aims to learn a mapping between infinite-dimensional function spaces, 
+
+G : X (Ω; Rk) → Y (Ω; Rk′
+
+),
+
+The neural operator is defined as a mapping Gθ : X (Ω; Rk) → Y (Ω; Rk′
+
+) which can be expressed as a composition Gθ = Q ◦ L L ◦ · · · ◦ L 1 ◦ P , where P is a lifting layer, Lℓ are hidden layers, and Q is a projection layer. The lifting layer P is given by a mapping 
+
+P : X  Ω; Rk → V  Ω; Rdc  , u(x) 7 → P (u(x), x ),
+
+where V  Ω; Rdc
+
+ is an intermediate function space, P : Rk × Ω → Rdc is a learnable neural network acting between finite dimensional Euclidean spaces. Each hidden layer Lℓ takes the form 
+
+Lℓ(v)( x) = σ Wℓv(x) + bℓ + ( Kℓv)( x),
+
+where Kℓ is a nonlocal integral operator defined by a specific kernel Kℓ(x, y ) ∈ Rdc×dc ,(Kℓv)( x) = 
+
+Z
+
+> Ω
+
+Kℓ(x, y )v(y) dy, 
+
+3Each hidden layer defines a mapping Lℓ : V  Ω; Rdc
+
+ → V  Ω; Rdc
+
+. For ℓ = 1 , . . . , L the matrices 
+
+Wℓ ∈ Rdc×dc , and bias bℓ ∈ Rdc are learnable parameters. The activation function σ : R → R acts component-wise on inputs. Finally, the projection layer Q is given by a mapping, 
+
+Q : V(Ω; Rdc ) → Y (Ω; Rk′
+
+), v(x) 7 → Q(v(x)) ,
+
+where Q : Rdc → Rk′
+
+is also a learnable neural network acting between finite dimensional Euclidean spaces. 
+
+Fourier Neural Operators Among the kernel-based neural operator architectures, the Fourier Neural Operator (FNO) has emerged as one of the most influential and effective frameworks[18]. FNO can be viewed as a special case of kernel-based neural operators in which the kernel is restricted to be convolutional and Fourier–parametrized. Specifically, FNO assumes a translation-invariant kernel 
+
+Kℓ(x, y ) = Kℓ(x − y), which is represented by a truncated Fourier expansion 
+
+Kℓ(x − y) = X
+
+> |k|≤ kmax
+
+Rℓ(k) eik (x−y),
+
+where each coefficient Rℓ(k) ∈ Cdc×dc is a trainable matrix. This corresponds to learning the kernel directly in frequency space. Recall that a general kernel operator takes the form (Kℓv)( x) = 
+
+Z
+
+> Ω
+
+Kℓ(x, y ) v(y) dy, 
+
+Substituting the Fourier representation of Kℓ(x, y ) into this expression shows that Kℓ acts diagonally in Fourier space: each Fourier mode of v is multiplied by the learned response Rℓ(k): 
+
+\(Kℓv)( k) = Rℓ(k) bv(k), |k| ≤ kmax .
+
+Transforming back to physical space yields the spectral convolution: (Kℓv)( x) = F−1(Rℓ(k) bv(k)) ( x).
+
+Thus each FNO hidden layer (Fourier block) takes the form 
+
+Lℓ(v)( x) = σ
+
+
+
+Wℓv(x) + bℓ + F−1(Rℓ · F (v))( x)
+
+
+
+.
+
+The Fourier parameterization endowed by this construction gives FNO several practical advan-tages. First, the use of Fourier modes provides each layer with a global receptive field, allowing the architecture to capture nonlocal interactions that commonly arise in PDEs from fluid dynamics and other physical systems. Second, the spectral convolution F−1(Rℓ(k) F(v)( k)) can be implemented using FFTs, yielding an O(N log N ) computational cost per layer and enabling FNO to scale effi-ciently to high-dimensional and high-resolution grids. Third, because only a fixed number of Fourier coefficients are learned, the representation of the operator is largely independent of the discretization of Ω; a model trained on one resolution can often be evaluated on finer or coarser meshes without retraining. This resolution-invariance property distinguishes FNO from traditional convolutional or multilayer perceptron (MLP)-based architectures whose parameters are tied directly to the grid. Fi-nally, FNO has demonstrated strong empirical performance across a broad range of operator-learning benchmarks—including Darcy flow, Burgers equation, and moderate-Reynolds Navier–Stokes—where it often achieves state-of-the-art accuracy with fewer parameters than competing architectures. These properties together make FNO an efficient and widely adopted neural operator model for learning mappings between function spaces. 42.3 Autoregressive Training Stability and Dissipative Priors 
+
+Many operator-learning tasks of practical interest, such as forecasting solutions of time-dependent PDEs, require models that remain stable under long-horizon autoregressive rollout, so that they can faithfully capture the long-term dynamics of dissipative or even chaotic systems [19]. Although pre-dictions are ultimately made autoregressively— each predicted state is fed back into the model to generate the next one—the training procedure itself may follow two distinct paradigms. In the classical teacher-forcing approach, the model is trained to predict the next state using the ground-truth input at every step. In contrast, the autoregressive training paradigm recursively feeds the model’s own predictions back into the input window during training. As advocated in [37], the latter approach encourages the model to learn the intrinsic multi-step evolution law of the underlying PDE rather than merely fitting short transitions, and has been shown to improve long-term predictive accuracy in many PDE systems. However, despite these conceptual advantages, training models such as FNO over long autoregres-sive horizons can become markedly unstable. Models that train reliably under short horizons become difficult to optimize when the autoregressive time window is extended, suggesting that the current structure of FNO may be insufficient to represent the intrinsic structure required for stable multi-step rollouts and may also hinder effective backpropagation during autoregressive training. Long-horizon autoregressive prediction is particularly natural for PDE systems whose dynamics are dissipative, or at least non-expansive in a suitable sense. Without such stability, one-step prediction errors may grow substantially under repeated autoregressive iteration, which can severely limit the long-horizon accuracy of learning-based solvers. Thus, when discussing autoregressive training for long-time PDE prediction, dissipative systems form a central and practically important setting. This suggests that incorporating dissipative prior structure directly into neural-operator design is not only natural but potentially essential. For instance, [19] introduces additional dissipative regularization and dissipative constraints to encode such priors during training. Our work adopts a stronger structural hypothesis: the underlying PDE admits an inertial manifold, namely, an invariant finite-dimensional manifold that exponentially attracts all trajectories. Many canonical dissipative PDEs are known to have this structure in appropriate settings. By explicitly incorporating inertial-manifold structure into the neural-operator architecture, we obtain a more stable, accurate, and physically interpretable model for long-horizon autoregressive learning. 
+
+# 2.4 Inertial Manifolds and Asymptotic Completeness 
+
+2.4.1 The Evolution Equation 
+
+We consider a general class of dissipative evolution equations posed on a separable Hilbert space 
+
+H0, du dt + Au = f (u), u(0) = u0 ∈ H0, (1) where A : D(A) ⊂ H0 → H0 is a positive, self-adjoint, unbounded linear operator with compact inverse, and f is a nonlinear term with some Lipschitz condition. The operator A models the dominant dissipative mechanism of the system. Its positivity and compact inverse imply a discrete spectrum 0 < λ 1 ≤ λ2 ≤ · · · with λk → ∞ . so, under the linear flow generated by du dt = −Au , the high-frequency modes decay rapidly. The nonlinearity f couples these modes and, under appropriate assumptions, preserves the dissipative structure imposed by A.To describe regularity in a precise way, we introduce the fractional domains of A. For γ ≥ 0, the fractional domain of A is defined by 
+
+D(Aγ ) = u ∈ H0 : Aγ u ∈ H0.
+
+Equipped with the inner product 
+
+⟨u, v ⟩D(Aγ ) = ⟨Aγ u, A γ v⟩H0 ,
+
+the space D(Aγ ) is itself a Hilbert space. in concrete PDE settings, they can often be identified, up to equivalence of norms, with fractional Sobolev spaces. 5We assume that the nonlinearity f is locally Lipschitz from D(Aα) into D(Aβ ) for some 0 <α−β < 1, reflecting the fact that nonlinear effects typically lower regularity, while the linear semigroup generated by −A has a smoothing effect. Under these assumptions, (1) generates a continuous semigroup {S(t)}t≥0 on D(Aα). Solutions depend continuously on initial data in appropriate fractional norms: on bounded sets, small differences in initial conditions remain controlled over finite time intervals [25]. Here and below, we denote 
+
+H := D(Aα)as the Hilbert phase space. With this convention, the equation is understood as an evolution equation on H, and the semigroup is written as 
+
+S(t) : H → H, t ≥ 0.
+
+In this work, we are interested in dissipative systems: there exists a bounded absorbing set B ⊂ H
+
+such that every bounded subset of H is eventually mapped into B by the flow. If B is compact and positively invariant, standard results imply the existence of a global attractor A ⊂ H. The global attractor is compact, positively invariant, and attracts all bounded sets as t → ∞ . Although the phase space H is infinite-dimensional, under some additional assumptions, the attractor has finite dimension and captures all possible long-time behaviors of the system [24]. This abstract framework provides a natural setting for studying finite-dimensional descriptions of dissipative dynamics. 
+
+2.4.2 Inertial Manifold 
+
+Although the existence of a global attractor ensures that the long-time dynamics are confined to a compact set, this alone does not necessarily provide a convenient low-dimensional description of the dynamics. A genuine dimensional reduction becomes possible when the attractor is embedded in a smooth finite-dimensional invariant manifold. On such a manifold, the long-time dynamics admit an intrinsic finite-dimensional representation and can be described by a closed system of ordinary differential equations. In dissipative systems, inertial manifold theory provides a rigorous framework for this idea: an inertial manifold is a finite-dimensional, positively invariant, Lipschitz or smoother manifold that contains the global attractor and attracts all trajectories at an exponential rate. Thus, it provides a finite-dimensional structure of the long-time dynamics, with exponential attraction replacing the generally slower convergence toward the global attractor. 
+
+Definition 1 (Inertial manifold) . A set M ⊂ H is called an inertial manifold for (1) if it satisfies the following: 1. M is a finite-dimensional Lipschitz manifold; 2. M is positively invariant under the flow, i.e., 
+
+S(t)M ⊂ M , ∀ t ≥ 0; 
+
+3. M attracts all trajectories at an exponential rate: there exists a μ > 0 such that for every u0 ∈ H
+
+there is a C = C(u0) satisfying 
+
+dist  S(t)u0, M ≤ Ce −μt , ∀ t ≥ 0.
+
+The exponential attraction property is stronger than the attraction property of a general global attractor. It implies that every bounded set of initial conditions approaches M at an exponential rate, so that the off-manifold part of the dynamics becomes negligible after a transient period. As a result, the long-time behavior of the system can be faithfully described by the finite-dimensional dynamics induced on M.62.4.3 Spectral gap condition and existence of inertial manifolds 
+
+Almost all known existence results for inertial manifolds rely on the presence of a spectral gap in the linear operator A. This condition reflects a strong separation between low and high modes and provides a mechanism by which the fast-decaying components can be slaved to the slow dynamics. Recall that A is a positive self-adjoint operator with compact inverse, with eigenvalues 0 < λ 1 ≤
+
+λ2 ≤ · · · and corresponding spectral projections Pn and Qn = I − Pn. The nonlinearity f is globally Lipschitz from D(Aα) into D(Aβ ) for some 0 ≤ α − β ≤ 12 , with Lipschitz constant C1. A standard existence theorem then states that if, for some n,
+
+λn+1 − λn > 2C1
+
+ λα−βn + λα−βn+1 
+
+, (2) there exists an inertial manifold M of dimension n [25]. Moreover, M can be realized as the graph of a Lipschitz function ϕ : PnH0 → QnH0 ∩ D(Aα) and attracts all trajectories exponentially. Under this condition, inertial manifolds can be rigorously constructed for several classes of dissipa-tive PDEs, including some reaction–diffusion systems, viscous Burgers equation, and Kuramoto–Siva-shinsky equation. 
+
+2.4.4 Reduced dynamics on the manifold 
+
+Under the spectral-gap condition above, the inertial manifold has the graph form 
+
+M = {p + ϕ(p) : p ∈ PnH0},
+
+where ϕ : PnH → QnH0 ∩ D(Aα) is Lipschitz. Therefore, for each u ∈ M , the decomposition 
+
+u = p + ϕ(p), p = Pnu, 
+
+is uniquely determined by the low-mode coordinate p. Applying Pn to the full equation ∂tu+Au = f (u)and substituting u = p + ϕ(p) gives the closed reduced system on PnH0:
+
+dp dt + Ap = Pnf  p + ϕ(p). (3) Solutions of (3) parameterize trajectories on M, thus, once a trajectory has been restricted to the inertial manifold, its evolution is governed by a closed finite-dimensional ODE. 
+
+2.4.5 Asymptotic completeness 
+
+The defining properties of an inertial manifold give a distance-to-set form of attraction: invariance and exponential attraction imply that every trajectory approaches the manifold at a uniform expo-nential rate. However, these properties alone do not specify how individual trajectories approach the manifold, nor whether their long-time behavior can be related to a single trajectory evolving on it. Asymptotic completeness provides a refinement of exponential attraction by upgrading it from a setwise statement to an orbitwise one. Rather than asserting only that trajectories converge toward the manifold, it guarantees that each trajectory in the full phase space is exponentially tracked by a trajectory lying on the manifold [16, 25]. 
+
+Definition 2 (Asymptotic completeness) . Let M ⊂ H be a positively invariant attracting set for the semigroup {S(t)}t≥0. The set M is said to be asymptotically complete if for every initial condition 
+
+u ∈ H there exists a point uM ∈ M such that 
+
+∥S(t)u − S(t)uM ∥ ≤ C(u) e−μt , ∀t ≥ 0, (4) 
+
+for some constant μ > 0.
+
+For such a uM , the trajectory S(t)uM is referred to as the tracking trajectory associated with u.We will also refer to uM as the asymptotic phase of u. Asymptotic completeness implies that every trajectory is exponentially tracked by a corresponding tracking trajectory on M and hence shares the same asymptotic behavior. Figure 1 schematically illustrates this idea. 7Figure 1: Schematic of a trajectory in the full space and its tracking trajectory on the inertial manifold. A sufficient condition for asymptotic completeness is flow-normal hyperbolicity [25, 26]. 
+
+Definition 3 (Flow-normal hyperbolicity) . Let M ⊂ H be a positively invariant attracting manifold for the semigroup {S(t)}t≥0. Suppose that M attracts trajectories at an exponential rate μ > 0, namely 
+
+dist( S(t)u, M) ≤ Ce −μt , ∀t ≥ 0. (5) 
+
+The manifold M is said to be flow-normally hyperbolic if there exist γ < μ such that 
+
+∥u1(t) − u2(t)∥ ≤ Ce −γt ∥u1(0) − u2(0) ∥, ∀t ≤ 0. (6) 
+
+for two trajectories u1(t), u 2(t) lying on M,
+
+In other words, flow-normal hyperbolicity requires that the backward-in-time separation of trajec-tories on M is dominated by the exponential attraction toward M. Such a domination property is not automatic from the existence of an inertial manifold and must be verified under additional assumptions in specific settings. Flow-normal hyperbolicity implies asymptotic completeness [25]. Moreover, it also implies the uniqueness of the asymptotic phase uM . Indeed, if uM 
+
+> 1
+
+, u M 
+
+> 2
+
+∈ M both track the same trajectory S(t)u
+
+at rate μ, then 
+
+∥S(t)uM 
+
+> 1
+
+− S(t)uM 
+
+> 2
+
+∥ ≲ e−μt .
+
+Applying the backward-time estimate on M gives 
+
+∥uM 
+
+> 1
+
+− uM 
+
+> 2
+
+∥ ≲ eγt ∥S(t)uM 
+
+> 1
+
+− S(t)uM 
+
+> 2
+
+∥ ≲ e−(μ−γ)t,
+
+and letting t → ∞ yields uM 
+
+> 1
+
+= uM 
+
+> 2
+
+. Thus the tracking trajectory associated with each initial condition is uniquely determined. The uniqueness of the asymptotic phase naturally induces an asymptotic phase map Π : H → M ,
+
+which assigns to each initial condition ( u ∈ H) its unique asymptotic phase (Π( u) = uM ∈ M ). Under suitable additional spectral-gap and regularity assumptions, one can further obtain the continuity of this map [5, 26]. When this holds, Π may be viewed as a continuous asymptotic phase retraction from the full phase space onto the inertial manifold. This naturally induces a decomposition of u ∈ H into a manifold component and an off-manifold residual: 
+
+uM := Π( u), uR := u − Π( u).
+
+Thus, 
+
+u = uM + uR,
+
+where uM represents the asymptotic-phase representative on M, while uR represents the deviation of 
+
+u from manifold. 83 Inertial Manifold Neural Operators (IMNO) 
+
+The above inertial-manifold picture suggests an orbitwise reduction: each full trajectory admits an asymptotic phase on a finite-dimensional, positively invariant set, and the remaining degrees of freedom decay exponentially. Motivated by this, we introduce a neural operator architecture that explicitly decomposes the state into (i) a low-dimensional manifold coordinate h(t), (ii) a function-valued residual uR(t), with the goal of approximating both the reduced dynamics on the manifold and the off-manifold correction needed to recover the full state solution. The overall structure of the Inertial Manifold Neural Operator (IMNO) is summarized in the flowchart below. In the following subsections, we describe each part in detail. 
+
+Figure 2: Overall architecture of IMNO. 
+
+# 3.1 Manifold-Based Decomposition 
+
+Let u(t) ∈ H denote the solution of the PDE at time t. IMNO is built on the assumption that the full state solution u admits a decomposition into a manifold component and a residual component, 
+
+u(0) = uM (0) + uR(0) , (7) where uM (t) lies on a learned manifold Mθ ⊂ H, and uR(t) ∈ H represents the remaining degrees of freedom. Conceptually, uM (t) serves as a representative of the asymptotic phase, while the full state u(t)is viewed as lying on the stable leaf associated with uM (t). This decomposition is consistent with the inertial-manifold and asymptotic-completeness perspective introduced in the previous section: the long-time behavior is governed by evolution along the manifold, while residual components decay rapidly. To realize the decomposition (7) in practice, we parameterize the learned manifold Mθ through an encoder–decoder pair 
+
+Eθ : H → Rdh , Dθ : Rdh → H, 
+
+and define 
+
+Mθ = {D θ (h) : h ∈ Rdh }.
+
+Both the encoder and decoder are designed to be resolution-independent, they act on functions rather than fixed-dimensional vectors and remain compatible with varying spatial resolutions. 9Given an initial condition u(0) ∈ H, IMNO begins by projecting u(0) onto the learned manifold. The encoder produces a latent coordinate 
+
+h(0) = Eθ (u(0)) ,
+
+which serves as the coordinate induced by an embedding of the learned manifold into Rd. The corre-sponding manifold component is obtained by decoding, 
+
+uM (0) = Dθ (h(0)) ∈ M θ ,
+
+and the residual is defined as 
+
+uR(0) = u(0) − uM (0) .
+
+The state of the system u(0) is thus represented by the pair ( h(0) , u R(0)), where h(0) corresponding to the latent coordinate of u on the learned manifold and uR(0) capturing its deviation from the manifold. Starting from this representation, the latent variable h(t) and the residual uR(t) are evolved forward in time according to separate learned dynamics, which are introduced in the following subsections. At each step, the full state is reconstructed as 
+
+u(t) = Dθ (h(t)) + uR(t).
+
+The encoder–decoder architecture is specified as follows. 
+
+Encoder Architecture 
+
+The encoder Eθ maps an input field u ∈ H to a latent coordinate h ∈ Rdh by extracting global, low-frequency features. The input field is first lifted to a higher-dimensional feature representation through a pointwise linear layer that uses both the field value and the spatial grid coordinate. The lifted feature field is then transformed to Fourier space, and only a fixed number of low modes are retained. The real and imaginary parts of these modes across all lifted channels are concatenated and projected into Rdh by a MLP, followed by a normalization layer. 
+
+Decoder Architecture 
+
+The decoder Dθ maps a latent coordinate h ∈ Rdh back to a field in H by generating low-frequency Fourier coefficients. A MLP first maps h to complex-valued coefficients corresponding to a fixed set of Fourier modes. These coefficients are then embedded into a Fourier spectrum and transformed back to physical space at a desired spatial resolution via an inverse Fourier transform. 
+
+# 3.2 Dynamics of the Manifold and Residual Components 
+
+3.2.1 Latent dynamics on the learned manifold 
+
+The inertial-manifold theory indicates that the latent dynamics on the manifold can be written in the closed form (3) , the latent coordinate evolves autonomously and independently of the residual 
+
+uR(t). Therefore, we model this closed dynamics using a Neural ODE [3], where fθ : Rdh → Rdh is a learned vector field. ˙h(t) = fθ (h(t)) , (8) In practice, we adopt a forward Euler discretization, leading to the one-step update 
+
+ht+1 = ht + ∆ t f θ (ht), (9) we seek h(t) to capture the long-time dynamics of the system. 10 3.2.2 Off-manifold residual dynamics 
+
+The residual component uR(t) represents off-manifold corrections and is not expected to possess an autonomous, closed dynamics. Instead, following the stable-foliation viewpoint from the inertial manifold theory, the evolution of uR(t) also depends on the latent coordinate h(t). Specifically, we parameterize the dynamics of the residual component uR(t) by a neural operator of the form 
+
+uRt+1 = Rθ (uRt , h t+1 ). (10) The operator Rθ is a neural-operator, mapping function-valued inputs to function-valued outputs, while being conditioned on the finite-dimensional latent coordinate h.Building on the FNO-based neural-operator framework introduced in Section 2.2, we define Rθ as a composition of lifting, hidden, and projection layers: 
+
+Rθ (·, h ) = Q ◦ L (h) 
+
+> L
+
+◦ · · · ◦ L (h)1 ◦ P .
+
+Here P is a lifting operator from the residual channel space to an intermediate latent feature space, and Q is a projection operator that maps latent features back to the residual channel space. Following the notation in Section 2.2, these maps are written as 
+
+P : X (Ω; Rk) → V (Ω; Rdc ), u(x) 7 → P  u(x), x ,
+
+and 
+
+Q : V(Ω; Rdc ) → X (Ω; Rk), v(x) 7 → Q(v(x)) ,
+
+where P is a pointwise MLP from Rk+d to Rdc , Q is a pointwise MLP from Rdc to Rk.For a standard FNO, the hidden-layer update takes the form 
+
+Lℓ(v)( x) = σ Wℓv(x) + bℓ + ( Kℓv)( x),
+
+where Wℓ is a pointwise linear transformation and Kℓ is a spectral convolution operator. In our model, we take the kernel in Kℓ to be the same as in FNO, namely (Kℓv)( x) = F−1(Rℓ(k) bv(k)) ( x).
+
+Furthermore, we modify this basic layer by replacing the fixed bias term with a latent coordinate-dependent. More precisely, at layer ℓ, the update in the layer is 
+
+L(h) 
+
+> ℓ
+
+(v)( x) = σ Wℓv(x) + βℓ(h) + ( Kℓv)( x),
+
+Here βℓ is a learnable affine map from Rdh to Rdc , so βℓ(ht+1 ) is a learned vector in the feature-channel dimension obtained from the latent state ht+1 and broadcast uniformly over the spatial domain. In this way, the residual dynamics are not modeled by a fixed operator acting on uRt alone; instead, the operator is conditioned on the current location on the learned manifold through an additive correction. Therefore, Rθ may be interpreted as a conditioned neural operator for the residual dynamics: it updates the residual field through an operator whose action depends on the current latent coordinate. This is consistent with the inertial-manifold viewpoint, where the residual degrees of freedom are not evolved independently but are coupled to the low-dimensional manifold dynamics. 
+
+Remark 1. One may wonder whether the latent-dependent term βℓ(ht+1 ), being spatially constant, is too limited to inject sufficiently rich information from the latent coordinate into the residual dynamics. From the viewpoint of expressive power, this limitation is not fundamental. Universal approximation results for the averaging neural operator (ANO) show that even remarkably simple nonlocal mechanisms can suffice for universal operator approximation [17]. Although βℓ(ht+1 ) does not depend on the spatial coordinate, it enters every hidden layer and interacts with the pointwise nonlinearities and the nonlocal Fourier convolution operators. In this sense, it provides a global mechanism through which the latent coordinate can influence the residual evolution operator. At the level of approximation theory, this mechanism is sufficient to establish a corresponding universal approximation theorem for the model considered here. 
+
+11 Theorem 1 (Universal approximation of IMNO on systems with inertial manifold structure) . Let 
+
+H = Hs(Td; Rc) for some s ≥ 0, and let 
+
+G = S(∆ t) : H → H
+
+be the continuous one-step solution operator of a dissipative PDE. Let K ⊂ H be compact. Assume that: 1. the PDE admits a finite-dimensional flow-normally hyperbolic inertial manifold M ⊂ H;2. the associated asymptotic phase map Π : H → M is continuous. Then, for every ε > 0, there exists an IMNO model Gθ : H → H such that for every u ∈ K, if 
+
+u = uM + uR, uM := Π( u), uR := u − Π( u),
+
+and 
+
+G(u) = uM, ref next + uR, ref next , uM, ref next := Π( G(u)) , uR, ref next := G(u) − Π( G(u)) ,
+
+while the corresponding IMNO prediction is written as 
+
+Gθ (u) = uM 
+
+> next
+
++ uR
+
+> next
+
+,
+
+one has 
+
+sup 
+
+> u∈K
+
+
+
+∥uM 
+
+> next
+
+− uM, ref next ∥H + ∥uR 
+
+> next
+
+− uR, ref next ∥H
+
+
+
+< ε. 
+
+In particular, 
+
+sup 
+
+> u∈K
+
+∥G θ (u) − G (u)∥H < ε. 
+
+The proof is deferred to Appendix A. 
+
+Remark 2. The universal approximation result above only requires the additive conditioning mecha-nism described in the main architecture. This shows that, at the level of expressive power, additional conditioning mechanism is not necessary. However, empirically, we find it beneficial to enrich the conditioning by adding a channel-wise multiplicative modulation. More precisely, let γℓ be another learnable MLP mapping Rdh to Rdc . We then define 
+
+Lℓ(v)( x) = σℓ
+
+ 1 + tanh( γℓ(ht+1 ))  ⊙  Wℓv(x) + ( Kℓv)( x) + βℓ(ht+1 )
+
+
+
+.
+
+Here ⊙ denotes channel-wise multiplication, and both γℓ(ht+1 ) and βℓ(ht+1 ) are broadcast uniformly over the spatial domain. In practice, this modification adds only a small number of parameters while improving prediction accuracy across many test settings. Therefore, we adopt this mechanism in all numerical experiments below. 
+
+# 3.3 Loss Design 
+
+Our loss is designed to encode the inertial-manifold tracking property discussed above. When the dynamics admit an inertial manifold and are asymptotically complete, each trajectory is exponentially tracked by a (unique) trajectory on the manifold, and the residual decays exponentially fast in time. In the notation of (7), this means that the residual uR(t) = u(t) − uM (t) should become smaller and smaller as t increases. Consequently, for sufficiently large t, the manifold component uM (t) is expected to be close to the reference solution uref (t). To encourage this behavior during training, we augment the standard one-term prediction loss with an auxiliary term that penalizes the mismatch between the manifold component uM (t) and the reference solution uref (t), and we assign this term an exponentially increasing weight over the rollout time. So the loss function L is defined as: 
+
+L =
+
+> ttrain
+
+X
+
+> t=t0+1
+
+∥uref t − ut∥22 + α
+
+> ttrain
+
+X
+
+> t=t0+1
+
+wt ∥uref t − uMt ∥22, (11) 12 with 
+
+wt = min {γ t−(t0+1) , w max }
+
+wmax 
+
+∈ (0 , 1] . (12) The weight wt is chosen to increase exponentially over time, so as to place greater emphasis on the auxiliary term at later rollout steps and reflect the expected decrease of the mismatch ∥uref (t) −
+
+uM (t)∥2; the cap wmax prevents the weight from growing without bound. 
+
+# 4 Shift-Equivariant Inertial Manifold Neural Operator 
+
+# 4.1 Translational symmetry in PDEs 
+
+Many PDEs posed on homogeneous domains with periodic boundary conditions (or on Rd) are equivariant under spatial translations, or shifts. In other words, if the initial condition is shifted in space, then the corresponding solution is shifted by exactly the same amount. We now formalize this symmetry structure rigorously: Let Ts denote the translation operator acting on functions by (Tsu)( x) = u(x + s), s ∈ R. (13) If the governing PDE is translation-invariant, its solution operator (flow map) S(t) : H → H is defined by 
+
+S(t)u0 := u(t; u0),
+
+where u(t; u0) is the solution at time t with initial data u0. Then, it satisfies 
+
+S(t) ◦ Ts = Ts ◦ S(t), (14) for all admissible shifts s.Consequently, the global attractor of the system contains entire group orbits under the action of translations. For any trajectory u(t) lying on the attractor, all of its translated versions Tsu(t) also lie on the attractor. From the perspective of reduced-order modeling, translation symmetry introduces a meaningful prior structure of the system. States that differ only by a spatial shift are dynamically equivalent, yet they are represented as distinct points in the original function space. This redundancy complicates the learning of a low-dimensional parameterization. So, separating group motion from intrinsic dynamics can lead to more compact and physically meaningful reduced representations [23, 28, 29]. Motivated by this idea, we separate the spatial shift from the intrinsic dynamics to construct a more compact model. 
+
+Remark 3. Standard FNO can naturally preserve translation equivariance when no explicit coordinate embedding is used. This is because spectral convolutions and pointwise channel mixing commute with spatial translations. For PDEs with translation symmetry, an FNO without coordinate embedding naturally preserves translation equivariance and often achieves better accuracy. However, the original IMNO does not automatically preserve this symmetry, since the latent coordinate may entangle intrinsic shape information with spatial phase. This motivates the shift-equivariant IMNO developed below. 
+
+# 4.2 Symmetry reduction via phase alignment 
+
+To factor out translation symmetry, we fix the phase of a reference Fourier mode and use it to define a canonical representative for each solution u ∈ H.Let u(x, t ) be a periodic solution on [0 , L ]. Its canonical representative ˜ u(x, t ) is defined by ˜u(x, t ) = T− Lϕ (t)2π
+
+u(x, t ), (15) where the phase ϕ(t) is chosen so that a prescribed Fourier mode (e.g., the first mode) satisfies a fixed phase condition. This gives the decomposition 
+
+u(x, t ) = T Lϕ (t)2π
+
+˜u(x, t ), (16) where: 13 • ˜u(x, t ) represents the intrinsic shape dynamics in a canonical frame, 
+
+• ϕ(t) captures the spatial translation along the symmetry direction. We can make the quotient–phase structure explicit. Denote Tθ = T Lθ 
+
+> 2π
+
+. The translation group is 
+
+G = {T θ : θ ∈ [0 , 2π)} ∼= S1,
+
+acting on H. If 
+
+u(x) = X
+
+> n∈Z
+
+ˆunein 2πx L ,
+
+then (Tθ u)( x) = X
+
+> n∈Z
+
+einθ ˆunein 2πx L , θ ∈ [0 , 2π).
+
+Therefore, if the first Fourier coefficient of the state is nonzero, after fixing a phase condition, the state can be represented by a translation phase together with a quotient representative, i.e., 
+
+H∗ ∼= S1 × Σ, Σ ∼= H∗/G, 
+
+where H∗ = {u ∈ H : bu1̸ = 0 } and Σ = {u ∈ H : bu1 ∈ R+}.Define the phase functional Θ : H∗ → S1 by Θ( u) = arg(ˆ u1) =: θ0.
+
+Then the canonical projection operator π : H∗ → H/G is 
+
+π(u) = ˜ u = T−Θ( u)u. 
+
+Then, the reduced dynamics of ˜ u evolves on H/G , while the phase ϕ(t) = Θ( u(x, t )) ∈ S1 tracks the spatial translation phase. In this quotient space, the inertial-manifold structure of the original dynamics is preserved under the symmetry reduction. If the governing equation is shift equivariant and a G-invariant inertial manifold M ⊂ H∗ exists for the original dynamics, then an inertial manifold for the induced dynamics on H/G is given by its projection 
+
+MH/G := π(M) ⊂ H/G. 
+
+# 4.3 Inertial manifold decomposition 
+
+The classical IMNO formulation models the solution as 
+
+u(t) = Dθ (h(t)) + uR(t), (17) where Dθ parameterizes an approximate inertial manifold Mθ , h(t) denotes the latent coordinate, and 
+
+uR(t) represents the residual component. To leverage translation symmetry, we use Dθ to parameterize the inertial manifold MH/G in the quotient space, with h as the corresponding latent coordinate. We then extend this decomposition to an equivariant form: 
+
+u(t) = Tϕ(t)
+
+ Dθ (h(t))  + uR(t), (18) where: 
+
+• h(t) ∈ Rdh is the latent coordinate that parameterizes the manifold, 
+
+• ϕ(t) ∈ R is the spatial translation phase of u(t), 
+
+• uR(t) represents the residual component. 14 So, given an initial condition u(0), we first apply phase alignment to decompose it into a canonical representative and a phase, 
+
+u(0) = Tϕ(0) ˜u(0) ,
+
+where ˜ u(0) represents the canonical representative, and ϕ(0) records the spatial shift. The encoder is then applied to ˜ u to obtain the initial latent coordinate, 
+
+h(0) = Eθ (˜ u(0)) .
+
+Then, the latent dynamics is modeled as ˙h = fθ (h), (19) while the phase evolution is governed by ˙ϕ = gθ (h), (20) where both fθ and gθ are parameterized by neural networks. This construction can be viewed as learning an equivariant inertial manifold in the space H/G . By explicitly separating the spatial translation, the model avoids representing entire group orbits within the latent coordinate and thus achieves a more compact representation. 
+
+# 4.4 Residual dynamics 
+
+The evolution of the residual component uR is challenging, as its update depends not only on the current residual component but also on the latent coordinate h and the translation phase ϕ. In our model, the residual dynamics are modeled by 
+
+uR(t + ∆ t) = Rθ (uR(t), h (t + ∆ t), ϕ (t + ∆ t)) , (21) where Rθ denotes a learned residual update operator. To incorporate the phase information into the residual update while preserving shift equivariance, we modify the positional input embedding used in the lifting layer. This differs from the standard coordinate embedding [ uR(x), x ], where the absolute coordinate x is provided directly and may break translation equivariance. Instead, we replace the absolute coordinate by a phase-dependent spatial feature that transforms consistently with the solution under shifts. Specifically, for each grid point x,we define Ψ( ϕ)( x) = cos 
+
+
+
+ϕ + 2πL x
+
+
+
+, (22) and concatenate this feature pointwise with the residual field: [uRt (x), Ψ( ϕt+1 )( x)] . (23) This augmented field is then passed through the same conditional Fourier-layer residual operator introduced in Section 3.2.2, with the Fourier layers conditioned on the latent coordinate ht+1 .The key point is that the phase feature transforms consistently with spatial shifts. Under a trans-lation Tδ , the phase changes from ϕ to ϕ + δ, and the embedding satisfies Ψ( ϕ + δ) = Tδ Ψ( ϕ). (24) Since the remaining Fourier-layer operations commute with spatial translations, the residual operator preserves shift equivariance: 
+
+Rθ
+
+ Tδ uRt , h t+1 , ϕ t+1 + δ = Tδ Rθ (uRt , h t+1 , ϕ t+1 ). (25) 
+
+Reconstruction. Once uRt , ϕt, and ht have been obtained, the full solution is reconstructed as 
+
+ut = uRt + Tϕt Dθ (ht). (26) The decoder Dθ is parameterized by a neural network that maps the latent coordinate h to a set of low-frequency Fourier coefficients. Applying an inverse FFT then gives the corresponding field in 15 physical space. To ensure that the decoded manifold component is represented in the canonical frame, we impose a gauge condition on the first Fourier mode: its imaginary part is set to zero and its real part is replaced by its absolute value so that it is nonnegative. So, the first Fourier coefficient of Dθ (h)is real and nonnegative. Consequently, Dθ (ht) lies in the chosen canonical frame, while the translation operator Tϕt restores the spatial phase of the full solution. Overall, by construction, the overall architecture is strictly shift-equivariant. For any spatial shift applied to the input, the predicted output shifts accordingly. This shift-equivariant IMNO reduces redundancy in the latent representation and improves the compactness of the learned model. 
+
+# 5 Numerical Experiments 
+
+In this section, we demonstrate the performance of IMNO and its shift-equivariant variant (hereafter abbreviated as IMNO-SE) on the Burgers, nonlocal Burgers, Kuramoto–Sivashinsky, and Navier– Stokes equations, and compare them with FNO and RNO baselines. For a fair comparison, we use the same Fourier modes and channel width across all Fourier layers. In particular, FNO uses four Fourier layers with GeLU activations, whereas RNO uses one layer in each block; both FNO and RNO retain kmax = 24 Fourier modes and use channel width dc = 64 in 1D cases, kmax = 12 and dc = 20 in 2D cases. For IMNO, we adopt the same Fourier modes kmax and width dc in the Fourier layers. Unless otherwise specified, the latent dimension is dh = 32. In one-dimensional experiments, the encoder retains the lowest kE = 6 Fourier modes to extract global features, while the decoder generates the manifold component using the lowest kD = 8 Fourier modes. In two-dimensional experiments, we use 
+
+kE = 3 and kD = 4. For the loss function, we set γ = 1 .1, and wmax = 10 in (11)–(12). To exploit the symmetry structure of the underlying PDEs, we use shift-equivariant versions of IMNO, FNO, and RNO whenever the governing equation is shift equivariant. For PDEs without translation symmetry, we instead use the original versions of these models. For the parameter α, we evaluate multiple values in our experiments. Intuitively, α controls how strongly the manifold component is encouraged to approximate the output function. When α = 0, the latent coordinate h only serves as a time-evolving variable that encodes the global information of the solution, and the reconstructed manifold component uM is not required to form an explicit part of the solution. As α increases, the model is increasingly encouraged to represent the reconstructed solution 
+
+u = uM + uR primarily through the manifold component uM .For the Burgers, 1D Navier–Stokes and 2D compressible Navier–Stokes equations, all training and testing data are taken from the publicly available PDEBench repository [31]. For other equations, we generate the dataset using our own simulation code, following the same discretization and data format as PDEBench to ensure a consistent training and evaluation pipeline. For all experiments, the dataset is split into training, validation, and test sets with a ratio of 8:1:1. The validation set is used for model selection during training. For each model and experimental configuration, we repeat the training with three fixed random seeds. For each seed, we select the model checkpoint that achieves the lowest validation error and record its error on the test set. The results reported below are the mean and standard deviation of the test errors over the three seeds. We train and evaluate the models under the autoregressive training setup. Starting from the initial condition u0, the model predicts 
+
+u(t1), and then uses u(t1) to predict u(t2). This procedure is iterated so that each future state u(tn)is generated solely from previous predictions, yielding a full autoregressive rollout up to a prescribed final time tend . During training, the predictions at all rollout steps are included in the loss function. To quantitatively evaluate accuracy over the rollout interval [1 , t end ], we employ a normalized relative L2 error over the spatial domain: 
+
+Error =
+
+vuutPtend 
+
+> n=1
+
+PNx
+
+> j=1
+
+ u(xj , t n) − uref (xj , t n)2
+
+Ptend 
+
+> n=1
+
+PNx 
+
+> j=1
+
+uref (xj , t n)2 .
+
+In practice, the error is computed for each sample and then averaged over the evaluation batch. 16 5.1 Burgers Equation 
+
+The one-dimensional Burgers equation is a classical nonlinear PDE occurring in many fields, such as fluid mechanics and traffic flow. It takes the form 
+
+∂tu(x, t ) + ∂x
+
+ u2(x, t )/2 = ν∂ xx u(x, t ), x ∈ (0 , 1) 
+
+u(x, 0) = u0(x), x ∈ (0 , 1) with periodic boundary conditions. For the training procedure, we employ a dataset consisting of Ndata = 10000 samples, each resolved on a spatial grid of Nx = 256 points with spacing ∆ x = 1256 .In the temporal direction, the solution is sampled every ∆ t = 0 .05, yielding Nt = 41 snapshots from t = 0 to t = 2. During training and evaluation, the model is provided only the initial snapshot 
+
+u(·, 0) and must autoregressively predict all subsequent time steps u(·, t 1), u (·, t 2), . . . , u (·, t end ). We train and evaluate the models under two rollout horizons ( tend = 0 .5 and tend = 2), and report the results in Table 1. Table 1: Relative L2 error of FNO, RNO and IMNO-SE for the Burgers Equation FNO RNO IMNO-SE( α = 0 .1) IMNO-SE( α = 0) Params 418433 623533 538314 538314 
+
+tend = 0 .5
+
+ν = 0 .002 2.91 ± 0.07% 3.55 ± 0.05% 2.25 ± 0.03% 1.94 ± 0.04% 
+
+ν = 0 .01 1.35 ± 0.08% 1.79 ± 0.03% 1.16 ± 0.03% 0.78 ± 0.03% 
+
+tend = 2 
+
+ν = 0 .002 53 .3 ± 43 .8% ∗ 4.12 ± 0.92% 2.45 ± 0.12% 1.95 ± 0.12% 
+
+ν = 0 .01 67 .4 ± 25 .8% ∗ 1.80 ± 0.11% 1.46 ± 0.10% 0.85 ± 0.02%  
+
+> Note. “∗” indicates unstable training leading to degraded performance.
+
+From Table 1, we observe that IMNO-SE achieves the best overall accuracy across both short- and long-horizon rollouts. It remains stable in the long-horizon setting, unlike FNO, and achieves better performance with fewer parameters than RNO. Figure 3 shows representative IMNO-SE predictions of u and uM for two representative initial conditions, compared with the ground truth. We observe that uM can capture the long-term dynamics of the system. 17 (a) Example 1. 
+
+> (b) Example 2.
+
+Figure 3: IMNO-SE ( α = 0 .1) predictions for 1D Burgers equation ( ν = 0 .01). 
+
+# 5.2 Nonlocal Burgers Equation 
+
+We next consider a variant of the Burgers equation, in which the advection speed at each point depends on the whole solution. The equation takes the form 
+
+∂tu(x, t ) + a(t) ∂xu(x, t ) = ν∂ xx u(x, t ) + f (x), x ∈ (0 , 1) 
+
+u(x, 0) = u0(x), x ∈ (0 , 1) with periodic boundary conditions. Here, the transport velocity is nonlocal and is defined through the inner product 
+
+a(t) = ⟨ω, u (t)⟩ =
+
+Z 10
+
+ω(x) u(x, t ) dx, 
+
+where ω is a prescribed kernel. The right-hand side term f (x) represents external forcing. Unlike Burgers equation, the advection at each spatial location depends not only on the local value of u but also on global spatial information. According to [6], when the parameters satisfy suitable conditions, this equation admits an inertial manifold, providing a rigorous finite-dimensional structure for its long-time dynamics. For the training procedure, we use the same dataset configuration as in the previous Burgers case. The dataset consists of Ndata = 10000 samples, each discretized on a spatial grid with Nx = 256 points and spacing ∆ x = 1256 . The solution is also sampled with step size ∆ t = 0 .05, yielding Nt = 41 snapshots from t = 0 to t = 2. As before, the model is provided only with the initial condition 
+
+u(·, 0) and must autoregressively predict all subsequent steps. We train and evaluate both short- and long-horizon rollouts ( tend = 0 .5 and tend = 2). Compared to the standard Burgers equation, this nonlocal system breaks translation equivariance due to the global coupling through a(t), so we do not report IMNO-SE results here, and both FNO and RNO are evaluated using non-translation-equivariant versions. In this experiment, we fix the parameters as 
+
+ω(x) = cos(2 πx ) + 0 .5 cos(4 πx ), ν = 0 .01 .
+
+18 For the forcing term f , we consider two representative cases. The first case is the unforced setting 
+
+f = 0, which is relatively simple. In this case, although the equation contains the nonlocal transport term ⟨ω, u (t)⟩ux, the advection speed depends only on time through the scalar quantity ⟨ω, u (t)⟩.Consequently, after a time-dependent spatial shift, the equation is equivalent to a heat equation, and the dynamics are essentially simple without nontrivial long-time structures. The second case considers a nonzero forcing term. In particular, we take 
+
+f (x) = −2 sin(2 πx ) − sin(4 πx ).
+
+For this choice, by examining the finite-dimensional reduced system associated with the leading Fourier modes, we can verify that the reduced dynamics admit an equilibrium with a two-dimensional unstable manifold [26]. Since the inertial manifold is also parameterized by the leading Fourier modes in this equation, the induced dynamics on the inertial manifold are already nontrivial. Therefore, the forced case provides a more challenging test setting to examine our model. The quantitative results are reported in Table 2. Although FNO and IMNO achieve comparable performance at the short-horizon prediction time t = 0 .5, FNO exhibits training instability over the longer horizon t = 2, which leads to noticeably worse results. By contrast, RNO is also stable over the longer horizon, but it has a larger number of parameters and still yields lower accuracy than IMNO. Table 2: Relative L2 error of FNO, RNO and IMNO for the nonlocal Burgers equation FNO RNO IMNO( α = 0 .1) IMNO( α = 0) Params 418497 623617 491377 491377 
+
+tend = 0 .5
+
+f = 0 0.59 ± 0.09% 0.89 ± 0.05% 0.51 ± 0.004% 0.43 ± 0.02% 
+
+f̸ = 0 0.77 ± 0.06% 1.10 ± 0.03% 0.54 ± 0.004% 0.48 ± 0.03% 
+
+tend = 2 
+
+f = 0 16 .60 ± 20 .34% ∗ 1.14 ± 0.03% 0.58 ± 0.0003% 0.41 ± 0.006% 
+
+f̸ = 0 26 .71 ± 12 .89% ∗ 2.36 ± 0.08% 1.16 ± 0.03% 1.00 ± 0.06% Figure 4 shows representative IMNO predictions for both u and uM , compared with the ground truth. We observe that uM captures the dominant long-time dynamics, while the residual correction 
+
+uR refines the prediction so that the whole prediction u remains accurate even through the short-time transient regime. To further demonstrate the structure of the learned latent dynamics, we project the trajectory of the latent coordinate h onto the first three principal components obtained from PCA. This provides a low-dimensional visualization of the learned latent coordinate’s evolution and helps illustrate whether it captures the reduced dynamics on the inertial manifold. Figure 5 shows projected latent trajectories of the two cases. 19 (a) case 1. 
+
+> (b) case 2.
+
+Figure 4: IMNO ( α = 0 .1) predictions for the nonlocal Burgers equation.  
+
+> (a) Case 1. (b) Case 2.
+
+Figure 5: Representative hidden-state trajectories projected onto the top three PCA modes for the nonlocal Burgers equation. (Dots indicate the initial states of different trajectories, while crosses mark their corresponding final states at t = 2.) For case 1, where the forcing is zero, one can rigorously show that the reduced dynamics on the inertial manifold admits a unique stable fixed point. The projected latent trajectory is consistent with this picture: it evolves toward a single attractor, indicating that the learned latent dynamics correctly captures the simple asymptotic behavior of the system. For case 2, where the forcing is nonzero, one can likewise show that the reduced dynamics on the 20 inertial manifold admits one saddle point and two stable fixed points. The projected latent trajectories again agree well with this phase-space structure: they approach two different attractors, reflecting the nontrivial dynamics induced by the forcing. 
+
+# 5.3 Kuramoto–Sivashinsky equation 
+
+We consider the one-dimensional Kuramoto–Sivashinsky (KS) equation 
+
+∂tu(x, t ) = −u(x, t )∂xu(x, t ) − ∂xx u(x, t ) − ∂xxxx u(x, t ), x ∈ (0 , L )
+
+u(x, 0) = u0(x), x ∈ (0 , L ) (27) with periodic boundary conditions on [0 , L ]. In this experiment, data are generated by numerically solving (27) using an exponential time-differencing fourth-order Runge–Kutta (ETDRK4) scheme. Initial conditions are sampled from a mean-zero Gaussian measure with covariance 
+
+L−2  −∆ + (49 /L 2)I−2.
+
+(Equivalently, in Fourier space, the zero mode is set to zero, bu0 = 0. For each positive Fourier mode 
+
+k > 0, the complex coefficient buk is sampled as a mean-zero Gaussian random variable with variance 
+
+E|buk|2 = L2  (2 πk )2 + 49 −2 ,
+
+and the negative modes are determined by 
+
+bu−k = buk.
+
+Thus the initial condition is a real-valued, mean-zero Gaussian random field whose Fourier variance scales like k−4 at high wavenumbers.) For the training procedure, like the previous experiment, we still employ a dataset consisting of 
+
+Ndata = 10000 samples, each resolved on a spatial grid of Nx = 256 points with spacing ∆ x = L 
+
+> 256
+
+.In the temporal direction, the solution is sampled every ∆ t = 1, yielding Nt = 41 snapshots from 
+
+t = 0 to t = 40. During training and evaluation, the model is provided only the initial condition 
+
+u(·, 0) and autoregressively predicts all subsequent steps. We then train and evaluate the models under two horizons ( tend = 20 and tend = 40) for both L = 4 π and L = 8 π. The Table 3 compares the autoregressive prediction performance of FNO, RNO and IMNO. Table 3: Relative L2 error of FNO, RNO and IMNO-SE for the KS equation FNO RNO IMNO-SE( α = 0 .1) IMNO-SE( α = 0) Params 418433 623533 538314 538314 
+
+tend = 20 
+
+L = 4 π 1.04 ± 0.20% 0.42 ± 0.01% 0.52 ± 0.02% 0.46 ± 0.003% 
+
+L = 8 π 1.74 ± 0.05% 1.19 ± 0.01% 4.25 ± 0.17% 2.99 ± 0.42% 
+
+tend = 40 
+
+L = 4 π 87 .67 ± 11 .85% ∗ 2.19 ± 0.23% 0.89 ± 0.05% 0.84 ± 0.02% 
+
+L = 8 π 94 .17 ± 2.72% ∗ 13 .99 ± 0.71% 41 .21 ± 5.63% 35 .58 ± 3.63% When L = 4 π, the system is not chaotic, and the manifold prediction uM reconstructs most of the dominant features. Figure 6 shows IMNO-SE predictions for two representative initial conditions, com-pared with the ground truth. We observe that both the full prediction u and the manifold component 
+
+uM are highly accurate in this experiment, indicating that in this setting, solutions evolve towards the inertial manifold very quickly. IMNO-SE learned the dynamics on the inertial manifold accurately. 21 (a) Example 1. 
+
+> (b) Example 2.
+
+Figure 6: IMNO-SE ( α = 0 .1) predictions for the KS equation at L = 4 π
+
+Moreover, in this setting, the Kuramoto–Sivashinsky equation lies in the regime of a low-dimensional 1 : 2 interaction between the first two Fourier modes and admits two symmetry-related stable traveling waves. These waves are relative equilibria in the full state space, but become stable fixed points after quotienting out translation symmetry. Consistent with this picture, the PCA visualization of the tra-jectories in the learned latent coordinate h in Figure 7 clearly approach two different attractors, with oscillatory transients before convergence. This suggests that the latent trajectories have captured the underlying dynamics. 
+
+Figure 7: Representative hidden-state trajectories projected onto the top three PCA modes for the KS equation at L = 4 π.22 However, when L = 8 π, the dynamics become chaotic. IMNO-SE’s predictive accuracy is lower than that of FNO and RNO. In fact, we find that IMNO is less accurate for PDEs with strongly chaotic dynamics, although it still captures some low-dimensional structure effectively. This is con-sistent with the intrinsic difficulty of predicting chaotic systems: small errors grow rapidly, and the additional approximation error introduced by the reduced manifold dynamics can accumulate during long autoregressive rollout and degrade the overall prediction quality. We will look further into this issue into the experiment of Kolmogorov flow. 
+
+# 5.4 One-dimensional NS Equation 
+
+We consider the one-dimensional compressible Navier–Stokes equations on the torus Ω = (0 , 1): 
+
+∂tρ + ∂x(ρv ) = 0 , (28) 
+
+ρ(∂tv + v ∂ xv) + ∂xp =
+
+
+
+ζ + 4η
+
+3
+
+
+
+∂xx v, (29) 
+
+∂t
+
+
+
+e + ρv 2
+
+2
+
+
+
++ ∂x
+
+ 
+
+e + p + ρv 2
+
+2
+
+
+
+v
+
+
+
+= ∂x
+
+
+
+v
+
+
+
+ζ + 4η
+
+3
+
+
+
+∂xv
+
+
+
+. (30) where ρ is the density, v is the velocity, p is the pressure, and e = p/ (Γ − 1) is the internal energy density (Here we set Γ = 5 /3, corresponding to a monatomic ideal gas). The viscosities η and ζ denote shear and bulk viscosity, respectively, and are both set to 0.1 in our experiments. For data generation and model training, we use a dataset from PDEBench [31] consisting of Ndata =10000 samples, each resolved on a spatial grid of Nx = 128 points with spacing ∆ x = 1128 . In the temporal direction, the solution is sampled every ∆ t = 0 .02, yielding Nt = 51 snapshots. Before training, we normalize the data channel-wise via a linear transformation, so that the data distribution of different physical variables have the same means and variances. In this experiment, we train and evaluate the models under two horizons ( tend = 0 .5 and tend = 1 .0). The results of FNO, RNO, and IMNO-SE are reported in Table 4. Table 4: Relative L2 error of FNO, RNO, and IMNO-SE for the 1D NS Equation FNO RNO IMNO-SE( α = 1) IMNO-SE( α = 0 .1) IMNO-SE( α = 0) Params 418819 623939 619340 619340 619340 
+
+tend = 0 .5 12 .05 ± 13 .44% ∗ 3.24 ± 0.06% 5.12 ± 0.05% 3.54 ± 0.29% 2.69 ± 0.10% 
+
+tend = 1 .0 84 .47 ± 5.14% ∗ 4.79 ± 0.64% 4.49 ± 0.41% 4.33 ± 0.15% 3.53 ± 0.17% Figure 8 shows the IMNO-SE predictions for both α = 0 .1 and α = 1. We observe a clear trade-off between these two choices of α: when α = 0 .1 the prediction of uM is not desirable, but for α = 1 the prediction of uM becomes much better and captures the long-time dynamics. On the other hand, increasing α also leads to a degradation in the overall accuracy of the final prediction u. This highlights the importance of the choice of parameter α.23 (a) Model prediction( α = 0 .1).  
+
+> (b) Model prediction ( α= 1).
+
+Figure 8: IMNO-SE ( α = 0 .1, 1) predictions for the 1D NS equation. 24 5.5 Two-dimensional Compressible Navier–Stokes Equation 
+
+We consider the two-dimensional compressible Navier–Stokes equations on the torus Ω = (0 , 1) ×
+
+(0 , 1): 
+
+∂tρ + ∇ · (ρv) = 0 , (31) 
+
+∂t(ρv) + ∇ · (ρv ⊗ v) + ∇p = ∇ · τ , (32) 
+
+∂t
+
+
+
+e + 12 ρ|v|2
+
+
+
++ ∇ · 
+
+ 
+
+e + p + 12 ρ|v|2
+
+
+
+v
+
+
+
+= ∇ · (τ v), (33) where ρ is the density, v = ( v1, v 2) is the velocity, p is the pressure, and e = p/ (Γ − 1) is the internal energy density (Here we set Γ = 5 /3, corresponding to a monatomic ideal gas). The viscous stress tensor is given by 
+
+τ = η ∇v + ∇v⊤ +
+
+
+
+ζ − 23 η
+
+
+
+(∇ · v)I, 
+
+where η and ζ denote the shear and bulk viscosities, respectively. In this experiment, we set η = ζ =0.01. As in the 1D case, we use the PDEBench dataset [31], which contains Ndata = 1000 samples, each resolved on a spatial grid of Nx = Ny = 64 points with spacing ∆ x = ∆ y = 164 . In the temporal direction, the solution is sampled every ∆ t = 0 .05, yielding Nt = 21 snapshots. The initial velocity field is scaled so that the resulting initial characteristic Mach number is a prescribed value M = 0 .1. Again, before training, we normalize the data channel-wise via a linear transformation, so that the data distribution of different physical variables have the same means and variances. In this experiment, we train and evaluate the models under two horizons ( tend = 0 .5, 1.0). The results of FNO, RNO, and IMNO-SE are reported in Table 5. Table 5: Relative L2 error of FNO, RNO and IMNO-SE for the 2D NS equation FNO RNO IMNO-SE( α = 0 .1) IMNO-SE( α = 0) Params 465784 697084 616294 616294 
+
+tend = 0 .5 25 .64 ± 1.22% 20 .71 ± 0.12% 10 .46 ± 0.67% 10 .48 ± 0.39% 
+
+tend = 1 .0 52 .46 ± 0.99% ∗ 24 .73 ± 1.58% 14 .73 ± 1.15% 14 .68 ± 1.43% To further compare the behavior of different models, we visualize the predicted solutions for the density ρ and pressure p at four representative times, t = 0 .05 , 0.25 , 0.5, and 1 .0, using models trained with the rollout horizon tend = 1 .0. The corresponding results are shown in Figure 9. We can clearly observe that IMNO-SE produces significantly more accurate predictions than both RNO and FNO across all displayed times. In particular, when tend = 1 .0, the FNO baseline exhibits instability during training, which leads to substantially poorer rollout predictions in the final model. 25 (a) density ρ 
+
+> (b) pressure p
+
+Figure 9: Comparison of FNO, RNO and IMNO-SE ( α = 0 .1) for the 2D compressible NS equation at 
+
+t = 0 .05 , 0.25 , 0.50, and 1 .00. Although IMNO-SE achieves better predictive accuracy in this example, the learned manifold 26 component uM does not clearly capture the long-time solution structure by itself. One possible reason is that compressible Navier–Stokes dynamics involve several strongly coupled physical variables, including velocity, density, pressure, and energy. Density and pressure variations influence the velocity field, while the velocity field in turn transports and reshapes the density, pressure, and energy distributions. These degrees of freedom may prevent the dynamics from being well described by a simple, strongly attracting low-dimensional manifold. In fact, the existence of a finite-dimensional inertial manifold for the Navier–Stokes equations is still an open problem. Consequently, the learned manifold component 
+
+uM is not expected to provide a clean standalone reduced-order description of the full solution. Nevertheless, the prediction of IMNO-SE is still accurate. This suggests that, even when the learned manifold component cannot by itself serve as an accurate reduced-order model of the long-time dynamics, the latent representation can still provide useful global information for the residual neural operator. Therefore, in examples where a clear low-dimensional structure is not visually apparent, IMNO-SE can still function as an effective neural operator with good accuracy. 
+
+# 5.6 Kolmogorov Flow 
+
+We next consider the two-dimensional incompressible Navier–Stokes equation in vorticity on the torus Ω = (0 , 2π) × (0 , 2π): 
+
+∂tw(x, t ) + u(x, t ) · ∇ w(x, t ) = ν∆w(x, t ) + f (x), (34) 
+
+∇ · u(x, t ) = 0 , (35) 
+
+w(x, 0) = w0(x), (36) where u is the velocity field, w = ∇ × u is the scalar vorticity, ν > 0 is the viscosity, and f is the forcing term. We formulate the learning problem in terms of vorticity rather than velocity. The vorticity formulation often provides a more informative and physically compact description of the flow dynamics. Given w, the velocity field u can be recovered through the Biot–Savart law. In this example, we consider a two-dimensional Kolmogorov flow. Specifically, the initial vorticity field w0(x) is sampled from the Gaussian measure 
+
+w0 ∼ μ, μ = N  0, (−∆ + I)−2.5,
+
+with periodic boundary conditions on the torus. We consider viscosity ν = 0 .1, the external forcing is fixed as 
+
+f (x) = −0.1 cos x2.
+
+For the training procedure, we employ a dataset consisting of Ndata = 1000 samples, each resolved on a spatial grid of Nx = Ny = 64 points with spacing ∆ x = ∆ y = π 
+
+> 32
+
+. In the temporal direction, the solution is sampled every ∆ t = 1 .0, yielding Nt = 21 snapshots. In the Kolmogorov flow setting considered here, the equation is shift-equivariant in the x-direction but not in the y-direction. Accordingly, IMNO-SE is implemented with shift equivariance imposed only along the x-direction, and the FNO and RNO baselines are also taken to be their x-shift-equivariant versions. We train and evaluate the models under two rollout horizons ( tend = 10 and tend = 20), and report the results in Table 6. Table 6: Relative L2 error of FNO, RNO and IMNO-SE for the 2D incompressible NS equation FNO RNO IMNO-SE( α = 0 .1) IMNO-SE( α = 0) Params 465357 696657 578146 578146 
+
+tend = 10 3.43 ± 0.08% 6.13 ± 0.11% 3.76 ± 0.12% 2.96 ± 0.02% 
+
+tend = 20 3.10 ± 0.11% 5.16 ± 0.06% 3.94 ± 0.60% 2.75 ± 0.11% 27 (a) Example 1. (b) Example 2. 
+
+Figure 10: IMNO-SE ( α = 0 .1) predictions for the incompressible 2D NS equation at t = 1 , 2, 5, 10 , 20. Figure 10 shows representative IMNO predictions. Consistent with the earlier examples, these results again show that IMNO captures a low-dimensional long-time structure consistent with the inertial-manifold picture. In particular, the manifold component uM captures the dominant long-time dynamics, while the full field u remains accurate throughout the rollout interval. Taken together, these results indicate that IMNO remains effective in capturing the long-time dynamics in the two-dimensional setting. We finally examine a more challenging low-viscosity regime with ν = 10 −3. As in the KS example, this case illustrates a limitation of IMNO for strongly chaotic dynamics. Figure 11 shows representative IMNO-SE predictions in this regime. At early times, the full prediction u still captures the large-scale patterns of the reference solution, although some small-scale vortical structures are already smoothed out. At later times, however, the prediction exhibits a substantial structural mismatch with the ground truth. This degradation is consistent with the difficulty of learning reduced dynamics in chaotic systems. In such regimes, the inertial manifold, if it exists, may have a substantially larger intrinsic dimension than in the previous examples. Therefore, representing the dynamics with a low-dimensional latent coordinate may discard important information and limit the accuracy of the approximation. Moreover, the learned latent dynamics are highly sensitive to small approximation errors. These errors can accumulate during autoregressive rollout and cause the decoded manifold component uM to drift away from the reference trajectory. For example, in Figure 11, the early predictions still retain the correct large-scale flow pattern, but at later times the manifold component becomes increasingly dominant in the reconstructed solution while being misaligned with the true solution. This misalignment then contaminates the residual correction and leads to the overall distortion of the full prediction. However, although IMNO performs less well in strongly chaotic regimes, where an inertial manifold may be very high-dimensional or may not exist, this behavior is consistent with the theory behind the model: IMNO works best precisely when the dynamics admit a meaningful low-dimensional structure. 28 (a) Example 1. (b) Example 2. 
+
+Figure 11: IMNO-SE ( α = 0 .1) predictions for the incompressible 2D Navier–Stokes equation at 
+
+t = 1 , 2, 5, 10 , 20 in the turbulence regime ν = 10 −3.
+
+# 6 Conclusion 
+
+In this paper, we developed the Inertial Manifold Neural Operator (IMNO), a novel neural op-erator framework for dissipative time-dependent PDEs. Such PDEs’ long-time dynamics can often be described by some low-dimensional structure due to dissipation. Inertial manifold theory pro-vides a natural framework for describing such dynamics, under which the solution can be decomposed into a low-dimensional manifold component governing the long-time evolution and a rapidly decay-ing residual. Guided by this theoretical picture, IMNO is developed to discover and exploit such latent low-dimensional structures in PDE dynamics, thereby learning a more physically interpretable representation while better preserving the intrinsic structure of the underlying PDE. Various benchmark problems have been used to evaluate the performance of IMNO. The results show that IMNO can effectively capture the low-dimensional long-time dynamics of the underlying PDEs in many cases, while also exhibiting good training stability and accuracy. Moreover, for some more complex PDE systems, although such low-dimensional dynamics may be too difficult to capture accurately, IMNO still remains effective as a neural operator and achieves good accuracy. An interesting observation from our experiments is that increasing α in the loss function, thus encouraging a larger portion of the solution to be represented by the manifold component, leads to worse overall predictive performance in many cases. One possible reason is that, when the manifold component becomes more dominant, the remaining residual may contain relatively more high-frequency content, which is empirically harder for FNO-type architectures to approximate accurately. Another possible reason is that the residual dynamics may become more tightly coupled with the latent manifold dynamics when α increases, while the current neural operator structure may not be expressive enough to capture this coupling efficiently. These observations suggest that future work should develop a 29 deeper understanding of how the manifold and residual components are jointly trained and how they interact, thereby enabling the development of better architectures and loss functions that better exploit the manifold structure while maintaining accurate full-state prediction. Beyond this issue, several other directions are also worth further investigation. For example, the performance of IMNO remains limited for systems with chaotic dynamics. In such cases, the manifold component uM may still capture some meaningful low-dimensional patterns, but errors grow rapidly due to the system’s chaotic behavior. Therefore, the manifold prediction may drift during long-time rollout, which in turn affects the residual prediction and degrades the overall performance. A possible remedy is to periodically reproject the current full predicted solution onto the learned manifold, thereby updating the latent coordinate and mitigating its drift during long-time rollout. IMNO could also be further applied to larger-scale simulations, where computational efficiency becomes a more central concern. In this setting, the learned low-dimensional manifold may serve as a cheaper surrogate for long-time evolution. For example, once the residual part has decayed to a sufficiently small level, one may continue the rollout mainly through the manifold dynamics rather than evaluating the full residual neural operator at every step. This could potentially lead to a significant speedup for large-scale autoregressive prediction. In a broader context, we believe that this work, together with the questions it raises, highlights the potential connection between operator learning and reduced-order modeling. By bridging these two fields, it may help us better understand their respective advantages and limitations, with the potential to enrich both fields and to inspire further research in scientific machine learning. 
+
+# Data availability 
+
+Code and data for reproducing the results in this paper will be available at https://github.com/ Xiaoyang-Xie/IMNO . All numerical experiments were conducted using NVIDIA A100 and L40 GPUs. 
+
+# References 
+
+[1] G. Berkooz, P. Holmes, and J. L. Lumley. The proper orthogonal decomposition in the analysis of turbulent flows. Annual Review of Fluid Mechanics , 25(1):539–575, 1993. [2] Z. Chang, Z. Wen, and X. Zhao. Unsupervised operator learning approach for dissipative equations via Onsager principle. SIAM Journal on Scientific Computing , 48(4):C1060–C1085, 2026. [3] R. T. Chen, Y. Rubanova, J. Bettencourt, and D. K. Duvenaud. Neural ordinary differential equations. Advances in Neural Information Processing Systems , 31, 2018. [4] Z. Cheng, Z. Wang, L.-L. Wang, and M. Azaiez. Podno: Proper orthogonal decomposition neural operators. SIAM Journal on Scientific Computing , 48(3):C479–C504, 2026. [5] S.-N. Chow, K. Lu, and G. R. Sell. Smoothness of inertial manifolds. Journal of Mathematical Analysis and Applications , 169(1):283–312, 1992. [6] P. Constantin, C. Foias, B. Nicolaenko, and R. Temam. Integral manifolds and inertial manifolds for dissipative partial differential equations , volume 70. Applied Mathematical Sciences, Springer, 1989. [7] C. E. P. De Jes´ us and M. D. Graham. Data-driven low-dimensional dynamic model of Kolmogorov flow. Physical Review Fluids , 8(4):044402, 2023. [8] J. Dugundji. An extension of Tietze’s theorem. Pacific J. Math. , 1(1):353–367, 1951. [9] S. Dummer, D. Ye, and C. Brune. Ronom: Reduced-order neural operator modeling. SIAM Journal on Scientific Computing , 48(3):C604–C634, 2026. [10] V. Duruisseaux, J. Kossaifi, and A. Anandkumar. Fourier neural operators explained: A practical perspective. arXiv preprint arXiv:2512.01421 , 2025. 30 [11] C. Foias, G. R. Sell, and R. Temam. Inertial manifolds for nonlinear evolutionary equations. 
+
+Journal of Differential Equations , 73(2):309–353, 1988. [12] P. Jiang, Z. Yang, J. Wang, C. Huang, P. Xue, T. Chakraborty, X. Chen, and Y. Qian. Efficient super-resolution of near-surface climate modeling using the Fourier neural operator. Journal of Advances in Modeling Earth Systems , 15(7):e2023MS003800, 2023. [13] S. Kondo and T. Miura. Reaction-diffusion model as a framework for understanding biological pattern formation. science , 329(5999):1616–1620, 2010. [14] N. Kovachki, S. Lanthaler, and S. Mishra. On universal approximation and error bounds for Fourier neural operators. Journal of Machine Learning Research , 22(290):1–76, 2021. [15] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. [16] J. A. Langa and J. C. Robinson. Determining asymptotic behavior from the dynamics on attract-ing sets. Journal of Dynamics and Differential Equations , 11(2):319–331, 1999. [17] S. Lanthaler, Z. Li, and A. M. Stuart. Nonlocality and nonlinearity implies universality in operator learning. Constructive Approximation , 62(2):261–303, 2025. [18] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anand-kumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. [19] Z. Li, M. Liu-Schiaffini, N. Kovachki, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stu-art, and A. Anandkumar. Learning dissipative dynamics in chaotic systems. arXiv preprint arXiv:2106.06898 , 2021. [20] A. J. Linot and M. D. Graham. Deep learning to discover and predict dynamics on an inertial manifold. Physical Review E , 101(6):062209, 2020. [21] M. Liu-Schiaffini, C. E. Singer, N. Kovachki, T. Schneider, K. Azizzadenesheli, and A. Anand-kumar. Tipping point forecasting in non-stationary dynamics on function spaces. arXiv preprint arXiv:2308.08794 , 2023. [22] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence ,3(3):218–229, 2021. [23] A. Mendible, S. L. Brunton, A. Y. Aravkin, W. Lowrie, and J. N. Kutz. Dimensionality reduction and reduced-order modeling for traveling wave physics. Theoretical and Computational Fluid Dynamics , 34(4):385–400, 2020. [24] J. Robinson. Finite-dimensional behavior in dissipative partial differential equations. Chaos: An Interdisciplinary Journal of Nonlinear Science , 5(1):330–345, 1995. [25] J. C. Robinson. The asymptotic completeness of inertial manifolds. Nonlinearity , 9(5):1325–1340, 1996. [26] R. Rosa and R. Temam. Inertial manifolds and normal hyperbolicity. Acta Applicandae Mathe-matica , 45(1):1–50, 1996. [27] C. W. Rowley, T. Colonius, and R. M. Murray. Model reduction for compressible flows using pod and galerkin projection. Physica D: Nonlinear Phenomena , 189(1-2):115–129, 2004. [28] C. W. Rowley and J. E. Marsden. Reconstruction equations and the karhunen–lo` eve expansion for systems with symmetry. Physica D: Nonlinear Phenomena , 142(1-2):1–19, 2000. [29] Y. Shuai and C. W. Rowley. Symmetry-reduced model reduction of shift-equivariant systems via operator inference. arXiv preprint arXiv:2507.18780 , 2025. 31 [30] L. Sirovich. Turbulence and the dynamics of coherent structures. I. coherent structures. Quarterly of applied mathematics , 45(3):561–571, 1987. [31] M. Takamoto, T. Praditia, R. Leiteritz, D. MacKinlay, F. Alesiani, D. Pfl¨ uger, and M. Niepert. Pdebench: An extensive benchmark for scientific machine learning. Advances in neural informa-tion processing systems , 35:1596–1611, 2022. [32] R. Temam. Infinite-dimensional dynamical systems in mechanics and physics , volume 68. Applied Mathematical Sciences, Springer, 2012. [33] J. H. Tu, C. W. Rowley, D. M. Luchtenburg, S. L. Brunton, and J. N. Kutz. On dynamic mode decomposition: Theory and applications. Journal of Computational Dynamics , 1(2):391–421, 2014. [34] A. M. Turing. The chemical basis of morphogenesis. Bulletin of mathematical biology , 52(1):153– 197, 1990. [35] Y. Wang, Z. Li, Z. Yuan, W. Peng, T. Liu, and J. Wang. Prediction of turbulent channel flow using Fourier neural operator-based machine-learning strategy. Physical Review Fluids , 9(8):084604, 2024. [36] M. O. Williams, I. G. Kevrekidis, and C. W. Rowley. A data–driven approximation of the koopman operator: Extending dynamic mode decomposition. Journal of Nonlinear Science , 25(6):1307– 1346, 2015. [37] Z. Ye, C.-S. Zhang, and W. Wang. Recurrent neural operators: Stable long-term PDE prediction. 
+
+arXiv preprint arXiv:2505.20721 , 2025. [38] H. You, Q. Zhang, C. J. Ross, C.-H. Lee, and Y. Yu. Learning deep implicit Fourier neural operators (IFNOs) with applications to heterogeneous material modeling. Computer Methods in Applied Mechanics and Engineering , 398:115296, 2022. 32 Appendix 
+
+# A. Proof of the Universal Approximation Theorem 
+
+This appendix proves Theorem 1. Section A.1 fixes notation and collects the preliminary properties used throughout the proof; Section A.2 establishes six preliminary lemmas; Section A.3 assembles the proof. 
+
+A.1 Basic settings and properties 
+
+Throughout Appendix A, we work under the assumptions of Theorem 1. We first fix the notation and collect several basic properties that will be used throughout the proof. Recall that 
+
+H = Hs(Td; Rc)for some s ≥ 0. For each N ∈ N, let PN : H → H denote the orthogonal projection onto the Fourier modes satisfying |k|∞ ≤ N , and set 
+
+QN := I − PN .
+
+We also denote by FN the associated finite-dimensional Fourier feature map 
+
+FN : H → RDN ,
+
+which collects the real and imaginary parts of the Fourier coefficients of u with |k|∞ ≤ N . Here, 
+
+DN = c(2 N + 1) d denotes the total dimension of this truncated feature space. Conversely, let 
+
+SN : RDN → PN H
+
+denote the associated band-limited Fourier synthesis map. These maps are chosen so that 
+
+SN (FN (u)) = PN u, u ∈ H. 
+
+The projections satisfy ∥PN ∥ ≤ 1 for all N , and PN u → u in H as N → ∞ for every u ∈ H.Moreover, this convergence is uniform on compact subsets of H. Indeed, if C ⊂ H is compact and 
+
+η > 0, choose a finite η/ 3-net {uj }Jj=1 of C. Since PN uj → uj for each fixed j, for all sufficiently large 
+
+N we have max 1≤j≤J ∥PN uj − uj ∥H < η/ 3. For any u ∈ C, choosing j such that ∥u − uj ∥H < η/ 3gives 
+
+∥PN u − u∥H ≤ ∥ PN (u − uj )∥H + ∥PN uj − uj ∥H + ∥uj − u∥H < η, 
+
+using ∥PN ∥ ≤ 1. Hence sup 
+
+> u∈C
+
+∥PN u − u∥H → 0.
+
+Let G = S(∆ t) : H → H be the one-step solution operator. By assumption, G is continuous on H.Let M ⊂ H be the finite-dimensional flow-normally hyperbolic inertial manifold in Theorem 1, and let Π : H → M be the associated continuous asymptotic phase map. We next state two consequences of flow-normal hyperbolicity. First, the asymptotic phase is unique, which implies Π ◦ G = G| M ◦ Π.
+
+Indeed, according to the definition of Π, S(t)Π( u) exponentially tracks S(t)u, then 
+
+S(t)GΠ( u) = S(t + ∆ t)Π( u)exponentially tracks 
+
+S(t)Gu = S(t + ∆ t)u. 
+
+Thus GΠ( u) is an asymptotic phase of Gu, and gives Π( Gu) = GΠ( u).
+
+Second, the restricted one-step map G| M is injective. Indeed, suppose that uM 
+
+> 1
+
+, u M 
+
+> 2
+
+∈ M satisfy 
+
+GuM 
+
+> 1
+
+= GuM 
+
+> 2
+
+. Applying the backward separation estimate over a time interval of length ∆ t gives 
+
+∥uM 
+
+> 1
+
+− uM 
+
+> 2
+
+∥H ≤ Ce γ∆t∥G uM 
+
+> 1
+
+− G uM 
+
+> 2
+
+∥H = 0 .
+
+33 Hence uM 
+
+> 1
+
+= uM 
+
+> 2
+
+, and therefore G| M is injective. For the compact set K ⊂ H appearing in Theorem 1, define 
+
+M0 := Π( K), M1 := M0 ∪ G (M0).
+
+Since K is compact and Π is continuous, M0 is compact. Since G is continuous, G(M0) is also compact. Moreover, by the positive invariance of the inertial manifold, G(M0) ⊂ M . Therefore M1 ⊂ M is compact. These compact sets collect the asymptotic phases of the inputs in K and their images after one time step on the manifold. Since M1 is a compact subset of the m-dimensional inertial manifold M, its topological dimension is at most m. By the Menger–N¨ obeling embedding theorem, M1 admits a topological embedding into 
+
+R2m+1 . Therefore, if the latent dimension satisfies dh ≥ 2m + 1, we can fix a continuous injective map 
+
+E : M1 → Rdh .
+
+Since M1 is compact and Rdh is Hausdorff, E is a homeomorphism from M1 onto its image. Define Λ0 := E(M0), Λ1 := E(G(M0)) .
+
+Then 
+
+E(M1) = Λ 0 ∪ Λ1.
+
+We write 
+
+D := E−1 : Λ 0 ∪ Λ1 → M1
+
+for the inverse map, which is continuous. For u ∈ K, define 
+
+h(u) := E(Π( u)) , r(u) := u − Π( u).
+
+Since Π, E, and the identity map on H are continuous, both h : K → Rdh and r : K → H are continuous. Therefore 
+
+CK := ( r(u), h (u)) : u ∈ K ⊂ H × Rdh
+
+is compact. We next define the exact one-step map in latent coordinates: 
+
+F : Λ 0 → Λ1, F (h) := E G(D(h)) .
+
+Indeed, if h ∈ Λ0, then D(h) ∈ M0, and hence G(D(h)) ∈ G (M0). Therefore F (h) ∈ Λ1.The map F is continuous. Moreover, since D and E are injective and G| M is injective, F is injective on Λ 0. Hence F is a continuous bijection from the compact set Λ 0 onto the compact set Λ 1. Since Λ1 ⊂ Rdh is Hausdorff, F is a homeomorphism from Λ 0 to Λ 1.Next, define the exact one-step residual map R0 : H × Λ0 → H by 
+
+R0(uR, h ) := G(D(h) + uR) − Π G(D(h) + uR).
+
+Since D, G, and Π are continuous, and addition is continuous on H, the map R0 is continuous. For every u ∈ K, we have 
+
+D(h(u)) = D(E(Π( u))) = Π( u),
+
+and hence 
+
+R0(r(u), h (u)) = G(u) − Π( G(u)) .
+
+Thus R0 gives the exact next-step residual when evaluated at the current residual and the current latent coordinate. We now specify the IMNO architecture class used in the approximation theorem. In the proof below, when we refer to an IMNO model, we mean a model consisting of the following components: 
+
+• Encoder. The encoder has the form 
+
+Eθ (u) = φθ (FkE (u)) ,
+
+where FkE (u) ∈ RDkE collects the real and imaginary parts of the Fourier coefficients of u with 
+
+|k|∞ ≤ kE , and φθ is a MLP. The truncation level kE is a free hyperparameter. 34 • Decoder. The decoder has the form 
+
+Dθ (h) = SkD (ψθ (h)) ,
+
+where ψθ is an MLP producing the real and imaginary parts of the Fourier coefficients for modes |k|∞ ≤ kD , and SkD denotes the corresponding band-limited Fourier synthesis map. The truncation level kD is also free. 
+
+• Latent dynamics. The latent dynamics are represented by an explicit one-step update 
+
+ht+1 = ht + ∆ t f θ (ht),
+
+where fθ : Rdh → Rdh is an MLP. 
+
+• Residual operator. The residual dynamics are represented by a conditioned neural operator 
+
+Rθ (·, h ) = Q ◦ L (h) 
+
+> L
+
+◦ · · · ◦ L (h)1 ◦ P ,
+
+where each hidden layer has the form 
+
+L(h) 
+
+> ℓ
+
+(v)( x) = σ Wℓv(x) + βℓ(h) + ( Kℓv)( x).
+
+Here P and Q are pointwise lifting and projection maps, Wℓ is a pointwise linear transformation, 
+
+Kℓ is a Fourier integral operator, and βℓ is a learnable affine map from the latent coordinate to the channel space. The width, depth, and number of retained Fourier modes are free parameters. Throughout the proof, the activation function σ is chosen so that the standard finite-dimensional universal approximation theorem for MLPs applies. 
+
+Remark 4 (Encoder used in the experiments) . The theoretical encoder class in the proof applies a nonlinear MLP after Fourier truncation. This generality is needed for the universal approximation theorem, since the target phase-coordinate map u 7 → E(Π( u)) is a continuous map on K and need not be linear. In the implementation, we use a lighter encoder. The input is first lifted pointwise to a higher-dimensional channel space, low Fourier modes are then extracted, and a final linear map produces the latent coordinate. The resulting encoder is therefore linear and is less expressive than the nonlinear MLP class used in the theorem. Nevertheless, in our experiments, this simpler variant often achieves accuracy comparable to, or even better than, variants with an additional nonlinear layer, while also improving training stability. It may be viewed as learning a data-adapted linear approximation to the target phase-coordinate map over the region sampled by the training data. However, this compact structure may still be limited in some regimes, and incorporating appropriate nonlinearity into the encoder is an interesting direction for future work. 
+
+A.2 Preliminary lemmas 
+
+We first recall the universal approximation theorem of Fourier neural operators, which will be used later. The proof can be found in [14]. 
+
+Lemma A.1 (Universal approximation by FNOs) . Let s, s ′ ≥ 0. Let 
+
+G : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu )
+
+be a continuous operator. Let K ⊂ Hs(Td; Rda ) be a compact subset. Then, for any ε > 0, there exists a Fourier neural operator 
+
+N : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu ),
+
+of the standard FNO form, continuous as an operator from Hs(Td; Rda ) to Hs′
+
+(Td; Rdu ), such that 
+
+sup 
+
+> a∈K
+
+∥G (a) − N (a)∥Hs′ ≤ ε. 
+
+In the main proof, we will use two elementary technical tools repeatedly. The first is a continuous extension result. 35 Lemma A.2 (Continuous extension) . Let X be a metric space, let A ⊂ X be closed, and let Y be a Banach space. If f : A → Y is continuous, then there exists a continuous map ¯f : X → Y such that 
+
+¯f |A = f. 
+
+This is the Dugundji extension theorem [8]. In what follows, we use Lemma A.2 to extend contin-uous maps originally defined only on compact subsets, such as K, Λ, or CK , to continuous maps on the ambient spaces. The second tool is a relative form of uniform continuity. In an infinite-dimensional space, a closed neighborhood of a compact set need not be compact. The following lemma allows us to control a continuous map near a compact set without requiring compactness of such neighborhoods. 
+
+Lemma A.3 (Uniform continuity relative to a compact set) . Let (X, d X ) and (Y, d Y ) be metric spaces, let T : X → Y be continuous, and let C ⊂ X be compact. Then, for every η > 0, there exists δ > 0
+
+such that, for all x ∈ C and all y ∈ X satisfying dX (x, y ) < δ , one has 
+
+dY (T x, T y ) < η. 
+
+Proof. Suppose the claim fails. Then there exist η > 0, sequences xn ∈ C and yn ∈ X, such that 
+
+dX (xn, y n) < 1
+
+n , dY (T x n, T y n) ≥ η. 
+
+Since C is compact, after passing to a subsequence we may assume that xn → x for some x ∈ C. Since 
+
+dX (xn, y n) → 0, we also have yn → x. By continuity of T at x, both T x n and T y n converge to T x ,and hence dY (T x n, T y n) → 0, a contradiction. We next prove that the encoder class used in the theoretical IMNO architecture can approximate any continuous target map on the compact input set K. The key point is that Fourier truncation converges uniformly on compact subsets of H, so the infinite-dimensional approximation problem can be reduced to a finite-dimensional MLP approximation problem. 
+
+Lemma A.4 (Encoder approximation) . Let g : K → Rdh be continuous on the compact set K ⊂ H.Then, for every η > 0, there exist kE ∈ N and an MLP φ : RDkE → Rdh such that 
+
+sup 
+
+> u∈K
+
+∥φ(FkE (u)) − g(u)∥ < η. 
+
+Proof. By Lemma A.2, extend g to a continuous map ¯g : H → Rdh .
+
+We first choose a Fourier truncation level. Since Pku → u in H for each u ∈ H, and this convergence is uniform on compact subsets of H, we have sup 
+
+> u∈K
+
+∥Pku − u∥H → 0 as k → ∞ .
+
+Applying Lemma A.3 to the continuous map ¯ g and the compact set K, we can choose kE sufficiently large so that sup 
+
+> u∈K
+
+∥¯g(PkE u) − ¯g(u)∥ < η
+
+2 .
+
+It remains to approximate the finite-dimensional map induced by this truncation. Define 
+
+A := FkE (K) ⊂ RDkE .
+
+Since K is compact and FkE is continuous, A is compact. Now define 
+
+gkE : RDkE → Rdh , gkE (z) := ¯ g(SkE (z)) .
+
+This map is continuous on the compact set A. By the finite-dimensional universal approximation theorem for MLPs, there exists an MLP φ : RDkE → Rdh such that sup 
+
+> z∈A
+
+∥φ(z) − gkE (z)∥ < η
+
+2 .
+
+36 For every u ∈ K, we have 
+
+gkE (FkE (u)) = ¯ g(SkE (FkE (u))) = ¯ g(PkE u).
+
+Therefore, 
+
+∥φ(FkE (u)) − g(u)∥ ≤ ∥ φ(FkE (u)) − ¯g(PkE u)∥ + ∥¯g(PkE u) − ¯g(u)∥ < η. 
+
+Taking the supremum over u ∈ K proves the claim. The next lemma establishes a decoder approximation result. It shows that a continuous map from the finite-dimensional latent space into the function space H can be approximated by first using an MLP to generate finitely many Fourier coefficients and then applying band-limited Fourier synthesis. 
+
+Lemma A.5 (Decoder approximation) . Let Λ ⊂ Rdh be compact, and let D : Λ → H be continuous. Then, for every η > 0, there exist kD ∈ N and an MLP ψ : Rdh → RDkD such that Dθ = SkD ◦ ψ
+
+satisfies 
+
+sup 
+
+> h∈Λ
+
+∥Dθ (h) − D(h)∥H < η. 
+
+Proof. Since D is continuous and Λ is compact, the image D(Λ) is compact in H. By the uniform convergence of Fourier truncations on compact subsets of H, we have sup 
+
+> h∈Λ
+
+∥PN D(h) − D(h)∥H = sup 
+
+> h∈Λ
+
+∥QN D(h)∥H → 0 as N → ∞ .
+
+Choose kD sufficiently large so that sup 
+
+> h∈Λ
+
+∥QkD D(h)∥H < η
+
+2 .
+
+We now approximate the retained Fourier coefficients. Define the coefficient map 
+
+akD : Λ → RDkD , akD (h) := FkD (D(h)) .
+
+This map is continuous because D is continuous and FkD is a continuous finite-dimensional Fourier feature map. Since Λ is compact, the finite-dimensional universal approximation theorem for MLPs gives an MLP ψ : Rdh → RDkD such that sup 
+
+> h∈Λ
+
+∥ψ(h) − akD (h)∥ < η
+
+2CkD
+
+,
+
+where 
+
+CkD := ∥S kD ∥L(RDkD ,H ) < ∞.
+
+This norm is finite because SkD is a linear map defined on the finite-dimensional normed space RDkD ;every such linear map into a normed space is bounded. For any h ∈ Λ, using SkD (FkD (D(h))) = PkD D(h), we obtain 
+
+∥Dθ (h) − D(h)∥H = ∥S kD (ψ(h)) − D(h)∥H
+
+≤ ∥S kD (ψ(h) − akD (h)) ∥H + ∥PkD D(h) − D(h)∥H
+
+≤ CkD ∥ψ(h) − akD (h)∥ + ∥QkD D(h)∥H
+
+< η. 
+
+Taking the supremum over h ∈ Λ proves the claim. The next lemma establishes the universality property of the conditioned residual operator. 
+
+Lemma A.6 (Residual operator universality) . Let S ⊂ H ×Rdh be compact, and let R : H ×Rdh → H
+
+be continuous. Then, for every η > 0, there exists a conditioned residual operator Rθ such that 
+
+sup 
+
+> (v,h )∈S
+
+∥R θ (v, h ) − R (v, h )∥H < η. 
+
+37 Proof. We split the proof into two steps. First, we encode the conditioning variable h as a constant function and apply the standard FNO universal approximation theorem to obtain an FNO that ap-proximates R on a compact set. Second, we show that one can directly construct a residual operator 
+
+Rθ that exactly reproduces this FNO on S.
+
+Step 1: Approximating R by a standard FNO on augmented inputs. 
+
+For each h ∈ Rdh , let 1 ⊗ h denote the constant Rdh -valued function on Td with value h. Define the augmentation map 
+
+I : H × Rdh −→ Hs(Td; Rc+dh ), I(v, h ) := ( v, 1 ⊗ h).
+
+Since I is continuous, the set 
+
+eS := I(S) = {(v, 1 ⊗ h) : ( v, h ) ∈ S}
+
+is compact. Moreover, I is injective on S. Since S is compact and Hs(Td; Rc+dh ) is Hausdorff, I is a homeomorphism from S onto eS.Define eR : eS → H, eR(v, 1 ⊗ h) := R(v, h ).
+
+This map is well-defined and continuous because I−1 is continuous on eS and R is continuous on 
+
+H × Rdh .By Lemma A.2, eR admits a continuous extension, denoted by ¯R, from Hs(Td; Rc+dh ) to H. Ap-plying the standard FNO universal approximation theorem to this extended map on the compact set 
+
+eS, we obtain a standard FNO N such that sup  
+
+> (v, 1⊗h)∈eS
+
+N (v, 1 ⊗ h) − ¯R(v, 1 ⊗ h) H = sup 
+
+> (v,h )∈S
+
+N (v, 1 ⊗ h) − R (v, h ) H < η. 
+
+It remains to show that the conditioned residual-operator class can reproduce the map (v, h ) 7 → N (v, 1 ⊗ h)on S.
+
+Step 2: Reproducing the augmented FNO with a residual operator. 
+
+In Step 1, we constructed a standard FNO N on the augmented input ( v, 1⊗h) such that N (v, 1⊗h)approximates R(v, h ) uniformly on S. We now show that, with a suitable choice of parameters, the residual operator Rθ can exactly reproduce this augmented-input FNO on S. The only difference is how the latent variable h enters the model. In N , h is provided as a spatially constant input channel. In Rθ , h enters through the additive conditioning terms βℓ(h). To construct such a residual operator, we first write the standard FNO N explicitly. Since N acts on the augmented input 
+
+w(x) = ( v(x), h ), w = ( v, 1 ⊗ h),
+
+we may write 
+
+N = QN ◦ L N 
+
+> L
+
+◦ · · · ◦ L N 
+
+> 1
+
+◦ P N .
+
+Here PN is a pointwise lifting layer implemented by an MLP, 
+
+PN (w)( x) = P N (v(x), h, x ) ∈ RdN ,
+
+where dN is the hidden channel width of N .Each hidden Fourier layer LN 
+
+> l
+
+has the form 
+
+LN 
+
+> ℓ
+
+(z)( x) = σ W N 
+
+> ℓ
+
+z(x) + bN 
+
+> ℓ
+
++ ( KN 
+
+> ℓ
+
+z)( x), z(x) ∈ RdN ,
+
+and QN is the final pointwise projection layer. We construct the conditioned residual operator Rθ in the form 
+
+Rθ = Q ◦ L (h) 
+
+> L
+
+◦ · · · ◦ L (h)1 ◦ L (h)0 ◦ P .
+
+38 Here, P is the lifting layer, and L(h)0 is a preparation block consisting of one or more conditioned residual layers. Its role is to transform the lifted input into the hidden representation required by the target FNO N . For each ℓ = 1 , . . . , L , L(h) 
+
+> ℓ
+
+is a single conditioned Fourier layer chosen to reproduce the ℓth Fourier layer of N . Finally, Q reproduces the projection layer of N .Choose the hidden width dR of Rθ so that its channel space admits the coordinate decomposition 
+
+RdR = A ⊕ B , A ≃ Rc+d, B ≃ RdN .
+
+Let πA and πB denote the corresponding coordinate projections. The auxiliary channels A store the local input features ( v(x), x ), while the target channels B are used to reproduce the hidden features of the augmented FNO N .Choose the lifting layer P so that 
+
+P(v)( x) =  v(x), x, 0dN
+
+ ∈ A ⊕ B .
+
+Thus, 
+
+πAP(v)( x) =  v(x), x , πBP(v)( x) = 0 .
+
+Write the lifting MLP of N in the standard form 
+
+y1(x, h ) =  v(x), x, h ,yj+1 (x, h ) = σ Aj yj (x, h ) + cj
+
+, j = 1 , . . . J − 1,
+
+and 
+
+P N (v(x), h, x ) = AJ yJ (x, h ) + cJ .
+
+By increasing the width and padding unused channels with zeros if necessary, we may assume that 
+
+y2, . . . , y J ∈ RdN ≃ B .
+
+We now construct the preparation block L(h)0 . It consists of J − 1 conditioned layers with Kℓ = 0. Writing 
+
+z1(x) = P(v)( x),
+
+the layers inside L(h)0 take the form 
+
+zj+1 (x) = σ(W0,j zj (x) + β0,j (h)) , j = 1 , . . . , J − 1.
+
+We choose these layers so that 
+
+πBzj (x) = yj (x, h ), j = 2 , . . . , J. 
+
+To construct the first layer, decompose the first affine map of the lifting MLP according to its local and latent inputs: 
+
+A1y1(x, h ) + c1 = A1,loc 
+
+ v(x), x  + A1,h h + c1.
+
+Choose the A → B and B → B blocks of W0,1 so that 
+
+πBW0,1|A = A1,loc , πBW0,1|B = 0 ,
+
+and choose the conditioning term so that 
+
+πBβ0,1(h) = A1,h h + c1.
+
+It follows that 
+
+πBz2(x) = σ A1,loc 
+
+ v(x), x  + A1,h h + c1
+
+ = y2(x, h ).
+
+For j = 2 , . . . , J − 1, suppose inductively that 
+
+πBzj (x) = yj (x, h ).
+
+39 Choose the jth conditioned layer so that 
+
+πBW0,j |B = Aj , πBW0,j |A = 0 ,
+
+and 
+
+πBβ0,j (h) = cj .
+
+Then πBzj+1 (x) = σ(Aj πBzj (x) + cj )= σ(Aj yj (x, h ) + cj )= yj+1 (x, h ).
+
+Therefore, by induction, 
+
+πBzJ (x) = yJ (x, h ).
+
+After the preparation block, all subsequent couplings from A into B are set to zero. Hence the remaining computation in the B-channels depends only on the feature yJ (x, h ). The remaining affine output layer of the lifting MLP is 
+
+P N (x) = P N  v(x), h, x  = AJ yJ (x, h ) + cJ .
+
+Rather than implementing this map as an additional preparation layer, we absorb it into the first conditioned Fourier layer L(h)1 .The pre-activation of the first Fourier layer of N is 
+
+W N 
+
+> 1
+
+P N (x) +  KN 
+
+> 1
+
+P N (x) + bN 
+
+> 1
+
+.
+
+Substituting P N (x) = AJ yJ (x, h ) + cJ gives 
+
+W N 
+
+> 1
+
+AJ yJ (x, h ) +  KN 
+
+> 1
+
+(AJ yJ )(x) + W N 
+
+> 1
+
+cJ +  KN 
+
+> 1
+
+cJ
+
+(x) + bN 
+
+> 1
+
+.
+
+On the other hand, the B-component of the pre-activation of the first conditioned Fourier layer of 
+
+Rθ is 
+
+πB [W1zJ (x) + ( K1zJ )( x) + β1(h)] .
+
+Choose the relevant blocks of the pointwise and Fourier operators so that 
+
+πBW1|B = W N 
+
+> 1
+
+AJ , πBW1|A = 0 ,
+
+and, for every retained Fourier mode k,
+
+πBR1(k)|B = RN 
+
+> 1
+
+(k)AJ , πBR1(k)|A = 0 .
+
+Finally, choose 
+
+πBβ1(h) = W N 
+
+> 1
+
+cJ + KN 
+
+> 1
+
+cJ + bN 
+
+> 1
+
+.
+
+With these choices, the B-component of the first conditioned Fourier layer of Rθ exactly reproduces the first Fourier layer of N applied to P N (x). We next reproduce the remaining Fourier layers of N . For each ℓ = 2 , . . . , L , choose the corre-sponding conditioned layer of Rθ so that 
+
+πBWℓ|B = W N 
+
+> ℓ
+
+, πBWℓ|A = 0 ,πBKℓ|B = KN 
+
+> ℓ
+
+, πBKℓ|A = 0 ,
+
+and 
+
+πBβℓ(h) = bN 
+
+> ℓ
+
+.
+
+Since the first conditioned Fourier layer reproduces the output of LN 
+
+> 1
+
+in the B-channels, and each subsequent conditioned layer reproduces the corresponding layer LN 
+
+> ℓ
+
+, induction over ℓ shows that the hidden Fourier computation of Rθ agrees exactly with that of N in the B-channels. It remains to match the output projection. Choose Q to depend only on the B-component and to apply the same pointwise projection as QN . Then, for every ( v, h ) ∈ S,
+
+Rθ (v, h ) = N (v, 1 ⊗ h).
+
+Combining this identity with the approximation estimate from Step 1 gives sup 
+
+> (v,h )∈S
+
+∥R θ (v, h ) − R (v, h )∥H < η. 
+
+This proves the lemma. 40 A.3 Main Proof 
+
+Proof of Theorem 1. We now prove Theorem 1 by combining the approximation results above. 
+
+Step 0: Target maps and extensions. We first recall the notations introduced in Section A.1. For u ∈ K, define 
+
+h(u) = E(Π( u)) , r(u) = u − Π( u),
+
+and Λ0 = h(K), F (h) = E G(D(h)) .
+
+We also write 
+
+h1(u) := F (h(u)) , Λ1 := F (Λ 0).
+
+By the discussion in Section A.1, F : Λ 0 → Λ1 is a homeomorphism. Moreover, 
+
+D(h1(u)) = Π( G(u)) .
+
+Because the residual operator in our architecture is conditioned on the next latent coordinate, we first introduce its target domain 
+
+C′ 
+
+> K
+
+:= {(r(u), h 1(u)) : u ∈ K} ⊂ H × Rdh .
+
+We then define the exact residual target R : C′ 
+
+> K
+
+→ H by 
+
+R(v, h 1) := R0
+
+ v, (F )−1(h1).
+
+Then R is continuous on C′ 
+
+> K
+
+, and for every u ∈ K,
+
+R(r(u), h 1(u)) = G(u) − Π( G(u)) .
+
+Thus R gives the exact next-step residual when evaluated at the exact current residual and exact next-step latent coordinate. Finally, by lemma A.2, choose continuous extensions ¯D : Rdh → H, ¯R : H × Rdh → H, 
+
+of D and R, respectively. Also extend 
+
+f (h) := F (h) − h
+
+∆t , h ∈ Λ0,
+
+to a continuous map ¯f : Rdh → Rdh .
+
+Let Λ∗ := {h ∈ Rdh : dist( h, Λ0 ∪ Λ1) ≤ 1}.
+
+This set is compact. Let ωD and ωf be moduli of uniform continuity of ¯D and ¯f on Λ ∗.
+
+Step 1: Choosing the error budgets. We now choose the small constants used in the approxi-mation of the encoder, latent dynamics, decoder, and residual operator. Apply lemma A.3 to ¯R on the compact set C′ 
+
+> K
+
+. With tolerance ε/ 4, there exists δT ∈ (0 , 1] such that if ( v0, h 0) ∈ C′ 
+
+> K
+
+and 
+
+∥v − v0∥H + ∥h − h0∥ < δ T ,
+
+then 
+
+∥ ¯R(v, h ) − ¯R(v0, h 0)∥H < ε
+
+4 .
+
+Choose τ ∈ (0 , δT 
+
+> 2
+
+] such that 
+
+ωD (τ ) ≤ min 
+
+ ε
+
+4 , δT
+
+4
+
+
+
+.
+
+41 Then choose δ1 ∈ (0 , τ ] such that 
+
+δ1 + ∆ t ω f (δ1) ≤ τ
+
+2 .
+
+Finally choose δ2 > 0 such that ∆t δ 2 ≤ τ
+
+2 ,
+
+and set 
+
+δ4 := min 
+
+ ε
+
+4 , δT
+
+4
+
+
+
+.
+
+These choices ensure that small errors in the latent coordinate lead to small errors after decoding, and that the approximate residual input remains within the δT -neighborhood where ¯R is controlled. 
+
+Step 2: Encoder and latent dynamics. We first approximate the exact latent coordinate map 
+
+h : K → Rdh . By lemma A.4, there exist a truncation level kE and an encoder MLP such that ˆh0(u) := Eθ (u)satisfies sup 
+
+> u∈K
+
+∥ˆh0(u) − h(u)∥ < δ 1.
+
+Since h(u) ∈ Λ0 and δ1 ≤ 1, we have ˆh0(u) ∈ Λ∗ for every u ∈ K.Next, approximate the continuous latent vector field ¯f on Λ ∗. By MLP universality, choose fθ so that sup 
+
+> h∈Λ∗
+
+∥fθ (h) − ¯f (h)∥ < δ 2.
+
+The learned one-step latent update is ˆh1(u) := ˆh0(u) + ∆ t f θ (ˆh0(u)) .
+
+We compare it with the exact next latent coordinate 
+
+h1(u) = F (h(u)) .
+
+Using the definition of ¯f on Λ 0,
+
+h1(u) = h(u) + ∆ t ¯f (h(u)) .
+
+Therefore, 
+
+∥ˆh1(u) − h1(u)∥ ≤ ∥ ˆh0(u) − h(u)∥
+
++ ∆ t ∥fθ (ˆh0(u)) − ¯f (ˆh0(u)) ∥
+
++ ∆ t ∥ ¯f (ˆh0(u)) − ¯f (h(u)) ∥≤ δ1 + ∆ t δ 2 + ∆ t ω f (δ1).
+
+Define 
+
+δ3 := δ1 + ∆ t δ 2 + ∆ t ω f (δ1).
+
+By the choices in Step 1, δ3 ≤ τ . Hence 
+
+∥ˆh1(u) − h1(u)∥ ≤ δ3 ≤ τ. 
+
+Since h1(u) ∈ Λ1 and τ ≤ 1, we also have ˆh1(u) ∈ Λ∗.42 Step 3: Decoder and manifold prediction. We now apply Lemma A.5 to the continuous map ¯D|Λ∗ : Λ ∗ → H. 
+
+Thus, we can choose a decoder Dθ such that sup 
+
+> h∈Λ∗
+
+∥Dθ (h) − ¯D(h)∥H < δ 4.
+
+The learned and reference next-step manifold components are given by 
+
+uM
+
+> next
+
+(u) := Dθ (ˆh1(u)) , uM, ref next (u) := Π( G(u)) = ¯D(h1(u)) .
+
+Therefore, 
+
+∥uM
+
+> next
+
+(u) − uM, ref next (u)∥H = ∥Dθ (ˆh1(u)) − ¯D(h1(u)) ∥H
+
+≤ ∥ Dθ (ˆh1(u)) − ¯D(ˆh1(u)) ∥H
+
++ ∥ ¯D(ˆh1(u)) − ¯D(h1(u)) ∥H
+
+< δ 4 + ωD (δ3)
+
+≤ ε
+
+4 + ε
+
+4 = ε
+
+2 .
+
+Thus sup 
+
+> u∈K
+
+∥uM
+
+> next
+
+(u) − uM, ref next (u)∥H < ε
+
+2 .
+
+Using the decoder estimate above, we can also control the error in the residual input passed to the learned residual operator. The learned and reference initial residuals are given by ˆuR(u) := u − Dθ (ˆh0(u)) , r(u) = u − Π( u) = u − D(h(u)) = u − ¯D(h(u)) .
+
+Therefore, 
+
+∥ˆuR(u) − r(u)∥H = ∥Dθ (ˆh0(u)) − ¯D(h(u)) ∥H
+
+≤ ∥ Dθ (ˆh0(u)) − ¯D(ˆh0(u)) ∥H
+
++ ∥ ¯D(ˆh0(u)) − ¯D(h(u)) ∥H
+
+< δ 4 + ωD (δ1)
+
+≤ δT
+
+4 + δT
+
+4 = δT
+
+2 .
+
+Step 4: Residual prediction. The encoder, latent dynamics, and decoder have now been fixed. Hence the map 
+
+u 7 → (ˆ uR(u), ˆh1(u)) is continuous on K. Since K is compact, the set 
+
+Sθ := {(ˆ uR(u), ˆh1(u)) : u ∈ K} ⊂ H × Rdh
+
+is compact. By lemma A.6, there exists a conditioned residual operator Rθ such that sup 
+
+> (v,h )∈Sθ
+
+∥R θ (v, h ) − ¯R(v, h )∥H < ε
+
+4 .
+
+Moreover, by the estimates established in Steps 2 and 3, 
+
+∥ˆuR(u) − r(u)∥H + ∥ˆh1(u) − h1(u)∥ < δT
+
+2 + δ3
+
+≤ δT
+
+2 + δT
+
+2 = δT .
+
+43 Hence, for every u ∈ K, the pair (ˆ uR(u), ˆh1(u)) lies within the δT -neighborhood of ( r(u), h 1(u)) ∈ C′ 
+
+> K
+
+.Therefore, by the choice of δT ,
+
+∥ ¯R(ˆ uR(u), ˆh1(u)) − ¯R(r(u), h 1(u)) ∥H < ε
+
+4 .
+
+The learned and reference next-step residuals are given by 
+
+uR
+
+> next
+
+(u) := Rθ
+
+ ˆuR(u), ˆh1(u), uR, ref next (u) := ¯R r(u), h 1(u).
+
+Using the estimate above, we obtain 
+
+∥uR
+
+> next
+
+(u) − uR, ref next (u)∥H = ∥R θ (ˆ uR(u), ˆh1(u)) − ¯R(r(u), h 1(u)) ∥H
+
+≤ ∥R θ (ˆ uR(u), ˆh1(u)) − ¯R(ˆ uR(u), ˆh1(u)) ∥H
+
++ ∥ ¯R(ˆ uR(u), ˆh1(u)) − ¯R(r(u), h 1(u)) ∥H
+
+< ε
+
+4 + ε
+
+4 = ε
+
+2 .
+
+Thus sup 
+
+> u∈K
+
+∥uR
+
+> next
+
+(u) − uR, ref next (u)∥H < ε
+
+2 .
+
+Step 5: Combining the estimates. For every u ∈ K, the IMNO prediction is 
+
+Gθ (u) = uM
+
+> next
+
+(u) + uR
+
+> next
+
+(u),
+
+while the exact one-step solution is 
+
+G(u) = uM, ref next (u) + uR, ref next (u).
+
+From Steps 3 and 4, 
+
+∥uM
+
+> next
+
+(u) − uM, ref next (u)∥H + ∥uR
+
+> next
+
+(u) − uR, ref next (u)∥H
+
+< ε
+
+2 + ε
+
+2 = ε. 
+
+Taking the supremum over u ∈ K gives the first claim. Finally, by the triangle inequality, 
+
+∥G θ (u) − G (u)∥H = ∥uM
+
+> next
+
+(u) + uR
+
+> next
+
+(u) − uM, ref next (u) − uR, ref next (u)∥H
+
+≤ ∥ uM
+
+> next
+
+(u) − uM, ref next (u)∥H + ∥uR
+
+> next
+
+(u) − uR, ref next (u)∥H .
+
+Hence sup 
+
+> u∈K
+
+∥G θ (u) − G (u)∥H < ε. 
+
+This completes the proof. 
+
+# B. Recurrent Neural Operator (RNO) 
+
+The Recurrent Neural Operator (RNO) is a neural-operator architecture for learning the time evolution of PDEs. Unlike a standard autoregressive neural operator, which predicts the next state solely from the current solution field, RNO maintains a function-valued hidden state that carries information across time steps [21]. Let ut(x) denote the solution field at time step t. The input is first mapped to a latent feature field through a pointwise lifting layer, 
+
+vt(x) = P(ut)( x).
+
+Here, P is a pointwise lifting layer implemented by an MLP. The hidden state ht(x) is then updated using a gated recurrent mechanism. The update gate and reset gate are defined by 
+
+zt(x) = σ(Φ z (vt)( x) + Ψ z (ht)( x) + bz ) ,
+
+44 and 
+
+rt(x) = σ(Φ r (vt)( x) + Ψ r (ht)( x) + br ) ,
+
+respectively. The candidate hidden state is 
+
+eht(x) = φ Φh(vt)( x) + Ψ h
+
+ rt ⊙ ht
+
+(x) + bh
+
+ ,
+
+where σ denotes the sigmoid function, φ is the SELU activation function, and ⊙ denotes pointwise multiplication. The next hidden state is obtained by interpolating between the previous hidden state and the candidate state: 
+
+ht+1 (x) =  1 − zt(x) ⊙ ht(x) + zt(x) ⊙ eht(x).
+
+Thus, the update gate zt controls how much of the previous hidden state is retained, while the reset gate rt controls how the previous hidden state contributes to the candidate state. The operators Φz , Φr , Φh, Ψz , Ψr , Ψh
+
+are neural operators. In the implementation considered here, each of them is realized by a single FNO layer, allowing the recurrent update to incorporate nonlocal spatial interactions through spectral convolution. Finally, the predicted solution at the next time step is obtained by projecting the updated hidden state back to the solution space: 
+
+ut+1 (x) = Q(ht+1 )( x),
+
+where Q is a pointwise projection layer. 45

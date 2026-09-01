@@ -41,17 +41,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-30</span>
+      <span class="dpr-home-dashboard-kicker">2026-08-31</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 37 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 22 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>24</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-08-30 23:18:35 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-01 00:58:07 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +62,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共处理37篇论文，精读24篇、速读13篇，重点覆盖神经ODE与物理信息神经网络方向。</p>
-<p>最值得关注的是满分论文《Symbolic Neural ODEs》，展示了从时序数据提取可解释模型的新思路；物理信息神经网络用于玻色星解族学习也达到9分高评价。</p>
-<p>建议普通读者优先了解神经ODE的可解释建模优势，以及PINN在物理问题求解中的实用潜力，二者均有清晰案例支撑。</p>
+<p>今日共阅读22篇论文，其中9篇精读、13篇速读，重点关注AI与科学计算交叉方向。</p>
+<p>最值得关注的是两篇9分精读：物理信息神经网络计算SH波频散关系，以及惯性流形神经算子加速耗散型偏微分方程求解。</p>
+<p>建议后续深入探索物理信息神经网络在波动模拟中的应用，并留意ClawGym、LoRA适配器等强化学习工具的新进展。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +73,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">24 篇</strong>
+    <strong class="dpr-home-dashboard-count">9 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Symbolic Neural ODEs: Learning interpretable models from time-series data">Symbolic Neural ODEs: Learning interpretable models from time-series data</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Boson Star Solution Families with Physics-Informed Neural Networks">Learning Boson Star Solution Families with Physics-Informed Neural Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="HiDiffTIR: Hierarchical Difficulty-Aware Policy Optimization for Multi-Turn Tool-Integrated Reasoning">HiDiffTIR: Hierarchical Difficulty-Aware Policy Optimization for Multi-Turn Tool-Integrated Reasoning</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Hybrid Physics-Informed Neural Network Framework for Computing Dispersion Relations of SH Waves in Generalized Hetrogeneous Layered Media with Applications">A Hybrid Physics-Informed Neural Network Framework for Computing Dispersion Relations of SH Waves in Generalized Hetrogeneous Layered Media with Applications</span></li><li><span class="dpr-home-dashboard-paper-title" title="Inertial Manifold Neural Operator for Dissipative Time-Dependent Partial Differential Equations">Inertial Manifold Neural Operator for Dissipative Time-Dependent Partial Differential Equations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Neither Precision Nor Architecture Alone: Controlled Tests of Failure Remedies for Physics-Informed Neural Networks">Neither Precision Nor Architecture Alone: Controlled Tests of Failure Remedies for Physics-Informed Neural Networks</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>14</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>8</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>1</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,9 +89,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Beyond Field Accuracy: Two-Axis Diagnosis of Inverse-PINN Parameter Error">Beyond Field Accuracy: Two-Axis Diagnosis of Inverse-PINN Parameter Error</span></li><li><span class="dpr-home-dashboard-paper-title" title="Agent Gym: A Framework for Continuous Evaluation and Evolution of LLM Agents Through Human-in-the-Loop Feedback">Agent Gym: A Framework for Continuous Evaluation and Evolution of LLM Agents Through Human-in-the-Loop Feedback</span></li><li><span class="dpr-home-dashboard-paper-title" title="TaoLive Digital Avatar Agent Technical Report: Training Agents to Evolve with Their Harness">TaoLive Digital Avatar Agent Technical Report: Training Agents to Evolve with Their Harness</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ClawGym II: Exploring Black-Box RL on Agent Harness">ClawGym II: Exploring Black-Box RL on Agent Harness</span></li><li><span class="dpr-home-dashboard-paper-title" title="Agents unlock new capabilities through Switching LoRA Adapters as a Tool (SLAaaT)">Agents unlock new capabilities through Switching LoRA Adapters as a Tool (SLAaaT)</span></li><li><span class="dpr-home-dashboard-paper-title" title="Physics-informed Reinforcement Learning for Stochastic Reach-Avoid Analysis">Physics-informed Reinforcement Learning for Stochastic Reach-Avoid Analysis</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>8</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>9</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>2</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
 </section>
 </div>
 

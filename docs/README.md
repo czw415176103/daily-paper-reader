@@ -4,6 +4,13 @@
     <a class="dpr-home-notice-tutorial" href="#/tutorial/README">使用教程 <span aria-hidden="true">›</span></a>
   </div>
   <div class="dpr-home-notice-entry">
+    <time class="dpr-home-notice-date" datetime="2026-08-28">08.28</time>
+    <div>
+      <strong class="dpr-home-notice-entry-title">区间日报可正常点开</strong>
+      <span class="dpr-home-notice-entry-summary">长时间窗日报会挂在结束日那天的日历格上，此前点击没有反应，现在可以正常展开查看。</span>
+    </div>
+  </div>
+  <div class="dpr-home-notice-entry">
     <time class="dpr-home-notice-date" datetime="2026-07-20">07.20</time>
     <div>
       <strong class="dpr-home-notice-entry-title">反馈功能上线</strong>
@@ -41,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-08-31</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-08</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 22 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 29 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>9</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>16</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-01 00:58:07 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-08 23:14:14 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -62,9 +69,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日共阅读22篇论文，其中9篇精读、13篇速读，重点关注AI与科学计算交叉方向。</p>
-<p>最值得关注的是两篇9分精读：物理信息神经网络计算SH波频散关系，以及惯性流形神经算子加速耗散型偏微分方程求解。</p>
-<p>建议后续深入探索物理信息神经网络在波动模拟中的应用，并留意ClawGym、LoRA适配器等强化学习工具的新进展。</p>
+<p>今日精读16篇、速读13篇，共梳理29篇论文，焦点集中在物理信息深度学习与符号回归结合的前沿方向。最值得关注的是两篇满分工作：一篇提出PINN引导结构搜索的解耦符号恢复框架DeSyR，另一篇为轨道不确定性传播提供带误差界的物理信息学习方法。建议普通读者优先看轨道不确定性研究，其误差界设计对实际工程中的可信度验证尤有启发。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -73,12 +78,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">9 篇</strong>
+    <strong class="dpr-home-dashboard-count">16 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Hybrid Physics-Informed Neural Network Framework for Computing Dispersion Relations of SH Waves in Generalized Hetrogeneous Layered Media with Applications">A Hybrid Physics-Informed Neural Network Framework for Computing Dispersion Relations of SH Waves in Generalized Hetrogeneous Layered Media with Applications</span></li><li><span class="dpr-home-dashboard-paper-title" title="Inertial Manifold Neural Operator for Dissipative Time-Dependent Partial Differential Equations">Inertial Manifold Neural Operator for Dissipative Time-Dependent Partial Differential Equations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Neither Precision Nor Architecture Alone: Controlled Tests of Failure Remedies for Physics-Informed Neural Networks">Neither Precision Nor Architecture Alone: Controlled Tests of Failure Remedies for Physics-Informed Neural Networks</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DeSyR: A Decoupled Symbolic Recovery Framework with PINN-Guided Structure Search and Physics-Informed Coefficient Refinement">DeSyR: A Decoupled Symbolic Recovery Framework with PINN-Guided Structure Search and Physics-Informed Coefficient Refinement</span></li><li><span class="dpr-home-dashboard-paper-title" title="Physics-informed Learning for Orbital Uncertainty Propagation with Error Bounds">Physics-informed Learning for Orbital Uncertainty Propagation with Error Bounds</span></li><li><span class="dpr-home-dashboard-paper-title" title="SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery">SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>5</strong></span><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -89,9 +94,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="ClawGym II: Exploring Black-Box RL on Agent Harness">ClawGym II: Exploring Black-Box RL on Agent Harness</span></li><li><span class="dpr-home-dashboard-paper-title" title="Agents unlock new capabilities through Switching LoRA Adapters as a Tool (SLAaaT)">Agents unlock new capabilities through Switching LoRA Adapters as a Tool (SLAaaT)</span></li><li><span class="dpr-home-dashboard-paper-title" title="Physics-informed Reinforcement Learning for Stochastic Reach-Avoid Analysis">Physics-informed Reinforcement Learning for Stochastic Reach-Avoid Analysis</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="When Not to Imitate: Boundary-Aware Skill Memory for Reliable Tool-Use LLM Agents">When Not to Imitate: Boundary-Aware Skill Memory for Reliable Tool-Use LLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Generalizable Behaviors for Terminal Agents">Learning Generalizable Behaviors for Terminal Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="From Numerical Simulators of PDEs to Neural Emulators and Back">From Numerical Simulators of PDEs to Neural Emulators and Back</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>9</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>2</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>1</strong></span></div>
 </section>
 </div>
 

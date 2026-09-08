@@ -1,0 +1,456 @@
+Title: Conditional Flow Matching for ML-Based Inverse Design Problems
+
+URL Source: https://arxiv.org/pdf/2609.00863v1
+
+Published Time: Wed, 02 Sep 2026 01:12:50 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# CONDITIONAL FLOW MATCHING FOR ML-B ASED INVERSE 
+
+# DESIGN PROBLEMS 
+
+A P REPRINT 
+
+Juliana Felder 1∗ Milad Habibi 2∗ Soheyl Massoudi 1 Mark Fuge 11ETH Zürich 
+
+> 2
+
+University of Maryland, College Park 
+
+feldej@ethz.ch mafuge@ethz.ch 
+
+September 2, 2026 
+
+# ABSTRACT 
+
+Engineering inverse design is often limited by the high computational cost of iterative solvers for optimization problems constrained by partial differential equations (PDEs) and by their sensitivity to initialization. Deep generative models can produce candidate designs without rerunning the simulator at inference time. Generative adversarial networks (GANs) sample in one forward pass, whereas diffusion models require iterative reverse-time integration. In this work, we add conditional flow matching (CFM) to EngiOpt and compare it with a conditional diffusion model and a conditional generative adversarial network (cGAN) on structural ( beams2d )and thermal ( heatconduction2d ) benchmarks from EngiBench using the same downstream opti-mization protocol. We use cumulative optimality gap (COG) and final optimality gap (FOG) as the primary metrics for evaluating the generated designs as warm starts for gradient-based refinement. On the evaluated EngiOpt implementations and two EngiBench tasks, CFM achieves the lowest measured COG, FOG, maximum mean discrepancy (MMD), and volume-fraction deviation on both tasks. CFM has mean volume-fraction deviations of 0.4% and 1.0% on beams2d and heatconduction2d ,respectively, compared with 3.8% and 11 .2% for diffusion. At Euler s = 16 , CFM achieves 53 .2
+
+samples/s on beams2d — about 66 × the measured throughput of the evaluated diffusion baseline us-ing 1000 network evaluations under the same timing protocol — with COG 1.182 ± 3.126 , compared with 1.173 ± 3.100 for Euler s = 32 .Across the two tasks, CFM produces warm starts with lower measured COG than both baselines and uses fewer network evaluations than diffusion. 
+
+Keywords engineering inverse design · flow matching · warm starts · generative models · engineering optimization 
+
+# 1 Introduction 
+
+Engineering inverse design seeks geometries that satisfy target physical performance criteria — a task traditionally solved by iterative gradient-based optimization constrained by expensive physics simulations [Peckham et al., 2025, Habibi et al., 2026]. Each design update requires a simulator call, making it expensive to solve many related design instances [Giannone et al., 2023]. Generative models offer a data-driven alternative: trained on reference designs produced by numerical optimization, they approximate p(x | c) and generate candidates at inference time without rerunning the simulator [Regenwetter et al., 2022, Mazé and Ahmed, 2023]. The aim is not to generate a fully converged design, but to provide an initialization that the downstream optimizer can refine under the prescribed physical conditions. Prior studies report improved sample quality for diffusion models over conditional generative adversarial networks (cGANs) [Mazé and Ahmed, 2023, Zhang et al., 2025, Habibi and Fuge, 2024], but hundreds of network evaluations per sample can make generation slow. We introduce conditional flow matching (CFM) as a new baseline in EngiOpt [Felten et al., 2025] — alongside existing cGAN and diffusion implementations — replacing stochastic denoising with 
+
+> ∗
+
+Equal contribution. arXiv:2609.00863v1 [cs.LG] 1 Sep 2026 Flow Matching for Engineering Inverse Design A P REPRINT 
+
+deterministic velocity regression [Lipman et al., 2023]. Because CFM and diffusion share the same conditional U-Net backbone, the comparison limits differences in model architecture and focuses on the training objective and sampling procedure. We ask whether CFM can generate useful warm starts with fewer network evaluations than diffusion and lower seed-to-seed variability than the evaluated cGAN baseline. Our contributions are: 1. A CFM baseline for EngiOpt/EngiBench, evaluated against conditional diffusion and cGAN using the same data splits, checkpoint-selection procedure, and downstream optimizer. 2. An evaluation protocol centered on cumulative optimality gap (COG) and final optimality gap (FOG), measur-ing downstream warm-start utility via optimization trajectories rather than distributional metrics alone. 3. A solver and number of function evaluations (NFE) ablation showing beams2d COG of 1.182 ± 3.126 at NFE = 16 and 1.173 ± 3.100 at NFE = 32 , while NFE = 16 reaches approximately 64 ×–66 × the measured diffusion throughput. 
+
+# 2 Related Work 
+
+Physics-based topology optimization repeatedly solves governing equations while updating a material distribution. These repeated analyses make solving many related design instances expensive [Sigmund and Maute, 2013]. This cost has motivated machine-learning methods that predict or generate candidate designs [Regenwetter et al., 2022]. We review learned warm starts, generative inverse-design models, diffusion models, and flow matching. 
+
+Inverse Design Inverse design seeks a geometry or material distribution that satisfies prescribed physical requirements. Applications include structural and thermal topology optimization, nanophotonics, and aerodynamic design [Felten et al., 2025, Molesky et al., 2018, Shirvani et al., 2023]. Structural and thermal topology optimization are commonly formulated as partial differential equations (PDEs)-constrained problems. Density-based methods such as SIMP solve them iteratively by alternating physical analysis and material updates [Sigmund, 2001]. Although effective, this procedure can be expensive when designs are required for many conditions. 
+
+Learned Warm Starts Machine-learning models can reduce this cost by mapping design conditions to candidate material distributions. Direct prediction has been studied for structural and thermal topology optimization [Li et al., 2019, Lin et al., 2025]. Other methods use the generated design as an initialization and leave final physical refinement to a conventional optimizer [Giannone et al., 2023, Habibi et al., 2026]. Visual similarity to a reference design does not necessarily imply comparable physical performance [Habibi et al., 2025]. We therefore assess learned initializations through their effect on downstream optimization, alongside distributional metrics. 
+
+Generative Models for Engineering Design Engineering inverse-design problems can admit several designs that satisfy the same requirements. Deep generative models provide a way to represent this conditional design distribution. cGANs have been applied to topology optimization using loads, boundary conditions, or physical fields as inputs [Mirza and Osindero, 2014, Nie et al., 2021, Hertlein et al., 2021]. They generate designs in one forward pass, but adversarial training can be unstable and susceptible to mode collapse [Goodfellow et al., 2014]. Variational and other generative models have also been used to generate multiple candidates for subsequent evaluation or refinement [Oh et al., 2019, Yamasaki et al., 2021]. 
+
+Diffusion Models Diffusion models avoid adversarial training by learning to reverse a gradual noising process [Ho et al., 2020]. TopoDiff reports up to an eightfold reduction in physical-performance error and elevenfold fewer non-manufacturable designs than the adversarial baselines considered in that study [Mazé and Ahmed, 2023]. Related diffusion approaches have been applied to lattice and structural-component generation [Zhang et al., 2025, Herron et al., 2024]. The relative performance of diffusion and adversarial models nevertheless depends on the task and available training data [Habibi and Fuge, 2024]. Diffusion sampling also requires repeated network evaluations, motivating comparisons that consider both design quality and generation cost. 
+
+Flow Matching Flow matching trains continuous normalizing flows without simulating complete trajectories during training [Lipman et al., 2023]. A continuous normalizing flow transports a sample x0 from a source distribution p0 to a sample x1 from the data distribution through a time-dependent vector field vt:
+
+dxt
+
+dt = vt(xt), x0 ∼ p0. (1) 2Flow Matching for Engineering Inverse Design A P REPRINT 
+
+Classical continuous normalizing flows generally require solving and differentiating through this ordinary differential equation (ODE) during training. Flow matching instead regresses the vector field associated with a prescribed probability path [Albergo and Vanden-Eijnden, 2023]. Conditional flow matching constructs paths whose target velocities can be computed from sampled source and target endpoints. In independent conditional flow matching (I-CFM), these endpoints are sampled independently. Optimal-transport couplings can instead reduce path curvature and objective variance [Tong et al., 2024]. The linear path, target velocity, and training objective used in this work are defined in Section 3. Related formulations include stochastic interpolants and rectified flow [Albergo et al., 2025, Liu et al., 2023]. Recent work applies flow matching to airfoil and wing inverse design [Yang et al., 2026, Zhao et al., 2026], ship-propeller design [Kruger et al., 2026], fluid-field generation [Kashefi, 2026], and topology optimization [Xiao et al., 2026, Rashed et al., 2026]. Krüger et al. [2026] compare generative models on engineering inverse problems, while de Campos et al. [2026] study a flow-matching method for high-dimensional inverse design with abstention. 
+
+Scope of This Study Previous work shows that flow matching can be used for engineering design, including topology optimization. We compare the linear-path I-CFM implementation described in Section 3 with the existing diffusion and cGAN implementations in EngiOpt. All methods use the same EngiBench data splits, matched condition–reference-design pairs, validation-only checkpoint selection, downstream optimizer, and metric definitions. CFM and Diffusion additionally share the same conditional U-Net architecture. We evaluate structural and thermal tasks and report COG and FOG computed from the downstream optimization trajectories together with measured sampling cost. 
+
+# 3 Method 
+
+Problem Formulation Each problem instance is defined by a condition vector c ∈ Rnc encoding problem-specific boundary conditions, and a target 2D density field x ∈ [0 , 1] H×W , where each entry represents local material density (0 = void, 1 = solid). The dataset D = {(c(i), x (i)ref )}Ni=1 consists of N pairs of boundary conditions and their corresponding reference designs. Our objective is to learn a conditional generative model that approximates the distribution p(x | c),whose samples serve as initial designs for downstream physics-based optimization. 
+
+Engineering Design Problems and Data Representation EngiBench provides common Python interfaces for loading benchmark datasets and running their simulators and optimizers [Felten et al., 2025]. We evaluate structural compliance optimization on Beams2D and thermal compliance optimization on HeatConduction2D . Full problem documentation is available in the EngiBench problem registry. 2
+
+• Beams2D : Structural compliance minimization for the right-half MBB beam on a 100 × 50 grid ( x ∈
+
+[0 , 1] 100 ×50 , c ∈ R4). The dataset provides 4,851 optimized reference designs: 3,880 training, 728 val-idation, and 243 test designs. Condition variables c include volume fraction ( volfrac ), minimum feature thickness ( rmin ), fractional force location ( forcedist ), and an overhang manufacturability flag. • HeatConduction2D : Thermal compliance minimization under material-budget and boundary-condition constraints on a 101 × 101 grid ( x ∈ [0 , 1] 101 ×101 , c ∈ R2). The dataset contains 441 optimized reference designs: 361 training, 40 validation, and 40 test designs. Condition variables c include the volume limit on material distribution and the length of the adiabatic region on the bottom side of the domain. 
+
+Preprocessing and Postprocessing Pipelines Preprocessing is model-specific. For CFM, the design fields are min-max normalized using statistics computed on the training split, xnorm = ( x − xmin )/(xmax − xmin ), while the condition vectors are left unchanged. Since the training data is already in [0 , 1] , this normalization is approximately the identity; generated outputs are clipped directly to [10 −3, 1] before evaluation and use as optimizer warm starts. Diffusion designs are instead rescaled to [−1, 1] for training, matching the standard denoising diffusion probabilistic model (DDPM) convention [Ho et al., 2020], and generated outputs are rescaled back to the physical density range before being clipped to [10 −3, 1] . For cGAN, the generator uses a sigmoid output, so generated designs are already in 
+
+[0 , 1] before applying the same clipping step. 
+
+3.1 CFM Architecture 
+
+We use a 2D conditional U-Net as the backbone for I-CFM. The U-Net takes a noisy design xt ∈ R1×H×W
+
+and condition c as input, and outputs a velocity field vθ (xt, t, c ) ∈ R1×H×W . Concretely, we implement the 
+
+> 2https://engibench.ethz.ch/
+
+3Flow Matching for Engineering Inverse Design A P REPRINT 
+
+UNet2DConditionModel from the Hugging Face Diffusers library [von Platen et al., 2022]. It has four encoder-decoder stages at channel depths (32 , 64 , 128 , 256) , with conditions injected via cross-attention at every block. As discussed in Section 2, we use I-CFM where Gaussian noise x0 ∼ N (0 , I ) and target designs x1 are paired independently at random. For a continuous time variable t ∼ U (0 , 1) , we define the linear interpolation path xt =(1 − t)x0 + tx 1 with a target velocity v⋆ = x1 − x0. The model predicts vθ (xt, t, c ) and is trained with a mean-squared error objective: 
+
+LFM = Ex0,x 1,t 
+
+∥vθ (xt, t, c ) − (x1 − x0)∥22
+
+ (2) 
+
+Inference and Solvers During inference, designs are generated by integrating the learned velocity field from t = 0 
+
+to t = 1 using a fixed-step ODE solver. To evaluate the trade-off between sampling speed and solution quality, we benchmark three solvers: first-order Euler, second-order Midpoint, and the classical fourth-order Runge–Kutta method (RK4). We compare them at NFE budgets of 16, 32, and 48. This corresponds to step counts of {16 , 32 , 48 }
+
+for Euler, {8, 16 , 24 } for Midpoint, and {4, 8, 12 } for RK4. 
+
+3.2 Baselines 
+
+To reduce architectural differences between CFM and Diffusion, both use the same UNet2DConditionModel backbone and channel schedule (32 , 64 , 128 , 256) , with the same number of trainable parameters. Diffusion is trained with a linear noise schedule ( β1 = 10 −4, βT = 0 .02 , T = 1000 steps) to predict noise ϵ and is sampled via DDPM ancestral sampling over 1000 reverse steps. The cGAN uses the existing EngiOpt adversarial architecture. The generator takes noise z ∼ N (0 , I ) (latent dimension zdim = 32 ) and condition c expanded to a spatial map; both are processed by parallel ConvTranspose2d stems before concatenation into F0 = 256 channels. Four upsampling stages progress spatially from 7 × 7 to the target resolution, with BatchNorm and ReLU activations, and a final sigmoid layer producing 
+
+ˆx ∈ [0 , 1] 1×H×W before clipping to [10 −3, 1] for evaluation. The discriminator mirrors this conditioning strategy with parallel image and condition stems downsampled to a single real-or-generated prediction. Detailed optimizer, hardware, and training settings are provided in Appendix A. 
+
+3.3 Experimental Protocol and Evaluation Metrics 
+
+Rather than treating the generative model as a stand-alone design generator, we use it as a warm-start prior for gradient-based topology optimization. The benchmark tasks, data splits, conditions, downstream optimizer, and evaluation metrics are fixed across methods. CFM and Diffusion also share the same U-Net architecture, whereas cGAN uses its existing EngiOpt architecture. In this pipeline, the generative model receives problem-specific conditions c(i) and produces an initial candidate design 
+
+x(i)0 for each test condition. This warm start is passed to the problem-specific benchmark optimizer provided by EngiBench [Felten et al., 2025], which refines the design under the same condition c(i), producing an optimization trajectory {x(i) 
+
+> t
+
+}Tt=0 . The trajectory is then evaluated against the paired dataset reference design x(i)ref using the metrics defined below. All methods use the same dataset splits and training seeds 1–10. 
+
+Training and Model Selection All models are trained for at most 500 epochs with a batch size of 32. For each training seed s, we sample 50 condition–reference-design pairs with replacement from the validation split using seed 
+
+s + 123 ; this set remains fixed throughout training. Every 10 epochs, generated designs for these conditions are scored by validation maximum mean discrepancy (MMD). Checkpoints become eligible for selection after epoch 80, and training stops after 25 consecutive validation checks without a lower MMD. Model selection uses only the validation split. We first retain the five eligible checkpoints with the lowest validation MMD. Each checkpoint is then used to initialize the downstream optimizer on the same 50 validation pairs and with the same optimizer budget used for final evaluation. The checkpoint with the lowest validation COG is selected. It is evaluated on 50 matched condition–reference-design pairs sampled with replacement from the test split using seed s,while generation uses seed s + 2000 . For a given problem and training seed, CFM, Diffusion, and cGAN therefore use the same validation and test pairs, reference designs, downstream optimizer, and metric definitions. Test results are not used for early stopping or checkpoint selection. To measure how the generated warm start affects the downstream optimization trajectory under a fixed optimizer budget, let {x(i) 
+
+> t
+
+}Tt=0 denote the trajectory starting from generated design x(i)0 under condition c(i), and let f (i)ref = f (x(i)ref , c (i))
+
+be the objective of the paired dataset design evaluated under the same condition. Note that x(i)ref is not a global optimum but a reference design produced by the benchmark optimizer. 4Flow Matching for Engineering Inverse Design A P REPRINT 
+
+• COG: Measures the cumulative objective gap relative to the reference over the optimization trajectory: 
+
+COG = median iTX
+
+> t=1
+
+h
+
+f (x(i) 
+
+> t
+
+, c (i)) − f (x(i)ref , c (i))
+
+i
+
+. (3) Intuitively, COG accumulates the objective difference between the warm-started optimization trajectory and the paired reference design. A trajectory whose objective values remain close to the reference produces a small COG. A negative COG indicates that the cumulative objective difference over the trajectory is below zero relative to the dataset reference. Median aggregation is used for COG because the cumulative trajectory sum is sensitive to outlier optimization runs. • FOG: Measures the quality of the final design x(i) 
+
+> T
+
+relative to the dataset reference: 
+
+FOG = Ei
+
+h
+
+f (x(i) 
+
+> T
+
+, c (i)) − f (x(i)ref , c (i))
+
+i
+
+. (4) Unlike COG, FOG considers only the final step of the optimization trajectory. A positive FOG means the optimizer terminated above the reference objective. A negative FOG means the warm-started optimizer found a solution better than the dataset reference. We report mean FOG to summarize the average final objective difference across evaluated samples. For both COG and FOG, lower is better. 
+
+Distributional and Feasibility Metrics MMD measures distributional agreement between generated and reference de-signs using a Gaussian kernel with problem-specific bandwidth σ = 1 .0 for Beams2D and 10 .0 for HeatConduction2D .Because the bandwidth is selected separately for each design space, MMD and determinantal point process (DPP) values are comparable across methods only within the same problem, not across problems. DPP diversity measures sample diversity via the determinant of the kernel similarity matrix of the generated batch. Higher values indicate greater diversity. Constraint violation (Viol.) quantifies the deviation from the required material budget, calculated as the mean absolute error between the generated design’s material fraction and the target volume fraction v∗(i) specified in c:
+
+Viol . = Ei
+
+|¯x(i)0 − v∗(i)|, (5) where ¯x(i)0 denotes the mean density of the generated design. We also inspect the 2D density fields for visible discontinuities, fragmented material regions, and differences from the paired reference topology. 
+
+# 4 Results 
+
+Results are reported over 10 random seeds. COG is summarized as median ± standard deviation, consistent with Eq. 3; all other metrics are summarized as mean ± standard deviation. We report CFM results using the Euler solver with 
+
+s = 32 steps (NFE = 32 ) for the main comparison against Diffusion (NFE = 1000 ) and cGAN. Detailed solver and step-count results are provided in Appendix B.                                                                        
+
+> Method Beams2D HeatConduction2D
+> COG ↓FOG ↓COG ↓FOG ↓
+> CFM (Euler s= 32 )1.173 ±3.100 −1.647 ±0.411 8.88 ×10 −5±6.84 ×10 −51.32 ×10 −6±8.87 ×10 −7
+> Diffusion 1.603 ±1.794 −1.637 ±0.505 5.81 ×10 −4±1.44 ×10 −41.54 ×10 −5±5.06 ×10 −6
+> cGAN 22 .493 ±819 .282 4.415 ±14 .602 5.50 ×10 −4±2.01 ×10 −41.21 ×10 −5±3.58 ×10 −6
+
+Table 1: Primary optimization-utility results. Lower is better for COG and FOG; the best value within each problem and metric is boldfaced. Table 1 shows that CFM obtains the lowest measured COG and FOG on both benchmarks. On beams2d , CFM and Diffusion reach mean FOG values of −1.647 and −1.637 , respectively, indicating that their warm-started downstream optimizations outperform the paired dataset references on average. CFM achieves a lower COG ( 1.173 ± 3.100 ) than Diffusion ( 1.603 ± 1.794 ) and a slightly lower FOG ( −1.647 ± 0.411 versus −1.637 ± 0.505 ). The cGAN baseline shows high seed-dependent variability on this task, as evidenced by its COG of 22 .493 ± 819 .282 and mean FOG of 
+
+4.415 ± 14 .602 .5Flow Matching for Engineering Inverse Design A P REPRINT 
+
+Reference CFM (Euler s = 32 ) Diffusion cGAN 
+
+> Beams2D HeatCond2D
+
+Figure 1: Qualitative comparison under matched conditions. Each row corresponds to a benchmark problem; columns show the reference design and the warm start generated by each method. For Beams2D we visualize Seed 8, and for 
+
+HeatConduction2D Seed 5; each row uses the same condition and seed across all displayed methods. On heatconduction2d , CFM has the lowest values for both primary metrics; Diffusion’s COG is 6.54 times CFM’s. cGAN has a COG of 5.50 × 10 −4 ± 2.01 × 10 −4, compared with Diffusion’s 5.81 × 10 −4 ± 1.44 × 10 −4. CFM has the lowest measured COG on both tasks. 
+
+Method MMD ↓ DPP ↑ Viol. ↓
+
+Beams2D 
+
+CFM (Euler s = 32 ) 2.86 × 10 −2 ± 2.06 × 10 −3 4.34 × 10 −1 ± 2.69 × 10 −1 3.60 × 10 −3 ± 6.16 × 10 −4
+
+Diffusion 3.43 × 10 −2 ± 4.19 × 10 −3 6.49 × 10 −1 ± 2.92 × 10 −1 3.82 × 10 −2 ± 4.75 × 10 −2
+
+cGAN 4.50 × 10 −2 ± 2.29 × 10 −3 3.03 × 10 −1 ± 4.40 × 10 −1 1.62 × 10 −2 ± 5.93 × 10 −3
+
+HeatConduction2D 
+
+CFM (Euler s = 32 ) 5.75 × 10 −2 ± 8.35 × 10 −3 8.99 × 10 −3 ± 1.35 × 10 −2 9.96 × 10 −3 ± 2.09 × 10 −3
+
+Diffusion 6.85 × 10 −2 ± 6.52 × 10 −3 2.91 × 10 −1 ± 3.54 × 10 −1 1.12 × 10 −1 ± 1.38 × 10 −2
+
+cGAN 1.20 × 10 −1 ± 3.70 × 10 −2 6.28 × 10 −2 ± 9.81 × 10 −2 1.53 × 10 −2 ± 5.50 × 10 −3
+
+Table 2: Distributional and feasibility metrics. Lower is better for MMD and Viol.; higher is better for DPP. MMD and DPP are comparable across methods only within the same problem. In the samples displayed in Figure 1, CFM retains the continuous members and sharp solid–void boundaries visible in the reference designs. Diffusion also produces sharp, high-contrast outputs, but its displayed heatconduction2d 
+
+samples differ from the paired reference material distributions; this observation accompanies its larger average volume-fraction deviation in Table 2. In the displayed beams2d sample, cGAN introduces a structural discontinuity absent from the reference. Its displayed heatconduction2d samples contain fragmented and isolated material regions. Table 2 details the secondary performance metrics. CFM obtains the lowest MMD and volume-fraction violation on both tasks, with volume-fraction violations of 3.60 × 10 −3 for beams2d and 9.96 × 10 −3 for heatconduction2d .Diffusion generates the highest DPP values on both problems ( 6.49 × 10 −1 and 2.91 × 10 −1), while also producing the highest volume-fraction deviations ( 3.82 × 10 −2 and 1.12 × 10 −1). cGAN reports lower volume-fraction violations than Diffusion ( 1.62 × 10 −2 and 1.53 × 10 −2) alongside lower DPP scores. On both tasks, the method with the highest DPP does not achieve the lowest COG. 6Flow Matching for Engineering Inverse Design A P REPRINT 
+
+## Method Problem gen_runtime_sec ↓ samples/s ↑
+
+## CFM (Euler s = 32 ) beams2d 1.876 ± 0.022 26 .659 ± 0.312 
+
+## heatconduction2d 4.092 ± 0.052 12 .221 ± 0.157 
+
+## Diffusion beams2d 61 .903 ± 1.027 0.808 ± 0.013 
+
+## heatconduction2d 131 .74 ± 1.53 0.380 ± 0.004 
+
+## cGAN beams2d 4.382 × 10 −4 ± 5.416 × 10 −6 114 ,107 ± 1,419 
+
+## heatconduction2d 4.419 × 10 −4 ± 5.404 × 10 −6 113 ,170 ± 1,398 
+
+Table 3: Sampling throughput, measured as generated samples per second for the model generation call only. Higher is better. Table 3 reports generation throughput, defined as nsamples /t gen . Generation time was measured separately from data loading, clipping, metric computation, optimizer refinement, and logging. For each method, we timed only the model sampling call on batches of nsamples = 50 test conditions on a single NVIDIA RTX 4090 GPU, using CUDA synchronization before and after the timed region to avoid asynchronous-kernel timing artifacts. We used one warm-up call followed by three timed repeats for CFM and Diffusion. Because the cGAN forward pass is sub-millisecond, we used 1000 warm-up calls and 1000 timed repeats. For each seed, we take the median synchronized runtime across repeats and report the mean ± standard deviation over 10 seeds. cGAN is fastest because it requires one forward pass, but it does not obtain the lowest COG or MMD on either task. CFM at Euler s = 32 is approximately 33 .0× faster than Diffusion on beams2d (1.876 s versus 61 .903 s) and 32 .2× faster on heatconduction2d (4.092 s versus 131 .74 
+
+s), while obtaining the lowest measured COG on both tasks. The solver-step ablation in Appendix B shows that, on beams2d , Euler and Midpoint obtain COG values ranging from 
+
+1.134 to 1.182 across the evaluated NFE budgets. At NFE = 16 , RK4 ( s = 4 ) has a higher COG ( 2.274 ± 1.174 )than the Euler and Midpoint configurations at the same NFE, while also having the highest DPP ( 0.981 ± 0.025 ). Euler s = 16 achieves COG = 1 .182 ± 3.126 and MMD = 0 .0283 ± 0.0021 , compared with COG = 1 .173 ± 3.100 
+
+and MMD = 0 .0286 ± 0.0021 for Euler s = 32 . On heatconduction2d , increasing the number of Euler steps also does not reduce COG monotonically. Reducing the Euler budget from 32 to 16 evaluations approximately doubles throughput, reaching 53 .156 ± 0.777 samples/s on beams2d and 24 .444 ± 0.274 samples/s on heatconduction2d .These values correspond to approximately 65 .8× and 64 .4× the measured Diffusion throughput, respectively. Euler 
+
+s = 16 therefore halves the measured generation time relative to s = 32 , while the reported beams2d COG values differ by 0.009 .
+
+# 5 Discussion 
+
+Optimization utility and constraint adherence. Among the evaluated EngiOpt implementations, CFM achieves the lowest measured COG on both tasks and higher measured throughput than Diffusion. Its lower COG indicates that the warm-started optimization trajectories accumulate a smaller objective gap relative to the paired reference designs. On 
+
+beams2d , CFM reaches a slightly lower final objective than Diffusion (FOG = −1.647 versus −1.637 ), although the difference is small relative to the variation across seeds. On heatconduction2d , CFM also achieves the lowest values for both COG and FOG. Its measured advantages are therefore a lower cumulative objective gap during fixed-budget optimization and lower generation time than Diffusion; their beams2d FOG values differ by 0.010 .CFM also has the lowest mean absolute volume-fraction error on both tasks. It stays within 0.4% and 1.0% of the target volume fraction on beams2d and heatconduction2d , respectively, while Diffusion deviates by 3.8% and 11 .2% . A warm start far from the intended material budget may require the optimizer to restore feasibility before improving the objective. This may contribute to Diffusion’s COG on heatconduction2d being approximately 6.54 × CFM’s (5.81 × 10 −4 versus 8.88 × 10 −5). The Diffusion baseline uses the standard [−1, 1] DDPM normalization; we did not isolate the source of its remaining volume-fraction deviations. CFM and Diffusion use the same conditional U-Net backbone and channel schedule. This reduces differences due to model architecture and capacity, although the two methods still differ in their training objectives and sampling procedures. Diffusion achieves higher DPP than CFM on both tasks, but also has higher COG. In these experiments, higher measured diversity therefore does not correspond to better warm-start optimization trajectories. Diversity should instead be interpreted together with feasibility and optimization-utility metrics. 7Flow Matching for Engineering Inverse Design A P REPRINT 
+
+Behavior of the cGAN baseline. The evaluated cGAN is the existing EngiOpt adversarial baseline and has the highest measured sampling throughput. On beams2d , the large variation in COG across seeds ( 22 .493 ± 819 .282 ) indicates sensitivity to training initialization. On heatconduction2d , its COG is 5.50 × 10 −4, compared with 5.81 × 10 −4
+
+for Diffusion, while its DPP is lower ( 6.28 × 10 −2 ± 9.81 × 10 −2 versus 2.91 × 10 −1 ± 3.54 × 10 −1). The cGAN therefore ranks differently by COG and DPP on the two tasks. These experiments do not isolate whether the observed differences arise from the conditioning variables, the datasets, or adversarial training. 
+
+Flow geometry and solver sensitivity. The solver ablation tests whether higher-order ODE integration improves CFM sampling at a fixed NFE. For each noise–data pair, independent conditional flow matching uses a linear training path with constant target velocity. Because random pairings can produce crossing paths, however, the learned marginal vector field need not be straight. In the evaluated settings, Midpoint and RK4 do not improve the measured optimization metrics over Euler at matched NFE. Increasing the Euler budget from s = 16 to s = 32 produces COG values of 
+
+1.182 ± 3.126 and 1.173 ± 3.100 , respectively. Euler s = 16 achieves about 65 .8× the measured Diffusion throughput on beams2d and 64 .4× on heatconduction2d , and halves generation time relative to Euler s = 32 in the same timing benchmark. A denser NFE sweep would be needed to draw broader conclusions about the numerical integration methods. 
+
+Limitations and future work. The study is restricted to two 2D EngiBench tasks and one shared U-Net family for CFM and Diffusion. The results therefore compare the evaluated EngiOpt implementations rather than establish a universal ranking of flow-matching, diffusion, and adversarial inverse-design models. The remaining Diffusion volume-fraction deviations may reflect the denoising objective, sampling dynamics, model selection, or task-specific sensitivity; isolating these factors would require targeted ablations. Future work should test whether the lower CFM volume-fraction errors observed here persist in 3D settings, multi-physics design tasks, and higher-dimensional condition spaces. 
+
+# 6 Conclusion 
+
+This work adds CFM to EngiOpt and evaluates it as a warm-start prior for two EngiBench inverse-design tasks. Among the tested implementations, CFM achieves the lowest measured COG, FOG, MMD, and volume-fraction deviation on both beams2d and heatconduction2d . Depending on the solver budget and task, its measured sampling throughput is approximately 32 ×–66 × that of the evaluated Diffusion baseline. Reducing the Euler budget from s = 32 to s = 16 
+
+approximately doubles throughput, while the measured beams2d COG changes from 1.173 ± 3.100 to 1.182 ± 3.126 .The metric rankings are not identical: Diffusion has the highest DPP on both tasks, whereas CFM has the lowest COG. 
+
+# Code and Artifact Availability 
+
+The implementation and public reproduction workflow are available in a tagged EngiOpt source snapshot. Run-level training, checkpoint-selection, evaluation, and timing records are available in a public Weights & Biases report. The selected evaluation checkpoints and EngiBench datasets used in this study are available through a public Hugging Face collection. 
+
+# References 
+
+Owen Peckham, Jonathan Raines, Erik Bulsink, Mark Goudswaard, James Gopsill, David Barton, Aydin Nassehi, and Ben Hicks. Artificial intelligence in generative design: a structured review of trends and opportunities in techniques and applications. Designs , 9(4):79, 2025. doi: 10.3390/designs9040079. URL https://doi.org/10.3390/ designs9040079 .Milad Habibi, Jun Wang, and Mark Fuge. When is it actually worth learning inverse design? Journal of Mechanical Design , 148(6):061704, 2026. doi: 10.1115/1.4070621. URL https://doi.org/10.1115/1.4070621 .Giorgio Giannone, Akash Srivastava, Ole Winther, and Faez Ahmed. Aligning optimization trajectories with diffusion models for constrained design generation. Advances in neural information processing systems , 36:51830–51861, 2023. doi: 10.52202/075280-2258. URL https://proceedings.neurips.cc/paper_files/paper/2023/ hash/a2c0b2ffebbc32eb6468243c9ee9e205-Abstract-Conference.html .Lyle Regenwetter, Amin Heyrani Nobari, and Faez Ahmed. Deep generative models in engineering design: A review. 
+
+Journal of Mechanical Design , 144(7):071704, 2022. doi: 10.1115/1.4053859. URL https://doi.org/10.1115/ 1.4053859 .8Flow Matching for Engineering Inverse Design A P REPRINT 
+
+François Mazé and Faez Ahmed. Diffusion models beat gans on topology optimization. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 9108–9116, 2023. doi: 10.1609/aaai.v37i8.26093. URL 
+
+https://doi.org/10.1609/aaai.v37i8.26093 .Jinlong Zhang, Shikun Chen, Robert J Martin, Baochang Liu, Ruixiong Zhang, and Dengbao Xiao. Conditional diffusion models for the inverse design of lattice structures. Structural and Multidisciplinary Optimization , 68(3):58, 2025. doi: 10.1007/s00158-025-03984-2. URL https://doi.org/10.1007/s00158-025-03984-2 .Milad Habibi and Mark Fuge. Inverse design with conditional cascaded diffusion models. In International Design Engineering Technical Conferences and Computers and Information in Engineering Conference , volume 88360, page V03AT03A020. American Society of Mechanical Engineers, 2024. doi: 10.1115/detc2024-143607. URL 
+
+https://doi.org/10.1115/detc2024-143607 .Florian Felten, Gabriel Apaza, Gerhard Bäunlich, Cashen Diniz, Xuliang Dong, Arthur Drake, Milad Habibi, Nathaniel J. Hoffman, Matthew Keeler, Soheyl Massoudi, Francis G. VanGessel, and Mark Fuge. Engibench: A framework for data-driven engineering design research, 2025. URL https://arxiv.org/abs/2508.00831 .Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In International Conference on Learning Representations , 2023. doi: 10.48550/arXiv.2210.02747. URL 
+
+https://openreview.net/forum?id=PqvMRDCJT9t .Ole Sigmund and Kurt Maute. Topology optimization approaches: A comparative review. Structural and Multidis-ciplinary Optimization , 48(6):1031–1055, 2013. doi: 10.1007/s00158-013-0978-6. URL https://doi.org/10. 1007/s00158-013-0978-6 .Sean Molesky, Zin Lin, Alexander Y. Piggott, Weiliang Jin, Jelena Vuckovi´ c, and Alejandro W. Rodriguez. Inverse design in nanophotonics. Nature Photonics , 12:659–670, 2018. doi: 10.1038/s41566-018-0246-9. URL https: //www.nature.com/articles/s41566-018-0246-9 .Ahmad Shirvani, Mahdi Nili-Ahmadabadi, and Man Yeong Ha. Machine learning-accelerated aerodynamic inverse design. Engineering Applications of Computational Fluid Mechanics , 17(1):2237611, 2023. doi: 10.1080/19942060. 2023.2237611. URL https://doi.org/10.1080/19942060.2023.2237611 .Ole Sigmund. A 99 line topology optimization code written in matlab. Structural and multidisciplinary optimization ,21(2):120–127, 2001. doi: 10.1007/s001580050176. URL https://doi.org/10.1007/s001580050176 .Baotong Li, Congjia Huang, Xin Li, Shuai Zheng, and Jun Hong. Non-iterative structural topology optimization using deep learning. Computer-Aided Design , 115:172–180, 2019. doi: 10.1016/j.cad.2019.05.038. URL https: //doi.org/10.1016/j.cad.2019.05.038 .Qiyin Lin, Feiyu Gu, Chen Wang, Hao Guan, Tao Wang, Kaiyi Zhou, Lian Liu, and Desheng Yao. Intelligent design method for thermal conductivity topology based on a deep generative network. Chinese Journal of Me-chanical Engineering , 38(1):47, 2025. doi: 10.1186/s10033-025-01222-w. URL https://doi.org/10.1186/ s10033-025-01222-w .Milad Habibi, Shai Bernard, Jun Wang, and Mark Fuge. Mean squared error may lead you astray when optimizing your inverse design methods. Journal of Mechanical Design , 147(2):021701, 2025. doi: 10.1115/1.4066102. URL 
+
+https://doi.org/10.1115/1.4066102 .Mehdi Mirza and Simon Osindero. Conditional generative adversarial nets, 2014. URL https://arxiv.org/abs/ 1411.1784 .Zhenguo Nie, Tong Lin, Haoliang Jiang, and Levent Burak Kara. Topologygan: Topology optimization using generative adversarial networks based on physical fields over the initial domain. Journal of Mechanical Design , 143(3):031715, 2021. doi: 10.1115/1.4049533. URL https://doi.org/10.1115/1.4049533 .Nathan Hertlein, Philip R. Buskohl, Andrew Gillman, Kumar Vemaganti, and Sam Anand. Generative adversarial network for early-stage design flexibility in topology optimization for additive manufacturing. Journal of Manufac-turing Systems , 59:675–685, 2021. doi: 10.1016/j.jmsy.2021.04.007. URL https://www.sciencedirect.com/ science/article/pii/S027861252100087X .Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. In Advances in Neural Information Processing Systems , volume 27, 2014. doi: 10.48550/arXiv.1406.2661. URL https://proceedings.neurips.cc/paper_files/paper/2014/ hash/f033ed80deb0234979a61f95710dbe25-Abstract.html .Sangeun Oh, Yongsu Jung, Seongsin Kim, Ikjin Lee, and Namwoo Kang. Deep generative design: Integration of topology optimization and generative models. Journal of Mechanical Design , 141(11):111405, 2019. doi: 10.1115/1.4044229. URL https://doi.org/10.1115/1.4044229 .9Flow Matching for Engineering Inverse Design A P REPRINT 
+
+Shintaro Yamasaki, Kentaro Yaji, and Kikuo Fujita. Data-driven topology design using a deep generative model. 
+
+Structural and Multidisciplinary Optimization , 64(3):1401–1420, 2021. doi: 10.1007/s00158-021-02926-y. URL 
+
+https://doi.org/10.1007/s00158-021-02926-y .Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in Neural Information Processing Systems , 33, 2020. doi: 10.48550/arXiv.2006.11239. URL https://proceedings.neurips.cc/ paper/2020/hash/4c5bcfec8584af0d967f1ab10179ca4b-Abstract.html .Ethan Herron, Jaydeep Rade, Anushrut Jignasu, Baskar Ganapathysubramanian, Aditya Balu, Soumik Sarkar, and Adarsh Krishnamurthy. Latent diffusion models for structural component design. Computer-Aided Design , 171: 103707, 2024. doi: 10.1016/j.cad.2024.103707. URL https://www.sciencedirect.com/science/article/ pii/S0010448524000344 .Michael S Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic interpolants. In International Conference on Learning Representations , 2023. doi: 10.48550/arXiv.2209.15571. URL https://openreview. net/forum?id=li7qeBbCR1t .Alexander Tong, Nikolay Malkin, Guillaume Huguet, Yanlei Zhang, Jarrid Rector-Brooks, Kilian Fatras, Guy Wolf, and Yoshua Bengio. Improving and generalizing flow-based generative models with minibatch optimal transport. 
+
+Transactions on Machine Learning Research , 2024. doi: 10.48550/arXiv.2302.00482. URL https://openreview. net/forum?id=HgDwiZrpVq .Michael S. Albergo, Nicholas M. Boffi, and Eric Vanden-Eijnden. Stochastic interpolants: A unifying framework for flows and diffusions. Journal of Machine Learning Research , 26(209):1–80, 2025. doi: 10.48550/arXiv.2303.08797. URL https://jmlr.org/papers/v26/23-1605.html .Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. In International Conference on Learning Representations , 2023. doi: 10.48550/arXiv.2209.03003. URL https://openreview.net/forum?id=XVjTT1nw5z .Aobo Yang, Zhen Wei, Rhea P. Liem, and Pascal Fua. Physics-guided generative design with gradient-based source-space optimization on flow matching. Structural and Multidisciplinary Optimization , 69(5):136, 2026. doi: 10.1007/s00158-026-04318-6. URL https://doi.org/10.1007/s00158-026-04318-6 .Yanxuan Zhao, Guopeng Sun, Shenshen Liu, Jing Yu, Peng Zhang, Jianqiang Chen, and Yueqing Wang. Flow-matching framework for two-dimensional airfoil multipoint inverse design. Journal of Aircraft , pages 1–21, 2026. doi: 10.2514/1.C038770. URL https://doi.org/10.2514/1.C038770 .Patrick Kruger, Rafael Diaz, Simon Hauschulz, Stefan Harries, and Hanno Gottschalk. Generative design of ship propellers using conditional flow matching. arXiv preprint arXiv:2601.21637 , 2026. doi: 10.48550/arXiv.2601.21637. URL https://arxiv.org/abs/2601.21637 .Ali Kashefi. Flow matching and diffusion models via pointnet for generating fluid fields on irregular geometries. 
+
+Computer Methods in Applied Mechanics and Engineering , 458:119037, 2026. doi: 10.1016/j.cma.2026.119037. URL https://doi.org/10.1016/j.cma.2026.119037 .Shusheng Xiao, Jinshuai Bai, Hyogu Jeong, Yunfei Xi, Yilin Gui, and YuanTong Gu. Trajectory-aware flow matching for topology optimisation, 2026. URL https://arxiv.org/abs/2607.14652 .Mohammad Rashed, Duarte F. Valoroso Madeira, Babak Gholami, Caglar Guerbuez, Yunjia Yang, and Nils Thuerey. On the generalization in topology optimization via sensitivity-conditioned bernoulli flow matching, 2026. URL 
+
+https://arxiv.org/abs/2606.02179 .Patrick Krüger, Patrick Materne, Werner Krebs, and Hanno Gottschalk. How well do generative models solve inverse problems? a benchmark study. arXiv preprint arXiv:2601.23238 , 2026. doi: 10.48550/arXiv.2601.23238. URL 
+
+https://arxiv.org/abs/2601.23238 .Miguel de Campos, Werner Krebs, and Hanno Gottschalk. Generative inverse design with abstention via diagonal flow matching. arXiv preprint arXiv:2603.15925 , 2026. doi: 10.48550/arXiv.2603.15925. URL https://arxiv.org/ abs/2603.15925 .Patrick von Platen, Suraj Patil, Anton Lozhkov, Pedro Cuenca, Nathan Lambert, Kashif Rasul, Mishig Davaadorj, Dhruv Nair, Sayak Paul, William Berman, Yiyi Xu, Steven Liu, and Thomas Wolf. Diffusers: State-of-the-art diffusion models. https://github.com/huggingface/diffusers , 2022. URL https://github.com/huggingface/ diffusers .Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. International Conference on Learning Rep-resentations , 2019. doi: 10.48550/arXiv.1711.05101. URL https://openreview.net/forum?id=Bkg6RiCqY7 .Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. International Conference on Learning Representations , 2015. doi: 10.48550/arXiv.1412.6980. URL https://arxiv.org/abs/1412.6980 .10 Flow Matching for Engineering Inverse Design A P REPRINT 
+
+# A Training Configuration 
+
+All models are trained on a single NVIDIA RTX 4090 GPU with a batch size of 32 for up to 500 epochs. • CFM and Diffusion: Optimized with AdamW [Loshchilov and Hutter, 2019] at a learning rate of 4 × 10 −4,with (β1, β 2) = (0 .9, 0.999) for both models. • cGAN: Optimized with Adam [Kingma and Ba, 2015] with learning rates 1 × 10 −4 and 4 × 10 −4 for the generator and discriminator, respectively, both with (β1, β 2) = (0 .5, 0.999) .
+
+# B ODE Solver and Step-Count Ablation 
+
+We ablate Euler, Midpoint, and RK4 across matched NFE budgets of 16, 32, and 48. Because Midpoint and RK4 require two and four velocity evaluations per integration step, respectively, the corresponding step counts are adjusted to hold NFE fixed. 
+
+Solver Steps Beams2D HeatConduction2D 
+
+COG ↓ FOG ↓ COG ↓ FOG ↓
+
+Euler 16 1.182 ± 3.126 −1.625 ± 0.395 1.09 × 10 −4 ± 3.79 × 10 −5 1.34 × 10 −6 ± 6.57 × 10 −7
+
+32 1.173 ± 3.100 −1.647 ± 0.411 8.88 × 10 −5 ± 6.84 × 10 −5 1.32 × 10 −6 ± 8.87 × 10 −7
+
+48 1.140 ± 1.223 −1.633 ± 0.412 1.70 × 10 −4 ± 8.10 × 10 −5 1.52 × 10 −6 ± 1.15 × 10 −6
+
+Midpoint 8 1.148 ± 3.156 −1.614 ± 0.416 1.04 × 10 −4 ± 4.65 × 10 −5 1.49 × 10 −6 ± 9.11 × 10 −7
+
+16 1.137 ± 2.123 −1.643 ± 0.409 9.69 × 10 −5 ± 2.94 × 10 −5 1.09 × 10 −6 ± 7.56 × 10 −7
+
+24 1.134 ± 2.219 −1.647 ± 0.439 1.14 × 10 −4 ± 8.07 × 10 −5 2.09 × 10 −6 ± 1.41 × 10 −6
+
+RK4 4 2.274 ± 1.174 −1.644 ± 0.439 1.38 × 10 −4 ± 4.64 × 10 −5 1.40 × 10 −6 ± 7.79 × 10 −7
+
+8 1.537 ± 2.283 −1.652 ± 0.443 1.13 × 10 −4 ± 3.14 × 10 −5 1.34 × 10 −6 ± 5.75 × 10 −7
+
+12 1.263 ± 2.320 −1.599 ± 0.415 1.15 × 10 −4 ± 5.31 × 10 −5 1.43 × 10 −6 ± 7.67 × 10 −7
+
+Table 4: Primary optimization metrics across ODE solvers and integration budgets. COG is reported as median ±
+
+standard deviation; FOG is reported as mean ± standard deviation over 10 seeds. Lower is better. 11 Flow Matching for Engineering Inverse Design A P REPRINT 
+
+Solver Steps MMD ↓ DPP ↑ Viol. ↓
+
+Beams2D 
+
+Euler 16 2.83 × 10 −2 ± 2.13 × 10 −3 4.02 × 10 −1 ± 2.66 × 10 −1 3.57 × 10 −3 ± 6.22 × 10 −4
+
+32 2.86 × 10 −2 ± 2.06 × 10 −3 4.34 × 10 −1 ± 2.69 × 10 −1 3.60 × 10 −3 ± 6.16 × 10 −4
+
+48 2.84 × 10 −2 ± 2.10 × 10 −3 4.33 × 10 −1 ± 2.73 × 10 −1 3.33 × 10 −3 ± 5.57 × 10 −4
+
+Midpoint 8 2.87 × 10 −2 ± 1.96 × 10 −3 4.65 × 10 −1 ± 2.66 × 10 −1 3.55 × 10 −3 ± 4.48 × 10 −4
+
+16 2.89 × 10 −2 ± 1.86 × 10 −3 4.76 × 10 −1 ± 2.68 × 10 −1 3.67 × 10 −3 ± 5.63 × 10 −4
+
+24 2.97 × 10 −2 ± 1.68 × 10 −3 4.72 × 10 −1 ± 2.74 × 10 −1 3.86 × 10 −3 ± 6.67 × 10 −4
+
+RK4 4 3.96 × 10 −2 ± 1.63 × 10 −3 9.81 × 10 −1 ± 2.52 × 10 −2 9.85 × 10 −3 ± 2.54 × 10 −3
+
+8 3.50 × 10 −2 ± 1.57 × 10 −3 8.83 × 10 −1 ± 1.44 × 10 −1 5.33 × 10 −3 ± 4.81 × 10 −4
+
+12 3.20 × 10 −2 ± 1.64 × 10 −3 7.82 × 10 −1 ± 1.81 × 10 −1 4.62 × 10 −3 ± 4.55 × 10 −4
+
+HeatConduction2D 
+
+Euler 16 5.80 × 10 −2 ± 8.79 × 10 −3 7.35 × 10 −3 ± 1.65 × 10 −2 1.03 × 10 −2 ± 2.08 × 10 −3
+
+32 5.75 × 10 −2 ± 8.35 × 10 −3 8.99 × 10 −3 ± 1.35 × 10 −2 9.96 × 10 −3 ± 2.09 × 10 −3
+
+48 5.89 × 10 −2 ± 7.57 × 10 −3 4.49 × 10 −2 ± 8.66 × 10 −2 9.79 × 10 −3 ± 1.79 × 10 −3
+
+Midpoint 8 5.75 × 10 −2 ± 7.83 × 10 −3 2.38 × 10 −3 ± 2.63 × 10 −3 1.01 × 10 −2 ± 1.85 × 10 −3
+
+16 5.61 × 10 −2 ± 8.63 × 10 −3 7.37 × 10 −3 ± 1.26 × 10 −2 1.01 × 10 −2 ± 1.59 × 10 −3
+
+24 5.87 × 10 −2 ± 1.03 × 10 −2 2.45 × 10 −2 ± 5.00 × 10 −2 1.00 × 10 −2 ± 1.54 × 10 −3
+
+RK4 4 5.76 × 10 −2 ± 9.58 × 10 −3 2.65 × 10 −2 ± 3.74 × 10 −2 9.83 × 10 −3 ± 2.57 × 10 −3
+
+8 5.70 × 10 −2 ± 7.63 × 10 −3 1.79 × 10 −2 ± 3.27 × 10 −2 9.61 × 10 −3 ± 1.89 × 10 −3
+
+12 5.91 × 10 −2 ± 1.01 × 10 −2 3.46 × 10 −2 ± 7.03 × 10 −2 1.01 × 10 −2 ± 2.36 × 10 −3
+
+Table 5: Distributional and feasibility metrics for the solver-step ablation (mean ± standard deviation over 10 seeds). Lower is better for MMD and Viol.; higher is better for DPP. 
+
+Solver Problem gen_runtime_sec ↓ samples/s ↑
+
+Euler s = 16 beams2d 0.941 ± 0.014 53 .156 ± 0.777 
+
+heatconduction2d 2.046 ± 0.023 24 .444 ± 0.274 
+
+Euler s = 32 beams2d 1.876 ± 0.022 26 .659 ± 0.312 
+
+heatconduction2d 4.092 ± 0.052 12 .221 ± 0.157 
+
+Euler s = 48 beams2d 2.813 ± 0.025 17 .774 ± 0.157 
+
+heatconduction2d 6.128 ± 0.057 8.160 ± 0.076 
+
+Midpoint s = 8 beams2d 0.938 ± 0.011 53 .293 ± 0.634 
+
+heatconduction2d 2.032 ± 0.017 24 .602 ± 0.208 
+
+Midpoint s = 16 beams2d 1.880 ± 0.021 26 .592 ± 0.297 
+
+heatconduction2d 4.062 ± 0.034 12 .311 ± 0.103 
+
+Midpoint s = 24 beams2d 2.798 ± 0.022 17 .874 ± 0.141 
+
+heatconduction2d 6.106 ± 0.058 8.189 ± 0.078 
+
+RK4 s = 4 beams2d 0.942 ± 0.011 53 .102 ± 0.633 
+
+heatconduction2d 2.030 ± 0.023 24 .636 ± 0.275 
+
+RK4 s = 8 beams2d 1.882 ± 0.025 26 .572 ± 0.357 
+
+heatconduction2d 4.060 ± 0.038 12 .317 ± 0.115 
+
+RK4 s = 12 beams2d 2.809 ± 0.023 17 .801 ± 0.148 
+
+heatconduction2d 6.111 ± 0.056 8.183 ± 0.075 
+
+Table 6: Sampling throughput across ODE solvers and integration steps (mean ± standard deviation over 10 seeds). On beams2d , Euler and Midpoint produce COG values between 1.134 and 1.182 across all NFE settings. RK4 at NFE = 16 (s = 4 ) has the highest COG ( 2.274 ± 1.174 ), DPP ( 0.981 ± 0.025 ), and MMD ( 0.040 ± 0.002 ) among the matched-NFE settings. Its greater measured diversity therefore does not coincide with a lower warm-start COG. At 12 Flow Matching for Engineering Inverse Design A P REPRINT               
+
+> 16 32 48
+> −2024
+> NFE COG
+> beams2d — COG ↓
+> Euler Midpoint RK4 16 32 48
+> 0·10 0
+> 1·10 −4
+> 2·10 −4
+> NFE COG
+> heatconduction2d — COG ↓
+> Euler Midpoint RK4
+
+Figure 2: Ablation of ODE solver families across NFE budgets. At low NFE, RK4 uses fewer, larger integration steps and produces higher COG than Euler on beams2d .NFE = 32 , RK4 ( s = 8 ) has COG = 1 .537 , compared with 1.173 for Euler s = 32 . On heatconduction2d , COG varies between 8.88 × 10 −5 and 1.70 × 10 −4 across the evaluated configurations. The NFE–COG relationship is non-monotonic for Euler on beams2d . Euler s = 16 has COG = 1 .182 ± 3.126 and MMD = 0 .0283 ± 0.0021 , compared with COG = 1 .173 ± 3.100 and MMD = 0 .0286 ± 0.0021 for Euler s = 32 , while its throughput increases to 53 .156 samples/s. 
+
+# Acronyms 
+
+CFM conditional flow matching 
+
+COG cumulative optimality gap 
+
+FOG final optimality gap 
+
+NFE number of function evaluations 
+
+cGAN conditional generative adversarial network 
+
+I-CFM independent conditional flow matching 
+
+GAN generative adversarial network 
+
+MMD maximum mean discrepancy 
+
+DPP determinantal point process 
+
+ODE ordinary differential equation 
+
+RK4 classical fourth-order Runge–Kutta method 
+
+DDPM denoising diffusion probabilistic model 
+
+PDE partial differential equation 13

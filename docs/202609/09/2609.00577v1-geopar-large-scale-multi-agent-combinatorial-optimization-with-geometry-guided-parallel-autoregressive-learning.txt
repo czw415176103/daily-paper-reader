@@ -1,0 +1,807 @@
+Title: GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning
+
+URL Source: https://arxiv.org/pdf/2609.00577v1
+
+Published Time: Wed, 02 Sep 2026 00:33:42 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning 
+
+# Wenjian Wu 
+
+wjwuwwj@stu.suda.edu.cn School of Future Science and Engineering, Soochow University Suzhou, China 
+
+# Zesheng Jia 
+
+zsjia@stu.suda.edu.cn School of Future Science and Engineering, Soochow University Suzhou, China 
+
+# Jiaying Tang 
+
+jytang0922@stu.suda.edu.cn School of Future Science and Engineering, Soochow University Suzhou, China 
+
+# Benyuan Yang ∗
+
+byyang@suda.edu.cn School of Future Science and Engineering, Soochow University Suzhou, China 
+
+# Jin Wang ∗
+
+wjin1985@suda.edu.cn School of Future Science and Engineering, Soochow University Suzhou, China 
+
+## Abstract 
+
+Multi-agent combinatorial optimization problems are notoriously challenging due to their NP-hard nature. Recent parallel autore-gressive neural solvers improve inference efficiency by allowing agents to make decisions simultaneously, but their performance of-ten degrades on large-scale instances. This is largely attributable to weak modeling of local geometric structures and the fact that con-flicting task selections are handled only after action generation. To address these limitations, we propose GeoPAR, a geometry-guided parallel autoregressive reinforcement learning framework for scal-able multi-agent combinatorial optimization. GeoPAR integrates three key components: (1) a projection-window sparse geometry mechanism that builds lightweight local candidate neighborhoods through multi-directional projections, (2) sparse edge-biased atten-tion that injects these geometric relations into node representations, and (3) cache-guided conflict-aware assignment that reuses the geo-metric cache during decoding to suppress duplicate selections of exclusive tasks. Experiments on heterogeneous vehicle routing and open multi-depot pickup-and-delivery problems show that GeoPAR improves large-scale zero-shot generalization while substantially reducing rollout steps and maintaining efficient inference. 
+
+## CCS Concepts 
+
+• Theory of computation → Design and analysis of algo-rithms ; • Computing methodologies → Reinforcement learn-ing ; Multi-agent systems .
+
+## Keywords 
+
+multi-agent combinatorial optimization, neural combinatorial opti-mization, vehicle routing, reinforcement learning, parallel autore-gressive decoding 
+
+## 1 Introduction 
+
+Multi-agent combinatorial optimization problems are commonly formulated as optimization problems over discrete spaces, with the goal of generating high-quality action and route sequences for         
+
+> ∗Corresponding Author. 334
+> Agent 3
+> Step 1
+> Action:{6, 1, 3} Action:{5, 2, 4} Done
+> Agent 2 Agent 1
+> 5261Agent 2 Agent 1
+> 524361
+> Agent 3 Agent 2 Agent 1
+> 52461
+> Agent 3
+> Step 2 Step 3
+> Parallel AutoRegressive Model AutoRegressive Model
+> Agent 2
+> 23
+> Agent 3
+> 45
+> 6543
+> Agent 3
+> 125634
+> Step 1
+> Action:{6} Action:{1} Done
+> Agent 1 Agent 2 Agent 1
+> 21
+> Agent 1
+> 61
+> Step 5 Step 9
+> Depot
+
+Figure 1: From sequential to parallel autoregressive models. 
+
+a group of agents [22]. These problems arise widely in logistics and supply-chain scheduling [35], multi-robot task allocation [4], vehicle routing [8], and dynamic service-system optimization [30]. In many scenarios, feasible solutions must be constructed by co-ordinating multiple heterogeneous agents with distinct attributes. Therefore, efficient coordination of heterogeneous agents under complex constraints remains a central challenge in multi-agent combinatorial optimization [13]. Many representative multi-agent combinatorial optimization problems are NP-hard [1, 29, 36, 37]. Consequently, finding globally optimal solutions within practical time limits is often difficult. Al-though a range of exact and heuristic methods have been developed to address these problems [2, 25, 31], conventional solvers typically 
+
+> 1arXiv:2609.00577v1 [cs.LG] 1 Sep 2026 Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang
+
+incur substantial computational costs and depend on hand-crafted heuristic rules that are closely tied to specific problem settings. In recent years, neural combinatorial optimization (NCO) has offered a promising alternative by learning neural construction policies that produce near-optimal assignment decisions in a short time [18, 26, 42]. In particular, reinforcement learning-based NCO methods optimize policies through interaction with the environ-ment without relying on manually labeled optimal solutions, and the learned policies can match or even outperform conventional methods [24, 38]. Within the NCO framework, autoregressive (AR) models are widely adopted because they construct feasible solu-tions step by step [7, 21]. However, as the task scale increases, serial decoding incurs substantial time costs and limits the efficiency of parallel decision-making among multiple agents. To address this limitation, recent studies have proposed parallel autoregressive combinatorial optimization (PA-CO) frameworks [3]. As illustrated in Figure 1, these frameworks allow multiple agents to generate actions simultaneously at the same construction step. Although PA-CO shows promising efficiency and solution qual-ity, zero-shot generalization to large-scale instances still faces two key challenges. First, when the number of tasks increases substan-tially, the policy must handle not only a larger action space but also shifted local geometric structures [5, 24, 26]. Consequently, a policy network trained on small-scale graphs may fail to preserve effective local successor structures on large-scale graphs. The model can still perform parallel decoding in form, but the quality of the generated decisions may become unstable under scale shifts. Second, PA-CO methods typically allow multiple agents to generate action propos-als independently and then repair conflicting selections through a conflict-handling mechanism. This design may repeatedly assign mutually exclusive tasks to different agents, while conflicts are re-solved only after action generation [3, 39]. As a result, the training signal provides limited direct guidance for learning conflict-aware decision making during action generation. To address these challenges, we propose GeoPAR, a geometry-guided parallel autoregressive policy. GeoPAR constructs sparse geometric candidate neighborhoods through a projection-window (PWin) mechanism and captures local transition structures during encoding using sparse edge-biased attention. During decoding, the model reuses this geometric cache and integrates neural pointer scores, geometric candidates, and feasibility signals to construct compact candidate pools. It then reduces duplicate selections among simultaneous actions through conflict-aware (CA) parallel assign-ment. By integrating local geometric modeling with CA assignment, GeoPAR maintains efficient parallel inference while improving zero-shot generalization from small training instances to larger ones. This claim is supported by the empirical results in Figure 2. Our contributions are summarized as follows: 
+
+• We design a projection-window sparse geometry mech-anism that constructs lightweight local candidate neigh-borhoods through multi-directional projections, enabling efficient modeling of local transition structure among tasks. 
+
+• We propose cache-guided conflict-aware parallel assign-ment, which reuses the geometric cache during decoding and suppresses duplicate task selections in simultaneous agent actions. 
+
+• We evaluate GeoPAR on multiple multi-agent combinatorial optimization tasks and show that it provides favorable large-scale generalization in solution quality, rollout steps, and inference time. 
+
+## 2 Related Work 
+
+Figure 2: Inference-time speedups of GeoPAR versus PARCO and 2D-Ptr on large-scale instances. Compared with the PARCO and 2D-Ptr baselines, GeoPAR achieves average inference-time speedups of 7.5× and 33 .8×. In our experi-ments, we set the number of agents 𝑀 as 𝑁 /𝑘 to maintain a constant agent density of one agent per 𝑘 tasks, where 𝑁 is the number of tasks. 
+
+Multi-agent AR methods for NCO. NCO typically formulates task allocation as a sequential construction process, in which an AR decoder selects nodes, tasks, or actions step by step [16, 17, 40]. Because AR models naturally incorporate dynamic state updates and feasibility masks, they have become a dominant framework for neural routing solvers [23, 32, 33]. Although these models are more effective than purely decentralized policies for multi-agent rout-ing variants [28, 34], their sequential structure still leads to high generation latency. Recent parallel AR methods introduce multiple pointers, agent communication, and conflict-handling mechanisms, allowing actions to be executed in parallel within the same construc-tion step [3]. However, existing methods mainly correct duplicate or incompatible selections after candidate generation, while local structures and exclusivity constraints are not fully considered when candidate actions are constructed. In contrast, GeoPAR incorporates projection-window-based geometric candidates and cache-guided conflict-aware assignment into parallel AR decoding, enabling lo-cal structure and conflict awareness to jointly guide synchronous multi-agent decisions. 
+
+Large-scale NCO methods. Generalization from small training in-stances to large test instances remains a key challenge in NCO [24]. Existing methods for large-scale generalization can be broadly grouped into three categories. Adaptation-based methods mitigate 
+
+> 2GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning
+
+scale gaps through test-stage projection, increased decoder compu-tation, or instance-specific adjustment, but these designs introduce additional inference costs [5, 26]. Divide-and-conquer methods decompose large instances into subproblems and merge the result-ing solutions, but their performance largely depends on the parti-tioning and merging strategies [27, 41]. Local search and improve-ment methods use neural models to guide neighborhood refinement or large neighborhood search, but they usually require multiple rounds of iterative refinement and may rely on problem-specific designs [10, 11, 20]. In contrast to these approaches, GeoPAR fo-cuses on single-pass parallel construction. It constructs a reusable sparse geometric cache before decoding and reuses this cache dur-ing conflict-aware assignment, thereby improving the effectiveness of each parallel action without relying on test-time fine-tuning or repeated local search. 
+
+## 3 Preliminaries 3.1 Collaborative Multi-Agent MDP 
+
+We formulate the problem as a collaborative multi-agent MDP 
+
+⟨S , {A 𝑚 }𝑀 𝑚 =1, 𝑃, 𝑅, 𝜅 ⟩, where S is the state space, 𝑀 is the number of agents, and 𝑚 ∈ { 1, . . . , 𝑀 } indexes an agent. The feasible action set A𝑚 (𝑠 𝑡 ) of agent 𝑚 includes task selections, waiting, and return-ing to a depot; 𝑃 is the transition kernel, 𝑅 is the reward function, and 𝜅 is a conflict-handling function. At decision step 𝑡 , the state of the environment is denoted by 𝑠 𝑡 . Each agent selects one action, forming the joint action a𝑡 = (𝑎 𝑚 𝑡 )𝑀 𝑚 =1, where 𝑎 𝑚 𝑡 ∈ A 𝑚 (𝑠 𝑡 ).The policy maps the current state to a joint action distribution: 
+
+𝜋 𝜃 (a𝑡 | 𝑠 𝑡 ), where a𝑡 ∈ Î𝑀 𝑚 =1 A𝑚 (𝑠 𝑡 ). Since multiple agents may select mutually conflicting actions, we apply the conflict handling function 
+
+𝜅 :
+
+> 𝑀
+
+Ö
+
+> 𝑚 =1
+
+A𝑚 
+
+!
+
+× S → 
+
+> 𝑀
+
+Ö
+
+> 𝑚 =1
+
+A𝑚 . (1) The executable joint action is therefore ˜ a𝑡 = 𝜅 (a𝑡 , 𝑠 𝑡 ), where duplicated assignments are removed or replaced by waiting. The environment then evolves according to 𝑠 𝑡 +1 = 𝑃 (𝑠 𝑡 | ˜a𝑡 ), and the policy receives reward 𝑟 𝑡 = 𝑅 (𝑠 𝑡 | ˜a𝑡 ). The final solution is repre-sented by the conflict free joint action sequence ˜ a1: 𝑇 = ( ˜a1, . . . , ˜a𝑇 ).
+
+## 3.2 Parallel Autoregressive Models 
+
+Different from AR models that decode actions one by one, a PA model decodes the actions of multiple agents in parallel within each step. Let ℎ = 𝑓 𝜃 (𝑠 0) be the encoded representation of the initial problem state. At each step 𝑡 , the joint action proposal is generated in parallel over available agents. Let M𝑡 denote the set of available agents at state 𝑠 𝑡 . The joint proposal is factorized as 
+
+𝜋 𝜃 (a𝑡 | ˜a<𝑡 , 𝑠 𝑡 , ℎ ) =
+
+Ö
+
+> 𝑚 ∈ M 𝑡
+
+𝜋 𝜃 (𝑎 𝑚 𝑡 | ˜a<𝑡 , 𝑠 𝑡 , ℎ, 𝑚 ). (2) Because these actions are decoded simultaneously, the raw pro-posal a𝑡 may still contain conflicts. Therefore, we use the conflict-handling function ˜ a𝑡 = 𝜅 (a𝑡 , 𝑠 𝑡 ). Thus, the model remains autore-gressive across decision steps without imposing an arbitrary se-quential ordering on agents within each step. 
+
+## 4 Method: GeoPAR 
+
+We propose GeoPAR, a geometry-aware parallel autoregressive policy for scalable multi-agent combinatorial optimization, as illus-trated in Figure 3. At each decoding step, multiple heterogeneous agents generate actions simultaneously, while a parallel assignment operator enforces feasibility. GeoPAR projects agents and tasks into a shared embedding space and constructs a lightweight geometric cache to represent local transition structures. The decoder com-bines these representations with dynamic agent queries to score actions in parallel, and the assignment module converts the result into feasible actions. 
+
+## 4.1 Projection-Window Sparse Encoder 
+
+Heterogeneous input embedding. Given an instance 𝑥 with 𝑀 
+
+agents and 𝑁 task nodes, the encoder first maps their raw fea-tures into a shared 𝑑 -dimensional embedding space. Let 𝑋 𝐴 ∈
+
+R𝑀 ×𝑘 𝐴 , 𝑋 𝑉 ∈ R𝑁 ×𝑘 𝑉 denote the agent feature matrix and the node feature matrix, where 𝑘 𝐴 and 𝑘 𝑉 are the corresponding feature dimensions. Since agents and task nodes have different seman-tics and feature spaces, we use two separate linear projections: 
+
+𝑊 𝐴 ∈ R𝑘 𝐴 ×𝑑 ,𝑊 𝑉 ∈ R𝑘 𝑉 ×𝑑 . The initial agent and node embed-dings are then defined as 𝐻 (0) 
+
+> 𝐴
+
+= 𝑋 𝐴 𝑊 𝐴 , 𝐻 (0) 
+
+> 𝑉
+
+= 𝑋 𝑉 𝑊 𝑉 , where 
+
+𝐻 (0) 
+
+> 𝐴
+
+∈ R𝑀 ×𝑑 and 𝐻 (0) 
+
+> 𝑉
+
+∈ R𝑁 ×𝑑 . We concatenate the two sets of em-beddings as 𝐻 (0) = [𝐻 (0) 
+
+> 𝐴
+
+; 𝐻 (0) 
+
+> 𝑉
+
+], which is used as the input to the subsequent geometry-aware encoder layers. This separate embed-ding design preserves the heterogeneity between agents and task nodes while projecting them into a unified representation space for later interaction modeling. 
+
+Projection-window cache. To avoid dense node-node relations, we construct a sparse geometric cache by sorting task nodes under multiple one-dimensional projection orderings. Let 𝑧 𝑖 ∈ R𝑝 denote the projection descriptor of task node 𝑖 , which can be instantiated by its normalized coordinate or other lightweight geometric features. Let {𝑢 ℓ }𝑞 ℓ=1 be 𝑞 unit projection directions with 𝑢 ℓ ∈ R𝑝 . Each direction defines an ordering key 𝜂 ℓ (𝑖 ) = 𝑧 ⊤ 
+
+> 𝑖
+
+𝑢 ℓ .We denote the set of ordering functions by R = {𝜂 ℓ }𝑞 ℓ=1 ∪ R aux ,where Raux contains optional task-native orderings, such as depot-distance ordering for routing or pair-aware ordering for pickup-delivery problems. For each 𝜂 ∈ R , let 𝑟 𝜂 (𝑖 ) be the position of node 𝑖 after sorting all task nodes by 𝜂 (𝑖 ). Given a window radius 𝑤 , the projection window for node 𝑖 is defined as 
+
+bNpw (𝑖 ) = {𝑖 } ∪ 𝑗 : ∃ 𝜂 ∈ R with |𝑟 𝜂 ( 𝑗 ) − 𝑟 𝜂 (𝑖 )| ≤ 𝑤 ,
+
+Npw (𝑖 ) = TopK 
+
+ bNpw (𝑖 ), 𝐾 
+
+
+
+. (3) Here bNpw (𝑖 ) is the merged candidate set before truncation. TopK (· , 𝐾 )
+
+keeps at most 𝐾 candidates with the smallest rank distance to node 
+
+𝑖 . Before truncation, each node has at most 1 + 2𝑤 |R| candidates. 
+
+Sparse edge-biased enhancement. The collection of projection-window neighborhoods Npw = {N pw (𝑖 )} 𝑁 𝑖 =1 serves as the sparse geometric cache used by the encoder. Given this cache, the en-coder refines node embeddings by restricting node-node attention to cached neighborhoods. For node 𝑖 , let N𝑖 = Npw (𝑖 ) denote its cached candidate set. For each cached pair (𝑖, 𝑗 ) with 𝑗 ∈ N 𝑖 , we    
+
+> 3Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang Linear proj. Gated FFN
+> Task Encoding
+> Linear proj. Masked MHSA Gated FFN
+> Cache
+> Candidate Indices Rank Distance Ranks
+> Edge Features
+> Depot
+> One-shot observation
+
+Projection-Window Sparse Encoder Dynamic Parallel Pointer Decoder     
+
+> Agent Embeddings
+> Global Environment State Dynamic Agent State
+> Agent Queries (in Parallel) Pointer Logits to Tasks Action Proposals
+> Masked MHSA
+> Agent Encoding
+> Task on Agent Cross-Attention Agent on Task Cross-Attention
+
+Cache-Guided 
+
+Conflict-Aware Assignment    
+
+> Top-K
+> (from logits) Cache-K Heuristic Candidates
+> Scoring for Each Candidate
+> Total Score
+> Geometric Bonus Neural Preference Soft Cost
+> Penalty ++
+> Conflict Resolution
+> Initial Selections Resolved by Score
+
+Figure 3: Overview of GeoPAR. The projection-window sparse encoder maps heterogeneous agents and task nodes into a shared representation space. Task nodes are sorted along multiple projection directions to construct a reusable geometric cache. The encoder refines node and agent embeddings through sparse edge-biased attention and agent-task interaction. At each decision step, the dynamic parallel pointer decoder forms agent queries from encoded embeddings, dynamic agent states, and the global environment state, producing simultaneous action logits. Finally, the cache-guided conflict-aware assignment module outputs a feasible joint action. 
+
+compute an edge descriptor 𝜓 𝑖 𝑗 , a candidate-source type 𝑐 𝑖 𝑗 , and a normalized rank distance 𝜌 𝑖 𝑗 from the projection-window construc-tion. For each attention head 𝑟 , the score from node 𝑖 to candidate node 𝑗 is computed as 
+
+𝑒 (𝑟 ) 
+
+> 𝑖 𝑗
+
+= 𝑎 (𝑟 ) 
+
+> 𝑖 𝑗
+
++ 𝑏 (𝑟 ) 
+
+> 𝜓
+
+(𝜓 𝑖 𝑗 ) + 𝑏 (𝑟 ) 
+
+> 𝑐
+
+(𝑐 𝑖 𝑗 ) + 𝑏 (𝑟 ) 
+
+> 𝜌
+
+(𝜌 𝑖 𝑗 ), (4) where 𝑎 (𝑟 ) 
+
+> 𝑖 𝑗
+
+is the standard scaled dot-product attention score com-puted from the normalized node embeddings. The bias terms 𝑏 (𝑟 ) 
+
+> 𝜓
+
+,
+
+𝑏 (𝑟 ) 
+
+> 𝑐
+
+, and 𝑏 (𝑟 ) 
+
+> 𝜌
+
+inject edge geometry, candidate-source information, and ranking proximity into the sparse attention score. The scores are normalized over 𝑗 ∈ N 𝑖 and used to aggregate local candidate features, producing 𝑔 loc  
+
+> 𝑖
+
+. In parallel, node 𝑖 attends to the agent embeddings 𝐻 𝐴 to obtain an agent-conditioned update 
+
+𝑔 agt  
+
+> 𝑖
+
+. The final node representation is updated by ˜ℎ𝑉 𝑖 = ℎ𝑉 𝑖 + 𝛾 ⊙ LN 
+
+
+
+𝑊 𝐹 [ 𝑔 loc  
+
+> 𝑖
+
+; 𝑔 agt  
+
+> 𝑖
+
+]
+
+
+
+, (5) where 𝑊 𝐹 is a fusion projection, 𝛾 is a learnable residual gate, ⊙
+
+denotes element-wise multiplication, and [· ; ·] denotes concatena-tion. The enhanced node embeddings are then passed to subsequent encoder layers, while Npw is retained for decoder-side assignment. 
+
+## 4.2 Dynamic Parallel Pointer Decoder 
+
+Given the encoder output 𝐻 = [𝐻 𝐴 ; 𝐻 𝑉 ], GeoPAR constructs solu-tions in a parallel autoregressive manner. At each step 𝑡 , the decoder builds one dynamic query for each active agent by combining its static embedding with the current agent and environment states: 
+
+𝑞 𝑚 𝑡 = 𝑊 𝑞 
+
+ℎ𝐴 𝑚 ; 𝜙 𝐴 (𝛿 𝑚 𝑡 ); 𝜙 𝐸 (𝑠 𝑡 ) , 𝑚 ∈ M 𝑡 , (6) where M𝑡 is the set of active agents, ℎ𝐴 𝑚 is the encoded embedding of agent 𝑚 , 𝛿 𝑚 𝑡 denotes its dynamic state, and 𝜙 𝐸 (𝑠 𝑡 ) summarizes the global environment state. The agent queries are then passed through a lightweight communication block, ¯𝑄 𝑡 = Comm 𝜃 (𝑄 𝑡 ), 𝑄 𝑡 = 𝑞 𝑚 𝑡 
+
+ 
+
+> 𝑚 ∈ M 𝑡
+
+, (7) so that active agents can exchange information before action scor-ing. The communicated queries attend to the encoded action em-beddings under the feasibility mask 𝑀 𝑡 . Let A𝑡 denote the current action set, including unserved task actions and task-native safe actions such as waiting or returning to a depot. For each action 
+
+𝑗 ∈ A 𝑡 , we define its dynamic action embedding as ¯ℎ𝑗 𝑡 = ℎ𝑗 + 𝑊 𝜉 𝜉 𝑗 𝑡 ,
+
+where ℎ𝑗 is the static embedding of action 𝑗 and 𝜉 𝑗 𝑡 is its dynamic feature at step 𝑡 . The pointer logit of agent 𝑚 choosing action 𝑗 is 
+
+> 4GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning
+
+computed as 
+
+𝐿 𝑚,𝑗 𝑡 = 𝛽 · tanh ⟨𝑊 𝑄 ¯𝑞 𝑚 𝑡 ,𝑊 𝐾 ¯ℎ𝑗 𝑡 ⟩√𝑑 
+
+!
+
+. (8) Hard-infeasible actions are masked by setting 𝐿 𝑚,𝑗 𝑡 = −∞ when 
+
+𝑀 𝑚,𝑗 𝑡 = 0. This yields the per-agent neural action distribution 
+
+𝜋 𝜃 (𝑎 𝑚 𝑡 = 𝑗 | 𝑠 𝑡 , 𝐻 ) = Softmax  𝐿 𝑚, ·
+
+> 𝑡
+
+ 
+
+> 𝑗
+
+. (9) The decoder therefore produces parallel per-agent action scores from the same state 𝑠 𝑡 . Since independently selected high-scoring actions may still conflict over exclusive tasks, GeoPAR passes 𝐿 𝑡 ,
+
+𝑀 𝑡 , 𝑠 𝑡 , and the projection-window cache Npw to the cache-guided assignment module, which returns the executable joint action ˜ a𝑡 
+
+used for the environment transition. 
+
+## 4.3 Cache-Guided Conflict-Aware Assignment 
+
+For each agent 𝑚 , GeoPAR constructs a compact candidate pool: 
+
+B𝑚 𝑡 = TopK logit (𝑚 )∪ CacheK (𝑚, Npw , 𝑠 𝑡 )∪ HeurK (𝑚, 𝑠 𝑡 ), where the three terms correspond to high-probability decoder actions, cache-based geometric successors, and lightweight task-native candidates, respectively. During training, a few random feasible actions are also added to encourage exploration. Each candidate 𝑗 ∈ B 𝑚 𝑡 is then scored by combining neural preference, geometric guidance, and immediate soft costs: 
+
+𝑆 𝑚,𝑗 𝑡 = ℓ𝑚,𝑗 𝜃,𝑡 + 𝜆 geo 𝐵 𝑚,𝑗  
+
+> geo
+
+− Ω𝑚,𝑗 𝑡 , (10) where ℓ𝑚,𝑗 𝜃,𝑡 = log 𝜋 𝜃 ( 𝑗 | 𝑠 𝑡 , 𝐻, 𝑚 ) denotes the decoder score, 𝐵 𝑚,𝑗 
+
+> geo
+
+is the cache-derived geometric bonus, and Ω𝑚,𝑗 𝑡 penalizes unde-sirable immediate effects such as travel cost, estimated makespan increase, or load imbalance. Hard infeasibility, such as capacity violation, visited-task reuse, or precedence violation, is handled by the feasibility mask 𝑀 𝑡 .Based on these scores, the assignment module converts parallel per-agent scores into a feasible action. The key constraint is that exclusive actions cannot be assigned to multiple agents in the same parallel step. To enforce this, conflict-aware sampling or resolution maintains an internal consumed set D𝑡 of accepted exclusive ac-tions. During training, agents sample from feasible candidates while excluding consumed exclusive actions. During inference, agents submit ranked proposals, and each conflicted exclusive action is assigned only to the agent with the highest score. Algorithm 1 summarizes the above process using five operators: Pool builds B𝑚 𝑡 , Score computes Eq. (10), TopR keeps ranked pro-posals, Sample X performs training-time conflict-aware sampling, and Resolve X performs inference-time conflict resolution over ex-clusive actions. Since Sample X and Resolve X both reject already consumed ex-clusive actions, the resulting joint action contains no duplicate ex-clusive action within each parallel step. Under the feasibility mask and the safe-fallback assumption, the returned action is feasible for environment execution. 
+
+Algorithm 1 Cache-Guided Parallel Assignment 
+
+Require: Logits 𝐿 𝑡 , mask 𝑀 𝑡 , state 𝑠 𝑡 , cache Npw , exclusive set X,mode 𝑜 
+
+Ensure: Feasible joint action ˜ a𝑡  
+
+> 1:
+
+B𝑚 𝑡 ← Pool (𝑚, 𝐿 𝑡 , 𝑠 𝑡 , Npw ), ∀𝑚  
+
+> 2:
+
+𝑆 𝑚,𝑗 𝑡 ← Score (𝑚, 𝑗, 𝐿 𝑡 , 𝑠 𝑡 , Npw ), ∀𝑚, 𝑗 ∈ B 𝑚 𝑡  
+
+> 3:
+
+P𝑚 𝑡 ← TopR (B 𝑚 𝑡 , 𝑆 𝑚 𝑡 ), ∀𝑚  
+
+> 4:
+
+if 𝑜 = train then  
+
+> 5:
+
+˜a𝑡 ← Sample X ({P 𝑚 𝑡 }𝑀 𝑚 =1, 𝑀 𝑡 ) 
+
+> 6:
+
+else  
+
+> 7:
+
+˜a𝑡 ← Resolve X ({P 𝑚 𝑡 }𝑀 𝑚 =1, 𝑆 𝑡 , 𝑀 𝑡 ) 
+
+> 8:
+
+end if  
+
+> 9:
+
+˜a𝑡 ← Fallback ( ˜a𝑡 , 𝑀 𝑡 ) 
+
+> 10:
+
+return ˜a𝑡 
+
+## 4.4 Training Objective 
+
+GeoPAR is trained with reinforcement learning. Let 𝑅 ( ˜a1: 𝑇 ) be the terminal reward, typically the negative task cost. The objective is 
+
+𝐽 (𝜃 ) = E˜a1: 𝑇 ∼𝜋 train 
+
+> 𝜃
+
+[𝑅 ( ˜a1: 𝑇 )] , (11) where 𝜋 train  
+
+> 𝜃
+
+denotes the rollout distribution induced by the de-coder scores and the training-time conflict-aware sampling opera-tor Sample X . At step 𝑡 , the log-probability used for policy-gradient training is the probability of the executable joint action sampled by Sample X . Let E𝑚 𝑡 denote the feasible candidate set of agent 𝑚 
+
+after applying the feasibility mask and removing already consumed exclusive actions. Then log 𝜋 train  
+
+> 𝜃
+
+( ˜a𝑡 | 𝑠 𝑡 ) =∑︁ 
+
+> 𝑚 ∈ M 𝑡
+
+log exp (𝑆 𝑚, ˜𝑎 𝑚 𝑡  
+
+> 𝑡
+
+/𝜏 )
+
+Í𝑗 ∈ E 𝑚 𝑡 exp (𝑆 𝑚,𝑗 𝑡 /𝜏 ) , (12) where 𝑆 𝑚,𝑗 𝑡 is the assignment score in Eq. (10) and 𝜏 is the sampling temperature. With an action-independent baseline 𝑏 , the score-function estimator is 
+
+∇𝜃 𝐽 (𝜃 ) = E
+
+"
+
+(𝑅 − 𝑏 )
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =1
+
+∇𝜃 log 𝜋 train  
+
+> 𝜃
+
+( ˜a𝑡 | 𝑠 𝑡 )
+
+#
+
+. (13) At inference time, GeoPAR uses deterministic conflict resolution with the same assignment scores, and no policy-gradient probability is required for Resolve X .
+
+## 5 Experiments 
+
+We structure the experiments to answer the following questions: 
+
+• How does GeoPAR compare with conventional and neu-ral baselines at training scales and under zero-shot scale transfer? (See Section 5.2) 
+
+• Does the projection-window cache preserve task-relevant local transitions efficiently, and how sensitive is GeoPAR to the number of projection directions? (See Section 5.3) 
+
+• Are projection-window geometry and conflict-aware as-signment complementary? (See Section 5.4) 
+
+• Which components of cache-guided conflict-aware assign-ment drive solution quality and construction efficiency? (See Section 5.5) 
+
+> 5Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang
+
+Table 1: Results on HCVRP and OMDCPDP. The gap is computed relative to the best objective value within each 𝑁 /𝑀 setting. All results were obtained from five replicate experiments. Lower values are better. 
+
+Small-scale HCVRP 
+
+N/M 60/3 60/5 100/5 100/7 Method Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time SISRs [6] 6.57 0.00% — 271s 4.00 0.00% — 274s 6.17 0.00% — 623s 4.45 0.00% — 625s GA [14] 9.21 40.18% — 233s 6.89 72.25% — 320s 10.93 77.15% — 623s 9.10 104.49% — 772s SA [12] 7.04 7.15% — 130s 4.39 9.75% — 289s 6.80 10.21% — 557s 5.01 12.58% — 678s AM [15] 7.41 12.79% 73.5 0.06s 4.59 14.75% 72.0 0.05s 6.96 12.80% 122.1 0.08s 5.12 15.06% 118.3 0.08s 2D-Ptr [23] 7.20 9.59% 73.5 0.06s 4.48 12.00% 73.3 0.05s 6.75 9.40% 121.3 0.08s 4.92 10.56% 118.6 0.08s DPN [40] 7.66 16.59% 86.0 0.06s 4.93 23.25% 106.1 0.06s 7.27 17.83% 154.2 0.09s 5.37 20.67% 155.8 0.09s PARCO [3] 7.22 9.89% 58.2 0.08s 4.47 11.75% 56.4 0.08s 6.70 8.59% 91.2 0.12s 4.87 9.44% 89.0 0.12s GeoPAR 7.31 11.26% 39.3 0.07s 4.58 14.50% 27.1 0.06s 6.82 10.53% 44.2 0.08s 4.98 11.91% 34.6 0.07s Large-scale zero-shot HCVRP 
+
+N/M 1000/20 1000/80 2000/40 2000/160 Method Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time AM [15] 16.03 16.24% 1187.0 0.35s 4.03 5.77% 1172.0 0.70s 16.17 14.19% 2361.5 1.84s 4.21 7.67% 2351.0 5.72s 2D-Ptr [23] 14.11 2.32% 1192.0 0.35s 4.00 4.99% 1166.0 0.70s 14.25 0.64% 2367.5 1.85s 4.08 4.35% 2339.5 5.72s DPN [40] 29.87 116.61% 4020 0.60s 4.68 22.83% 1235 0.20s 26.84 89.55% 8040 3.14s 4.86 24.30% 2353 0.99s PARCO [3] 13.97 1.31% 693.0 0.20s 4.61 21.00% 562.0 0.39s 15.52 9.60% 1098.0 0.71s 8.35 113.55% 906.0 1.87s GeoPAR 13.79 0.00% 215.0 0.07s 3.81 0.00% 69.0 0.06s 14.16 0.00% 272.0 0.26s 3.91 0.00% 97.5 0.25s 
+
+N/M 3000/60 3000/240 5000/200 5000/400 Method Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time AM [15] 15.82 13.73% 3528.8 5.51s 4.23 7.36% 3525.8 17.99s 7.58 8.13% 5779.2 45.26s 4.29 6.98% 5858.6 87.00s 2D-Ptr [23] 13.91 0.00% 3529.2 5.55s 4.03 2.28% 3510.2 18.01s 7.07 0.85% 5813.8 45.77s 4.05 0.99% 5839.3 87.09s DPN [40] 27.87 100.36% 12060 8.40s 4.80 21.83% 3501 2.56s 8.96 27.81% 18074 24.91s 5.04 25.68% 5784 7.86s PARCO [3] 16.00 15.03% 1485.0 1.85s 8.80 123.35% 1308.0 5.31s 10.29 46.79% 1947.0 10.04s 14.33 257.35% 1846.2 19.02s GeoPAR 13.91 0.00% 291.8 0.54s 3.94 0.00% 129.0 0.62s 7.01 0.00% 197.6 1.21s 4.01 0.00% 177.8 1.98s Small-scale OMDCPDP 
+
+N/M 50/5 50/7 100/10 100/15 Method Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time OR-Tools [9] 37.61 0.56% — 30s 30.18 0.00% — 30s 66.78 0.51% — 60s 51.49 0.00% — 60s HAM [19] 45.16 20.75% 26.9 0.06s 33.47 10.90% 18.6 0.03s 78.47 18.11% 28.9 0.04s 55.24 7.28% 18.5 0.03s MAPDP [42] 37.40 0.00% 16.4 0.05s 30.32 0.46% 14.2 0.02s 66.53 0.14% 17.6 0.02s 52.06 1.11% 15.4 0.02s 
+
+PARCO [3] 39.31 5.11% 16.3 0.02s 31.46 4.24% 14.0 0.02s 70.57 6.22% 17.0 0.02s 54.42 5.69% 13.3 0.02s 
+
+GeoPAR 37.93 1.42% 18.6 0.03s 30.28 0.33% 14.4 0.02s 66.44 0.00% 17.7 0.03s 51.57 0.16% 12.0 0.02s Large-scale zero-shot OMDCPDP 
+
+N/M 1000/20 1000/25 2000/40 2000/50 Method Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time OR-Tools [9] 2695.62 51.68% — 600s 2232.35 53.19% — 600s 5097.17 52.93% — 600s 4424.12 61.98% — 600s PARCO [3] 2010.85 13.15% 91.1 0.11s 1513.05 3.83% 64.9 0.08s 3639.90 9.21% 92.4 0.12s 2830.33 3.63% 63.3 0.08s GeoPAR 1777.15 0.00% 54.9 0.07s 1457.22 0.00% 44.2 0.06s 3333.04 0.00% 55.3 0.07s 2731.29 0.00% 45.1 0.06s 
+
+N/M 3000/60 3000/75 4000/80 4000/100 Method Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time Obj. Gap Steps Time OR-Tools [9] 7672.11 58.07% — 600s 6640.27 66.71% — 600s 10394.03 63.81% — 600s 9107.39 74.94% — 600s PARCO [3] 5295.33 9.10% 94.3 0.12s 4134.57 3.80% 61.8 0.08s 6909.60 8.89% 93.6 0.13s 5414.23 4.00% 61.0 0.09s GeoPAR 4853.71 0.00% 56.0 0.07s 3983.21 0.00% 45.8 0.06s 6345.28 0.00% 56.4 0.08s 5205.91 0.00% 46.2 0.06s 
+
+• How does GeoPAR behave across problem families, problem scales, and agent-density regimes? (See Section 5.6) 
+
+## 5.1 Experimental Settings 
+
+Datasets and baselines. Following [3, 23], we evaluate GeoPAR on HCVRP and OMDCPDP, which model heterogeneous capaci-tated vehicles and open multi-depot pickup-and-delivery routing, respectively. The HCVRP baselines are SISR [6], GA [14], SA [12], 
+
+> 6GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning
+
+AM [15], 2D-Ptr [23], DPN [40], and PARCO [3]; the OMDCPDP baselines are OR-Tools [9], HAM [19], MAPDP [42], and PARCO. 
+
+Metrics. We report objective value, gap, rollout steps, and infer-ence time. The HCVRP objective is the makespan, defined as the maximum speed-normalized route duration across vehicles; the OMDCPDP objective is the cumulative delivery-arrival cost. The gap is relative to the best value within each 𝑁 /𝑀 setting. Rollout steps measure construction length, and inference time is measured under the same GPU setting. 
+
+Implementation details. GeoPAR uses 128-dimensional policy embeddings, a projection window of size 8 with four directions, and the conflict-aware decoding configuration in Section 4.3. Both models are trained for 100 epochs with a learning rate of 10 −4 on small instances: 60–100 customers and 3–7 agents for HCVRP, and 50–100 tasks and 10–50 agents for OMDCPDP. Evaluation uses deterministic decoding on the instances in Table 1. Problem defini-tions and additional hyperparameters are provided in Appendices A and B, respectively. 
+
+## 5.2 Overall Performance and Zero-Shot Scalability 
+
+Table 1 presents the results for the two datasets. For HCVRP, conven-tional solvers and specialized neural models remain competitive on small-scale instances, where the instance size is limited and the scal-ability bottleneck is not yet dominant. Under large-scale zero-shot settings, AM and 2D-Ptr maintain reasonable solution quality, but they construct solutions sequentially, node by node, which causes inference time to increase sharply as 𝑁 grows. PARCO shortens the construction horizon through parallel decoding, but its solution quality becomes unstable. This suggests that naive parallelization may amplify coordination errors when many agents propose actions simultaneously. GeoPAR uses the projection-window cache to keep the candidate set of each agent locally meaningful as the graph size increases, while the conflict-aware assignment mechanism reduces duplicate selections in parallel decisions. Consequently, GeoPAR achieves more effective large-scale inference under zero-shot scale transfer. For OMDCPDP, a similar pattern is observed under a different constraint structure. Although the performance differences among strong baselines are modest on small-scale instances, GeoPAR con-sistently achieves better performance in large-scale zero-shot set-tings. This indicates that the proposed mechanisms are not limited to Euclidean vehicle routing problems. The sparse geometric can-didate construction provides a stable local action prior, while the assignment layer filters parallel decisions according to dynamic feasibility and task exclusivity. As the problem scale increases, OR-Tools struggles under a fixed time budget, and PARCO remains fast but exhibits unstable solution quality. In contrast, GeoPAR maintains a short construction process while producing better solu-tions. These results suggest that scalable multi-agent construction requires not only parallel decoding but also a structured mecha-nism that ensures simultaneous decisions are locally grounded and mutually compatible. 
+
+Figure 4: Validation of path edges based on the geometric structure of the sliding window. Left: recall of client-to-client route transitions produced by PARCO. Right: Construction time using the same CPU. Radius denotes a radial-window baseline that sorts clients by depot distance and keeps the same local rank window. Table 2: Sensitivity analysis regarding the number of pro-jection directions 𝑞 . Time refers to the amortized strategy expansion time per instance (in milliseconds). Bold and un-derlined indicate the optimal and second-best results based on unrounded results.                                            
+
+> 𝑞 Slots 3000/120 3000/240 5000/200 5000/400 Obj. Steps Time Obj. Steps Time Obj. Steps Time Obj. Steps Time 118 7.08 172 23.7 3.95 141 36.6 7.19 213 71.4 4.12 185 121.7
+> 235 7.06 165.5 25.1 3.94 133 36.8 7.19 213.5 74.8 4.10 196 130.4 469 7.06 153.5 27.2 3.94 129 39.1 7.18 197.6 76.1 4.13 177.8 125.9 8137 7.06 157 32.9 3.94 124.4 40.3 7.17 205 90.0 4.15 179.6 140.9
+
+## 5.3 Projection-Window Fidelity and Sensitivity 
+
+Figure 4 evaluates whether PWin captures useful local structures or merely sparsifies the graph. We compare four candidate-set construction strategies under the same setting. Random samples candidate nodes uniformly without using geometry. Radius ranks nodes by depot distance and retains a local window in this one-dimensional order. KNN selects nearest neighbors from the com-plete distance matrix, which requires dense pairwise computation. Projection sorts task nodes along multiple directions and collects neighbors from the corresponding sliding rank windows, approxi-mating local Euclidean neighborhoods without building the com-plete distance graph. The left panel reports the proportion of task-to-task transitions retained by each strategy. Projection preserves most route edges, achieving recall close to distance-based KNN and clearly above Random and Radius. This suggests that multi-directional projection ordering retains relevant local successors more effectively than geometry-agnostic sampling or depot-distance ranking. The right panel reports cache-construction time. KNN has high recall, but the cost of dense pairwise distance computation grows rapidly with 𝑁 .Projection keeps task-relevant edges in a compact candidate pool without a dense graph, providing a favorable balance between local coverage and construction cost. 
+
+> 7Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang
+
+Table 3: Each setting reports objective and average rollout steps under greedy decoding. Lower is better.                                    
+
+> Method PWin CA 100/7 1000/20 3000/60 5000/100 Obj. Steps Obj. Steps Obj. Steps Obj. Steps PARCO ——4.87 89 13.97 693 16.00 1485 18.01 2109 +CA —✓4.99 34 14.01 204 16.10 480 27.85 956 +PWin ✓—4.85 89 13.65 597 17.66 1292 21.75 1764 GeoPAR ✓✓4.98 35 13.79 215 13.91 292 14.16 353
+
+Table 2 presents a sensitivity analysis of the number of projec-tion directions. Using one or two projection directions incurs low cache overhead but often leads to longer construction processes. Increasing the number of directions to 𝑞 = 4 consistently reduces the number of rollout steps while maintaining solution quality. Al-though the larger cache associated with 𝑞 = 8 occasionally provides marginal improvements in the objective value, it increases the num-ber of raw candidate slots from 69 to 137 and introduces additional runtime overhead. Across the selected instances, the objective gap between 𝑞 = 4 and 𝑞 = 8 remains below 0.5%, while 𝑞 = 4 reduces runtime by up to 17.2%. We therefore adopt 𝑞 = 4 as a practical trade-off between solution quality and computational cost, rather than as the optimal configuration for every individual instance. 
+
+## 5.4 Complementarity of Projection Windows and Conflict-Aware Assignment 
+
+Table 3 shows that CA assignment primarily improves effective progress, but it does not by itself substantially improve solution quality. Using CA alone considerably reduces the number of rollout steps, which confirms that many parallel decisions are wasted by duplicate selections. However, in larger-scale settings, CA alone can lead to worse objective values, because faster progress may push agents toward suboptimal assignment patterns. In contrast, using only the projection-window geometry improves candidate quality in some settings, but it cannot effectively shorten rollouts. This indicates that high-quality local structures must also be coordinated across agents. 
+
+## 5.5 Component Analysis of Cache-Guided Assignment 
+
+Having established the complementarity of PWin and CA, we fur-ther decompose CA into its internal candidate-set construction and scoring components. All five variants use the same PWin and differ only in how joint-action candidates are sampled and ranked. PWin-only excludes conflict-aware training. Logit-CF uses only the Top-𝑘 candidates selected according to the corresponding logits. GeoPool additionally introduces geometric candidates retrieved from the cache, while GeoScore further incorporates the geometric priorities of these candidates into the ranking process. Full w/o Cache disables the reuse of the geometric cache in the decoder. Table 4 compares these five variants against Full CA. The full results show that PWin-only achieves the best objective on the 1,000-node instances but generalizes poorly to denser set-tings. Logit-CF substantially reduces the number of rollout steps, confirming that conflict-free training is essential when multiple 
+
+Figure 5: GeoPAR objective values and per-instance infer-ence time across problem families, problem sizes, and agent-density regimes. Lower values are better. 
+
+agents compete for mutually exclusive actions. In contrast, GeoPool alone does not consistently improve either solution quality or con-struction efficiency. Geometric candidates become effective only when GeoScore incorporates their geometric priorities into candi-date ranking, resulting in the fewest rollout steps and the shortest runtime on the 3000- and 5000-node instances. On the 3000- and 5000-node instances, Full CA trades some efficiency for improved solution quality. These results indicate that reusing geometric candi-dates across the representation and assignment stages is particularly important for improving solution quality on dense instances. 
+
+## 5.6 Robustness Across Problem Families, Scales, and Agent Densities 
+
+Figure 5 examines how GeoPAR behaves across different problem families, problem scales, and agent-density regimes. We report results for all test instances with sizes up to 𝑁 = 20000 under three agent-density settings. For HCVRP, a higher agent density reduces the min–max objective value. However, at the largest problem scale, the highest density setting, 𝑁 /10, incurs additional runtime because parallel construction requires coordination among more agents. For OMDCPDP, the raw objective value naturally increases with 𝑁 
+
+because the objective accumulates delivery arrival costs over a larger number of requests. Nevertheless, the inference time per instance remains below one second even at 𝑁 = 20000. 
+
+## 6 Conclusion 
+
+We propose GeoPAR, a geometry-guided parallel autoregressive framework for large-scale multi-agent combinatorial optimization. GeoPAR builds a reusable projection-window cache, injects sparse local geometry through edge-biased attention, and reuses the cache for conflict-aware parallel assignment. Results on HCVRP and OMD-CPDP show improved large-scale zero-shot generalization by pre-serving locally relevant actions and reducing ineffective simultane-ous decisions. Ablations confirm the complementary roles of the two components: PWin improves local candidate quality, whereas CA assignment improves progress during parallel decoding. 
+
+> 8
+
+GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning 
+
+Table 4: Internal ablation of CA assignment on HCVRP. Utilization is 𝑁 /( 𝑀 ×Steps ), and time is reported in amortized milliseconds per instance. Lower is better except for utilization. Best results are shown in bold, and second-best results are underlined. 
+
+Variant 1000/20 3000/240 5000/400 Obj. Steps Util. Time Obj. Steps Util. Time Obj. Steps Util. Time PWin-only 13.694 593.0 0.084 10.12 15.525 1242.0 0.010 343.38 24.440 1739.9 0.007 1204.20 Logit-CF 13.921 272.0 0.184 5.01 4.360 222.0 0.056 63.99 5.065 289.6 0.043 205.91 GeoPool 13.890 273.0 0.183 5.04 4.585 207.6 0.061 59.75 5.689 276.4 0.046 196.18 GeoScore 13.812 218.0 0.229 4.15 4.080 106.0 0.118 31.64 4.502 128.0 0.098 92.84 
+
+Full w/o Cache 13.778 201.0 0.249 3.93 4.142 149.9 0.084 43.74 4.639 209.1 0.060 149.14 Full CA 13.79 215.0 0.233 4.22 3.94 129.0 0.097 39.06 4.01 177.8 0.070 123.83 
+
+A current limitation is that GeoPAR’s improvements are un-even under extreme agent-density settings. In particular, HCVRP instances with very low agent density remain challenging because solution quality is highly sensitive to fleet scarcity, even when ef-ficient rollout is maintained. An important future direction is to adapt candidate-action construction and assignment priorities to substantial shifts in agent density. 
+
+## References 
+
+[1] Giorgio Ausiello, Pierluigi Crescenzi, Giorgio Gambosi, Viggo Kann, Alberto Marchetti-Spaccamela, and Marco Protasi. 2012. Complexity and approxima-tion: Combinatorial optimization problems and their approximability properties .Springer Science & Business Media. [2] William Babincsak, Ashay Aswale, and Carlo Pinciroli. 2023. Ant colony optimiza-tion for heterogeneous coalition formation and scheduling with multi-skilled robots. In 2023 International Symposium on Multi-Robot and Multi-Agent Systems (MRS) . IEEE, 121–127. [3] Federico Berto, Chuanbo Hua, Laurin Luttmann, Jiwoo Son, Junyoung Park, Kyuree Ahn, Changhyun Kwon, Lin Xie, and Jinkyoo Park. 2026. PARCO: Parallel AutoRegressive models for multi-agent combinatorial optimization. Advances in Neural Information Processing Systems 38 (2026), 167130–167160. [4] Jinchao Chen, Yang Wang, Ying Zhang, Yantao Lu, Qiuhao Shu, and Yujiao Hu. 2025. Extrinsic-and-intrinsic reward-based multi-agent reinforcement learning for multi-UAV cooperative target encirclement. IEEE Transactions on Intelligent Transportation Systems 26, 10 (2025), 17653–17665. [5] Yuanyao Chen, Rongsheng Chen, Fu Luo, and Zhenkun Wang. 2026. Improving generalization of neural combinatorial optimization for vehicle routing problems via test-time projection learning. Advances in Neural Information Processing Systems 38 (2026), 76543–76585. [6] Jan Christiaens and Greet Vanden Berghe. 2020. Slack induction by string removals for vehicle routing problems. Transportation Science 54, 2 (2020), 417– 433. [7] Weiheng Dai, Utkarsh Rai, Jimmy Chiun, Yuhong Cao, and Guillaume Sartoretti. 2025. Heterogeneous multi-robot task allocation and scheduling via reinforce-ment learning. IEEE Robotics and Automation Letters 10, 3 (2025), 2654–2661. [8] Zachary Friggstad, Fabrizio Grandoni, and Ramin Mousavi. 2026. Breaching the 2-Approximation Barrier for Euclidean Capacitated Vehicle Routing. In Proceedings of the 2026 Annual ACM-SIAM Symposium on Discrete Algorithms (SODA) . SIAM, 2644–2668. [9] Vincent Furnon and Laurent Perron. 2024. Or-tools routing library. URL https://developers. google. com/optimization/routing (2024). [10] André Hottung, Yeong-Dae Kwon, and Kevin Tierney. 2021. Efficient active search for combinatorial optimization problems. arXiv preprint arXiv:2106.05126 
+
+(2021). [11] Taoan Huang, Aaron M Ferber, Yuandong Tian, Bistra Dilkina, and Benoit Steiner. 2023. Searching large neighborhoods for integer linear programs with contrastive learning. In International conference on machine learning . PMLR, 13869–13890. [12] İLHAN İlhan. 2021. An improved simulated annealing algorithm with crossover operator for capacitated vehicle routing problem. Swarm and Evolutionary Computation 64 (2021), 100911. [13] Athira KA and Umashankar Subramaniam. 2024. A systematic literature review on multi-robot task allocation. Comput. Surveys 57, 3 (2024), 1–28. [14] Sašo Karakatič and Vili Podgorelec. 2015. A survey of genetic algorithms for solving multi depot vehicle routing problem. Applied Soft Computing 27 (2015), 519–532. [15] Wouter Kool, Herke Van Hoof, and Max Welling. 2019. Attention, learn to solve routing problems!. In International Conference on Learning Representations .[16] Yeong-Dae Kwon, Jinho Choo, Byoungjip Kim, Iljoo Yoon, Youngjune Gwon, and Seungjai Min. 2020. Pomo: Policy optimization with multiple optima for reinforcement learning. Advances in neural information processing systems 33 (2020), 21188–21198. [17] Yeong-Dae Kwon, Jinho Choo, Iljoo Yoon, Minah Park, Duwon Park, and Youngjune Gwon. 2021. Matrix encoding networks for neural combinatorial optimization. Advances in Neural Information Processing Systems 34 (2021), 5138– 5149. [18] Han Li, Fei Liu, Zhi Zheng, Yu Zhang, and Zhenkun Wang. 2025. CaDA: Cross-Problem Routing Solver with Constraint-Aware Dual-Attention. In International Conference on Machine Learning . PMLR, 35438–35456. [19] Jingwen Li, Liang Xin, Zhiguang Cao, Andrew Lim, Wen Song, and Jie Zhang. 2021. Heterogeneous attentions for solving pickup and delivery problem via deep reinforcement learning. IEEE Transactions on Intelligent Transportation Systems 23, 3 (2021), 2306–2315. [20] Ke Li, Fei Liu, Zhenkun Wang, and Qingfu Zhang. 2025. Destroy and repair using hyper-graphs for routing. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 18341–18349. [21] Shaofeng Li, Zejian Zhao, Di Wang, Ke Li, Gang Liu, and Quan Wang. 2025. A reinforcement learning framework for efficient task allocation among AGVs in smart warehouse. IEEE Internet of Things Journal 12, 11 (2025), 16947–16961. [22] Zijun Liao, Jinbiao Chen, Debing Wang, Zizhen Zhang, and Jiahai Wang. 2025. BOPO: Neural Combinatorial Optimization via Best-anchored and Objective-guided Preference Optimization. In International Conference on Machine Learning .PMLR, 37456–37475. [23] Qidong Liu, Chaoyue Liu, Shaoyao Niu, Cheng Long, Jie Zhang, and Mingliang Xu. 2024. 2d-ptr: 2d array pointer network for solving the heterogeneous capaci-tated vehicle routing problem. In Proceedings of the 23rd International Conference on Autonomous Agents and Multiagent Systems . 1238–1246. [24] Suyu Liu, Zhiguang Cao, Nan Yin, and Yew-Soon Ong. 2026. Scale-net: a hier-archical u-net framework for cross-scale generalization in multi-task vehicle routing. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40. 14295–14303. [25] Anni Lu, Junmo Lee, Yuan-Chun Luo, Hai Li, Ian Young, and Shimeng Yu. 2024. Digital cim with noisy sram bit: a compact clustered annealer for large-scale com-binatorial optimization. In Proceedings of the 61st ACM/IEEE Design Automation Conference . 1–6. [26] Fu Luo, Xi Lin, Fei Liu, Qingfu Zhang, and Zhenkun Wang. 2023. Neural com-binatorial optimization with heavy decoder: Toward large scale generalization. 
+
+Advances in Neural Information Processing Systems 36 (2023), 8845–8864. [27] Yuxin Pan, Ruohong Liu, Yize Chen, Zhiguang Cao, and Fangzhen Lin. 2025. Hierarchical Learning-based Graph Partition for Large-scale Vehicle Routing Problems. In Proceedings of the 24th International Conference on Autonomous Agents and Multiagent Systems . 1604–1612. [28] Junyoung Park, Changhyun Kwon, and Jinkyoo Park. 2023. Learn to Solve the Min-max Multiple Traveling Salesmen Problem with Reinforcement Learning.. In AAMAS , Vol. 22. 878–886. [29] Fernando Peres and Mauro Castelli. 2021. Combinatorial optimization problems and metaheuristics: Review, challenges, design, and development. Applied sciences 
+
+11, 14 (2021), 6449. [30] Yang Qian, Xinbiao Wang, Yuxuan Du, Yong Luo, and Dacheng Tao. 2024. MG-Net: Learn to Customize QAOA with Circuit Depth Awareness. Advances in Neural Information Processing Systems 37 (2024), 33691–33725. [31] Xiaotao Shan, Yichao Jin, Marius Jurt, and Peizheng Li. 2024. A distributed multi-robot task allocation method for time-constrained dynamic collective transport. 
+
+Robotics and Autonomous Systems 178 (2024), 104722. [32] Igor G Smit, Yaoxin Wu, Pavel Troubil, Yingqian Zhang, and Wim PM Nuijten. 2026. Neural Multi-Objective Combinatorial Optimization for Flexible Job Shop Scheduling Problems. In The Fourteenth International Conference on Learning Representations .9Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang 
+
+[33] Paul Strang, Zacharie Alès, Côme Bissuel, Olivier Juan, Safia Kedad-Sidhoum, and Emmanuel Rachelson. 2026. Planning in Branch-and-Bound: Model-Based Reinforcement Learning for Exact Combinatorial Optimization. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40. 25627–25635. [34] Jingwei Wang, Qianyue Hao, Wenzhen Huang, Xiaochen Fan, Zhentao Tang, Bin Wang, Jianye Hao, and Yong Li. 2024. Dyps: Dynamic parameter sharing in multi-agent reinforcement learning for spatio-temporal resource allocation. In 
+
+Proceedings of the 30th ACM SIGKDD conference on knowledge discovery and data mining . 3128–3139. [35] Jann Michael Weinand, Kenneth Sörensen, Pablo San Segundo, Max Kleinebrahm, and Russell McKenna. 2022. Research trends in combinatorial optimization. 
+
+International Transactions in Operational Research 29, 2 (2022), 667–705. [36] Xuan Wu, Di Wang, Chunguo Wu, Lijie Wen, Chunyan Miao, Yubin Xiao, and You Zhou. 2025. Efficient heuristics generation for solving combinatorial optimization problems using large language models. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 . 3228–3239. [37] Zitian Yang, Li Zhang, Hang Yu, Jiaxing Li, and Xiaoli Lian. 2026. A Systematic Literature Review of Distributed Multi-Agent Task Allocation: Core Dimensions, Their Interrelationships, and a Repository. IEEE Transactions on Parallel and Distributed Systems (2026). [38] Hang Yi, Ziwei Huang, Yining Ma, and Zhiguang Cao. 2026. RADAR: Learning to Route with Asymmetry-aware DistAnce Representations. arXiv preprint arXiv:2603.03388 (2026). [39] Zehua Zang, Chuxiong Sun, Lixiang Liu, Fuchun Sun, and Changwen Zheng. 2025. Loss of plasticity: a new perspective on solving multi-agent exploration for sparse reward tasks. In Proceedings of the 24th International Conference on Autonomous Agents and Multiagent Systems . 2299–2308. [40] Zhi Zheng, Shunyu Yao, Zhenkun Wang, Xialiang Tong, Mingxuan Yuan, and Ke Tang. 2024. DPN: decoupling partition and navigation for neural solvers of min-max vehicle routing problems. 61559–61592 pages. [41] Zhi Zheng, Changliang Zhou, Xialiang Tong, Mingxuan Yuan, and Zhenkun Wang. 2024. UDC: A unified neural divide-and-conquer framework for large-scale combinatorial optimization problems. Advances in Neural Information Processing Systems 37 (2024), 6081–6125. [42] Zefang Zong, Meng Zheng, Yong Li, and Depeng Jin. 2022. Mapdp: Cooperative multi-agent reinforcement learning to solve pickup and delivery problems. In 
+
+Proceedings of the AAAI conference on artificial intelligence , Vol. 36. 9980–9988. 10 GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning 
+
+## Appendix A Problem Definitions A.1 Heterogeneous Capacitated Vehicle Routing 
+
+Instance. The min-max HCVRP consists of a depot, 𝑁 customer nodes, and 𝑀 heterogeneous vehicles. Customer 𝑖 has a coordinate 
+
+𝑥 𝑖 ∈ [ 0, 1]2 and a demand 𝑑 𝑖 > 0. Vehicle 𝑚 has an initial depot location, capacity 𝑄 𝑚 , and speed 𝑣 𝑚 . A trip starts from the depot and may return to the depot to reload. The total demand served by a vehicle between two depot visits cannot exceed its capacity. Each customer must be visited exactly once by one vehicle. 
+
+State and feasible actions. At construction step 𝑡 , each active ve-hicle has a current node, a remaining capacity, and an accumulated route length. Feasible customer actions are unvisited customers whose demand fits the vehicle’s remaining capacity. Depot actions are feasible when the vehicle needs to reload or when the envi-ronment exposes a safe depot move. Since customers are exclusive tasks, a joint parallel action is feasible only if no two vehicles serve the same customer in the same step. Invalid capacity, duplicate-customer, and already-served actions are masked by the environ-ment or repaired by the conflict-aware assignment rule described in Section B.1. 
+
+Objective. Let R𝑚 = (𝑟 𝑚, 1, . . . , 𝑟 𝑚,𝑇 𝑚 ) denote the realized route of vehicle 𝑚 , including depot returns. The route duration is 
+
+𝐶 𝑚 = 1
+
+𝑣 𝑚 𝑇 𝑚 −1∑︁ 
+
+> 𝑡 =1
+
+∥𝑥 𝑟 𝑚,𝑡 +1 − 𝑥 𝑟 𝑚,𝑡 ∥2. (14) The objective is to minimize the makespan, 
+
+𝐶 HCVRP = max   
+
+> 𝑚 ∈ { 1,...,𝑀 }
+
+𝐶 𝑚 . (15) The policy reward is the negative objective. We report the objective value, the average number of rollout steps, and CUDA-synchronized rollout time. A rollout step is one parallel construction step in which all currently active vehicles may propose actions. 
+
+## A.2 Open Multi-Depot Capacitated Pickup and Delivery 
+
+Instance. OMDCPDP contains 𝑀 vehicle agents and 𝑁 task nodes, where the task nodes form 𝑁 /2 pickup-delivery pairs. Vehicle 𝑚 
+
+starts from its own depot coordinate and has finite carrying capac-ity. For pair 𝑘 , pickup node 𝑝 𝑘 must be served before delivery node 
+
+𝑑 𝑘 . A delivery can be selected only after its paired pickup has been picked and is carried by a feasible vehicle state. The routes are open: vehicles are not required to return to any depot after all tasks are completed. 
+
+State and feasible actions. The dynamic state records each vehi-cle’s current node, route length, remaining capacity, carried orders, visited pickups, completed deliveries, and pickup-delivery prece-dence status. A pickup action is feasible when the pickup has not been visited and the vehicle has remaining capacity. A delivery action is feasible when its paired pickup is already on board and the delivery has not been completed. Waiting, depot, or current-node actions are used only as environment-safe fallbacks when no task action is available. As in HCVRP, task actions are exclusive inside a parallel step, so duplicate task proposals must be resolved before the environment transition. 
+
+Objective. The evaluation objective is the cumulative delivery-arrival cost used by the OMDCPDP environment. Let D be the set of delivery nodes and let 𝐴 𝑗 be the accumulated route length of the vehicle that serves delivery 𝑗 at the moment 𝑗 is completed. The reported cost is 
+
+𝐶 OMDCPDP =∑︁  
+
+> 𝑗 ∈ D
+
+𝐴 𝑗 , (16) and the policy reward is its negative value. We report objective value, rollout steps, and CUDA-synchronized rollout time under the same timing convention as HCVRP. 
+
+## B Experimental Details B.1 Implementation-Specific Model Settings 
+
+Model configuration. The main paper reports the embedding and projection-window parameters. Both models also use three encoder layers, eight attention heads, RMS normalization, and one agent communication layer. The geometry branch contains a single eight-head sparse cross-attention layer with a 16-dimensional edge descriptor, no dropout, and a residual scale initialized to zero. 
+
+Projection-window configuration. For both datasets, 𝑧 𝑖 denotes the normalized two-dimensional coordinate of task 𝑖 . The projection directions are fixed before training and shared across all training and test instances. For 𝑞 directions, we set 
+
+𝜃 ℓ = (ℓ − 1)𝜋 𝑞 , 𝑢 ℓ = (cos 𝜃 ℓ , sin 𝜃 ℓ ), ℓ = 1, . . . , 𝑞. (17) Replacing 𝑢 ℓ with −𝑢 ℓ only reverses the corresponding sorted or-der. Since the rank window is symmetric, the two directions are equivalent, so covering [0, 𝜋 ) is sufficient. The reported models use 
+
+𝑞 = 4, corresponding to (1, 0), 2−1/2 (1, 1), (0, 1), 2−1/2 (− 1, 1), with a window radius of 𝑤 = 8. These directions are fixed globally and are not sampled, learned, or adapted during training. For each task, the implementation stores one explicit self slot and 2 𝑤 + 1 positions per direction without removing repeated indices. This produces 1 + 4 × ( 2 × 8 + 1) = 69 raw cache entries per task. The encoder and assignment module share the cached indices, validity masks, and geometric descriptors, and the four highest-ranked feasible cache candidates are added to the assignment pool. 
+
+Conflict-aware assignment. Each active agent is assigned a com-pact candidate pool containing the four highest pointer-logit candi-dates, four highest projection-cache candidates, and two highest savings candidates. During training, four random feasible candi-dates are also added. The savings source introduces task candidates that may be absent from both the highest pointer logits and the local projection-cache neighborhood. For agent 𝑚 at its current location 𝑥 𝑚 𝑡 and a feasible task 𝑗 , we compute 
+
+𝐻 𝑚,𝑗  
+
+> save ,𝑡
+
+= ∥𝑥 𝑚 𝑡 − 𝑥 0 ∥2 + ∥ 𝑥 𝑗 − 𝑥 0 ∥2 − ∥ 𝑥 𝑚 𝑡 − 𝑥 𝑗 ∥2, (18) where 𝑥 0 is the reference depot used by the heuristic. In the reported implementation, 𝑥 0 is the first depot coordinate stored in the state. It corresponds to the shared depot in HCVRP and serves as a common reference depot in OMDCPDP. A large savings value indicates that 
+
+> 11 Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang
+
+connecting the agent’s current location directly to task 𝑗 avoids a longer path through the reference depot. Let F 𝑚 𝑡 denote the feasible action set after the environment mask is applied, and let V denote the set of task actions. The savings candidate set is defined as SavingsK (𝑚, 𝑠 𝑡 ) = TopK 𝑗 ∈ F 𝑚 𝑡 ∩V 
+
+
+
+𝐻 𝑚,𝑗  
+
+> save ,𝑡
+
+; 𝐾 save 
+
+
+
+. (19) This set contains at most two feasible task actions for each agent and does not include depot or waiting actions. The savings score is used only for candidate retrieval. After a savings candidate enters the pool, it is ranked by the common assignment score without any cache-derived geometric bonus. Savings candidates are used during both training and inference, while random candidates are included only during training. For a cached task pair (𝑖, 𝑗 ), let 𝑑 𝑖 𝑗 = ∥𝑥 𝑖 − 𝑥 𝑗 ∥2, and let 𝑑 𝑖 0 and 
+
+𝑑 𝑗 0 denote the distances from the two tasks to the reference depot used by the cache. We further define ¯𝑑 as the mean task-to-task distance over all raw cached edges in the same instance. If task 𝑗 
+
+appears at window offset 𝛿 𝑖 𝑗 ∈ − 𝑤, . . . , 𝑤 , its normalized offset is 
+
+𝜌 𝑖 𝑗 = |𝛿 𝑖 𝑗 |/ 𝑤 . The raw cache-geometry score is 
+
+𝐺 𝑖 𝑗 = 𝑑 𝑖 0 + 𝑑 𝑗 0 − 𝑑 𝑖 𝑗 
+
+¯𝑑 − 𝑑 𝑖 𝑗 
+
+¯𝑑 − 0.1𝜌 𝑖 𝑗 . (20) When an agent is currently at a depot, the corresponding cache score is 𝐺 0𝑗 = −𝑑 0𝑗 / ¯𝑑 0, where ¯𝑑 0 is the mean client-to-depot dis-tance in the instance. Let ℓ𝑚,𝑗 𝜃,𝑡 = log 𝜋 𝜃 ( 𝑗 | 𝑠 𝑡 , 𝐻, 𝑚 ). Feasible cache candidates are retrieved using 
+
+𝑅 𝑚,𝑗  
+
+> cache ,𝑡
+
+= 0.7ℓ𝑚,𝑗 𝜃,𝑡 + 0.3𝐺 𝑖 𝑗 . (21) The four highest-scoring candidates form the cache portion of the pool. In the main experiments, the geometric bonus in Eq. (10) of the main paper is implemented as 
+
+𝐵 𝑚,𝑗  
+
+> geo
+
+=
+
+(𝑅 𝑚,𝑗  
+
+> cache ,𝑡
+
+, for a cache-sourced pool entry ,
+
+0, for other pool sources . (22) When the same action is proposed by multiple sources, only its first occurrence in the predefined pool-source order is retained. For the soft cost, let Δ𝑡 𝑚,𝑗 𝑡 = 𝑑 (𝑥 𝑚 𝑡 , 𝑥 𝑗 )/ 𝑣 𝑚 be the immediate travel time, with Euclidean distance used directly when no speed feature is present. Let 𝐿 𝑚 𝑡 be the current accumulated route length. When demand and capacity features are present, define the remaining-capacity slack as 𝑠 𝑚,𝑗 𝑡 = 𝑄 rem  
+
+> 𝑡,𝑚
+
+− 𝑑 𝑗 . The implementation uses 
+
+Ω𝑚,𝑗 𝑡 = 𝜆 time Δ𝑡 𝑚,𝑗 𝑡 + 𝜆 mk 
+
+
+
+𝐿 𝑚 𝑡 + Δ𝑡 𝑚,𝑗 𝑡 
+
+
+
++ 𝜆 cap [− 𝑠 𝑚,𝑗 𝑡 ]+ + 0.1max (𝑠 𝑚,𝑗 𝑡 , 10 −4)
+
+!
+
+.
+
+(23) A term is omitted when its required state feature is unavailable. Hard-infeasible capacity violations are removed by the action mask before ranking, so the reciprocal slack term primarily discourages nearly capacity-saturating feasible assignments. The reported OMD-CPDP checkpoint uses no additional delivery-, pickup-, or wait-specific priority adjustment. The final score is 𝑆 𝑚,𝑗 𝑡 = ℓ𝑚,𝑗 𝜃,𝑡 + 𝜆 geo 𝐵 𝑚,𝑗  
+
+> geo
+
+− Ω𝑚,𝑗 𝑡 . During training, agents are processed in randomized order and tasks selected by earlier agents are masked for later agents. When conflict-aware inference is enabled, each agent proposes its top three candidates; 
+
+Table 5: Main conflict-aware assignment settings used in the 100-epoch training runs. The main comparison uses greedy decoding unless stated otherwise.                            
+
+> Setting HCVRP OMDCPDP Top-𝑟 proposals 33Logit / cache / savings / random 4 / 4 / 2 / 4 4 / 4 / 2 / 4
+> 𝜆 geo 0.10 0.10
+> 𝜆 time /𝜆 mk 0.10 / 0.05 0.10 / 0.05
+> 𝜆 cap 1.00 0.00 Training temperature 𝜏 1.2 1.2 Exploration mixture 𝜖 0.03 0.03 Random agent order Yes Yes Force active in training Yes Yes Minimum agents / tasks 8 / 300 5 / 20 Minimum predicted conflict 0.03 0.03
+
+contested tasks are assigned to the highest-scoring agent, and unre-solved agents take a feasible fallback action. Table 5 lists the main dataset-specific settings. 
+
+## B.2 Shared Training and Evaluation Protocol 
+
+GeoPAR uses the reinforcement-learning objective described in the main paper. Training uses Adam with zero weight decay and a multi-step learning-rate schedule with milestones at epochs 80 and 95 and a decay factor of 0.1. Training instances are generated online, whereas validation and test instances are fixed. Unless a decoding ablation states otherwise, neural models use deterministic greedy decoding. 
+
+SISR. Slack Induction by String Removals (SISR) [6] is a route-destroy-and-repair heuristic for vehicle-routing problems. We use the PARCO reference setting with ¯ 𝑐 = 10, 𝐿 max = 10, 𝛼 = 10 −3,
+
+𝛽 = 10 −2, initial and final temperatures 𝑇 0 = 100 and 𝑇 𝑓 = 1, and an iteration budget of 3 × 10 5𝑁 .
+
+GA. The Genetic Algorithm (GA) [14] evolves a population of HCVRP solutions through selection, crossover, and mutation. The population size is 200, the iteration budget is 40 𝑁 , and the mutation and crossover probabilities are 𝑃 𝑚 = 0.8 and 𝑃 𝑐 = 1, respectively. 
+
+SA. This method [12] combines temperature-controlled search with crossover and 2-opt route refinement. We use 𝑇 0 = 100, 𝑇 𝑓 =
+
+10 −7, a Markov-chain length of 𝐿 = 20 𝑁 , and a cooling factor of 
+
+𝛼 = 0.98. 
+
+AM. The Attention Model (AM) [15] constructs an HCVRP so-lution sequentially by first selecting a vehicle and then its next customer, with vehicle features included in the decoder context. A separate model is trained for each small-scale 𝑁 /𝑀 setting using 128-dimensional embeddings, three encoder layers, eight attention heads, a rollout baseline, batch size 128, 99,968 instances per epoch, 100 epochs, learning rate 10 −4 with decay 0.995. Large-scale results use the 𝑁 = 100, 𝑀 = 7 checkpoint without retraining. 
+
+2D-Ptr. The 2D Array Pointer network (2D-Ptr) [23] uses sepa-rate vehicle and customer encoders and selects vehicle–customer actions with a two-dimensional pointer mechanism. Each small-scale model uses 128-dimensional embeddings, three encoder layers, eight attention heads, a rollout baseline, and a batch size of 512. 
+
+> 12 GeoPAR: Large-Scale Multi-Agent Combinatorial Optimization with Geometry-Guided Parallel Autoregressive Learning
+
+The actor and critic learning rates are both 10 −4 and decay by a factor of 0.995. The 𝑁 = 100, 𝑀 = 7 checkpoint is used for zero-shot large-scale evaluation with greedy decoding. 
+
+DPN. Decoupling Partition and Navigation (DPN) [40] separates customer partitioning from route navigation and uses permutation symmetry across agents and rotation-based positional encoding. We use 128-dimensional embeddings, six encoder layers, eight attention heads, POMO size 60, and tanh clipping 50. It is trained for 100 epochs on 𝑁 = 40–100 and 𝑀 = 3–7 with 100,000 instances per epoch, learning rate 10 −4, batch size 64 with two-step gradient accumulation. Evaluation uses greedy decoding with the identity agent permutation and no test-time augmentation. 
+
+OR-Tools. Google OR-Tools [9] provides general-purpose rout-ing and constraint-programming solvers. The OMDCPDP solver uses a global span cost coefficient of 10,000, Path Cheapest Arc initialization, and Guided Local Search for improvement. The per-instance limits are 30, 60, and 300 seconds for 𝑁 = 50, 100, and 500, respectively, and 600 seconds for 𝑁 ≥ 1000. 
+
+HAM. The Heterogeneous Attention Model (HAM) [19] distin-guishes pickup and delivery roles and enforces precedence con-straints during sequential construction. Our multi-agent OMD-CPDP adaptation uses 128-dimensional embeddings, three encoder layers, eight attention heads, a feed-forward dimension of 512, and batch normalization. It is trained with sampling for 100 epochs on 
+
+𝑁 = 50–100 and 𝑀 = 10–50 using batch size 128, 100,000 instances per epoch, eight augmentations, learning rate 10 −4, and seed 1234; validation and test decoding are greedy. 
+
+MAPDP. MAPDP [42] learns cooperative pickup-and-delivery decisions with centralized multi-agent reinforcement learning and paired contextual embeddings. We use 128-dimensional embed-dings, three encoder layers, eight attention heads, one communi-cation layer, and the original random conflict handler. A separate checkpoint is trained for each small-scale 𝑁 /𝑀 setting for 100 epochs using batch size 128, 100,000 instances per epoch, eight aug-mentations, Adam with learning rate 10 −4 and zero weight decay, and learning-rate decays of 0.1 after epochs 80 and 95. Evaluation uses greedy decoding. 
+
+PARCO. PARCO [3] is the common neural baseline for both tasks. It uses three encoder layers with 128-dimensional embeddings, eight attention heads, an MLP dimension of 512, RMS normalization, one agent communication layer, and a multiple-pointer decoder. Dupli-cate task proposals are resolved by assigning the contested action to the agent with the highest model probability. The baseline is trained for 100 epochs with Adam, learning rate 10 −4, zero weight decay, batch size 128, 100,000 instances per epoch, eight augmenta-tions, and step decays of 0.1 after epochs 80 and 95. HCVRP training samples 𝑁 = 60–100 and 𝑀 = 3–7, whereas OMDCPDP training samples 𝑁 = 50–100 and 𝑀 = 10–50; evaluation is greedy in both tasks. 
+
+## B.3 Dataset Details 
+
+HCVRP. The fixed HCVRP validation and test set contains nine splits with 𝑁 ∈ { 60 , 80 , 100 } and 𝑀 ∈ { 3, 5, 7}. The zero-shot and density-robustness settings are those reported in the main tables 
+
+Table 6: Training settings of the reported checkpoints.               
+
+> Setting HCVRP GeoPAR OMDCPDP GeoPAR Training epochs 100 100 Learning rate 10 −410 −4
+> Train data size / epoch 100,000 100,000 Batch size 128 128 Augmentations 10 8Validation monitor n60_m5 n100_m20
+
+Figure 6: Training dynamics of GeoPAR on 128 fixed zero-shot HCVRP instances with 𝑁 = 1000 and 𝑀 = 20 . Each checkpoint is evaluated using greedy decoding with a batch size of 1. The lines and shaded bands represent the means and 95% confidence intervals across instances. 
+
+and figures, and no additional training is performed for these larger instances. 
+
+OMDCPDP. The OMDCPDP checkpoint uses the shared training configuration in Table 6. The fixed validation and test set contains six splits, n50_m5, n50_m7, n50_m10, n100_m10, n100_m15, and n100_m20. n100_m20 is used for checkpoint selection. The large-scale comparisons use 128 instances per setting, batch size 1, and deterministic greedy decoding. 
+
+## C Additional Analyses C.1 Training-Stage Quality–Efficiency Trade-off 
+
+To distinguish the training dynamics from the final benchmark re-sults reported in the main paper, we evaluate PARCO and GeoPAR under the same HCVRP protocol. We save checkpoints every 10 epochs and evaluate each checkpoint on a fixed zero-shot test set of 128 instances with 𝑁 = 1000 and 𝑀 = 20. Figure 6 reveals a per-sistent difference in the solution construction processes learned by the two models. GeoPAR requires substantially fewer rollout steps at every checkpoint, indicating that its efficiency advantage arises from the construction mechanism rather than emerging only after convergence. After 10 epochs, GeoPAR already reduces the average rollout length from 407.5 to 175.9 steps, although its objective value remains 1.67% higher than that of PARCO. This result suggests that GeoPAR first learns a more compact decision process before fully refining solution quality. As training continues, the rollout advan-tage is preserved, while the objective gap is reversed. At epoch 100, GeoPAR achieves an objective value of 13.686, compared with 14.074 for PARCO, and requires only 125.6 rollout steps, compared 
+
+> 13 Wenjian Wu, Zesheng Jia, Jiaying Tang, Benyuan Yang, and Jin Wang
+
+Table 7: Test-time decoding ablation with standard greedy decoding or full conflict-aware assignment forced active at every step.                                    
+
+> HCVRP
+> Decode 1000/80 3000/240 5000/400 Obj. Steps Time Obj. Steps Time Obj. Steps Time Greedy 3.81 69.0 0.663 3.94 129.0 1.240 4.13 177.8 3.981 Full CA decode 3.94 42.0 0.432 4.10 77.8 1.212 4.29 99.8 3.639 OMDCPDP
+> Decode 1000/25 3000/75 4000/100 Obj. Steps Time Obj. Steps Time Obj. Steps Time Greedy 1457.2 44.2 0.061 3983.2 45.8 0.061 5205.9 46.2 0.064
+> Full CA decode 1452.9 42.0 0.109 3986.5 42.3 0.109 5212.0 42.6 0.111
+
+Table 8: HAM results on the large-scale zero-shot OMDCPDP settings in Table 1 of the main paper. Following the main-paper convention, the gap is computed relative to the best objective within each 𝑁 /𝑀 setting.                                     
+
+> N/M Obj. Gap Steps Time 1000/20 56814.07 3096.93% 940.5 1.11s 1000/25 44564.27 2958.16% 834.1 0.99s 2000/40 233050.98 6892.15% 1809.6 2.17s 2000/50 182886.95 6595.99% 1625.1 1.94s 3000/60 527148.73 10760.74% 2651.1 3.15s 3000/75 415019.38 10319.21% 2383.2 2.86s 4000/80 941895.73 14744.05% 3494.0 4.22s 4000/100 744548.64 14201.99% 3125.1 3.82s
+
+with 599.0. The simultaneous 2.76% improvement in objective value and 79.0% reduction in rollout length suggest that the geometric candidate mechanism and conflict-aware assignment progressively reduce redundant and conflicting decisions, enabling the policy to improve coordination quality without relying on increasingly long construction trajectories. 
+
+## C.2 Test-Time CF Decoding Ablation 
+
+Table 7 shows that forcing full conflict-aware assignment during decoding consistently shortens rollouts in both HCVRP and OMD-CPDP, but it does not necessarily improve objective values or run-time. Therefore, the benefit of conflict-aware assignment arises when it is integrated into a geometry-guided training and construc-tion process, rather than when it is applied as an unconditional post-hoc decoding rule. 
+
+## C.3 HAM Results on Large-Scale OMDCPDP Instances 
+
+Table 8 provides the previously unreported HAM results for the large-scale OMDCPDP settings included in Table 1 of the main text. Across the eight settings considered in the main comparison, the gap of HAM increases from 2958.16% at 𝑁 = 1000 and 𝑀 = 25 to 14744.05% at 𝑁 = 4000 and 𝑀 = 80. Over the same scale range, the number of rollout steps increases from 834.1 to 3494.0. The simulta-neous deterioration in solution quality and construction efficiency indicates that the sequential construction strategy of HAM does not generalize reliably to the large-scale scenarios considered in the main comparison.

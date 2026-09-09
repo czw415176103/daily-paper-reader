@@ -1,0 +1,227 @@
+Title: PPIM: Pennes Physics-Informed Mamba for Heat-Source-Conditioned 3D Bioheat Simulation
+
+URL Source: https://arxiv.org/pdf/2609.06869v1
+
+Published Time: Wed, 09 Sep 2026 01:38:38 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# PPIM: Pennes Physics-Informed Mamba for Heat-Source-Conditioned 3D Bioheat Simulation 
+
+Dongyun Lee 1, Kyungho Yoon 2, and Minwoo Shin 1⋆ 
+
+> 1
+
+Department of Software, Yonsei University (Mirae Campus), Wonju, 26493, Republic of Korea  
+
+> 2
+
+School of Mathematics and Computing, Yonsei University, Seoul, 03722, Republic of Korea 
+
+{leedy020923, mshin}@yonsei.ac.kr 
+
+Abstract. Three-dimensional bioheat simulation aims to predict tran-sient temperature distributions in biological tissue and is commonly modeled using the Pennes bioheat equation, which combines thermal diffusion, perfusion-mediated heat loss, and external heat generation. In this study, we consider a controlled 3D Pennes bioheat simulation under a localized heat-source condition inspired by microwave ablation (MWA). To evaluate neural approximation performance, we compare three neural partial differential equation (PDE) solvers under the same controlled simulation: a spatial Fourier-feature physics-informed neural network (PINN), a generic PINNMamba temporal subsequence model, and Pennes Physics-Informed Mamba (PPIM). PPIM builds on the tem-poral subsequence model by incorporating conditioned heat-source in-put and Pennes-aware state-space model (SSM) decay initialization. All three neural models are trained under the same conditions with the same Pennes residual, and an explicit finite-difference method (FDM) solution is used only as the numerical reference. In a representative 600 s run, PPIM achieved the lowest MAE, relative L1 error, and relative L2 er-ror among the evaluated neural solvers. Error maps further showed that the remaining PPIM errors were more concentrated near the heat-source region than across the rest of the domain. These results indicate that PPIM is effective for approximating the FDM reference final tempera-ture field in this controlled simulation. The source code is available at 
+
+https://github.com/muvYun/PPIM .
+
+Keywords: Pennes bioheat equation · Physics-informed neural network · Mamba · Finite-difference method · Microwave ablation 
+
+## 1 Introduction 
+
+Three-dimensional bioheat simulation is important for predicting transient tem-perature distributions in biological tissue, particularly in thermal therapy set-tings. A representative example is microwave ablation (MWA), a minimally in-vasive thermal therapy widely used for the local treatment of liver tumors, where  
+
+> ⋆
+
+Corresponding author. arXiv:2609.06869v1 [cs.LG] 6 Sep 2026 2 D. Lee et al. 
+
+antenna-induced energy deposition produces localized tissue heating [1,7,17]. In this work, MWA is used as an application-inspired heating scenario for evaluat-ing a computational component of thermal-therapy-oriented digital-twin model-ing [16,3], rather than as a full patient-specific treatment simulator. Tissue temperature dynamics are commonly modeled using the Pennes bio-heat equation, which accounts for thermal diffusion, perfusion-mediated heat loss, and external heat generation [13]. Pennes bioheat problems have tradition-ally been solved using numerical methods such as the finite-difference method (FDM) [12]. Here, we define a controlled 3D Pennes bioheat simulation problem with a localized heat-source condition inspired by MWA and evaluate neural partial differential equation (PDE) solvers against an explicit FDM reference. Recently, PINNs have been investigated as neural PDE solvers that learn from governing-equation residuals [15], and PINN-based approaches have also been applied to Pennes bioheat problems [20]. However, PINNs can exhibit fail-ure modes under certain PDE conditions, and a reduction in residual loss does not always guarantee an accurate approximation of the solution [10]. Motivated by sequence-based physics-informed learning, PINNMamba has explored a state-space model (SSM)-based temporal-subsequence framework for PDE approxima-tion [19]. Building on this sequence-based formulation, we propose Pennes Physics-Informed Mamba (PPIM), a temporal-subsequence-based neural PDE solver for the controlled 3D Pennes bioheat simulation. PPIM incorporates two problem-specific components, conditioned heat-source input and Pennes-aware SSM decay initialization, to reflect the localized forcing field and representative diffusion– perfusion time scales of the Pennes equation. The main contributions of this paper are as follows: 
+
+– We define a controlled 3D Pennes bioheat simulation problem under an MWA-inspired localized heat-source condition. 
+
+– We propose PPIM, a temporal-subsequence-based neural PDE solver with conditioned heat-source input and Pennes-aware SSM decay initialization. 
+
+– We evaluate PINN, PINNMamba, and PPIM under the same FDM-referenced simulation condition using scalar error metrics and spatial error maps. 
+
+– PPIM achieves the lowest errors across all evaluated metrics. 
+
+## 2 Background 
+
+This study does not aim to reproduce a full clinical MWA simulation. Instead, it evaluates neural PDE solvers in a controlled 3D Pennes bioheat simulation under an MWA-inspired localized heat-source condition. For this controlled simulation, the heat source is modeled as a fixed specific absorption rate (SAR)-like Gaussian surrogate rather than a true electromagnetic SAR distribution. This simulation does not include full electromagnetic SAR modeling, temperature-dependent SAR redistribution, or large-vessel cooling [2,5,8]. PPIM for Heat-Source-Conditioned 3D Bioheat Simulation 3
+
+2.1 Pennes Bioheat Simulation 
+
+We use the temperature elevation from the baseline body temperature, u(x, t ) = 
+
+T (x, t ) − Tb, as the predicted variable and solve the heat-capacity-normalized Pennes bioheat equation [13]: 
+
+ut − α∇2u + βeff u − q = 0 . (1) Here, x = ( x, y, z ) denotes the spatial coordinate, t denotes time, T (x, t ) is the tissue temperature, and Tb is the baseline body temperature. The term ut denotes the temporal derivative of u, and ∇2u = uxx + uyy + uzz is the three-dimensional Laplacian. The coefficient C is the volumetric heat capacity, k is the thermal conduc-tivity, and B is the nominal perfusion-related heat-loss coefficient. Accordingly, 
+
+α = k/C is the thermal diffusivity, β = B/C is the nominal heat-capacity-normalized perfusion coefficient, and βeff is the effective perfusion coefficient in-cluding temperature-dependent perfusion attenuation. Qext denotes the external heat generation term, and q = Qext /C is the heat-capacity-normalized external forcing. In this formulation, q represents the localized external heat source and does not include metabolic heat. The same forcing field q is used in the FDM computation and in the Pennes residual of all neural solvers. The resulting explicit FDM solution provides the numerical reference for evaluation [12]. 
+
+2.2 State-Space Sequence Modeling 
+
+An SSM represents temporal sequence information through the recurrent update of a latent state. In a Mamba-style SSM, the latent state for the ℓ-th token in a temporal subsequence is updated using a state transition controlled by the decay matrix A:
+
+hℓ = exp( ∆ℓA)hℓ−1 + bℓ. (2) Here, hℓ denotes the latent state at the ℓ-th token, and hℓ−1 is the previous latent state. The index ℓ denotes the token position within a temporal subse-quence, ∆ℓ is an input-dependent step size, and A controls the state decay or memory time scale through the transition factor exp( ∆ℓA). The term bℓ de-notes the input-dependent additive update term that injects information from the current token into the latent state. It is distinct from the Pennes perfusion coefficient B. Mamba introduces an input-dependent selective mechanism into this SSM structure, allowing temporal information to be selectively propagated or suppressed [6]. This SSM-based temporal sequence modeling is used by the sequence-based neural solvers considered in this study, including PINNMamba and PPIM [19]. The model-specific architectures are described in the Method section. 4 D. Lee et al. Conditioned Heat-source       
+
+> 𝑞 𝑠 𝑞 𝑠+1 …𝑞 𝑠+𝐿−1 𝑞 𝑠+2
+> concatenate
+> 𝑢 𝑠 𝑢 𝑠+1 …𝑢 𝑠+𝐿−1 𝑢 𝑠+2
+> …
+> Subsequence
+> PPIM Temporal Encoder
+> Spatio-Temporal Embedding
+> Multi Layer Perceptron
+> Subsequence Prediction
+
+PPIM architecture  Pennes-aware SSM PPIM Temporal Encoder         
+
+> SiLU SiLU
+> Conv
+> Pennes-aware SSM
+> 𝑁 layer ×
+> Initialize SSM decay
+> 𝐀 = − exp( 𝐀 log ) , 𝐀 log ← log 𝜆 𝑗
+> State update
+> 𝐡 ℓ= exp Δℓ𝐀 𝐡 ℓ–𝟏 + 𝐛 ℓ
+> Token
+> Linear Projection
+> Multiplication
+> Activation
+> 𝑠 + 1 𝑠 + 2 𝑠 𝑠 + 𝐿 − 1
+
+Fig. 1. Overview of PPIM. Normalized spatio-temporal coordinates and qnorm are con-catenated to form temporal tokens, which are processed by the PPIM temporal encoder and mapped to temperature-elevation predictions. 
+
+## 3 Method 
+
+We propose PPIM, a neural PDE solver for three-dimensional Pennes bioheat simulations. PPIM follows the temporal subsequence and SSM-based sequence modeling of PINNMamba [19], while adding two problem-specific components: conditioned heat-source input and Pennes-aware SSM decay initialization. The overall architecture is shown in Fig. 1. 
+
+3.1 Conditioned Heat-Source Input 
+
+The localized forcing q(x, t ) is prescribed by the simulation definition and cor-responds to the heat-capacity-normalized external heat source in the Pennes residual. PPIM reuses this prescribed forcing field as an explicit input condition in addition to its role in residual evaluation. The normalized heat-source input is defined as 
+
+qnorm (x, t ) = q(x, t )
+
+qpeak + ϵ . (3) Here, qnorm (x, t ) is the dimensionless normalized heat-source feature, qpeak is the peak value of the Gaussian heat source, and ϵ is a small positive constant (e.g., ϵ = 10 −12 ) used for numerical stability. At each subsequence time step, 
+
+qnorm (x, t ) is concatenated with the normalized spatio-temporal coordinate fea-ture (¯ x, ¯y, ¯z, ¯t) to form the input token. This allows PPIM to condition its pre-diction on the location and relative intensity of the localized heat source. Since 
+
+qnorm is derived from the prescribed source rather than from the FDM solution, it does not introduce additional target labels or supervised data. 
+
+3.2 Pennes-aware SSM Decay Initialization 
+
+In an SSM, the state decay controls the memory time scale of the temporal rep-resentation through the transition term exp( ∆ℓA)hℓ−1. Here, ∆ℓ is the input-PPIM for Heat-Source-Conditioned 3D Bioheat Simulation 5
+
+dependent step size for the ℓ-th token, A is the SSM decay matrix, and hℓ−1 is the previous latent state. Instead of using a generic decay initialization, PPIM ini-tializes the SSM state decay using representative diffusion–perfusion time scales implied by the Pennes bioheat equation. Let μj denote a representative Laplacian spectral scale for the j-th decay component. The index j enumerates the initialized SSM decay scales. To reflect the range of perfusion attenuation, PPIM uses two decay families: 
+
+λoff  
+
+> j
+
+= αμ j , λon  
+
+> j
+
+= αμ j + β, Alog ← log( λj ). (4) Here, α is the thermal diffusivity and β is the nominal perfusion coefficient de-fined in the Pennes formulation. The term λoff  
+
+> j
+
+represents a diffusion-dominant decay rate, while λon  
+
+> j
+
+represents diffusion with perfusion-mediated decay. The symbol λj denotes an initialized decay rate selected from these two decay fami-lies. Through the Mamba parameterization A = − exp( Alog ) [6], this initializa-tion determines the initial decay matrix A used in the SSM state transition. The parameter Alog denotes the trainable logarithmic decay parameter of the SSM. The initialized decay parameters remain trainable during optimization, and the proposed initialization is used only as a physics-informed prior rather than as an exact spectral solver for the full temperature-dependent Pennes problem. 
+
+## 4 Experiments 
+
+4.1 Simulation Setup 
+
+We compare three neural solvers under the same controlled 3D Pennes bioheat simulation condition: a spatial Fourier-feature PINN [18], a generic PINNMamba temporal subsequence model, and PPIM. All neural models use the same Pennes equation, MWA-inspired Gaussian heat-source distribution, material properties, initial condition, boundary condition, and Pennes residual. The FDM solution is used only as the numerical reference and not as supervised training data [12]. Evaluation is performed on the final temperature field at t = 600 s using mean absolute error (MAE), relative L1 error, and relative L2 error against the FDM reference. In addition to scalar metrics, we visualize the final heat distribution, signed error, absolute error, relative L1 contribution, and relative 
+
+L2 contribution maps to analyze the spatial distribution of approximation errors. 
+
+4.2 Heat-Source and Material Settings 
+
+The heat-source condition is defined as a localized SAR-like Gaussian surrogate around a 15 mm active segment, instead of an antenna-specific SAR field com-puted from a full electromagnetic simulation. This choice is intentional: prior computational MWA studies indicate that SAR-based modeling typically re-quires electromagnetic field simulation and may involve temperature-dependent 6 D. Lee et al.                     
+
+> Table 1. Comparison of neural solvers against the FDM reference at t= 600 s .Model MAE (◦C) Rel. L1Error Rel. L2Error PINN 0.1999 0.2452 0.1135 PINNMamba 0.1067 0.1309 0.0719
+> PPIM 0.0692 0.0849 0.0465
+
+dielectric or tissue-property modeling, which would introduce additional mod-eling factors beyond the neural PDE solver comparison considered here [2,5,8]. Using a fixed Gaussian surrogate keeps the external forcing field q prescribed and identical for the FDM reference and neural PDE solvers. The source protocol is inspired by a live porcine liver MWA study that re-ported a 65 W , 600 s protocol with a 15 mm active radiating segment [7]. The generator power is mapped to the Gaussian surrogate using a fixed effective source-power factor of 0.64 , giving 41 .6 W . This factor is used as a surrogate source-power calibration rather than as a direct measurement of tissue absorp-tion. It was chosen to be close to the reported delivered-power estimate and to remain consistent with the applied/effective tissue-power interpretation used in MWA power modeling [4,7]. The liver thermal parameters are fixed as C = 3.685 J /(cm 3 ◦C) , k =0.0055 W /(cm ◦C) , and B = 0 .05 W /(cm 3 ◦C) , following Pennes-based hepatic thermal modeling settings [13,14]. These values define α = k/C and β = B/C 
+
+in the heat-capacity-normalized Pennes equation. The same source and material settings are used for the FDM reference and all neural solvers. 
+
+4.3 Training Details 
+
+All neural models are trained using the same physics-informed training loop. A hard constraint transform is used to satisfy u = 0 at t = 0 and u = 0 on the domain boundary [11]. Therefore, no additional soft initial or boundary condition losses are used. The physics loss is computed from the same discrete Pennes residual, and all neural models are trained for 3000 iterations using Adam [9] with the same learning rate. Source-aware sampling is applied to avoid undersampling the localized Gaussian heat-source region. The PINN is a non-sequential model and is therefore trained without se-quence consistency loss. In contrast, PINNMamba and PPIM use temporal sub-sequences of length L = 7 and include the subsequence consistency loss. PPIM uses the same temporal subsequence training loop as PINNMamba, with the 
+
+qnorm input and Pennes-aware SSM decay initialization described in the Method section. 
+
+4.4 Results 
+
+Table 1 shows that PINN has the highest errors, PINNMamba produces inter-mediate errors, and PPIM achieves the lowest errors across MAE, relative L1,PPIM for Heat-Source-Conditioned 3D Bioheat Simulation 7        
+
+> Fig. 2. Final heat distributions at t= 600 s . The field represents temperature elevation
+> u=T−37 ◦C.
+
+and relative L2. Fig. 2 shows that all neural solvers form a localized heating pattern around the antenna-like source, while PPIM more closely follows the FDM reference temperature field and surrounding decay. The signed and absolute error maps in Fig. 3 show that PINN errors are broadly distributed around the source and transition regions. PINNMamba re-duces this spatial spread, and PPIM produces the most spatially confined error pattern among the neural solvers. Fig. 4 shows the spatial contributions to the relative L1 and L2 metrics. The contribution maps follow the same ordering as the scalar errors: PINN shows the largest source-adjacent contribution, PINNMamba reduces it, and PPIM gives the lowest and most localized contribution. Together, the scalar metrics and spatial analyses indicate that PPIM provides the closest neural approximation to the FDM reference among the evaluated neural PDE solvers. 8 D. Lee et al.                   
+
+> (a) Signed error maps (b) Absolute error maps
+> Fig. 3. Signed and absolute error maps at t= 600 s . Panel (a) shows uθ−uFDM , and panel (b) shows |uθ−uFDM |.
+> (a) Relative L1contribution (b) Relative L2contribution
+> Fig. 4. Relative error contribution maps at t= 600 s . Panel (a) shows the pointwise normalized absolute-error contribution, and panel (b) shows the pointwise normalized squared-error contribution.
+
+## 5 Conclusion 
+
+In this study, we proposed PPIM, a temporal-subsequence-based neural PDE solver for a controlled 3D Pennes bioheat simulation under an MWA-inspired localized heat-source condition. PPIM follows the subsequence and SSM-based sequence modeling of PINNMamba [19], while incorporating conditioned heat-source input and Pennes-aware SSM decay initialization. We evaluated PINN, PINNMamba, and PPIM under the same controlled 3D Pennes bioheat simulation condition, using the FDM solution as the nu-merical reference. In the representative 600 s run, PPIM achieved the lowest MAE, relative L1, and relative L2 errors among the evaluated neural solvers. The heat distribution and error maps also showed that PPIM had the closest spatial agreement with the reference. PPIM for Heat-Source-Conditioned 3D Bioheat Simulation 9
+
+These results indicate that PPIM is effective for approximating the reference final temperature field in a controlled 3D Pennes bioheat simulation. 
+
+Acknowledgments. This work was supported by the Korea Medical Device Develop-ment Foundation grant funded by the Korean government (the Ministry of Science and ICT, the Ministry of Trade, Industry and Energy, the Ministry of Health and Welfare, and the Ministry of Food and Drug Safety) (Grant No. RS-2026-25543484). This research was also supported by the ANCHOR Program through the Gangwon ANCHOR Center, funded by the Ministry of Education (MOE) and Gangwon State (G.S.), Republic of Korea (Grant No. 2026-ANCHOR-10-006). This research was further supported by the Ministry of Science and ICT (MSIT), Korea, under the National Program in Medical AI Semiconductor (Grant No. 2024-0-00096), supervised by the Institute of Information & Communications Technology Planning & Evaluation (IITP) in 2026. 
+
+Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article. 
+
+## References 
+
+1. Brace, C.L.: Microwave Tissue Ablation: Biophysics, Technology, and Applications. Critical Reviews in Biomedical Engineering 38 (1), 65–78 (2010). https://doi.or g/10.1615/CritRevBiomedEng.v38.i1.60 
+
+2. Chiang, J., Wang, P., Brace, C.L.: Computational Modelling of Microwave Tumour Ablations. International Journal of Hyperthermia 29 (4), 308–317 (2013). https: //doi.org/10.3109/02656736.2013.799295 
+
+3. Cho, S., Seo, M., Shin, M., Yoon, K.: Towards Digital Twin of RF Ablation: Real-Time Prediction of Time-Dependent Thermal Effects Using Transformer. In: Li, L., Jirsa, V., Feng, J., Deng, J., Dede’, L., An, S., Lyu, Y., Liu, X. (eds.) Digital Twin for Healthcare. Lecture Notes in Computer Science, vol. 16193, pp. 69–78. Springer Nature Switzerland, Cham (2026). https://doi.org/10.1007/978-3-0 32-07694-6_7 
+
+4. Dong, T., Nan, Q., Tian, Z., Nie, X., Cheng, Y.: Study of Applied Tissue Power in Microwave Ablation. In: Proceedings of the International Conference on Com-putational Methods (2017), https://www.sci-en-tech.com/ICCM2017/PDFs/22 50-9628-1-PB.pdf , ICCM 2017 5. Gorman, J., Tan, W., Abraham, J.: Numerical Simulation of Microwave Ablation in the Human Liver. Processes 10 (2), 361 (2022). https://doi.org/10.3390/pr 10020361 
+
+6. Gu, A., Dao, T.: Mamba: Linear-Time Sequence Modeling with Selective State Spaces (2023). https://doi.org/10.48550/arXiv.2312.00752 
+
+7. Hui, T.C.H., Brace, C.L., Hinshaw, J.L., Quek, L.H.H., Huang, I.K.H., Kwan, J., Lim, G.H.T., Lee, Jr, F.T., Pua, U.: Microwave ablation of the liver in a live porcine model: the impact of power, time and total energy on ablation zone size and shape. International Journal of Hyperthermia 37 (1), 668–676 (2020). https: //doi.org/10.1080/02656736.2020.1774083 
+
+8. Ji, Z., Brace, C.L.: Expanded Modeling of Temperature-Dependent Dielectric Prop-erties for Microwave Thermal Ablation. Physics in Medicine and Biology 56 (16), 5249–5264 (2011). https://doi.org/10.1088/0031-9155/56/16/011 10 D. Lee et al. 9. Kingma, D.P., Ba, J.: Adam: A Method for Stochastic Optimization (2014). https: //doi.org/10.48550/arXiv.1412.6980 
+
+10. Krishnapriyan, A.S., Gholami, A., Zhe, S., Kirby, R.M., Mahoney, M.W.: Char-acterizing Possible Failure Modes in Physics-Informed Neural Networks. In: Ad-vances in Neural Information Processing Systems. vol. 34, pp. 26548–26560 (2021), 
+
+https://proceedings.neurips.cc/paper/2021/hash/df438e5206f31600e6ae4 af72f2725f1-Abstract.html 
+
+11. Lagaris, I.E., Likas, A., Fotiadis, D.I.: Artificial Neural Networks for Solving Or-dinary and Partial Differential Equations. IEEE Transactions on Neural Networks 
+
+9(5), 987–1000 (1998). https://doi.org/10.1109/72.712178 
+
+12. LeVeque, R.J.: Finite Difference Methods for Ordinary and Partial Differential Equations: Steady-State and Time-Dependent Problems. Society for Industrial and Applied Mathematics, Philadelphia, PA (2007). https://doi.org/10.1137/1.97 80898717839 
+
+13. Pennes, H.H.: Analysis of Tissue and Arterial Blood Temperatures in the Resting Human Forearm. Journal of Applied Physiology 1(2), 93–122 (1948). https://do i.org/10.1152/jappl.1948.1.2.93 
+
+14. Prakash, P.: Theoretical Modeling for Hepatic Microwave Ablation. The Open Biomedical Engineering Journal 4, 27–38 (2010). https://doi.org/10.2174/18 74120701004010027 
+
+15. Raissi, M., Perdikaris, P., Karniadakis, G.E.: Physics-Informed Neural Networks: A Deep Learning Framework for Solving Forward and Inverse Problems Involving Nonlinear Partial Differential Equations. Journal of Computational Physics 378 ,686–707 (2019). https://doi.org/10.1016/j.jcp.2018.10.045 
+
+16. Shin, M., Seo, M., Cho, S., Park, J., Kwon, J.H., Lee, D., Yoon, K.: PhysRFANet: Physics-Guided Neural Network for Real-Time Prediction of Thermal Effect during Radiofrequency Ablation Treatment. Engineering Applications of Artificial Intelli-gence 138 , 109349 (2024). https://doi.org/10.1016/j.engappai.2024.109349 
+
+17. Simon, C.J., Dupuy, D.E., Mayo-Smith, W.W.: Microwave Ablation: Principles and Applications. RadioGraphics 25 (suppl 1), S69–S83 (2005). https://doi.or g/10.1148/rg.25si055501 
+
+18. Tancik, M., Srinivasan, P.P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Sing-hal, U., Ramamoorthi, R., Barron, J.T., Ng, R.: Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains. In: Advances in Neural Information Processing Systems. vol. 33, pp. 7537–7547. Curran Associates, Inc. (2020), https://proceedings.neurips.cc/paper/2020/hash/55053683268 957697aa39fba6f231c68-Abstract.html 
+
+19. Xu, C., Liu, D., Hu, Y., Li, J., Qin, R., Zheng, Q., Xiong, J.: Sub-Sequential Physics-Informed Learning with State Space Model. In: Singh, A., Fazel, M., Hsu, D., Lacoste-Julien, S., Berkenkamp, F., Maharaj, T., Wagstaff, K., Zhu, J. (eds.) Proceedings of the 42nd International Conference on Machine Learning. Proceed-ings of Machine Learning Research, vol. 267, pp. 69507–69525. PMLR (Jul 2025), 
+
+https://proceedings.mlr.press/v267/xu25t.html , 13–19 Jul 2025 20. Yeşilyurt, M.K.: Mesh-Free Modeling of Heat Transfer Dynamics for Rapid Assess-ment of Necrosis Zones in Hepatic Tumor Radiofrequency Ablation Using Physics-Informed Neural Networks. Acadlore Transactions on AI and Machine Learning 
+
+5(1), 73–88 (2026). https://doi.org/10.56578/ataiml050107

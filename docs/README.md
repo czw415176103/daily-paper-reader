@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-08</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-09</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 29 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 30 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>16</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-08 23:14:14 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-09 22:01:21 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,7 +69,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读16篇、速读13篇，共梳理29篇论文，焦点集中在物理信息深度学习与符号回归结合的前沿方向。最值得关注的是两篇满分工作：一篇提出PINN引导结构搜索的解耦符号恢复框架DeSyR，另一篇为轨道不确定性传播提供带误差界的物理信息学习方法。建议普通读者优先看轨道不确定性研究，其误差界设计对实际工程中的可信度验证尤有启发。</p>
+<p>今日精读17篇、速读13篇，聚焦AI与科学计算交叉领域；两篇满分论文分别批判性评估物理信息神经网络求解弹性波方程，并提出去伪影的PCA-Net算子学习新框架。速读中的智能体技能进化与动态流重建也值得一览，建议优先从两篇10分论文入手。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -78,12 +78,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">16 篇</strong>
+    <strong class="dpr-home-dashboard-count">17 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="DeSyR: A Decoupled Symbolic Recovery Framework with PINN-Guided Structure Search and Physics-Informed Coefficient Refinement">DeSyR: A Decoupled Symbolic Recovery Framework with PINN-Guided Structure Search and Physics-Informed Coefficient Refinement</span></li><li><span class="dpr-home-dashboard-paper-title" title="Physics-informed Learning for Orbital Uncertainty Propagation with Error Bounds">Physics-informed Learning for Orbital Uncertainty Propagation with Error Bounds</span></li><li><span class="dpr-home-dashboard-paper-title" title="SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery">SMILE: Bridging Continuous Optimization and Discrete Symbolic Recovery</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Solving the Elastic Wave Equation with Physics-Informed Neural Networks: A Robust and Critical Assessment">Solving the Elastic Wave Equation with Physics-Informed Neural Networks: A Robust and Critical Assessment</span></li><li><span class="dpr-home-dashboard-paper-title" title="Two-Scale Localized PCA-Net: Coarse-Global and Local-Residual Representations for Artifact-Reduced PDE Operator Learning">Two-Scale Localized PCA-Net: Coarse-Global and Local-Residual Representations for Artifact-Reduced PDE Operator Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="SkillAdam: Stable and Efficient Skill Evolution for Agents">SkillAdam: Stable and Efficient Skill Evolution for Agents</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>5</strong></span><span class="dpr-home-dashboard-tag">sr <strong>5</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>9</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -94,9 +94,9 @@
     <strong class="dpr-home-dashboard-count">13 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="When Not to Imitate: Boundary-Aware Skill Memory for Reliable Tool-Use LLM Agents">When Not to Imitate: Boundary-Aware Skill Memory for Reliable Tool-Use LLM Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning Generalizable Behaviors for Terminal Agents">Learning Generalizable Behaviors for Terminal Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="From Numerical Simulators of PDEs to Neural Emulators and Back">From Numerical Simulators of PDEs to Neural Emulators and Back</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="EvoSkill Injection: Red-Teaming Autonomous Skill Generation and Evolution in Self-Evolving Agents">EvoSkill Injection: Red-Teaming Autonomous Skill Generation and Evolution in Self-Evolving Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning dynamically consistent flow reconstructions from limited observations">Learning dynamically consistent flow reconstructions from limited observations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Geometry-aware Latent Autoregressive Generative Model for PDEs in Complex Domains">Geometry-aware Latent Autoregressive Generative Model for PDEs in Complex Domains</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>1</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>7</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span></div>
 </section>
 </div>
 

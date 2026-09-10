@@ -1,0 +1,504 @@
+Title: Persistent Teacher Anchoring for Tool-Using Agents
+
+URL Source: https://arxiv.org/pdf/2609.04773v1
+
+Published Time: Mon, 07 Sep 2026 00:42:06 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Persistent Teacher Anchoring for Tool-Using Agents 
+
+Hyun Bin Park 1, Kyungho Song 2, Sangmin Lee 1, Du-Seong Chang 1
+
+> 1
+
+Sogang University, 2University of Michigan, Ann Arbor   
+
+> tjrtkroal@sogang.ac.kr ,songkh@umich.edu hectorkorea@gmail.com ,duseong.chang@gmail.com
+
+Abstract 
+
+Distillation is common in LLM post-training, where on-policy knowledge distillation (OPKD) uses student-generated trajectories to prepare the student for downstream RL. At each state, the student matches a next-token distribution supplied by the teacher. As the rollout enters states the teacher would not visit, the teacher-student distribution gap can accumulate. In tool use, this gap becomes consequential because student-written calls execute before supervision and their observa-tions shape later prefixes. Proposer-verifier generation addresses this drift by letting the teacher decide which student-proposed text is retained during generation. Existing formu-lations govern text but leave tool execution outside their scope. We propose Persistent Teacher Anchoring (PTA), a student-induced but teacher-committed rollout construction. PTA retains chunk-level verification and adds turn-level commitment, allowing acall to reach the environment only after the teacher has verified the entire turn. Treating verified chunks as atomic generation units, we introduce persistent lookahead, which fills idle rollout capacity by advancing future samples and carrying unfinished ones across student updates under the fixed verifier. Across Search-R1-style retrieval and DeepEyes-style perception RL, applying PTA before down-stream RL improves macro best@4 by 2.5 and 2.8 points over OPKD under the same downstream RL budget, while lookahead improves throughput by 24%. 
+
+1 Introduction 
+
+Large language models increasingly act as tool-using agents, interleaving multi-step reasoning with calls to external tools. Each call acts on the environment and returns an observation, whether retrieved evidence in search or a zoomed image region in visual perception. That observation joins the prefix, and the model generates everything that follows on top of it. Distillation, and on-policy dis-tillation in particular, is often used to shape the ini-tial policy before downstream RL (Agarwal et al., 2024; Bai et al., 2025). On-policy distillation shapes that initial policy on trajectories the student generates itself, so the teacher-student distribution gap can accumulate over a long rollout. In a tool runtime the cost is higher: a deviating call has already executed by the time the teacher signal arrives. Proposer-verifier methods address this accumulation by mov-ing the teacher’s decision into generation itself. The weaker model proposes each span, and the stronger model decides what is kept in a single stream of text. These methods are defined for text generation, without a rule for when a generated call may execute. A tool-use rollout does not stay inside that stream. A tool call reads as ordinary text, but its effect lands in the environment, and the observation that returns was produced by nei-ther model. When a proposed call may act on the environment, and how the returned observations are to be treated, are left unspecified across this proposer-verifier line (Section 2). We propose Persistent Teacher Anchoring (PTA) , a pre-RL distillation stage that extends the reach of this decision to the tool calls themselves. The student still proposes every chunk, but a chunk stays only after teacher verification. A turn enters the trajectory and triggers tool execution only once it is finalized as a committed turn. Nothing unveri-fied acts on the environment. Distillation is applied at the committed assistant positions, with observa-tions kept as context rather than imitation targets. Together, these choices give downstream RL an initial policy trained on prefixes that no unverified tool call has shaped. Long-horizon tool-use rollouts create a struc-tural utilization problem in synchronous training. Samples finish at different times, leaving released slots idle until the slowest rollout completes. We observe that the teacher verifier remains fixed even arXiv:2609.04773v1 [cs.LG] 4 Sep 2026 Method Proposal unit Rejection trigger Stage Decision reaches Speculative decoding (Leviathan et al., 2023) chunk probability ratio (lossless) decoding text BiLD (Kim et al., 2023) token confidence or disagreement decoding text RSD (Liao et al., 2025) reasoning step step reward below threshold decoding text SWITCH (Koo et al., 2025) token teacher-student divergence training text SKD (Xu et al., 2025) chunk outside teacher top-K training text SCoRe (Lyu et al., 2026) full trajectory teacher-identified error training text     
+
+> PTA (ours) chunk outside teacher top-Ktraining text + tool execution
+> Table 1: Proposer-verifier generation methods. A weaker model proposes and a stronger model decides what is kept. The text-only formulations define no execution event, which is what PTA supplies (Section 3.2).
+
+as the student changes at every update. This sug-gests that rollout work can continue across updates while remaining teacher-anchored. We therefore make the atomic states produced by teacher anchor-ing persistent across student updates. Each rollout pauses only after a verified chunk or after the en-vironment has executed a committed tool call and returned its observation. The carried state remains teacher-verified across the student update, and ev-ery new chunk from the updated student passes through the same verifier. With that verifier govern-ing both sides of the update, persistent lookahead fills idle slots with future samples and carries un-finished ones into the next update. It changes the schedule, while PTA’s verification, commitment, and tool execution remain unchanged. Our contributions are as follows: • We propose teacher anchoring , a student-induced but teacher-committed rollout con-struction: the teacher decides both what enters the trajectory and which tool calls reach the environment. • We make teacher anchoring persistent 
+
+across student updates: its atomic state bound-aries and fixed verifier allow lookahead to fill idle slots and carry unfinished rollout work into the next update, improving scheduler throughput by 24%. • We validate PTA on tool-using agents : under the same downstream RL budget, it improves macro best@4 over OPKD by 2.5 points in retrieval-mediated reasoning and 2.8 points in perception-mediated reasoning. The advan-tage is already present at the pre-RL check-point and does not survive an ablation that suppresses teacher corrections inside tool-call spans. 
+
+2 Related Work 
+
+2.1 On-Policy Knowledge Distillation 
+
+In on-policy distillation the teacher enters only af-ter the fact. The student generates the trajectory, teacher feedback is computed over it (Agarwal et al., 2024), and this setup is now standard in post-training pipelines (Qwen Team, 2025; GLM-5 Team, 2026). This on-policy form descends from knowledge distillation (Hinton et al., 2015) and avoids the mismatch of off-policy variants, which train the student on teacher-generated sequences it may never produce itself. The teacher’s contribu-tion is a distribution. It assigns token-level probabil-ities over the student’s completed sequence, which the student is trained to match, typically under a KL objective. No teacher decision enters the gener-ation itself. 
+
+2.2 Proposer-Verifier Generation 
+
+Proposer-verifier generation places the stronger model’s decision inside generation. The pattern began at the decoding stage, where the interaction ends when the verified text is emitted. In specu-lative decoding, a small model drafts a chunk of tokens and the large model verifies them, fixing which tokens are emitted while its own distribution is exactly preserved (Leviathan et al., 2023). BiLD relaxes this exactness into a judgment of whether the draft is acceptable, with the large model step-ping in when the small model is unconfident or the two disagree (Kim et al., 2023). RSD widens the unit to a whole reasoning step, where a process reward model scores each proposed step and the strong model takes over a step whose score falls short (Liao et al., 2025). The pattern later entered the training stage, where the verified or corrected sequence is used to update the student. SWITCH lets the teacher intervene at positions where the two models’ token probabilities diverge (Koo et al., 2025). SKD ver-ifies each student-proposed chunk and resamples what it rejects, distilling the student on the resulting sequences (Xu et al., 2025). SCoRe brings the pat-tern to agent trajectories, where the teacher corrects the earliest error in a completed student rollout and the student trains on the corrected trajectory (Lyu (a) Text prefix, no commitment rule (b) PTA, commitment gates execution                                                             
+
+> 1Propose Let me
+> 2Verify Let me
+> 3Propose Let me <search> Japan econ </search>
+> Tool / Environment
+> 4Tool / Env. Let me <search> Japan econ </search> Econ of
+> Danger!
+> 1Propose Let me
+> 2Verify Let me
+> 3Propose Let me <search> Japan econ </search>
+> 4Verify Let me <search> Japan GDP </search>
+> Commit
+> 5Committed Turn Let me <search> Japan GDP </search>
+> Tool / Environment
+> 6Tool / Env. Let me <search> Japan GDP </search> GDP of
+> Unverified token Verified token Needs correction Observation Teacher replacement Verify Span
+
+Figure 1: Overview of the PTA rollout. (a) SKD applied directly to a tool runtime, without a separate commitment rule: unverified tool calls reach the environment, and returned observations fall inside the verification span. (b) PTA separates chunk-level verification from turn-level commitment, so that tool execution is triggered only after a committed turn. 
+
+et al., 2026). Stage and proposal unit are separate choices in this family. Speculative decoding and SKD apply chunk-level proposal and verification at the decoding and training stages, respectively. Table 1 shows that prior decisions reach only text. PTA extends that reach to tool execution. Chunk verification governs what enters the pending assis-tant turn, and turn commitment governs which tool calls reach the environment. These boundaries also take on a second role. A verified chunk or a completed environment transi-tion marks a point at which the training rollout may pause and resume. Because the verifier remains fixed, states admitted at these boundaries retain their standing across student updates and form the basis of persistent lookahead (Section 3.4). 
+
+2.3 Tool-Use Distillation from Constructed Trajectories 
+
+Another line trains the student on constructed trajectories that the student itself did not gener-ate. ToolACE automatically generates and verifies function-calling data (Liu et al., 2025). Magnet synthesizes multi-turn trajectories via graph trans-lation (Yin et al., 2025). Ibrahim et al. (2025) ex-tract hints from agent failures, generate improved trajectories with retrieval-augmented teachers, and fine-tune students on those trajectories with the hints removed. Supervised fine-tuning on teacher-generated tool-use trajectories is likewise a com-mon initialization before agentic RL. These ap-proaches fix the trajectory before training and take its tokens as the hard target. PTA, in contrast, re-mains on-policy. The student proposes every assis-tant span of the rollout it trains on, and the teacher accepts or corrects the proposals rather than writ-ing the trajectory. What the student matches is the teacher’s token-level distribution at committed positions, not a sequence of tokens to reproduce. 
+
+2.4 Tool-Use RL 
+
+Tool-use RL trains the agent on task reward alone. Search-R1 learns to issue search queries and use the retrieved evidence (Jin et al., 2025), and DeepEyes induces active perception in multimodal contexts (Zheng et al., 2026), both by direct RL on the base model. Reward optimization explores on top of the initial policy and inherits the tool-use behavior already encoded in it. PTA is built for this stage rather than for distillation alone. It supplies the initial policy, and we judge it by what a fixed down-stream RL budget reaches from that start, in these two environments (Section 4). 
+
+3 Method 
+
+This section defines Persistent Teacher Anchor-ing (PTA) as a student-induced but teacher-committed rollout construction for tool-using agents. We first derive what chunk-based proposer-verifier generation needs when its text can trigger a tool. We then define the rollout state, commitment rule, and distillation objective. The final subsection shows how the resulting atomic states persist across student updates and support lookahead scheduling. 
+
+3.1 From Proposer-Verifier Generation to Tool-Use Rollouts 
+
+Table 1 separates proposer-verifier methods by stage. The family began in decoding, where the interaction ends when the verified text is emitted. It later entered training, where the verified or cor-rected sequence is used to update the student. PTA builds on the chunk-level proposal and ver-ification used at both stages. A chunk enters the prefix only after verification. At the first rejection, the verifier replaces the rejected token, discards the remaining suffix generated from the old prefix, and resumes generation from the corrected prefix. The verified chunk becomes the atomic generation unit used throughout PTA. In a tool-use rollout, how-ever, the generated sequence can trigger a tool call and receive an observation from the environment. A tool-use rollout adds two elements outside the verified text stream. 1. Calls that act on the environment. A tool call is written as ordinary assistant text, but its effect leaves the text stream. Once the call is complete, the tool runtime may exe-cute it and the environment returns an obser-vation. Applying the text-stream procedure directly to such a call creates two distinct fail-ure modes. (i) Execution before verification. 
+
+If the runtime executes a call as soon as it is syntactically complete, the call can reach the environment before the teacher has finished verifying the turn that contains it (Figure 1 (a)). (ii) Correction after execution. The re-turned observation is conditioned on the call exactly as it was executed. Once the call has executed, revising any token in that call or in the prefix that precedes it would leave the re-vised sequence inconsistent with the returned observation. Verification must therefore finish before the call is allowed to execute. 2. Observations written back by the environ-ment. After execution, the environment re-turns an observation, which the tool runtime inserts into the same sequence used for sub-sequent generation. Because neither model produced these tokens, their presence in the verified sequence creates two further gaps. (iii) Ungoverned spans. The inherited veri-fication rule can keep a student proposal or replace it with teacher content. An observa-tion fits neither branch. (iv) Undefined targets. 
+
+A distillation objective over the resulting se-quence also needs a rule for whether obser-vation tokens are imitation targets. Treating every token alike would train the student to re-produce content supplied by the environment. Calls therefore need a second decision beyond what text is kept. PTA retains chunk-level veri-fication and adds turn-level commitment. Each verified chunk is appended to a pending assistant turn, which remains outside the committed trajec-tory. When the turn reaches an assistant EOS or a tool-call closing tag, PTA finalizes it and appends the whole turn to the trajectory as a committed as-sistant turn. Only after commitment does the tool runtime parse the turn and, if it is a valid tool call, execute it. Turn-level commitment thus decides when verified text may act on the environment (Fig-ure 1 (b)). Observations need a source rule instead. PTA distinguishes prompt spans, committed assistant turns, and environment observations. All three remain in the prefix for later generation, while the distillation loss applies only at committed assistant positions. After a committed tool call executes, its observation is appended before generation resumes. Sections 3.2 and 3.3 formalize this construction and its objective. 
+
+3.2 Teacher-Anchored Rollout Construction 
+
+At interaction turn t, the rollout state is St,k =(τt, R t,k ). The committed trajectory τt contains prompt spans, committed assistant turns, and envi-ronment observations. The pending assistant turn 
+
+Rt,k contains the k verified chunks accumulated for the next assistant turn, with Rt, 0 = ∅. Both components condition the next proposal, but Rt,k 
+
+remains outside τt. Only a turn appended to τt may trigger an environment transition. Given τt and Rt,k −1, the student proposes a chunk ˜ct,k . Let Vϕ denote the teacher verifier. It accepts or corrects the proposal and returns 
+
+cv 
+
+> t,k
+
+= Vϕ(˜ ct,k | τt, R t,k −1). Verification proceeds token by token under the verified prefix, which con-sists of τt, Rt,k −1, and the tokens already verified in the current chunk. A student token is kept when it lies in the teacher’s top-K support. At the first rejection, the verifier replaces that token with the teacher’s top-1 token and discards the remaining suffix because it was generated from a prefix that has now changed. The student then proposes a new chunk from the corrected prefix. PTA appends the verified chunk in one state tran-sition, 
+
+(τt, R t,k −1) Vϕ
+
+−→ (τt, R t,k −1 ⊕ cv
+
+> t,k
+
+).
+
+Neither the raw proposal nor its discarded suffix appears in the next rollout state. The verified chunk is therefore the smallest unit that PTA appends to a pending turn. When the pending turn reaches an assistant EOS or a tool-call closing tag, PTA finalizes it as the committed assistant turn At and appends the whole turn to τt. Only after commitment does the tool runtime parse At. A final answer terminates at this point. If At is a valid tool call, the runtime exe-cutes it, receives the observation ot, and appends 
+
+ot as a separate observation span before generation resumes. The next exposed state is therefore 
+
+S+ 
+
+> t
+
+=
+
+(
+
+(τt ⊕ At, ∅), final answer ,
+
+(τt ⊕ At ⊕ ot, ∅), valid tool call .
+
+PTA exposes a rollout state only after chunk verifi-cation or after a complete environment transition, never at an intermediate point. In particular, no resumable state contains a raw speculative chunk, a partial assistant turn in the committed trajectory, or a committed tool call awaiting its observation. The outer rollout ends after a final answer or when its budget is exhausted. The same construction fits high-throughput roll-out engines that generate assistant continuations in chunks, advance many samples in parallel, and reuse partial prefixes. We implement PTA in verl 
+
+with sglang as the inference engine and insert 
+
+Algorithm 1 PTA rollout with chunk-level verifi-cation and turn-level commitment                                                                    
+
+> 1: Initialize committed trajectory τ
+> 2: while τis not terminal and budget remains do
+> 3: R← ∅ ▷pending assistant turn 4: while Ris not finalized do
+> 5: ˜c←Student .propose _chunk( τ, R )
+> 6: cv←Teacher .verify _chunk( τ, R, ˜c)
+> 7: R←R⊕cv▷verified boundary 8: end while
+> 9: A←finalize( R)▷committed assistant turn 10: τ←τ⊕A
+> 11: u←parse _tool _call( A)
+> 12: if uis valid then
+> 13: o←Environment .step( u)
+> 14: τ←τ⊕o▷transition complete 15: else if Ais a final answer then
+> 16: mark τas terminal 17: end if
+> 18: end while
+
+teacher verification into its chunk-level generation loop. Section 3.4 reuses these state boundaries without changing verification, commitment, or tool execution. 
+
+3.3 Source-Aware Objective 
+
+PTA applies distillation only to committed assistant positions. Let the committed trajectory for sample 
+
+b be τb = ( x1, . . . , x n), where each token inherits a source label marking it as prompt, assistant, or observation content. The target positions are 
+
+A(τb) = {i | src( xi) = ASSISTANT }.
+
+Because a pending turn remains outside τb, its to-kens enter this set only after commitment. Prompt and observation tokens remain in the prefix but are not imitation targets. Treating observations as tar-gets would train the student to reproduce content supplied by the environment. For training batch Bt, let qb,i and pb,i denote the teacher and student next-token distributions at com-mitted assistant position i of τb. PTA minimizes 
+
+LPTA (θ) = 1
+
+Nt
+
+X
+
+> b∈B t
+
+X
+
+> i∈A (τb)
+
+DKL (qb,i ∥pb,i ),
+
+where Nt = P 
+
+> b∈B t
+
+|A (τb)|. PTA keeps the token-level distribution-matching loss unchanged. It changes the rollout and the positions to which the loss is applied. 
+
+3.4 Persistent Lookahead Scheduling 
+
+Long-horizon tool-use rollouts finish at different times. Some samples reach a final answer quickly, while others wait through multiple tool calls, long observations, or repeated teacher verification. A synchronous PTA step waits for every sample in its current-step batch, so slots released by earlier completions remain idle until the slowest sample finishes. PTA can turn this lost capacity into future rollout work because the student and teacher have different lifetimes. The student changes at every update, while the teacher verifier remains fixed throughout training. Section 3.2 exposes a rollout state only after a verified chunk or a complete environment transi-tion. These atomic boundaries determine where a rollout may pause. Because the verifier is fixed, a state it has admitted keeps its standing after a stu-dent update. The update changes the student, not the carried state, and every new chunk must pass the same verifier. Any tool call already present in (a) Synchronous current batch complete slot 1 slot 2 spare capacity, lost       
+
+> (b) Lookahead current batch complete next batch slot 1 slot 2 promoted carryover fresh
+> Current-step sample Lookahead sample Spare capacity Actor update
+
+Figure 2: Schematic of synchronous and lookahead scheduling over the same wall-clock interval. Ticks mark completion of the current-step batch. In (b), one lookahead sample is promoted before the boundary, another becomes carryover and resumes after the actor update, and a fresh sample fills the remaining slot in the next batch. The carryover cut occurs only at an atomic state boundary. 
+
+the state was committed before execution and is accompanied by its returned observation. 
+
+Lookahead scheduling fills each released slot with a future sample while the current-step batch is still running. The current-step batch defines the lookahead frontier. A lookahead sample that fin-ishes before the current-step batch is complete is 
+
+promoted into the current update batch, and its slot can accept another lookahead sample. When ev-ery current-step sample has finished, the scheduler stops launching new lookahead work. Lookahead samples still in progress become carryover for the next step. Figure 2 shows this lifecycle. The step does not become shorter. Lookahead fills time that the synchronous step leaves unused. It changes when a sample is advanced, not how it is verified, committed, or executed. The cutoff never interrupts an atomic unit al-ready in progress. A sample with an unfinished assistant turn pauses only after its current chunk has been verified and appended. If the verified chunk completes a tool-call turn, PTA commits the turn, executes the call, and appends the observation before saving the state. Every carryover sample is therefore a lookahead sample paused at a state boundary from Section 3.2. Current-step samples cannot become carryover because their completion defines the cutoff. The update batch contains the completed current-step batch and all promoted samples. The scheduler forms the next current-step batch from the carry-over samples and enough fresh dataset samples to restore its nominal size. The updated student resumes each carryover state, and every newly gen-erated chunk again passes the fixed teacher verifier. Appendix F formalizes why this continuation pre-serves PTA commitment semantics across student updates. 
+
+4 Experiments 
+
+We evaluate PTA across retrieval and perception tools under a matched downstream RL budget. We then ask whether the difference is already present before RL and how the same rollout construction affects sparse distillation and scheduler throughput. 
+
+4.1 Experimental Setup 4.1.1 Environments 
+
+We evaluate PTA in two tool-mediated reason-ing environments. Their tool interfaces and result modalities differ, but in both environments model-generated calls determine the observations avail-able to later reasoning. 
+
+Retrieval-mediated reasoning. The model calls a search tool and reasons over the retrieved text, following Search-R1 (Jin et al., 2025). NQ (Kwiatkowski et al., 2019) and PopQA (Mallen et al., 2023) test short factual retrieval, while Hot-potQA (Yang et al., 2018) and Musique (Trivedi et al., 2022) require evidence to be gathered and connected across multiple steps. 
+
+Perception-mediated reasoning. The model calls a bbox-based perception tool and reasons over the returned visual observation, following Deep-Eyes (Zheng et al., 2026). VStar (Wu and Xie, 2024) tests fine-grained attribute and spatial reason-ing. HRBench4K and HRBench8K (Wang et al., 2025) test tool use over high-resolution visual con-texts, with the two variants distinguishing the input resolution. 
+
+4.1.2 Compared Methods 
+
+We compare four settings. Base is the starting model with the same tool interface used by the trained systems. Direct RL applies the downstream RL objective without an intermediate distillation Metric Base Direct RL OPKD + RL PTA + RL                                                 
+
+> Benchmark-level results
+> NQ mean@4 24.04 29.63 29.04 29.45 NQ best@4 36.84 38.34 38.76 39.09
+> PopQA mean@4 31.74 36.45 33.88 35.49 PopQA best@4 45.61 47.62 42.83 47.12 HotpotQA mean@4 17.66 21.51 22.13 21.98 HotpotQA best@4 31.25 32.30 32.77 33.37
+> Musique mean@4 4.39 6.44 8.20 10.93 Musique best@4 9.37 12.40 13.94 18.78
+> Aggregate results
+> Weighted mean@4 24.58 28.95 27.87 28.95
+> Weighted best@4 37.46 39.24 37.09 39.92
+> Macro mean@4 19.46 23.51 23.31 24.46
+> Macro best@4 30.77 32.66 32.07 34.59
+
+Table 2: Retrieval-mediated reasoning results.                                             
+
+> Metric Base Direct RL OPKD + RL PTA + RL
+> Benchmark-level results
+> VStar mean@4 59.03 61.65 59.55 64.53
+> VStar best@4 75.39 73.30 80.10 78.01 H4 mean@4 62.88 65.25 62.25 66.63
+> H4 best@4 64.50 70.00 65.50 68.50 H8 mean@4 54.13 58.88 53.00 59.63
+> H8 best@4 61.00 61.00 56.00 63.50 Aggregate results
+> Macro mean@4 58.68 61.92 58.27 63.59
+> Macro best@4 66.96 68.10 67.20 70.00
+> Weighted mean@4 58.56 62.02 57.83 63.27
+> Weighted best@4 64.10 66.33 62.81 67.28
+
+Table 3: Benchmark-level perception-mediated reason-ing results. 
+
+stage. This matches the established training pat-tern in Search-R1 and DeepEyes, which apply RL without a supervised cold start. The main comparison is between two pre-RL alignment settings. OPKD + RL distills on student-generated, student-committed rollouts before down-stream RL. PTA + RL uses the same student to propose every chunk, while the teacher verifier de-termines which assistant turns are committed, and then applies the same downstream RL procedure. The two settings therefore share student-induced rollout generation and the downstream RL budget. They differ in whether teacher information enters after the student has committed the trajectory or participates in commitment itself. Initializations based on teacher-generated trajectories, including supervised fine-tuning and off-policy distillation, change both the trajectory source and the supervi-sion mechanism and are outside this comparison. In the retrieval-mediated environment, the teacher is Qwen3-32B and the student is Qwen3-1.7B; in the perception-mediated environ-ment, the teacher is Qwen3-VL-32B and the stu-dent is Qwen3-VL-2B. All four settings use the same teacher-student pair within each environment. 
+
+4.2 Retrieval-Mediated Reasoning 
+
+Table 2 reports retrieval-mediated reasoning results. All scores are EM percentages. PTA + RL gives the strongest retrieval ag-gregates. It leads on weighted best@4, macro mean@4, and macro best@4, and ties Direct RL on weighted mean@4. Its macro best@4 exceeds OPKD + RL by 2.52 points. Direct RL remains competitive on the short factual benchmarks, while PTA + RL leads on best@4 for three of the four datasets. Short factual questions can often be re-solved with a brief retrieval path, whereas errors in multi-step tasks continue to shape later queries and evidence. The largest gain over OPKD + RL appears on Musique, where mean@4 rises from 8.20 to 10.93 and best@4 from 13.94 to 18.78. Musique makes early searches and retrieved evidence consequential because later steps must connect evidence gathered along the way. The concentration of the gain on this benchmark is consistent with PTA preventing unverified interactions from shaping the subsequent retrieval path. 
+
+4.3 Perception-Mediated Reasoning 
+
+Table 3 reports benchmark-level perception results. Appendix A provides VStar subtask and HRBench split results. PTA + RL leads on all four aggregate metrics. Relative to OPKD + RL, it gains 5.32 points on macro mean@4 and 2.80 points on macro best@4. The advantage therefore extends from retrieved text to tool-returned visual observations. The benchmark-level results also show where the advantage is less uniform. VStar separates av-erage sampled performance from the strongest of four rollouts. PTA + RL leads in mean@4, while OPKD + RL is higher in best@4. On HRBench4K, PTA + RL leads in mean@4 but Direct RL leads in best@4. PTA + RL leads in both metrics on HRBench8K. The gain is therefore strongest in the higher-resolution setting, where the perception tool must localize evidence in a denser visual context. 
+
+4.4 Alignment before Downstream RL 
+
+The downstream results leave open whether the dif-ference is already present before reward optimiza-tion. Table 4 evaluates the alignment checkpoints at VStar HRBench4K HRBench8K Setting mean@4 best@4 mean@4 best@4 mean@4 best@4 OPKD 57.85 78.53 61.00 64.00 54.63 58.00 PTA 61.13 81.15 64.00 68.50 57.88 65.00       
+
+> PTA without tool-call replacement 50.00 70.68 55.50 58.00 48.13 50.50
+> Table 4: Pre-RL alignment checkpoints in the perception-mediated environment.
+
+the same training step, before downstream RL. PTA leads OPKD on all six metrics, with the largest gap on HRBench8K best@4, which rises from 58.00 to 65.00. The advantage is therefore already present in the policy handed to reward optimization. The third row isolates correction inside tool-call spans. It retains full-turn buffering, delayed exe-cution, observation masking, teacher verification, and KL supervision, along with the same threshold, chunk size, and training step. The only change suppresses a teacher replacement when the rejected token lies inside a parsed tool call, so the environ-ment receives the student’s original call. Perfor-mance falls below both PTA and OPKD on every metric. Safe timing alone is therefore insufficient when the call that reaches the environment can re-tain rejected content. The same runs retain the student’s proposal for 90.5% of committed assistant tokens in retrieval and 88.4% in perception. Replacements inside tool-call spans account for only 0.05% and 0.82% of all committed assistant tokens, yet removing them eliminates the alignment advantage. PTA thus re-mains predominantly student-proposed, while the rare corrections inside tool calls act on content that reaches the environment. Appendix E reports the full verifier statistics. 
+
+4.5 Top-N Distribution Stability 
+
+To examine the distillation conditions behind these checkpoints, we measure how much teacher prob-ability a fixed top-N support preserves at each committed assistant position. Top-N distillation is a standard sparse-logit approximation that stores only the N highest-probability tokens from the teacher distribution (Shum et al., 2024; Anshumann et al., 2025). Its fidelity depends on this coverage, which we call the teacher retained mass 
+
+mN (h) = X 
+
+> x∈T N(h)
+
+qϕ(x | h), (1) where TN (h) is the teacher’s top-N support at po-sition h, measured before renormalization. Values near one indicate that the sparse approximation preserves most of the distribution.       
+
+> Setting Promoted Throughput synchronous 0.0 0.519 lookahead 20.2 0.644
+> Table 5: Lookahead scheduling efficiency.
+
+Figure 3 (a) shows that PTA maintains high av-erage retained mass with N = 256 , while OPKD needs a larger support to recover comparable cover-age. Panel (b) gives a stricter view through the mini-mum retained mass. PTA keeps its lowest-coverage positions stable at N = 256 , whereas OPKD ex-hibits sharp drops at smaller N and still contains low-coverage positions at N = 1024 . Under the same sparse-logit budget, teacher-committed pre-fixes therefore make the teacher distribution easier to preserve than student-committed prefixes. Panel (c) shows that the coverage gap follows a difference in the distribution rather than the trunca-tion rule alone. Actor entropy under OPKD rises as its retained mass falls, while under PTA it remains lower and more stable. Under a fixed top-N budget, OPKD therefore leaves more teacher mass outside the stored support at both typical and worst-case positions. Together with the checkpoint results, these di-agnostics connect rollout construction to the pol-icy passed to downstream RL. On PTA’s teacher-committed prefixes, a practical sparse budget pre-serves more of the teacher distribution before re-ward optimization begins. 
+
+4.6 Lookahead Efficiency 
+
+We finally measure the scheduler benefit of persis-tence with a fixed current-step batch size B = 32 .Throughput is 
+
+Tsched = B + Ptgen + tupdate , (2) where P is the number of promoted lookahead samples. The numerator counts the current-step batch and future samples completed in the same wall-clock window. Carryover samples enter the next step and are not counted. (a) Teacher retained mass (b) Minimum retained mass (c) Actor entropy 
+
+> Figure 3: Top-N stability diagnostics over an early training window.
+
+Table 5 shows that lookahead raises throughput from 0.519 to 0.644 samples/s, a 24% increase, while promoting 20.2 samples per step on average. The scheduler gains throughput by filling otherwise idle rollout capacity, not by shortening generation or update time. 
+
+5 Conclusion 
+
+Persistent Teacher Anchoring extends proposer-verifier generation from deciding what text is re-tained to deciding when a completed assistant turn may act on the environment. The student proposes each chunk, the teacher verifies it, and only a fi-nalized turn is committed and allowed to execute a tool. These atomic boundaries also make verified rollout states persistent across student updates. Be-cause the teacher verifier remains fixed, lookahead scheduling can pause and resume future samples without changing verification, commitment, or tool execution. The experiments trace this construction from alignment to downstream RL. At the alignment checkpoint, PTA leads OPKD on all six perception metrics, and the advantage does not survive sup-pressing corrections inside tool-call spans. With the same downstream RL budget, PTA + RL then improves macro best@4 by 2.5 points on retrieval-mediated reasoning and 2.8 points on perception-mediated reasoning. On teacher-committed pre-fixes, a fixed top-N budget retains more teacher mass and yields a more faithful sparse approxima-tion. Actor entropy shows the same separation. Per-sistence also supports lookahead, which improves scheduler throughput by 24%. PTA thus gives re-ward optimization an initial policy whose tool-use trajectories have already been shaped by teacher-verified interactions. 
+
+Limitations 
+
+PTA is evaluated in retrieval-mediated and perception-mediated reasoning, which cover tex-tual and visual tool observations. The controlled comparison fixes the student proposer and down-stream RL budget, and varies whether teacher in-formation enters before or after commitment. The resulting empirical claim is PTA’s advantage over OPKD under these matched conditions. Code exe-cution, database access, and multi-agent interaction are not covered by this study. PTA intentionally corrects verifier-rejected tool calls before execution. The pre-RL policy there-fore does not encounter the error states those calls would have created. Downstream RL restores unre-stricted student-driven rollouts. This staged design separates pre-commit correction from later expo-sure to deployment-like states, while the evaluation targets final policy quality rather than recovery-specific capability. PTA also requires teacher infer-ence during rollout construction. Lookahead uses otherwise idle capacity but does not remove the ver-ifier cost, whose trade-off may change with model scale, tool latency, and task horizon. The experiments use one specified verifier con-figuration, with a fixed threshold, chunk size, deter-ministic top-1 replacement, and verification over all assistant tokens. Teacher-distribution sampling and tool-call-only verification are alternative in-stantiations rather than factors varied in this study. Each setting is trained once, so the significance analysis characterizes evaluation variation rather than training-seed variation. 
+
+Acknowledgments 
+
+This research was supported by the Ministry of Science and ICT (MSIT), Republic of Korea, under the Top-Tier AI Global HRD Invitation Program (RS-2025-25461932), supervised by the Institute for Information & Communications Technology Planning & Evaluation (IITP). This work was also supported by IITP under the Artificial Intelligence Innovation Human Resources Development (IITP-RS-2026-25547954) grant funded by the Korea government (MSIT). References 
+
+Rishabh Agarwal, Nino Vieillard, Yongchao Zhou, Pi-otr Stanczyk, Sabela Ramos Garea, Matthieu Geist, and Olivier Bachem. 2024. On-policy distillation of language models: Learning from self-generated mistakes. In International Conference on Learning Representations , volume 2024, pages 21246–21263. Anshumann, Mohd Abbas Zaidi, Akhil Kedia, Jinwoo Ahn, Taehwak Kwon, Kangwook Lee, Haejun Lee, and Joohyung Lee. 2025. Sparse logit sampling: Accelerating knowledge distillation in LLMs. In 
+
+Proceedings of the 63rd Annual Meeting of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 18085–18108, Vienna, Austria. Association for Computational Linguistics. Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhi-fang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, and 45 others. 2025. Qwen3-VL technical report. 
+
+Preprint , arXiv:2511.21631. Technical report. GLM-5 Team. 2026. GLM-5: from vibe coding to agentic engineering. Preprint , arXiv:2602.15763. Technical report. Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015. Distilling the knowledge in a neural network. 
+
+Preprint , arXiv:1503.02531. Presented at the NIPS 2014 Deep Learning Workshop. Humaid Ibrahim, Nikolai Rozanov, and Marek Rei. 2025. Fine-tuning with RAG for improving LLM learning of new skills. Preprint , arXiv:2510.01375. Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan O Arik, Dong Wang, Hamed Zamani, and Jiawei Han. 2025. Search-R1: Training LLMs to reason and leverage search engines with reinforce-ment learning. In Second Conference on Language Modeling .Sehoon Kim, Karttikeya Mangalam, Suhong Moon, Ji-tendra Malik, Michael W. Mahoney, Amir Gholami, and Kurt Keutzer. 2023. Speculative decoding with big little decoder. In Advances in Neural Information Processing Systems 36 .Jahyun Koo, Yerin Hwang, Yongil Kim, Taegwan Kang, Hyunkyung Bae, and Kyomin Jung. 2025. SWITCH: Studying with teacher for knowledge distillation of large language models. In Findings of the Associ-ation for Computational Linguistics: NAACL 2025 ,pages 3733–3746. Association for Computational Linguistics. Tom Kwiatkowski, Jennimaria Palomaki, Olivia Red-field, Michael Collins, Ankur Parikh, Chris Alberti, Danielle Epstein, Illia Polosukhin, Jacob Devlin, Ken-ton Lee, Kristina Toutanova, Llion Jones, Matthew Kelcey, Ming-Wei Chang, Andrew M. Dai, Jakob Uszkoreit, Quoc Le, and Slav Petrov. 2019. Natu-ral questions: A benchmark for question answering research. Transactions of the Association for Compu-tational Linguistics , 7:452–466. Yaniv Leviathan, Matan Kalman, and Yossi Matias. 2023. Fast inference from transformers via spec-ulative decoding. In Proceedings of the 40th Inter-national Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research ,pages 19274–19286. PMLR. Baohao Liao, Yuhui Xu, Hanze Dong, Junnan Li, Christof Monz, Silvio Savarese, Doyen Sahoo, and Caiming Xiong. 2025. Reward-guided speculative decoding for efficient LLM reasoning. In Pro-ceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 37555–37572. PMLR. Weiwen Liu, Xu Huang, Xingshan Zeng, Xinlong Hao, Shuai Yu, Dexun Li, Shuai Wang, Weinan Gan, Zhengying Liu, Yuanqing Yu, Zezhong Wang, Yux-ian Wang, Wu Ning, Yutai Hou, Bin Wang, Chuhan Wu, Xinzhi Wang, Yong Liu, Yasheng Wang, and 8 others. 2025. ToolACE: Winning the points of LLM function calling. In International Conference on Learning Representations , volume 2025, pages 41359–41381. David Lopez-Paz, Léon Bottou, Bernhard Schölkopf, and Vladimir Vapnik. 2016. Unifying distillation and privileged information. In 4th International Confer-ence on Learning Representations, ICLR 2016, San Juan, Puerto Rico, May 2–4, 2016, Conference Track Proceedings .Yuanjie Lyu, Chengyu Wang, Jun Huang, and Tong Xu. 2026. Student-centered distillation narrows the agentic gap between small and large LLMs. In Pro-ceedings of the 43rd International Conference on Machine Learning .Alex Mallen, Akari Asai, Victor Zhong, Rajarshi Das, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. When not to trust language models: Investigating effectiveness of parametric and non-parametric mem-ories. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Vol-ume 1: Long Papers) , pages 9802–9822, Toronto, Canada. Association for Computational Linguistics. Qwen Team. 2025. Qwen3 technical report. Preprint ,arXiv:2505.09388. Technical report. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 2017. Prox-imal policy optimization algorithms. Preprint ,arXiv:1707.06347. Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024. DeepSeekMath: Pushing the limits of mathemati-cal reasoning in open language models. Preprint ,arXiv:2402.03300. KaShun Shum, Minrui Xu, Jianshu Zhang, Zixin Chen, Shizhe Diao, Hanze Dong, Jipeng Zhang, and Muhammad Omer Raza. 2024. FIRST: Teach a reli-able large language model through efficient trustwor-thy distillation. In Proceedings of the 2024 Confer-ence on Empirical Methods in Natural Language Pro-cessing , pages 12646–12659, Miami, Florida, USA. Association for Computational Linguistics. Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. 2022. MuSiQue: Multi-hop questions via single-hop question composition. 
+
+Transactions of the Association for Computational Linguistics , 10:539–554. Vladimir Vapnik and Rauf Izmailov. 2015. Learning using privileged information: Similarity control and knowledge transfer. Journal of Machine Learning Research , 16(61):2023–2049. Wenbin Wang, Liang Ding, Minyan Zeng, Xiabin Zhou, Li Shen, Yong Luo, Wei Yu, and Dacheng Tao. 2025. Divide, conquer and combine: A training-free frame-work for high-resolution image perception in mul-timodal large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , vol-ume 39, pages 7907–7915. Penghao Wu and Saining Xie. 2024. V*: Guided visual search as a core mechanism in multimodal LLMs. In 
+
+Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition , pages 13084– 13094. Wenda Xu, Rujun Han, Zifeng Wang, Long Le, Dhruv Madeka, Lei Li, William Yang Wang, Rishabh Agar-wal, Chen-Yu Lee, and Tomas Pfister. 2025. Specu-lative knowledge distillation: Bridging the teacher-student gap through interleaved sampling. In Inter-national Conference on Learning Representations ,volume 2025, pages 64616–64646. Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William Cohen, Ruslan Salakhutdinov, and Christo-pher D. Manning. 2018. HotpotQA: A dataset for diverse, explainable multi-hop question answering. In Proceedings of the 2018 Conference on Empiri-cal Methods in Natural Language Processing , pages 2369–2380, Brussels, Belgium. Association for Com-putational Linguistics. Fan Yin, Zifeng Wang, I-Hung Hsu, Jun Yan, Ke Jiang, Yanfei Chen, Jindong Gu, Long Le, Kai-Wei Chang, Chen-Yu Lee, Hamid Palangi, and Tomas Pfister. 2025. Magnet: Multi-turn tool-use data synthesis and distillation via graph translation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,pages 32600–32616, Vienna, Austria. Association for Computational Linguistics. Siyan Zhao, Zhihui Xie, Mengchen Liu, Jing Huang, Guan Pang, Feiyu Chen, and Aditya Grover. 2026. Self-distilled reasoner: On-policy self-distillation for large language models. Preprint , arXiv:2601.18734. Ziwei Zheng, Minghao Yang, Jack Hong, Chenxiao Zhao, Guohai Xu, Le Yang, Chao Shen, and Xing Yu. 2026. DeepEyes: Incentivizing “thinking with images” via reinforcement learning. In International Conference on Learning Representations , volume 2026, pages 126775–126798. 
+
+A Full Perception-Mediated Results 
+
+Table 6 reports the full perception-mediated reason-ing results, including VStar subtask and HRBench split scores used in the benchmark aggregates. V-DA and V-RP denote VStar’s attribute-recognition and spatial-relationship-reasoning subtasks. The HRBench single and cross splits denote fine-grained single-instance and cross-instance percep-tion. The detailed results refine the benchmark-level patterns in Section 4.3. On VStar, PTA + RL ex-ceeds OPKD + RL in mean@4 for both attribute and spatial reasoning, while OPKD + RL remains higher in best@4 for both subtasks. This explains why their aggregate ordering changes between mean@4 and best@4. On HRBench4K, PTA + RL leads in benchmark-level mean@4 and both single-image metrics, while Direct RL leads in benchmark-level best@4 and both cross-image metrics. On HRBench8K, PTA + RL leads in both benchmark-level and cross-image metrics, including a cross-image mean@4 increase from 43.75 to 51.50 over OPKD + RL. Direct RL remains higher on the two single-image metrics. The advantage at 8K is therefore con-centrated in cross-image perception at the higher resolution. 
+
+B Significance of the Benchmark-Level Differences 
+
+Table 7 tests the benchmark-level mean@4 differ-ences between PTA + RL and OPKD + RL reported in Tables 2 and 3. A question’s mean@4 score is the average over its four sampled rollouts. We bound the variance of that score by ˆp(1 − ˆp), where 
+
+ˆp is the benchmark accuracy of the system, and compute 
+
+z = ∆
+
+q ˆp1(1 − ˆp1) + ˆ p2(1 − ˆp2)/n 
+
+from the reported accuracies and the number of evaluation questions. The statistic treats questions as independent and does not pair the two systems on the same question. Reported p-values are two-sided and unadjusted for multiple comparisons. Metric Base Direct RL OPKD + RL PTA + RL                                                                                         
+
+> VStar results
+> VStar mean@4 59.03 61.65 59.55 64.53 VStar best@4 75.39 73.30 80.10 78.01 V-DA mean@4 57.39 60.00 58.91 65.65 V-DA best@4 71.30 69.57 74.78 73.91 V-RP mean@4 61.51 64.14 60.53 62.83 V-RP best@4 81.58 78.95 88.16 84.21
+> HRBench4K split results
+> H4 mean@4 62.88 65.25 62.25 66.63 H4 best@4 64.50 70.00 65.50 68.50 H4 cross mean@4 50.75 54.50 52.00 53.00 H4 cross best@4 52.00 60.00 54.00 55.00 H4 single mean@4 75.00 76.00 72.50 80.25 H4 single best@4 79.00 80.00 78.00 82.00
+> HRBench8K split results
+> H8 mean@4 54.13 58.88 53.00 59.63 H8 best@4 61.00 61.00 56.00 63.50 H8 cross mean@4 44.00 48.50 43.75 51.50 H8 cross best@4 52.00 50.00 47.00 55.00 H8 single mean@4 64.25 69.25 62.25 67.75 H8 single best@4 70.00 75.00 67.00 74.00
+> Aggregate results
+> Macro mean@4 58.68 61.92 58.27 63.59 Macro best@4 66.96 68.10 67.20 70.00 Weighted mean@4 58.56 62.02 57.83 63.27 Weighted best@4 64.10 66.33 62.81 67.28
+
+Table 6: Full perception-mediated reasoning results.                                 
+
+> Benchmark n∆zp
+> NQ 3,610 +0 .41 0.38 0.70
+> PopQA 14,267 +1 .61 2.86 0.004
+> HotpotQA 7,405 −0.15 −0.22 0.83
+> Musique 2,417 +2 .73 3.23 0.001
+> VStar 191 +4 .98 1.00 0.32
+> HRBench4K 800 +4 .38 1.83 0.067
+> HRBench8K 800 +6 .63 2.68 0.007
+
+Table 7: Benchmark-level mean@4 differences between PTA + RL and OPKD + RL, with the number of evalua-tion questions n. ∆ is in percentage points. 
+
+Each setting is trained once, so the variability cap-tured here is that of evaluation sampling rather than of training seeds. Three differences reach p < 0.01 . Musique and HRBench8K are the multi-hop retrieval and higher-resolution visual settings in which Sections 4.2 and 4.3 locate the largest gains. PopQA has the largest evaluation set of the seven. HRBench4K reaches p < 0.1. Both the variance bound and the unpaired form are conservative, so these values are obtained under a test that under-states the evidence. The differences on NQ, Hot-potQA, and VStar are not separable from zero at this resolution, and VStar has 191 evaluation ques-tions, the fewest of the seven. 
+
+C Teacher-Conditioned Rollout Construction 
+
+Tool-use distillation can expose the teacher to be-havioral information that the student does not ob-serve at inference time. A teacher-only system in-struction may, for example, specify when to call a tool, when to stop gathering observations, or which evidence to prioritize. In PTA, such information enters the rollout through two coupled channels. It shapes the teacher’s next-token distribution, and it also shapes which student-proposed content is accepted or corrected. We denote this teacher-side information by a sig-nal ψ. The student does not receive ψ at inference time, but the teacher verifier can be conditioned on it during training. With ψ provided, the verifier returns cv,ψ t,k = Vϕ(˜ ct,k | τ ψt , R ψt,k −1; ψ).As the verifier’s ψ-conditioned decisions accu-mulate, they determine which committed assistant turns Aψt are formed, which tool calls are executed, and which contexts are used for later KL supervi-sion. The student is aligned through the committed trajectory built under the ψ-conditioned verifier and the teacher distribution evaluated on that trajectory, without ever observing ψ at inference time. The reported experiments hold ψ fixed. The tool-call replacement ablation leaves it unchanged, and we do not measure its effect separately. Giving the teacher information the student never observes follows privileged learning (Vapnik and Izmailov, 2015; Lopez-Paz et al., 2016), and distil-lation transfers the behavior it produces (Zhao et al., 2026). In those methods the information shifts the teacher’s predictions over a fixed trajectory. In PTA it conditions the verifier, so it also decides which trajectory is committed at all. 
+
+D The Committed-Token Distribution 
+
+This appendix states the distribution that the teacher verifier induces over committed tokens, and its re-lation to the student policy. It formalizes the token-level rule of Section 3.2 and makes precise in what sense a PTA rollout is student-induced. 
+
+Setup. Consider one position inside a proposed chunk. Let h denote the verified context at that position, consisting of the committed trajectory τt,the pending assistant turn Rt,k −1, and the tokens already verified earlier in the same chunk. Write 
+
+pθ(· | h) for the student conditional and qϕ(· | 
+
+h; ψ) for the teacher conditional under teacher-side guidance ψ. Let 
+
+TK (h) = the K tokens with largest qϕ(· | h; ψ)
+
+be the teacher’s top-K support, and let x⋆(h) = arg max x qϕ(x | h; ψ) be its top-1 token, so that 
+
+x⋆(h) ∈ T K (h) for every K ≥ 1.
+
+The verifier as a map. The student proposes 
+
+˜x ∼ pθ(· | h). The verifier keeps the proposal when it lies in the teacher’s top-K support and replaces it with the teacher’s top-1 token otherwise, 
+
+Vϕ(˜ x | h) = 
+
+(
+
+˜x ˜x ∈ T K (h),x⋆(h) otherwise .
+
+Given h, this is a deterministic map, so the law of the committed token is the pushforward of the student conditional under Vϕ.
+
+Induced distribution. Let 
+
+r(h) = X 
+
+> y / ∈T K(h)
+
+pθ(y | h)
+
+be the student probability mass that the teacher rejects at h. Writing T for TK (h) and x⋆ for x⋆(h),the committed token follows 
+
+π(x | h) = 
+
+
+
+pθ(x | h) x ∈ T \ { x⋆},pθ(x⋆ | h) + r(h) x = x⋆,
+
+0 x / ∈ T ,
+
+which is normalized because P  
+
+> y∈T K(h)
+
+pθ(y |
+
+h) + r(h) = 1 . Writing ¯pθ(· | h) for the student conditional restricted to TK (h) and renormalized, the same distribution is a two-component mixture, 
+
+π(· | h) =  1 − r(h) ¯pθ(· | h) + r(h) δx⋆(h).
+
+With probability 1 − r(h) the committed token is the student’s own proposal, drawn from the student law truncated to the teacher’s top-K support. With probability r(h) it is the teacher’s top-1 token. This is the hybrid character of a PTA rollout in its most compact form. 
+
+Replacement rule. The point mass in this mix-ture is the teacher’s top-1 token, which pairs a deterministic replacement with the deterministic acceptance test. Replacing instead by a draw from the teacher conditional would give 
+
+π′(· | h) =  1−r(h) ¯pθ(· | h)+ r(h) qϕ(· | h; ψ),
+
+so the two rules differ only in this term. 
+
+Distance from the student policy. The two laws differ only at x⋆(h), where π places an additional 
+
+r(h), and on the rejected support, where π places nothing. Summing these differences gives 
+
+π(· | h) − pθ(· | h) TV = r(h),
+
+so the committed-token law departs from the stu-dent policy by exactly the mass the teacher rejects at that position, and by nothing else. The real-ized replacement frequency, whose expectation is 
+
+E[r(h)] , is the complement of the retention rates in Table 8: 9.5% of committed assistant tokens in retrieval and 11.6% in perception, and 0.5% and 7.0% within tool-call spans. 
+
+The role of K. The support size interpolates between two familiar regimes. When TK (h) is the full vocabulary, no proposal can be rejected, 
+
+r(h) = 0 , and π = pθ, so the rollout is purely on-policy. When K = 1 , the teacher’s top-1 token is the only admissible one, r(h) = 1 − pθ(x⋆(h) | h),and π = δx⋆(h), so the committed sequence is the teacher’s greedy continuation and the rollout is off-policy. PTA uses K = 3 (Appendix G), and the measured values of r place it near the on-policy end of this range. Trajectory level. Committed tokens are pro-duced by applying π at each position, conditioned on the prefix committed so far, so a committed tra-jectory follows the kernel π rather than pθ. Couple the two processes by reusing the same proposal 
+
+˜x at every position. They emit the same token whenever the proposal is accepted, and their con-texts therefore remain identical until a proposal is rejected. Under this coupling the committed tra-jectory equals the student’s own rollout precisely when no proposal is rejected anywhere along it, an event of probability EQ 
+
+> i
+
+ 1 − r(hi) over the po-sitions i of the trajectory. This quantity decreases with trajectory length, which is the sense in which long-horizon tool use gives the verifier more occa-sions to act. 
+
+Supervision target. The mixture determines which positions the student is supervised at, not what it is supervised toward. The objective of Sec-tion 3.3 matches pθ against the teacher conditional 
+
+qϕ at committed assistant positions, and qϕ does not depend on π. Guidance ψ enters the commit-ted distribution only through TK (h) and x⋆(h), so teacher-side information reshapes the acceptance set and the replacement token without changing the form of either the objective or the mixture. 
+
+E Verifier Acceptance and Correction Statistics      
+
+> Statistic Retr. Perc. Committed assistant tokens retaining the student proposal 90.5 88.4 Tokens within tool-call spans retain-ing the student proposal 99.5 93.0 Tool calls containing at least one re-placement 8.9 84.7
+> Table 8: Verifier acceptance and correction rates, in per-cent, aggregated over the training logs of the alignment runs used in the paper.
+
+Table 8 aggregates the training logs of the align-ment runs used in the paper. Token-level and call-level rates describe different quantities and should be read separately. In the perception environment, 93.0% of tool-call tokens keep the student proposal while 84.7% of tool calls contain at least one re-placement, so verifier intervention is distributed across many calls rather than concentrated in a few. Three factors combine to produce this pattern: per-ception tool-call spans are longer, at 58.3 against 29.4 tokens on average, a call counts as corrected once a single token is replaced, and the in-span correction rate is higher than in retrieval. Among corrected calls, the median number of replaced to-kens is five in perception and one in retrieval. The cross-environment difference follows the structure of the tool arguments. Natural-language search queries admit many semantically equiva-lent expressions, whereas bounding-box arguments are numerical coordinates that identify a specific region and therefore admit less variation. Replace-ments inside tool-call spans account for 0.05% of all committed assistant tokens in retrieval and 0.82% in perception. Figure 4 resolves the perception rates over train-ing. Averaged over the first ten steps, the verifier keeps 0.873 of the student’s proposed tokens, and over the last ten steps it keeps 0.902. The comple-ment of this quantity is the rejected mass r(h) of Appendix D, which is exactly the total variation distance between the committed-token distribution and the student policy. It falls from 0.127 to 0.098, a reduction of 23%, so the committed rollout moves closer to the student’s own policy as distillation pro-ceeds. The chunk-level rate moves in the same direc-tion but stays much higher. The fraction of chunks receiving at least one replacement declines from 0.975 to 0.941, so nearly every chunk is still cor-rected somewhere while roughly one token in ten is replaced. Correction is spread thinly across the rollout rather than concentrated in a few chunks. Chunks per sample fall from 109 to 77 over the same window. A chunk ends at its first rejected token, so a higher acceptance rate yields longer ac-cepted runs and fewer chunks. Because each chunk is one call to the teacher verifier, the teacher-side cost of constructing a rollout decreases as training proceeds. These statistics report the frequency and location of intervention. They do not classify how each individual correction changes the semantics of a tool call. 
+
+F Teacher-Gated Carryover under Student Updates 
+
+Lookahead scheduling can carry an unfinished roll-out across trainer steps. This creates a possible stale-prefix issue: a carryover state may have been produced under the pre-update student parameters 
+
+θs, but continued after the update by θs+1 . PTA does not claim trajectory equivalence between such a carryover rollout and a rollout regenerated from 
+
+θs+1 . Instead, it guarantees that raw student drift after the update cannot directly enter the rollout. 0 50 100 150       
+
+> Training step
+> 0.82 0.84 0.86 0.88 0.90 0.92
+> Token acceptance rate (a)
+> 050 100 150
+> Training step
+> 0.92 0.94 0.96 0.98 1.00
+> Chunk correction rate (b)
+> 050 100 150
+> Training step
+> 60 70 80 90 100 110
+> Chunks per sample (c)
+
+Figure 4: Verifier behavior over the first 150 training steps. (a) Fraction of student-proposed tokens that the verifier keeps. (b) Fraction of chunks in which at least one token is replaced. (c) Number of chunks accumulated per sample, each of which corresponds to one call to the teacher verifier in Algorithm 1. Light lines are per-step values and solid lines are a nine-step moving average. 
+
+Let a carryover state be 
+
+Ss = ( τs, R s),
+
+where τs is the committed trajectory and Rs is the pending assistant turn. A carryover state is PTA-consistent if it satisfies three conditions. First, every assistant span in τs is a finalized commit-ted assistant turn. Second, every observation in 
+
+τs was inserted only after a committed assistant turn was parsed as a valid tool call and the envi-ronment transition completed. Third, Rs is either empty or consists only of teacher-verified chunks. In particular, Ss contains no raw speculative chunk. Carryover also never occurs between a committed tool call and its observation, since the two form a single atomic transition, so no carryover state holds a committed tool call whose observation has not yet been inserted. After the parameter update θs → θs+1 , the carry-over state Ss is not modified. The updated student may continue generation from this state: 
+
+˜cs+1 ,k ∼ pθs+1 (· | τs, R s).
+
+However, the speculative chunk ˜cs+1 ,k is not ap-pended to the pending assistant turn, the committed trajectory, the environment, or the loss target. It must first pass the same fixed teacher verifier: 
+
+cv 
+
+> s+1 ,k
+
+= Vϕ(˜ cs+1 ,k | τs, R s).
+
+Only the verified chunk is retained: 
+
+Rs+1 ,k = Rs ⊕ cv
+
+> s+1 ,k
+
+.
+
+Thus, even if the updated student produces a continuation that drifts from the teacher, that raw continuation cannot directly affect the rollout. The fixed teacher verifier applies the same accept-or-correct gate before and after the student update. If the pending assistant turn is later finalized, the re-sulting committed assistant turn is still composed only of teacher-verified chunks. If that commit-ted assistant turn is parsed as a valid tool call, the returned observation is appended only after the en-vironment transition completes. 
+
+Proposition. Lookahead carryover preserves PTA commitment semantics across student updates. A carryover rollout may be stale with respect to the updated student, but every post-update continua-tion must pass the fixed teacher verifier before it can affect the pending assistant turn, committed trajectory, environment transition, or distillation target. 
+
+Proof. The carryover state Ss = ( τs, R s) is PTA-consistent by construction, because lookahead per-mits carryover only after teacher verification or after a completed environment transition. The pa-rameter update changes θs to θs+1 , but does not insert new content into Ss. Any new content gen-erated after the update is first a speculative chunk. PTA retains this chunk only after applying Vϕ, and appends only the verified chunk to Rs. Therefore, the pending assistant turn remains teacher-verified. Turn finalization, trajectory commitment, and ob-servation insertion then follow the same PTA rules as in the main rollout procedure. By induction over post-update generation steps, all states reached from a carryover state remain PTA-consistent. 
+
+G Training Setup 
+
+All experiments were run on a single node with four GPUs. Training used a PPO-based learning loop with GRPO-style advantage estimation (Schul-man et al., 2017; Shao et al., 2024), together with an asynchronous distillation setup that combines student-model optimization with teacher-model in-ference. The teacher model was served on the same node with four inference replicas. We did not run a separate validation stage during training; the sub-mission configuration keeps only the training path. Optimization used a learning rate of 1 × 10 −6
+
+and a policy-update mini-batch size of 32. We did not use KL reward, KL loss, or entropy regular-ization during training; the entropy regularization coefficient was set to 0. Checkpoints were saved periodically. Distillation used a forward-KL objective over a truncated teacher distribution that retains only the highest-probability candidates. All experiments used the top 256 candidates, and the speculative distillation chunk size was 128. During the teacher-student alignment stage, verification used the top 3 candidates. Rollouts were generated asynchronously and al-lowed multi-turn interaction. Both student rollout generation and teacher inference were run under fixed token budgets chosen for memory efficiency. 
+
+G.1 Search-R1-like QA Setup 
+
+The Search-R1-like experiments used Qwen3-1.7B as the student model and Qwen3-32B as the teacher model (Qwen Team, 2025). Training used a prepro-cessed Search-R1-style question-answering dataset. The maximum prompt length was 8,192 tokens, the maximum response length was 16,384 tokens, and the training batch size was 32. This setting assumes multi-turn question answer-ing with a search tool. Each trajectory generated one sample. Each episode allowed up to 15 assis-tant turns and 15 user turns. At most one tool call was allowed at a time, and each tool response was limited to 2,048 tokens. Speculative distillation allowed up to 256 chunks per sample. Rewards were configured to use one of two scor-ing modes. The default mode used exact-match scoring, while an optional mode used LLM-as-a-judge scoring. In the submission training configu-ration, rewards were computed only on the training data without validation. The total number of train-ing epochs was 5. 
+
+G.2 DeepEyes Setup 
+
+The DeepEyes experiments used Qwen3-VL-2B-Thinking as the student model and Qwen3-VL-32B-Thinking as the teacher model (Bai et al., 2025). Training used the DeepEyes visual-toolbox dataset. The maximum prompt length and maximum re-sponse length were both 8,192 tokens, and the train-ing batch size was 32. This setting assumes image-based multi-turn tool use, where the model uses a zoom-in tool to inspect local visual information. Each episode al-lowed up to 15 assistant turns and 15 user turns, with at most one concurrent tool call. Speculative distillation allowed up to 128 chunks per sample. The reward combined answer accuracy, format consistency, and tool-use behavior. Answer correct-ness was judged with a Gemini-based judge. The total number of training epochs was 1.

@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-09</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-10</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 30 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 15 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>17</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>13</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>10</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-09 22:01:21 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-10 21:30:25 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,7 +69,9 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>今日精读17篇、速读13篇，聚焦AI与科学计算交叉领域；两篇满分论文分别批判性评估物理信息神经网络求解弹性波方程，并提出去伪影的PCA-Net算子学习新框架。速读中的智能体技能进化与动态流重建也值得一览，建议优先从两篇10分论文入手。</p>
+<p>2026-09-10日报：从15篇推荐中精读5篇、速读10篇，PINN数值方法与广告推荐强化学习最抢眼。</p>
+<p>最值得看的是8.0分精读《A Computational Comparison of Fourier Spectral Differentiation and Spatial Automatic Differentiation in Periodic PINNs》和《DMRL: Document-Mediated Reinforcement Learning for Skill Optimization in Advertising Recommendation》。</p>
+<p>普通读者可先读PINN微分计算对比，再按兴趣追推荐</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -78,12 +80,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">17 篇</strong>
+    <strong class="dpr-home-dashboard-count">5 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Solving the Elastic Wave Equation with Physics-Informed Neural Networks: A Robust and Critical Assessment">Solving the Elastic Wave Equation with Physics-Informed Neural Networks: A Robust and Critical Assessment</span></li><li><span class="dpr-home-dashboard-paper-title" title="Two-Scale Localized PCA-Net: Coarse-Global and Local-Residual Representations for Artifact-Reduced PDE Operator Learning">Two-Scale Localized PCA-Net: Coarse-Global and Local-Residual Representations for Artifact-Reduced PDE Operator Learning</span></li><li><span class="dpr-home-dashboard-paper-title" title="SkillAdam: Stable and Efficient Skill Evolution for Agents">SkillAdam: Stable and Efficient Skill Evolution for Agents</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="A Computational Comparison of Fourier Spectral Differentiation and Spatial Automatic Differentiation in Periodic Physics-Informed Neural Networks">A Computational Comparison of Fourier Spectral Differentiation and Spatial Automatic Differentiation in Periodic Physics-Informed Neural Networks</span></li><li><span class="dpr-home-dashboard-paper-title" title="DMRL: Document-Mediated Reinforcement Learning for Skill Optimization in Advertising Recommendation">DMRL: Document-Mediated Reinforcement Learning for Skill Optimization in Advertising Recommendation</span></li><li><span class="dpr-home-dashboard-paper-title" title="APEx: Distillation of Agent Procedural Experience for Adaptive Deep Research Question Answering">APEx: Distillation of Agent Procedural Experience for Adaptive Deep Research Question Answering</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>9</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span><span class="dpr-home-dashboard-tag">sr <strong>2</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">cfd-agent <strong>3</strong></span><span class="dpr-home-dashboard-tag">physics-ml <strong>2</strong></span></div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
@@ -91,12 +93,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">速读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">13 篇</strong>
+    <strong class="dpr-home-dashboard-count">10 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="EvoSkill Injection: Red-Teaming Autonomous Skill Generation and Evolution in Self-Evolving Agents">EvoSkill Injection: Red-Teaming Autonomous Skill Generation and Evolution in Self-Evolving Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="Learning dynamically consistent flow reconstructions from limited observations">Learning dynamically consistent flow reconstructions from limited observations</span></li><li><span class="dpr-home-dashboard-paper-title" title="Geometry-aware Latent Autoregressive Generative Model for PDEs in Complex Domains">Geometry-aware Latent Autoregressive Generative Model for PDEs in Complex Domains</span></li></ul>
+<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="Learning Informative Prior with Infinite-Dimensional Continuous Normalizing Flow for Bayesian Inverse Problem">Learning Informative Prior with Infinite-Dimensional Continuous Normalizing Flow for Bayesian Inverse Problem</span></li><li><span class="dpr-home-dashboard-paper-title" title="Calibration of neural viscoelastic models via full-field data">Calibration of neural viscoelastic models via full-field data</span></li><li><span class="dpr-home-dashboard-paper-title" title="Computing high-order mixed derivatives in physics-informed neural networks using multi-index Bell polynomials">Computing high-order mixed derivatives in physics-informed neural networks using multi-index Bell polynomials</span></li></ul>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>7</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>6</strong></span></div>
+  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>6</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>4</strong></span></div>
 </section>
 </div>
 

@@ -1,0 +1,639 @@
+Title: An Energy-Based Conservative-Dissipative Latent Neural Evolution Operator for Magnetization Dynamics
+
+URL Source: https://arxiv.org/pdf/2609.04530v1
+
+Published Time: Mon, 07 Sep 2026 00:17:19 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# An Energy-Based Conservative–Dissipative Latent Neural Evolution Operator for Magnetization Dynamics 
+
+Sebastian Schaffer ∗a,b and Lukas Exl †a,b 
+
+> a
+
+Math. AI/ML, Wolfgang Pauli Institute, Vienna, Austria 
+
+> b
+
+Department of Mathematics, University of Vienna, Vienna, Austria 
+
+Abstract. We develop an energy-based reduced-order model for micromagnetic magnetization dynamics that couples a convolutional autoencoder to a structured latent neural ordinary differen-tial equation. Motivated by the precessional–dissipative structure of the Landau–Lifshitz–Gilbert equation, the latent vector field is generated from the gradient of a learned scalar potential through an antisymmetric operator and a symmetric positive-semidefinite dissipative opera-tor. This potential is learned in nonunique latent coordinates and is not identified with the Gibbs free energy, but decreases monotonically along autonomous continuous-time solutions, while the antisymmetric component permits motion along its level sets. The encoder, decoder, latent energy, and operators are trained jointly on short trajectory windows using latent and decoded-rollout losses alone, without time-derivative supervision, physical-energy labels, or dissipation penalties. At inference, an initial state is encoded once, evolved in latent space, and decoded only at the requested output times, enabling substantially cheaper trajectory prediction than the micromagnetic solver used to generate the training data. We compare quadratic, deep, and additive deep–quadratic latent energies on two datasets parameterized by field amplitude and generated for the two applied-field directions of the NIST μMAG Standard Problem 4. Dissipative-only and antisymmetric–dissipative models achieve comparable accuracy on short training-style windows but differ substantially on uninterrupted rollouts, for which the antisymmetric–dissipative models provide markedly more accurate trajectory predictions. The deep–quadratic energy gives the best overall accuracy for both field directions and exhibits slower error growth when rollouts are extended to twice the training horizon. 
+
+Keywords. micromagnetics, energy-based model, reduced-order model, neural ordinary differ-ential equation, latent dynamic 
+
+# 1 Introduction 
+
+Computational micromagnetics is widely used for the analysis and design of magnetic devices, including permanent magnets and integrated magnetic sensors [2, 24, 1, 7, 15]. Their magnetiza-tion dynamics are commonly described by variants of the the nonlinear Landau–Lifshitz–Gilbert (LLG) equation [9] or the Landau–Lifshitz equation 
+
+∂tm = −cγ [m × Heff + α m × (m × Heff )] , (1) 
+
+> ∗sebastian.schaffer@univie.ac.at
+> †lukas.exl@univie.ac.at
+
+1arXiv:2609.04530v1 [cs.LG] 3 Sep 2026 where m is the solution trajectory, cγ > 0, α ≥ 0, and Heff is the effective field. The equation combines precession and damping while evolving a spatial vector field subject to a pointwise length constraint. Due to the stiffness of the problem, the repeated numerical solution can become a major computational bottleneck in parameter studies, optimization, and inverse design. This is particularly relevant when device geometries, material parameters, or excitation fields must be varied over large design spaces. Fast nonlinear machine-learning surrogate models, therefore, offer a promising alternative to conventional time integration by approximating the solution operator and potentially enabling substantially cheaper repeated evaluations during inverse design and optimization. Dynamical systems often evolve in spaces whose dimension is much larger than the number of coordinates that are required to describe a restricted family of solution trajectories. This is especially true for traditional numerical solvers. A spatial discretization of a field can require numerous degrees of freedom for an accurate numerical representation, even if the solution lies near a low-dimensional nonlinear manifold. Linear trial spaces are very efficient if the states are well represented but can become inefficient for strongly nonlinear solution sets. Nonlinear manifold models based on autoencoders provide a more flexible alternative [17, 3]. An encoder assigns reduced coordinates, and a decoder reconstructs the observation. The remaining question is how those coordinates should evolve. Earlier work has demonstrated that machine-learning can be applied to establish surrogate models for the prediction of micromagnetic trajectories [6, 23, 16]. In this work we will present another promising reduced-order model, which is motivated by energy-based models (EBMs) [5]. The effective field Heff is given by the variational derivative of the Gibbs free energy G,
+
+Heff [m]( x) = − 1
+
+μ0Ms
+
+δG δm [m]( x), (2) where Ms is the saturation magnetization and μ0 the vacuum permeability. Hence, the dynamics of (1) is driven by the scalar funtional G. This poses the question whether this property can be useful for machine learning purposes. Likelihood-based generative EBMs assign low energy to observed configurations and estimate likelihood gradients by contrasting data (positive-phase) expectations with model (negative-phase) expectations. The negative phase is often approximated with Markov-chain Monte Carlo (MCMC), including contrastive divergence [13], persistent chains [25], or chains initialized from a replay buffer [5]. This is not a clustering objective, nor does every EBM use this likelihood-based setup. In contrast, the present method performs no density estimation, partition-function evaluation, negative-sample generation, or MCMC. A first idea was to implicitly learn a neural network model N (m, p) ≈ G, where p denotes conditional parameters, from snapshots of the solution trajectories by automatic differentiation (AD) and explicit time integration. While this is probably possible, it comes with some issues. First, the feature space remains high-dimensional, and the scalar gradient must be evaluated at every solver stage. Second, outer differentiation of a trajectory loss still requires mixed second derivatives. Third, and most important, such an approach would just inherit the stiffness of the original problem, leading to a high computational demand. Another, much more promising approach is the combination of nonlinear manifold models with a neural ordinary differential equation (neural ODE). A neural ODE parameterizes a continuous-time vector field and can learn it from trajectories [4, 21]. Their continuous formulation permits evaluation at requested times. However, an unrestricted vector-valued network does 2not distinguish circulation from dissipation and does not supply a scalar that is constrained to decrease. This distinction can matter for uninterrupted rollouts: agreement on short windows does not by itself prevent accumulated error from carrying a trajectory into poorly represented regions. We generate the latent vector field from the gradient of a learned scalar. An antisymmetric channel operator produces a component tangent to scalar level sets, while a symmetric positive-semidefinite channel operator produces a decreasing component. This construction is related algebraically to Hamiltonian neural networks, gradient systems, and metriplectic formulations [10, 19, 12]. It is deliberately less restricted than a thermodynamic model: its scalar is learned in nonunique latent coordinates and is not inferred from physical-energy labels. Even though this learned scalar energy is not the Gibbs energy, it can still be very useful by imposing a strong inductive bias, guaranteeing latent energy dissipation, and shaping the latent space. Further, such a scheme separates high-dimensional reconstruction from temporal integration. The contributions are: (i) a spatial latent-tensor encoder–decoder coupled to sitewise conservative– dissipative dynamics; (ii) an autonomous continuous-time dissipation identity for the learned scalar; (iii) a joint snapshot-window objective containing latent and decoded-rollout losses only; and (iv) a joint-training comparison of dissipative-only and antisymmetric–dissipative fields with quadratic, deep, and deep–quadratic latent energy models. 
+
+# 2 Problem formulation 
+
+2.1 Observed dynamics and magnetization states 
+
+Let X ⊆ Rn be the observation space, let m : [0 , T ] → X be a trajectory, and let p ∈ P ⊆ 
+
+Rnp collect parameters fixed along that trajectory. We suppose that the trajectory family is approximately represented by a smooth manifold M ⊆ X of intrinsic dimension smaller than n.The aim is to learn a reduced flow for that family, not to reconstruct a full governing equation throughout X . Available data are snapshot sequences 
+
+T (q) = {(t(q) 
+
+> i
+
+, m(q) 
+
+> i
+
+, p(q))}kq −1 
+
+> i=0
+
+, m(q) 
+
+> i
+
+= m(q)(t(q) 
+
+> i
+
+), (3) where q indexes trajectories, t(q)0 < · · · < t (q) 
+
+> kq−1
+
+, and neither derivatives nor scalar-energy labels are assumed. For a finite-difference magnetization with N cells, 
+
+m = ( ρ1, . . . , ρN ) ∈ RN ×3, ∥ρj ∥2 = 1 , (4) so the physical state space is a product of spheres. 
+
+2.2 Nonlocal interactions and representational scope 
+
+Computation of the nonlocal demagnetization, or stray field, is often the most difficult and computationally demanding computation for micromagnetic simulations. In continuum notation it satisfies 
+
+∇ × Hd = 0, ∇ · (Hd + MsmχΩ) = 0 in R3, (5) where Ω is the magnetic body and χΩ its indicator function. Hence, Hd[m]( x) depends on magnetization throughout the sample. Its energy is 
+
+Gd(m) = − μ0Ms
+
+2
+
+Z
+
+> Ω
+
+m(x) · Hd[m]( x) d x. (6) 3Traditional numerical solvers need a way to compute Hd[m] at every step. Especially for small step sizes in explicit solvers this can quickly become an issue. As we will see, our latent model does not evaluate this field at each ODE step but rather learns an internal approximation to the local and nonlocal interactions from data and the effects of nonlocal interactions present in the data may be represented implicitly. 
+
+2.3 Energy decay of the reference dynamics 
+
+The structure imposed in Section 4 is motivated by a property of the observed dynamics themselves. For a constant applied field, the total Gibbs free energy is non-increasing along solutions of equation (1). 
+
+Proposition 1 (Gibbs energy decay) . Let m solve (1) with ∥m∥2 = 1 pointwise, cγ > 0 and 
+
+α ≥ 0, and let G be the Gibbs free energy with Heff given by (2) . If the applied field is constant in time, then 
+
+ddt G[m(t)] = −μ0Mscγ α
+
+Z
+
+> Ω
+
+
+
+∥Heff ∥22 − (m · Heff )2
+
+dx ≤ 0. (7) 
+
+Proof. By (2) and the chain rule, ddt G = R 
+
+> Ω
+> δG δm
+
+· ∂tm dx = −μ0Ms
+
+R 
+
+> Ω
+
+Heff · ∂tm dx. Inserting 1, the precessional contribution vanishes because Heff ·(m×Heff ) = 0. For the damping contribution, the vector triple product and ∥m∥2 = 1 give Heff ·  m × (m × Heff ) = ( m · Heff )2 − ∥ Heff ∥22,which yields (7). The integrand is nonnegative by the Cauchy–Schwarz inequality, and vanishes precisely where Heff is parallel to m, which is Brown’s equilibrium condition.. The dissipation rate is proportional to α and vanishes only at equilibrium. Only the total energy is monotone: individual contributions need not be, since the exchange energy typically increases while a reversal structure forms. The latent model developed below imposes an analogous one-scalar decrease property in learned coordinates, under the same restriction to a constant conditional parameter. 
+
+# 3 Model architecture 
+
+The full proposed reduced-order model consists of three main maps: 
+
+Eθ : X → Z , (8) 
+
+Fη,ω : [0 , T ] × Z × P → Z , (9) 
+
+Dξ : Z → X , (10) where Z = Rd is the latent space, ( Eθ, D ξ) represents an autoencoder and Fη,ω is the latent vector field model. The encoder parameters are denoted by θ, the decoder parameters by ξ,the energy model parameter by η and the operator parameters collectively by ω. The complete model parameter set is Θ = ( θ, ξ, η, ω ). (11) Ideally, Dξ ◦ Eθ approximates the identity on M.The inference path is shown in Figure 1. An initial observation m(t0) is encoded as z0. The latent ODE evolves z0 to any requested time, and the decoder maps the latent solution back to the observation space. The physical parameter p conditions the scalar potential and hence the latent vector field. 4m(t0)observed spatial state    
+
+> Eθ
+> encoder
+> z0
+> latent space representation conditioned latent energy-gradient ODE ˙z=Fη,ω (z,p)
+> bz(t)latent space trajectory
+> Dξ
+> decoder
+> cm(t)decoded output
+> p
+> physical parameters
+
+Figure 1: Overall architecture. The encoder is evaluated at the initial state, the ODE advances the latent space representation, and the decoder supplies requested outputs. Physical parameters condition the latent energy-gradient ODE. 
+
+# 4 Latent energy-based dynamics 
+
+4.1 Scalar potential and gradient force 
+
+Let the latent energy model gη : Z × P → R be differentiable. Its first argument is the latent state z ∈ Rd and its second argument is the trajectory parameter p ∈ Rnp . We define the latent force 
+
+s(z, p) := ∇z gη(z, p) ∈ Rd. (12) The gradient is taken only with respect to z while p is fixed. Nonlinearity in z is important for general trajectories. If g(z) = aTz + b, its gradient is constant and an autonomous model has constant velocity. If g(z) = 12 zTQz + aTz + b with symmetric Q,its gradient is affine and the resulting vector field is affine. A deep scalar model permits both gradient and Hessian to vary with state. In Section 8 we show that a combination of quadratic and deep scalar model is most effective. 
+
+4.2 Conservative–dissipative split 
+
+Let J, R ∈ Rd×d satisfy 
+
+JT = −J, RT = R, R ⪰ 0. (13) The latent ODE in Figure 1 is ˙z(t) = Fη,ω (z(t), p) = ( J − R)∇z gη(z(t), p). (14) Here ˙z = d z/dt. The operator J generates motion that does not change gη, whereas −R
+
+generates motion down its gradient. The two terms use the same scalar potential but play distinct dynamical roles. The operators J, R are constant with respect to z and t in the present model. They are nevertheless learned parameters. Their constancy is a deliberate restriction and allow the latent dynamics to evolve in a fixed linear subspace of Z during inference. Nonlinear state dependence is assigned to the potential, while the operators encode a simple global latent motion. 
+
+Proposition 2 (Autonomous latent-energy dissipation) . For fixed p, a differentiable solution of 
+
+(14) satisfies 
+
+ddt gη(z(t), p) = −sTRs ≤ 0. (15) 5Proof. The chain rule and (14) give ddt gη(z(t), p) = sT ˙z = ( sTJs − sTRs ). (16) Since JT = −J, a scalar sTJs equals its negative and vanishes. Positive semidefiniteness of R
+
+gives the result. The result is exact in continuous time and requires no dissipation penalty in the training loss. It does not say that the observation-space trajectory decreases a known physical energy. It says that the learned scalar gη is a Lyapunov-like quantity for the learned autonomous latent flow. If the parameter varies with time, p = p(t), then ddt gη(z(t), p(t)) = −sTRs + ∇pgη(z(t), p(t)) T ˙p. (17) The second term on the right hand side represents work associated with parameter variation. Therefore, monotonicity is guaranteed only if p is constant, or if this additional term is non-positive. 
+
+Remark 1. The autoencoder might or might not retain the spatial dimensions through global pooling. In our implementation we retained the spatial dimension. The derivations also apply for general antisymmetric and semi-positive definite operators. For instance, if the spatial dimensions are kept and the latent operators are applied along the channel dimension. However, an important detail, is that if the spatial dimension is retained, one should also allow for energy transport within the spatial dimensions. Therefore, for the following deep energy model in Section 8, we use a convolutional layer with kernel width 3 as the first layer. It would also be possible to model the spatial energy transport with operators J and R. However, imposing this property on the energy model is simpler, especially since we only used valid padding for all convolutional operations and doing both would be redundant. 
+
+4.3 Spectral properties of the operators 
+
+The structural assumptions also constrain the spectra of the constant operators. Although these spectra do not by themselves determine the nonlinear dynamics, they are useful for verifying a trained model and further model analysis. 
+
+Proposition 3 (Operator spectra) . Let J, R ∈ Rd×d satisfy JT = −J and R ⪰ 0, and define 
+
+K = J − R. Then: (i) every eigenvalue of J is purely imaginary or zero; (ii) every eigenvalue of R is real and nonnegative; and (iii) every eigenvalue λ of K satisfies Re( λ) ≤ 0.Proof. The first two statements are standard consequences of real antisymmetry and real symmetric positive semidefiniteness. For the third, let v ∈ Cd \ { 0} satisfy Kv = λv, and let v∗
+
+denote its conjugate transpose. Then 
+
+λ = v∗Jv v∗v − v∗Rv v∗v . (18) 6The first quotient is purely imaginary, while the second is real and nonnegative. Therefore Re( λ) = − v∗Rv v∗v ≤ 0. (19) The eigen-decomposition of J and R help to analyze the importance of certain latent directions for the dynamics. Further, they are useful for rank estimation of a potential low-rank ansatz. They do not remove the coordinate and potential-scale ambiguities discussed later. 
+
+4.4 Conservative motion, dissipation, and equilibria 
+
+If R = 0, velocity is orthogonal to the energy gradient and motion is tangent to energy level sets. If J = 0, the model is a generalized gradient flow. The combined field superposes these motions. Every critical point, s(z⋆, p) = 0, is an equilibrium. The converse need not hold: a nonzero gradient can lie in the nullspace of K.The dissipation rate vanishes when Rs = 0. The state can still move under Js . Hence, zero dissipation is not equivalent to equilibrium. 
+
+Remark 2. The dissipation identity does not imply that every equilibrium is asymptotically stable. Stability also depends on the local energy shape, operator nullspaces, and their interaction. In our implementation we included a trainable regularizing term βI , with β > 0, to ensure full rank of K, and hence, for an equilibrium z⋆ it follows that s(z⋆, p) = 0 . Especially for future applications for Gibbs free energy minimization tasks, this could be useful. 
+
+4.5 Nonlinear expressivity and local dynamics 
+
+Constant matrices J and R do not make the model linear. For the vector field (14) its state dependence is determined by the energy gradient only. For a fixed parameter p, an affine energy produces a constant latent vector field. The encoder would therefore have to map each physical trajectory to straight-line motion with constant velocity in latent space. This is likely too restrictive to produce a useful latent representation of complex magnetization dynamics. For a quadratic energy, ∇z gquad is affine in z, and the resulting vector field is also affine. Although still restrictive, such dynamics may be sufficient for some applications. A convex quadratic energy additionally imposes a simple energy geometry and can therefore provide a useful inductive bias. For a deep nonlinear energy, the gradient depends nonlinearly on z, allowing the vector field to vary along a trajectory. This dependence is also visible in its Jacobian, 
+
+∂F ∂z (z, p) = ( J − R)∇2 
+
+> z
+
+gη(z, p), (20) which is state dependent whenever the energy Hessian is state dependent. The deep–quadratic model combines both contributions: 
+
+gdeep-quad = gquad + gdeep , (21) 7and hence 
+
+Fdeep-quad = ( J − R)∇z gquad + ( J − R)∇z gdeep . (22) The quadratic term provides an affine contribution, while the deep term provides a nonlinear correction. This decomposition is similar in spirit to the combination of linear and nonlinear terms in [18], but here both terms are generated by energy gradients and retain the conservative– dissipative structure. 
+
+4.6 Potential offset and scale 
+
+For any parameter-dependent scalar b(p), 
+
+eg(z, p) = gη(z, p) + b(p) =⇒ ∇z eg = ∇z gη. (23) Thus, the energy offset is unidentifiable. For any a > 0, 
+
+eg = ag η, eJ = a−1J, eR = a−1R (24) leaves the vector field unchanged. Trajectory supervision cannot fix an absolute energy or operator scale. Additional calibration or physical-energy supervision would be needed for physical interpretation. If such an additional calibration has practical benefits is an open question. 
+
+Remark 3. A potential threat of energy supervision would be an increased stiffness of the latent dynamics, while a benefit could be better physical interpretation. However, we note that such supervision still does not guarantee that the learned effective field eHeff = ∂g η 
+
+> ∂m
+
+(Dξ(m)) is a good approximation of the actual effective field unless snapshots are sampled at a sufficient temporal rate, and whether an increased temporal resolution increases the stiffness of the latent dynamics is another open question. 
+
+# 5 Learning from snapshot windows 
+
+5.1 Short windows extracted from long trajectories 
+
+Let T denote the dataset of M complete observed trajectories. During training, each trajectory is decomposed into contiguous windows of k snapshots, yielding the windowed dataset 
+
+Tk =
+
+n
+
+{(t(q)
+
+> ℓ+i
+
+, m(q)
+
+> ℓ+i
+
+, p(q))}k−1 
+
+> i=0
+
+: q = 1 , . . . , M, ℓ = 0 , . . . , k q − k
+
+o
+
+. (25) Windows may overlap, but complete physical trajectories are assigned to the training, validation, and test sets before window extraction. Hence, snapshots from the same trajectory cannot appear in different data partitions. Each element of Tk is treated as an independent training sample. For a single window, the trajectory and window indices are omitted, and we write 
+
+{(ti, mi, p)}k−1 
+
+> i=0
+
+. (26) The corresponding snapshots are encoded and give the latent reference states 
+
+zi = Eθ(mi), i = 0 , . . . , k − 1. (27) 8The latent ODE (14) is integrated over [ t0, t k−1], with initial condition bz(t0) = z0, and evaluated at the observation times bzi = bz(ti) for i = 0 , . . . , k − 1.
+
+The predicted latent states are compared to the actual latent reference states. Further, they are passed to the decoder which allows for comparison of the prediction in X . The numerical solver may use arbitrary internal time steps and only the solution values at the observation times are required for loss evaluation. 
+
+5.2 Latent trajectory loss 
+
+The latent trajectory loss compares the ODE solution with the encoded observation sequence: 
+
+Lz = 1(k − 1) d
+
+> k−1
+
+X
+
+> i=1
+
+∥bzi − zi∥22. (28) The initial index is omitted because bz0 = z0 by construction. This loss encourages the encoder to produce coordinates whose evolution can be described by the structured latent ODE. Because the targets zi also depend on the encoder parameters, Lz is coordinate dependent and can change under a rescaling of the latent space. 
+
+5.3 Decoded rollout loss and joint objective 
+
+Accuracy in latent coordinates does not automatically imply accuracy after decoding. We therefore compare the decoded integrated states directly with the observations: 
+
+Lroll = 13kN 
+
+> k−1
+
+X
+
+> i=0
+
+∥Dξ(bzi) − mi∥22. (29) This term exposes the decoder to latent states reached by numerical integration, not only to exact encoder outputs. It also anchors training to the observable state rather than solely to a non-identifiable latent coordinate. It is important to note that we do not omit the initial index for the rollout loss. This term is the exact reconstruction loss of the first state and notably improves training. The full objective is given by 
+
+L(Θ) = λz Lz + λroll Lroll , λz , λ roll > 0. (30) All parameters are optimized jointly. Gradients pass through the encoder targets, ODE solution, scalar gradient, operators, and decoder. The two losses counter simple degeneracies: the decoded term anchors the model to observations, while the latent term directly compares coordinate trajectories. 
+
+# 6 Differentiation, integration, and scaling 
+
+6.1 Neural ODE viewpoint 
+
+A neural ordinary differential equation specifies a parameterized vector field FΘ and defines predictions as the solution of an initial-value problem [4], ˙z(t) = FΘ(t, z(t), p), z(t0) = z0, (31) 9or, equivalently, 
+
+z(t) = z0 +
+
+Z tt0
+
+FΘ(τ, z(τ ), p) d τ. (32) Unlike a network with a fixed number of discrete layers, the requested output times are handled by a numerical ODE solver, which may choose its own internal steps. Training differentiates a loss through this numerical solution map. In the present model, the vector field is Fη,ω from (14), rather than an unrestricted neural network. The larger training parameter set Θ = ( θ, ξ, η, ω )additionally includes the encoder and decoder parameters, although they are not part of the latent right-hand side itself. While a generic neural ODE is certainly also a viable model for latent space integration, it imposes a less restrictive inductive bias compared to our energy based approach. 
+
+6.2 Reverse-over-reverse differentiation 
+
+At one right-hand-side evaluation, an inner reverse-mode derivative computes s = ∇z gη(z, p)and the operator produces F = ( J − R)s. Let qF be an incoming outer reverse-mode cotangent, defined by δL = qT 
+
+> F
+
+δF . Reverse differentiation through the operator gives 
+
+qs = ( J − R)TqF . (33) The outer derivative must propagate this sensitivity through the inner gradient in two directions. Its state contribution is the Hessian–vector product 
+
+ ∂F ∂z
+
+T
+
+qF = Hg(z, p)qs, (34) and its scalar-network parameter contribution is the mixed product 
+
+ ∂F ∂η 
+
+T
+
+qF =
+
+ ∂∂η ∇z gη(z, p)
+
+T
+
+qs. (35) Automatic differentiation evaluates these products without constructing a dense Hessian or mixed-derivative matrix. The calculation is reverse-over-reverse: an inner reverse pass constructs the field and an outer pass differentiates the loss through that construction and the numerical solve. Differentiating through adaptive solvers also requires care: continuous adjoints and direct discrete differentiation can produce different numerical gradients at finite tolerance [8]. 
+
+6.3 Continuous and discrete dissipation 
+
+(15) concerns the exact continuous solution. A generic finite-tolerance integrator need not preserve monotonicity at every accepted step or saved output. A small numerical increase is distinct from violation of the analytic identity, which cannot occur when the operators satisfy (13). Solver selection and tolerances should therefore be reported as evaluation choices, not presented as part of the continuous-time guarantee. 
+
+6.4 Computational scaling 
+
+Let Cg denote the cost of evaluating the scalar network and its gradient. One field evaluation costs approximately Cg + O(d2) and operator storage is O(d2) for dense operators. Structured 10 rank-r factorizations could reduce these contributions to O(dr ) work and O(dr ) storage if r ≪ d.Antisymmetry and positive semidefiniteness can be retained through suitable factorizations, but the resulting rank restrictions may reduce expressivity and are not studied here. The decoder is evaluated at requested outputs rather than every internal ODE stage. This separation does not by itself establish a speed advantage: a meaningful comparison must include encoding, integration, decoding, and accuracy. 
+
+Remark 4. If the latent space retains spatial dimensions the computational cost is Cg +O(|S| d2),where |S| denotes the number of spatial dimensions of the latent space. 
+
+# 7 Relation to structured dynamical models 
+
+For canonical Hamiltonian dynamics, a fixed antisymmetric symplectic matrix acts on a Hamilto-nian gradient. The antisymmetric term here has the same algebraic energy-preserving property, but the learned latent coordinates are not assumed canonical and the channel operator is learned. Pure gradient systems take the form ˙ z = −M ∇G(z) with M ⪰ 0 and decrease G. The present field adds an antisymmetric component without changing the one-scalar dissipation identity. Metriplectic and GENERIC formulations combine antisymmetric and symmetric brackets [19, 11]. Complete GENERIC formulations generally distinguish energy and entropy generators and impose additional degeneracy conditions. The one-scalar construction used here is simpler and should not be identified with those thermodynamic formalisms. Compared with an unrestricted latent neural ODE ˙z = fψ(z, p), the structured field occupies a smaller hypothesis class. It trades unrestricted vector-field flexibility for an exact continuous-time scalar-decrease property and explicit operator roles; whether that trade is beneficial requires empirical comparison. 
+
+# 8 Numerical results 
+
+We use the two applied-field directions of NIST μMAG Standard Problem 4 [20]: field 1 at 170 ◦
+
+and field 2 at 190 ◦. Each comprises 200 uniformly spaced amplitudes: 20 .00 mT to 29 .95 mT for field 1 and 30 .00 mT to 39 .95 mT for field 2, at 0 .05 mT increments. Within these ranges, field1 exhibits comparatively smooth and regular dynamics, whereas field2 displays more complex trajectory variation. The nominal trajectories at 25 mT and 36 mT, respectively, are held out as reference cases. The remaining 199 trajectories are split at trajectory level into 139 training trajectories Ttrain , 20 validation trajectories Tval , and 40 test trajectories Ttest .All trajectories begin from the same relaxed S-state and contain 101 snapshots from 0 to 1 ns, inclusive, at 0 .01 ns intervals, on a 100 × 25 × 1 grid with three magnetization components. Field amplitude is scaled to [ −1, 1] using bounds fitted on the training set. This experiment concerns the stated grid and field directions only. 
+
+8.1 Implementation and optimization 
+
+The implemented encoder has channel widths (16 , 32 , 64 , 128) and a matched transpose-convolution decoder. Its retained latent state has shape 4 × 1 × 1 × 128: four spatial sites with 128 channels each. All spatially nontrivial autoencoder and energy convolutions use VALID padding. Where a 11 spatial extent is one, a numerically equivalent 1 × 1 × 1 convolution is used when a larger VALID 
+
+kernel is inapplicable. Hidden activations are GELUs. Table 1: Implemented autoencoder. Counts include biases where present.                                                                                                    
+
+> Stage output tensor parameters Input 100 ×25 ×1×30Encoder block 1 49 ×11 ×1×16 1,488 Encoder block 2 23 ×4×1×32 8,768 Encoder block 3 10 ×1×1×64 34,944 Encoder block 4 4×1×1×128 57,600 Latent 1 ×1×1 convolution 4×1×1×128 16,384 Decoder block 1 10 ×1×1×128 82,176 Decoder block 2 23 ×4×1×64 139,456 Decoder block 3 49 ×11 ×1×32 34,912 Decoder block 4 100 ×25 ×1×16 8,752 Reconstruction 1 ×1×1 convolution 100 ×25 ×1×348 Autoencoder total 384,528
+
+We compare three scalar-energy families. The quadratic model is 
+
+gquad (z, p) = 12 ∥Q(z) − c(p)∥2 
+
+> F
+
+, (36) with a rank of 32. The VALID convolution gives Q(z) ∈ R2×1×1×32 , while c(p) ∈ R32 is broadcast over the two retained output sites; this model has 12,352 parameters. The deep model, denoted 
+
+gdeep , concatenates the physical parameters with the latent tensor broadcasted over the spatial sites. It then uses a spatial convolution followed by 1 × 1 × 1 convolutions of widths (32 , 32 , 16 , 1) with GELUs, sums the resulting scalar field, and applies softplus. It has 14,017 parameters. The deep–quadratic model is the direct additive combination 
+
+gdeep-quad (z, p) = gdeep (z, p) + gquad (z, p), (37) and has 26,369 parameters. The quadratic contribution supplies an affine term to the latent vector field, while the deep contribution permits state-dependent curvature. This rank-factorized quadratic energy is distinct from a low-rank channel-operator parameterization, which is not used. The spatial convolutions in the energy models are structurally important because the channel operators act sitewise and do not themselves move information between retained sites. Both 
+
+Q in the quadratic model and the first layer of the deep model use a spatial kernel that mixes neighboring latent sites; the subsequent 1 × 1 × 1 layers mix channels locally. Consequently, the gradient at one retained site can depend on neighboring latent states. The convolutions are therefore the model’s direct route for representing cross-site coupling, including transport-like propagation or redistribution patterns in the latent dynamics. Each energy is paired with two vector-field families. The dissipative-only family uses ˙za =
+
+−R∇za g, whereas the antisymmetric–dissipative (A–D) family uses ˙ za = ( J − R)∇za g. The channel operators are dense 128 × 128 matrices shared over the four sites: J = A − AT and 
+
+R = BTB + βI , with trainable positive β. Crossing the two fields with the quadratic, deep, and additive deep–quadratic energies gives the six compared models. The dissipative-only and A–D fields add 16,385 and 32,769 parameters, respectively. Complete-model counts, ordered as dissipative-only quadratic, deep, deep–quadratic, then A–D quadratic, deep, deep–quadratic, are 413,265, 414,930, 427,282, 429,649, 431,314, and 443,666. 12 We use a window size k = 5, λz = λroll = 1, batch size 32, and 700 epochs. AdamW uses weight decay 10 −4 and a learning rate that warms from 10 −4 to 10 −3 during the first 5% of updates and then decays cosinusoidally to 10 −5.Our implementation uses Diffrax [14] with the explicit Tsitouras 5(4) Runge–Kutta method (Tsit5 ). The relative tolerance is set to 10 −3 and absolute tolerance to 10 −5 for training and evaluation. The adaptive solver returns states at the snapshot times used by the loss even though its internal stages generally occur at different times. Gradients are computed with Diffrax’s RecursiveCheckpointAdjoint . This method differenti-ates the discrete solver computation by reverse-mode AD while retaining only selected primal states and recomputing others during the backward pass. Recursive checkpointing therefore trades additional computation for lower memory use. It should not be confused with a continuous backsolve adjoint that integrates a separate adjoint ODE backward in time. The checkpointed discrete adjoint differentiates the numerical trajectory actually produced by the chosen solver and tolerances. Checkpointing a discrete solve trades recomputation for storage, but it does not remove the products in (34) and (35). Evaluation uses one encoded initial state, no re-encoding of intermediate reference snapshots and no unit norm normalization. We use root mean square error (RMSE) as an error metric. Note that due to the unit norm constraint this also equals the relative RMSE (assuming the mean is not applied along the magnetization dimension). In addition, we report mean angular error (MAnE) as well as solver statistics. The primary objective is to assess the overall model design and its applicability to this prob-lem rather than to maximize predictive performance. Because the space of hyperparameters, architectural choices, and training algorithms is large, we use fixed configurations and do not perform systematic hyperparameter optimization. The reported results should therefore not be interpreted as estimates of the best attainable performance, and further tuning may yield substantial improvements. 
+
+8.2 Joint vector-field and energy comparison 
+
+Tables 2 and 3 pool 40 held-out trajectories per field. The antisymmetric–dissipative deep– quadratic configuration has the smallest RMSE in this six-model, single-seed comparison: 0.0459 for field 1 and 0.2929 for field 2. For comparison, the reference solver (Tsit5 with relative tolerance 10 −3 and absolute tolerance 10 −5) requires 0 .349 s and 1034 steps for the field 1 case and 0 .330 s and 971 steps for the field 2 case on the same machine with single precision. Table 2: Field 1 comparison on 40 held-out trajectories (20 .00 mT to 29 .95 mT, 170 ◦). A–D denotes antisymmetric–dissipative and D dissipative-only. We report the RMSE for the windowed dataset T k
+
+> test
+
+, and RMSE, MAnE, mean inference time (encoding, full rollout, and decoding) as well as required solver steps (accepted and rejected) for Ttest .                                            
+
+> Model parameters RMSE for Tk
+> test RMSE MAnE ( ◦)s/trajectory steps A–D quadratic 429649 0.0070 0.3201 12.90 0.028 34.0 A–D deep 431314 0.0071 0.2063 6.71 0.047 40.4 A–D deep–quadratic 443666 0.0068 0.0459 1.68 0.073 50.2 D quadratic 413265 0.0091 0.7974 39.10 0.061 99.4 D deep 414930 0.0100 1.4309 64.75 0.040 28.9 D deep–quadratic 427282 0.0084 0.7922 38.26 0.099 70.2
+
+13 Table 3: As Table 2, for field 2 (30 .00 mT to 39 .95 mT, 190 ◦).                                                  
+
+> Model parameters RMSE for Tk
+> test RMSE MAnE ( ◦)s/trajectory steps A–D quadratic 429649 0.0411 0.7430 33.17 0.031 37.2 A–D deep 431314 0.0422 0.3363 12.23 0.053 46.1 A–D deep–quadratic 443666 0.0411 0.2929 9.47 0.094 47.4 D quadratic 413265 0.0442 1.3070 77.46 0.042 62.0 D deep 414930 0.0468 0.7632 31.49 0.040 30.0 D deep–quadratic 427282 0.0436 0.6678 29.05 0.095 70.3 0.0 0.2 0.4 0.6 0.8 1.0 time (ns) 1.0
+> 0.5
+> 0.0 0.5 1.0 mean magnetization
+
+Dissipative-only deep--quadratic: 25 mT, 170°       
+
+> reference mx
+> reference my
+> reference mz
+> prediction mx
+> prediction my
+> prediction mz
+
+Figure 2: Uninterrupted dissipative-only deep–quadratic rollout at 25 mT, 170 ◦, on the 100 ×25 ×1grid. Solid curves are reference spatial means and dashed curves are decoded-model spatial means. It can be seen that a small error on the windowed dataset T k 
+
+> test
+
+does not pose any strong guarantees for longer rollouts. The dissipative-only models have much smaller window errors than their uninterrupted-rollout errors, but do not reproduce the full rollouts in these two comparisons. This supports the usefulness of the antisymmetric term for these data and configurations. Figures 2 and 3 show the uninterrupted dissipative-only deep–quadratic rollouts for the two reference fields. The comparison of predicted and reference mean magnetization illustrates how errors accumulate over a complete trajectory even when short-window errors remain small. Only dissipation of latent energy seems to be too restrictive to accurately learn the latent dynamics. The quadratic energy model also has difficulties to reproduce the dynamics accurately and underfits the data even though the error is small on T k
+
+> test
+
+.
+
+8.3 Reference trajectories, learned energy, and operator diagnostics 
+
+Figures 4 and 5 show the corresponding full reference-case rollouts for the antisymmetric– dissipative deep–quadratic models. Each figure presents the mean-magnetization trajectory together with its rollout error, the change in learned latent energy and the corresponding Gibbs energy of the reference. It can be seen that the latent energy does not qualitatively coincide with the Gibbs energy. The model performs quite good for field 1 and is able to capture the dynamics while the energy is decreasing along the trajectory. For the difficult field 2 case the model is still able to approximate the overall dynamics, however with a much larger error. All saved learned-energy traces of the reported models were non-increasing. This observation is 14 0.0 0.2 0.4 0.6 0.8 1.0 time (ns) 1.0 
+
+> 0.5
+> 0.0 0.5 1.0 mean magnetization
+
+Dissipative-only deep--quadratic: 36 mT, 190°       
+
+> reference mx
+> reference my
+> reference mz
+> prediction mx
+> prediction my
+> prediction mz
+
+Figure 3: As Figure 2, at 36 mT, 190 ◦.consistent with (15). The spatial structure of these rollouts is displayed in Figures 6 and 7. The angle maps compare the reference and decoded states at several times, while the error maps indicate vector differences. Figures 8 and 9 report the learned channel-operator spectra for the two selected models. These plots provide numerical diagnostics of the imposed antisymmetric and dissipative parameteriza-tions. The antisymmetric operator exhibits a richer spectral structure, with conjugate eigenvalue pairs distributed over a broad interval of the imaginary axis. The substantially broader spectrum of the antisymmetric operator, compared with the dissipative eigenvalues clustered near zero, suggests that the antisymmetric component acts across a wider range of latent dynamical scales and likely plays a more important role in the learned evolution. For the parameter β, we find that the term is quite small after training: 3 .766 × 10 −5 for field 1 and 1 .364 × 10 −5 for field 2. The optimization histories in Figures 10 and 11 show the training and validation contributions used to fit the two selected models. For field 2, both training and validation losses remain comparatively high compared to the field 1 case. This could indicate underfitting. We also see a slight generalization gap and more data could help. 
+
+8.4 Extrapolation beyond the training horizon 
+
+The A–D deep and deep–quadratic models were extended to 2 ns to further test generalization. The paired mean-magnetization trajectories and their errors are shown in Figures 12 and 13. The vertical marker separates the training horizon from the extrapolated interval and makes the subsequent error development visible for both energy models. For field 1, the deep–quadratic model remains close to the full-order reference throughout the 2 ns interval and reproduces the qualitative magnetization evolution beyond the training horizon. In contrast, the deep model quickly departs from the reference and relaxes toward a spurious state. This result suggests that the quadratic contribution provides a useful inductive bias for preserving the relevant long-time dynamics in this case. For field 2, the deep-quadratic model still performs better than the deep model. It is closer to the reference, but the difference is less clear. The quadratic energy contribution provides an affine component of the latent vector field and is analogous to linear components considered for long-time neural-ODE forecasting [18]. 15 1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 0.25 0.50 0.75 1.00 mean magnetization 
+
+SP4 25 mT, 170°       
+
+> reference mx
+> reference my
+> reference mz
+> prediction mx
+> prediction my
+> prediction mz
+
+0.01 0.02 0.03 RMSE 0.0 0.2 0.4 0.6 0.8 1.0 time (ns) 4
+
+2
+
+0energy     
+
+> latent g(t)g(0)
+> scaled Gibbs energy
+
+Figure 4: Post-hoc test-leading antisymmetric–dissipative deep–quadratic rollout at 25 mT, 170 ◦:spatially averaged magnetization, RMSE, gη(t) − gη(0) and scaled Gibbs energy of the reference solution. The rollout is evaluated on the 100 × 25 × 1 grid with relative tolerance 10 −3 and absolute tolerance 10 −5. The learned latent energy does not correspond to the Gibbs energy. 16 1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 0.25 0.50 0.75 1.00 mean magnetization 
+
+SP4 36 mT, 190°       
+
+> reference mx
+> reference my
+> reference mz
+> prediction mx
+> prediction my
+> prediction mz
+
+0.0 0.2 0.4 RMSE 0.0 0.2 0.4 0.6 0.8 1.0 time (ns) 3
+
+2
+
+1
+
+0energy     
+
+> latent g(t)g(0)
+> scaled Gibbs energy
+
+Figure 5: As Figure 4, at 36 mT, 190 ◦.17 0.2 ns 
+
+reference A-D deep-quadratic L2 error      
+
+> 0.4 ns 0.6 ns 0.8 ns
+> 0
+> in-plane angle (rad)
+> 0.00 0.02 0.04 0.06
+> mm2
+> A-D deep-quadratic: 25 mT, 170°
+
+Figure 6: Reference and decoded in-plane magnetization angle for the A–D deep–quadratic model at 25 mT, 170 ◦, on the 100 × 25 × 1 grid. Both angle images use the common interval [ −π, π ]. The right column is the pointwise magnitude of the decoded-minus-reference magnetization vector, with one error scale shared across the four displayed times. 0.2 ns 
+
+reference A-D deep-quadratic L2 error      
+
+> 0.4 ns 0.6 ns 0.8 ns
+> 0
+> in-plane angle (rad)
+> 0.0 0.5 1.0 1.5
+> mm2
+> A-D deep-quadratic: 36 mT, 190°
+
+Figure 7: As Figure 6, at 36 mT, 190 ◦.18 5 0 5imaginary part 010 20 30 count 
+
+J: imaginary eigenvalues    
+
+> 0246real part 025 50 75 100 count
+
+R: real eigenvalues    
+
+> 3210real part 5
+> 05imaginary part
+
+K = J R: spectrum 
+
+> A--D deep--quadratic, field 1: latent operators
+
+Figure 8: Operator eigenvalues for the field 1 A–D deep–quadratic model. The left and middle panels histogram the imaginary parts of the J eigenvalues and real parts of the R eigenvalues; the right panel shows the complex spectrum of K = J − R. The structure requires purely imaginary or zero eigenvalues for J, nonnegative real eigenvalues for R, and nonpositive real parts for eigenvalues of K.10 0 10 imaginary part 010 20 count 
+
+J: imaginary eigenvalues    
+
+> 0246real part 025 50 75 100 count
+
+R: real eigenvalues    
+
+> 3210real part 10
+> 5
+> 0510 imaginary part
+
+K = J R: spectrum 
+
+> A--D deep--quadratic, field 2: latent operators
+
+Figure 9: As Figure 8, for the field 2 A–D deep–quadratic model. 0 200 400 600 epoch 10 5
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+> rollout loss
+
+train val 0 200 400 600 epoch 10 6
+
+10 5
+
+10 4
+
+10 3
+
+> latent loss
+
+train val Joint training: 25 mT, 170° 
+
+Figure 10: Training and validation decoded-rollout and latent losses for the field 1 A–D deep– quadratic model. 19 0 200 400 600 epoch 10 3
+
+10 2
+
+10 1
+
+> rollout loss
+
+train val 0 200 400 600 epoch 10 5
+
+10 4
+
+10 3
+
+> latent loss
+
+train val Joint training: 36 mT, 190° Figure 11: As Figure 10, for the field 2 A–D deep–quadratic model. 1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 0.25 0.50 0.75 1.00 mean magnetization 
+
+SP4 extrapolation: 25 mT, 170°    
+
+> mxmymzreference A-D deep A-D deep-quadratic
+
+0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00 time (ns) 0.0 0.2 0.4 0.6 RMSE 
+
+> A-D deep A-D deep-quadratic
+
+Figure 12: Paired 2 ns rollout at 25 mT, 170 ◦. The upper panel overlays spatially averaged reference, A–D deep, and A–D deep–quadratic magnetization; color denotes component and line style denotes source. The lower panel shows RMSE for both learned models. The vertical marker denotes the 1 ns training horizon. Both models encode exact copies of the same fresh full-order reference state. 20 1.00 
+
+0.75 
+
+0.50 
+
+0.25 
+
+0.00 0.25 0.50 0.75 1.00 mean magnetization 
+
+SP4 extrapolation: 36 mT, 190°    
+
+> mxmymzreference A-D deep A-D deep-quadratic
+
+0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00 time (ns) 0.0 0.2 0.4 0.6 RMSE 
+
+> A-D deep A-D deep-quadratic
+
+Figure 13: As Figure 12, at 36 mT, 190 ◦.21 9 Limitations and prospective applications 
+
+The experiments use only one grid and two distinct field directions. We do not perform any hyperparameter tuning and do not quantify optimization variability. The dissipation identity does not establish trajectory accuracy, physical-energy recovery, stability, or robustness outside the sampled family. Learning the solution trajectories over larger conditional parameter spaces requires exponentially more data. A promising idea from energy-based models is to employ a bounded replay buffer of positive supervised PDE transitions. An offline active reference-solver could be advanced by one output interval, with the resulting one-step transitions or short windows stored in the buffer. An instance would be replaced after reaching a predefined termination criterion. This stochastic approach could allow the training over large conditional spaces. To test this, an natural extension of the training data in this work could include a second conditional parameter (field magnitude and field angle). Further, a spatial latent structure allows for arbitrary input dimension for the encoder. An interesting direction would be the training with different input shapes and testing spatial generalization of the model. Low-rank channel-operator parameterizations could drastically decrease the required parameter count for the latent vector field model. The presented operator spectra indicate that this low-rank structure is useful, but introducing rank restrictions requires a separate study. In integrated sensing, a compact latent rollout could be useful if task-specific accuracy, latency, and robustness are demonstrated. When trajectories share an initial state, it only needs to be encoded once and only a terminal state could be decoded if intermediate fields are unnecessary. For observables, such as mean magnetization, a lightweight latent-to-observable head could replace the decoder completely. This could potentially result in a very lightweight model class. 
+
+# 10 Conclusion 
+
+We formulated a reduced order model coupling an autoencoder model to a conservative–dissipative energy-gradient ODE. Its continuous autonomous flow decreases the learned scalar latent energy while an antisymmetric operator allows for motion along the contour lines. We paired the vector field model with three different latent energy models, a deep, a quadratic, and a deep–quadratic model. These models were tested on two generated dataset for the NIST μMAG Standard Problem 4. One dataset for the field 1 case and one for the difficult field 2 case. The results give empirical evidence that the antisymmetric operator is a requirement to accurately learn a conditioned latent energy-gradient ODE for the dynamics. In paired post-hoc 2 ns rollouts, for the field 1 case, the deep–quadratic model set a strong inductive bias and allowed for realistic generalization past the training horizon. 
+
+Data. The source code used to produce the results is publicly available on Zenodo [22]. 22 Acknowledgment 
+
+This research was funded in whole or in part by the Austrian Science Fund (FWF) [10.55776/PAT7615923, 10.55776/P35413]. For the purpose of Open Access, the authors have applied a CC BY public copyright license to any Author Accepted Manuscript (AAM) version arising from this submission. The computations were partly achieved by using the Austrian Scientific Cluster (ASC) via the funded projects No. 71140, 71952 and 72862. 
+
+# References 
+
+[1] M. Bashir, T. Schrefl, J. Dean, A. Goncharov, G. Hrkac, D. Allwood, and D. Suess. Head and bit patterned media optimization at areal densities of 2.5 Tbit/in2 and beyond. Journal of Magnetism and Magnetic Materials , 324(3):269–275, 2012. [2] W. F. Brown, Jr. Micromagnetics . Interscience Publishers, New York, 1963. [3] K. Champion, B. Lusch, J. N. Kutz, and S. L. Brunton. Data-driven discovery of coordinates and governing equations. Proceedings of the National Academy of Sciences , 116(45):22445– 22451, 2019. [4] R. T. Chen, Y. Rubanova, J. Bettencourt, and D. K. Duvenaud. Neural ordinary differential equations. Advances in neural information processing systems , 31, 2018. [5] Y. Du and I. Mordatch. Implicit generation and modeling with energy based models. 
+
+Advances in neural information processing systems , 32, 2019. [6] L. Exl, N. J. Mauser, S. Schaffer, T. Schrefl, and D. Suess. Prediction of magnetization dynamics in a reduced dimensional feature space setting utilizing a low-rank kernel method. 
+
+Journal of Computational Physics , 444:110586, 2021. [7] J. Fischbacher, A. Kovacs, M. Gusenbauer, H. Oezelt, L. Exl, S. Bance, and T. Schrefl. Micromagnetics of rare-earth efficient permanent magnets. Journal of Physics D: Applied Physics , 51(19):193002, 2018. [8] A. Gholami, K. Keutzer, and G. Biros. Anode: Unconditionally accurate memory-efficient gradients for neural odes. arXiv preprint arXiv:1902.10298 , 2019. [9] T. L. Gilbert. A phenomenological theory of damping in ferromagnetic materials. IEEE transactions on magnetics , 40(6):3443–3449, 2004. [10] S. Greydanus, M. Dzamba, and J. Yosinski. Hamiltonian neural networks. Advances in neural information processing systems , 32, 2019. [11] M. Grmela and H. C. ¨Ottinger. Dynamics and thermodynamics of complex fluids. i. development of a general formalism. Physical Review E , 56(6):6620, 1997. [12] Q. Hern´ andez, A. Bad´ ıas, F. Chinesta, and E. Cueto. Port-metriplectic neural networks: thermodynamics-informed machine learning of complex physical systems. Computational Mechanics , 72(3):553–561, 2023. [13] G. E. Hinton. Training products of experts by minimizing contrastive divergence. Neural computation , 14(8):1771–1800, 2002. 23 [14] P. Kidger. On Neural Differential Equations . PhD thesis, University of Oxford, 2021. [15] A. Kovacs, J. Fischbacher, M. Gusenbauer, H. Oezelt, H. C. Herper, O. Y. Vekilova, P. Nieves, S. Arapan, and T. Schrefl. Computational design of rare-earth reduced permanent magnets. Engineering , 6(2):148–153, 2020. [16] A. Kovacs, J. Fischbacher, H. Oezelt, M. Gusenbauer, L. Exl, F. Bruckner, D. Suess, and T. Schrefl. Learning magnetization dynamics. Journal of Magnetism and Magnetic Materials , 491:165548, 2019. [17] K. Lee and K. T. Carlberg. Model reduction of dynamical systems on nonlinear manifolds using deep convolutional autoencoders. Journal of Computational Physics , 404:108973, 2020. [18] A. J. Linot, J. W. Burby, Q. Tang, P. Balaprakash, M. D. Graham, and R. Maulik. Stabilized neural ordinary differential equations for long-time forecasting of dynamical systems. Journal of Computational Physics , 474:111838, 2023. [19] P. J. Morrison. A paradigm for joined Hamiltonian and dissipative systems. Physica D: Nonlinear Phenomena , 18(1-3):410–419, 1986. [20] NIST Micromagnetic Modeling Activity Group. https://www.ctcms.nist.gov/~rdm/ std4/spec4.html . Accessed 31 July 2026. [21] Y. Rubanova, R. T. Chen, and D. K. Duvenaud. Latent ordinary differential equations for irregularly-sampled time series. Advances in neural information processing systems , 32, 2019. [22] S. Schaffer and L. Exl. ebm llg, Sept. 2026. https://doi.org/10.5281/zenodo.22281255 .[23] S. Schaffer, N. J. Mauser, T. Schrefl, D. Suess, and L. Exl. Machine learning methods for the prediction of micromagnetic magnetization dynamics. IEEE Transactions on Magnetics ,58(2):1–6, 2021. [24] D. Suess, A. Bachleitner-Hofmann, A. Satz, H. Weitensfelder, C. Vogler, F. Bruckner, C. Abert, K. Pr¨ ugl, J. Zimmer, C. Huber, et al. Topologically protected vortex structures for low-noise magnetic sensors with high linear range. Nature Electronics , 1(6):362–370, 2018. [25] T. Tieleman. Training restricted Boltzmann machines using approximations to the likelihood gradient. In Proceedings of the 25th international conference on Machine learning , pages 1064–1071, 2008. 24

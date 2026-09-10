@@ -1,0 +1,1728 @@
+Title: Calibration of neural viscoelastic models via full-field data
+
+URL Source: https://arxiv.org/pdf/2609.03645v1
+
+Published Time: Fri, 04 Sep 2026 01:02:23 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Calibration of neural viscoelastic models via full-field data 
+
+A Preprint 
+
+Brain M. Riemer 
+
+Institute of Solid Mechanics TU Dresden, 01062 Dresden, Germany 
+
+Markus Kästner 
+
+Institute of Solid Mechanics TU Dresden, 01062 Dresden, Germany 
+
+Karl A. Kalina ∗
+
+Institute of Solid Mechanics TU Dresden, 01062 Dresden, Germany September 4, 2026 
+
+# Abstract 
+
+We propose an unsupervised learning framework for calibrating a physics-augmented neural network (PANN) for small-strain viscoelasticity via full-field data. It only requires quantities that are directly accessible in real experiments for training, namely global reaction forces and surface displacements. The underlying PANN is embedded in the generalized standard materials theory, in which two scalar-valued potentials render the constitutive model thermodynamically consistent by construction, while invariant-based representations of the free energy and the dual dissipation potential additionally ensure material symmetry. Considering a thin specimen under the plane stress assumption, we formulate a constrained optimization problem based on the equilibrium gap method in combination with quasi-Newton optimizers and automatic differentiation. Thereby, the unknown out-of-plane strain follows from the plane stress condition and the evolution of the internal variables is captured by an implicit time integration scheme. The resulting system of nonlinear equations is solved via a local Newton iteration at quadrature point and time step. To drastically reduce the computational cost of training, the backward adjoint method is employed to compute the gradient of the target loss, instead of backpropagating through all Newton iteration steps. The proposed framework is demonstrated for synthetic data, including noisy displacements and forces, showing excellent agreement across a wide range of deformation rates and load paths. 
+
+Keywords viscoelasticity · generalized standard materials · physics-augmented neural networks · full-field data · equilibrium gap method 
+
+# 1 Introduction 
+
+Over the past century, extensive research has established the physical and mathematical principles that constitutive models should obey (Haupt, 2000, Holzapfel, 2000, Šilhavý, 1997), giving rise to a wide range of so-called classical constitutive models . However, when applied to materials that exhibit highly nonlinear behavior, such models may be too restrictive to ac-curately fit the data and may need to be modified for each new set of experimental data. To address these shortcomings, 
+
+machine learning approaches—particularly neural networks (NNs) —have emerged as powerful tools for constitutive mod-eling (Dornheim et al., 2023, Fuhg et al., 2024), offering the flexibility to capture complex material responses while automat-ing the modeling process. 
+
+> ∗
+
+Corresponding author, email: karl.kalina@tu-dresden.de .
+
+In the following, we first give an overview of neural constitutive modeling for both elasticity and inelasticity. Building on this, we then review the most common strategies for calibrating such data-driven material models from full-field data. 
+
+1.1 Literature review on neural constitutive modeling 
+
+In their seminal work from the early 1990s, Ghaboussi et al. (1991) were the first to employ NNs as constitutive models. Inspired by this work, a number of follow-up studies were conducted. However, after these initial steps, the field was not actively pursued for quite some time afterward. With the recent rise of machine learning and gains in computational efficiency, however, a variety of data-driven techniques have rapidly gained momentum in mechanics, as reviewed in (Bock et al., 2019, Dornheim et al., 2023, Fuhg et al., 2024). arXiv:2609.03645v1 [cs.CE] 3 Sep 2026 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+A significant step forward in neural constitutive modeling—and in scientific machine learning more broadly—is the integration of fundamental physical concepts, variously termed physics-informed (Raissi et al., 2019), mechanics-informed (As’ad & Farhat, 2023), physics-augmented (Klein et al., 2024, Linden et al., 2023), physics-based (Aldakheel et al., 2025), physics-constrained (Kalina et al., 2023), or thermodynamics-based 
+
+(Masi et al., 2021). Physical knowledge can be embedded in two ways (Rosenkranz et al., 2023): strongly , through network architectures tailored to the problem (Kalina et al., 2022, Linka et al., 2021), or weakly , through problem-specific loss functions used during training (Geiger et al., 2025, Masi et al., 2021). As demonstrated in (Fuhg et al., 2023, Linden et al., 2023, Masi et al., 2021), such models substantially enhance extrapolation capability. In the following, we provide a brief overview of the current state of the art in neural constitutive modeling. Numerous works model elasticity with NNs, where the most common approach is to use architectures with the hyperelastic potential as output and invariants as inputs, e.g., (Bahmani & Sun, 2024, Benady et al., 2024a, Fuhg et al., 2022, Klein et al., 2021, Linden et al., 2023, Linka et al., 2021, Peirlinck et al., 2024, Taç et al., 2024). Direct calibration from stress-strain tuples is enabled via Sobolev training proposed by Czarnecki et al. (2017) and adopted to mechanics by Vlassis et al. (2020), in which the loss function involves the gradient of the energy with respect to the deformation. Many works further employ 
+
+polyconvex NNs (Bahmani & Sun, 2024, Chen & Guilleminot, 2022, Dammaß et al., 2025, Geuken et al., 2025, Jadoon et al., 2025a, Klein et al., 2021, Taç et al., 2024, Tac et al., 2022, Vijayakumaran et al., 2025) among many others, which enhance extrapolation (Kalina et al., 2024, Linden et al., 2023) and guarantee rank-one convexity and thus ellipticity (Schröder et al., 2010). This is most commonly realized via the fully input-convex neural networks (FICNNs) of Amos et al. (2017). Besides neural elasticity models, a large number of works on 
+
+inelasticity have also emerged in recent years. A key require-ment for any inelastic material model is compatibility with the Clausius-Duhem inequality , which demands non-negative dissipation rates 𝐷 ≥ 0. A first group of data-driven models 
+
+enforces this through tailored loss terms. An influential example is the thermodynamics-based artificial neural network (TANN) 
+
+by Masi et al. (2021), which realizes neural inelasticity. Despite its innovative character, the approach has two drawbacks: ther-modynamic consistency is only weakly enforced , and knowledge of the internal variables is required for training, which was solved later via integration for constitutive equations (Masi & Einav, 2024). A related approach for inelasticity is presented in (He & Chen, 2022): in contrast to the TANN, the internal state variables capturing the path-dependency are inferred from the hidden state of a recurrent neural network (RNN). Another class of neural inelasticity models follows the structure of classical elasto-plastic formulations more closely, e.g., (Malik et al., 2021, Settgast et al., 2020, Vlassis & Sun, 2021a,b), but does not guarantee 𝐷 ≥ 0 by construction. This limitation is overcome in (Fuhg et al., 2023, Meyer & Ekre, 2023), where 
+
+thermodynamically consistent neural elasto-plasticity models 
+
+for small deformations are obtained, e.g., by modeling the dissipation or plastic potential via FICNNs (Fuhg et al., 2023). In both cases, training requires no explicitly prescribed internal variables; instead, the return-mapping problem is solved within each optimization step. Extensions to finite deformations (Boes et al., 2024, Jadoon et al., 2025b) and, most recently, to finite-strain viscoelastic-plastic behavior with combined nonlinear kinematic and isotropic hardening (van der Velden et al., 2026) build on these ideas. Beyond elasto-plasticity, several groups have also carried out extensive research on neural viscoelasticity models grounded in a rigorous physical framework. An important contribution is that of Huang et al. (2022), embedded in the generalized stan-dard material (GSM) framework 1: thermodynamic consistency is ensured through a dissipation potential that is convex with respect to the internal variables’ rates, normalized, and station-ary at zero rates—or, equivalently, through a dual dissipation potential with analogous properties that depends on the thermo-dynamically conjugated forces. Meanwhile, several data-driven approaches building up on a small-strain GSM framework exist, e.g., (Flaschel et al., 2025, Rosenkranz et al., 2024, Shi & Luo, 2026). In contrast to (Huang et al., 2022), these require no prescribed internal variables during training—only their number must be specified. As discussed and benchmarked by Rosenkranz et al. (2024), two main strategies exist: solving a 
+
+constrained optimization problem subject to the time-discretized evolution equation(s), which entails time integration over the en-tire sequence, or employing an auxiliary network —either FNN (As’ad & Farhat, 2023) or RNN (Rosenkranz et al., 2024)—to 
+
+provide the internal variable(s) during training . Notably, in the latter case the auxiliary network is used only during training; afterwards, the evolution equation is solved in prediction mode. Several works also address the more general case of finite-strain viscoelasticity . A transversely isotropic model based on the multiplicative split of the deformation gradient and using neural ordinary differential equations (NODEs) is proposed in (Taç et al., 2023), while a related GSM-based model assuming in-compressibility and the multiplicative decomposition represents the thermodynamic potentials via FICNNs (Kalina et al., 2026). Isotropic models with a multiplicative split and a co-rotational formulation are presented in (Holthusen et al., 2024a,b, 2026). Here, Holthusen et al. (2026) introduce a dual dissipation po-tential that ensures thermodynamic consistency under a less restrictive convexity requirement—the potential needs only be convex, stationary, and normalized in a modified invariant set rather than with respect to the thermodynamic forces themselves. An extension to transversely isotropic viscoelasticity follows in (Holthusen & Kuhl, 2026). A further GSM-based finite-strain model, which does not assume the multiplicative split, is given in (As’ad & Farhat, 2023, 2026). Other thermodynamically consistent models avoid the two-potential framework altogether, including formulations based on deformation rates (Upadhyay et al., 2026), the NN-based model 
+
+> 1The GSM framework itself was introduced by Halphen & Nguyen (1975) and traces back to pioneering works such as those of Coleman & Gurtin (1967), Coleman & Noll (1963) and Biot (1965), among others.
+
+2Calibration of neural viscoelastic models via full-field data A Preprint 
+
+(Abdolazizi et al., 2026) 2 grounded in the framework of Liu et al. (2021), and deep rheological elements modeling the viscosity via NNs (Califano & Ciambella, 2026). Finally, a physics-augmented NN framework for strain-induced crystallization ,founded on a modified GSM framework describing the evolution of crystallinity, is presented in (Friedrichs et al., 2026). 
+
+1.2 Literature review on full-field calibration techniques 
+
+Data for calibrating neural constitutive models can be obtained in various ways. Depending on their origin and spatial resolution, the sources fall into three categories: lower-scale simulations ,
+
+conventional experiments , and full-field experiments . We focus on the latter in the following. Beyond global quantities such as reaction forces , full-field setups provide spatially resolved displacement fields via full-field measurement techniques . Unlike conventional experiments, the specimens are deliberately designed to produce inhomogeneous local fields , thereby shifting constitutive modeling from a limited-data to a large-data regime (Fuhg et al., 2024, Pierron, 2023). However, stress-strain pairs cannot be determined directly in this setting: while inhomogeneous displacement fields are accessible through camera systems with digital image correlation (DIC) in two dimensions (Pierron & Grédiac, 2020) or in-situ computed tomography (CT) combined with digital volume correlation (DVC) in three dimensions (Lenoir et al., 2007), the corresponding stress fields are not. Identifying the model parameters therefore requires solving an inverse problem .Numerous methods for inverse parameter identification have been developed over the past decades; comprehensive overviews are given in (Avril et al., 2008, Chen et al., 2025, Römer et al., 2024, Roux & Hild, 2020). In (Mahnken & Stein, 1996, Sakaridis et al., 2024), for instance, the parameters of classical models are identified by iteratively running finite element simulations of the experiment and minimizing the discrepancy between measured and simulated responses—an approach known as finite element model updating (FEMU) 
+
+(Avril et al., 2008, Römer et al., 2024). Further methods tailored specifically to inverse problems include the virtual fields method (VFM) (Grédiac, 1989, Pierron & Grédiac, 2012), the equilibrium gap method (EGM) (Claire et al., 2004) 3, and the modified constitutive relation error (mCRE) method. 
+
+Remark 1. For inverse methods that obtain displacement fields from forward simulations, such as FEMU or the mCRE, full-field displacement measurements are not strictly required: the loss function can be formulated purely in terms of global quan-tities such as reaction forces. When available, however, local displacement data is often included to improve identification accuracy. In contrast, the EGM and VFM rely directly on full-field displacement data over the entire domain to compute deformation measures and, subsequently, stresses, so that no  
+
+> 2This paper is a thermodynamically consistent follow-up to the work (Abdolazizi et al., 2023) that builds on the generalized Prony series .
+> 3The EGM can be interpreted as a special case of the VFM in which the virtual fields are built from locally supported finite element test functions, cf. (Avril et al., 2008, Römer et al., 2024).
+
+forward simulation of the boundary value problem is needed. These approaches are therefore typically far more efficient, but may be more sensitive to measurement noise. Recently, inverse identification techniques have been transferred to a data-driven context, and new approaches have emerged. The EUCLID framework (efficient unsupervised constitutive law identification & discovery) by Flaschel et al. (2021, 2023), for instance, extends the EGM/VFM by simultaneously determining parameters and suitable constitutive models from a catalog via sparse regression, with experimental validation on 2D DIC data given in (Abbasi et al., 2026). NN-EUCLID (Thakolkaran et al., 2022) replaces the model catalog with a neural constitutive model, while CANN-EUCLID (Alheit et al., 2026) calibrates a constitutive artificial neural network (CANN) following Linka & Kuhl (2023). Related strategies discover neural yield surfaces (Moon et al., 2026) and train Kolmogorov-Arnold networks (KANs) (Thakolkaran et al., 2025). Applications include 3D displacement fields from bulge inflation (Meng et al., 2025) and 3D DVC data from a printed structure (Bourdyot et al., 2026). Along the same lines, Ferreira & Bessa (2026) calibrate various neural elasto-plastic models, including RNN-based ones, via EGM, whereas Lourenço et al. (2024) integrate RNN models into the VFM. An approach combining the statistical finite element method (stat-FEM) with EUCLID is introduced in (Knauf Narouie et al., 2026). Thereby, the integration of the stat-FEM reduces sensitivity to noise and sparse displacement data. Further approaches address anisotropic elasticity (Li et al., 2026) and heterogeneous samples (Chaurasiya et al., 2026, Shi et al., 2025, Taç et al., 2026). The NN-mCRE approach extends the mCRE concept, replacing the classical constitutive model with a physics-augmented neural network (PANN) (Benady et al., 2024a,b). PANNs are also combined with FEMU (Wu et al., 2025), as are spline-based constitutive models (Wiesheier et al., 2024, 2026) and CANNs for incompressible hyperelasticity (Knipper et al., 2026). In the same manner, neural elasto-plastic (Gavris & Sun, 2025) and neural cohesive zone models (Gavris & Sun, 2026) are calibrated. 
+
+1.3 Objectives and contributions of this work 
+
+As discussed in the literature overview given above, numerous 
+
+neural viscoelasticity models exist that combine modern ma-chine learning methods with a sound physical basis. Among these, NN models that employ invariants and are embedded into the GSM framework appear very promising, as they enforce material symmetry and thermodynamic consistency by con-struction. However, irrespective of the specific architecture, the vast majority of these approaches are calibrated in a supervised 
+
+manner, i.e., they rely on stress-strain tuples that need to be derived via suitable assumptions from standard experiments, e.g., uniaxial tension tests with dogbone specimens. There are only a few studies that calibrate highly flexible yet physically consistent data-driven models such as PANNs for 
+
+viscoelasticity in a fully unsupervised manner using full-field data , thereby enabling access to an extensive database. Such a model should not only maintain thermodynamic consistency, objectivity, and material symmetry in its design, but also capture 3Calibration of neural viscoelastic models via full-field data A Preprint 
+
+the evolution of the internal variables using a suitable time integration scheme without specifying them a priori. We therefore present such a framework for the small-strain setting in this article. To this end, we adopt the PANN for isotropic small-strain viscoelasticity introduced in (Rosenkranz et al., 2024), which builds on the GSM framework and employs two scalar-valued potentials, rendering the model thermodynam-ically consistent by construction. Considering a thin specimen under a plane stress assumption , we formulate a constrained optimization problem based on the EGM in combination with quasi-Newton optimizers and automatic differentiation. The evolution of the internal variables is captured via an implicit time integration scheme. Together with the plane stress con-dition 𝜎 33 = 0, from which the unknown out-of-plane strain 
+
+𝜀 33 is determined, this yields a system of nonlinear equations that is solved simultaneously by a local Newton iteration at each time step and quadrature point. To drastically reduce the computational cost of training, the backward adjoint method is employed to compute the gradient of the target loss. The organization of the remaining paper is as follows: In Sect. 2, the continuum mechanical basics and the underlying GSM framework for viscoelasticity are presented. After this, a PANN framework for the description of the potentials is introduced in Sect. 3. This is followed by Sect. 4 introducing the EGM that is used for unsupervised training of the PANN. The developed approach is exemplarily applied to several examples in Sect. 5. After a discussion of the results, the paper is closed by concluding remarks and an outlook to necessary future work in Sect. 6. In this work we use the notation specified in App. A. 
+
+# 2 Fundamentals 
+
+In this section, we first recall the continuum-mechanical rela-tions for the small-strain setting. On this basis, we present a viscoelasticity framework within the class of GSMs. 
+
+2.1 Continuum mechanics 
+
+Throughout this work, we restrict ourselves to small strains 
+
+and infinitesimal rigid-body rotations of deformable bodies with the domain B ⊂ R3 denoted as reference configuration with closure cl B := B ∪ 𝜕 B, where 𝜕 B is the corresponding boundary. We consider the motion of the body at times 𝑡 ∈T := [𝑡 0, 𝑡 1], 𝑡 0, 𝑡 1 ∈ R. Within this setting, the displacement field 𝒖 : cl B × T → L 1, (𝒙 , 𝑡 ) ↦ → 𝒖 (𝒙 , 𝑡 ) yields the linearized strain tensor 
+
+ε(𝒙 , 𝑡 ) := sym (∇ 𝒖 (𝒙 , 𝑡 )) ∈ L 2sym . (1) The work-conjugate stress measure is the symmetric Cauchy stress, which is a field in the body, i.e., σ : cl B × T →L2sym , (𝒙 , 𝑡 ) ↦ → σ(𝒙 , 𝑡 ). Furthermore, 𝒕 (𝒙 , 𝑡, 𝒏 ) = σ(𝒙 , 𝑡 ) · 𝒏 
+
+denotes the traction vector with the outward unit normal 𝒏 ∈N := {𝒏 ∈ L 1 | | 𝒏 | = 1}. Assuming that both volume and inertial loads are negligible, the balance of linear momentum reduces to 
+
+∇ · σ⊤ (𝒙 , 𝑡 ) = 0 ∀ 𝒙 ∈ B , 𝑡 ∈ T . (2) The boundary 𝜕 B of the deformable body is partitioned into a Dirichlet part 𝜕 BDir , on which the displacement ˆ𝒖 ∈ L 1
+
+is prescribed, and a Neumann part 𝜕 BNeu with prescribed traction ˆ𝒕 ∈ L 1. The two parts are complementary and disjoint, i.e., 𝜕 B = 𝜕 BDir ∪ 𝜕 BNeu and 𝜕 BDir ∩ 𝜕 BNeu = ∅. For a comprehensive treatment of continuum mechanics, we refer the reader to the textbooks of Altenbach (2018), Haupt (2000), Holzapfel (2000), Šilhavý (1997). 
+
+2.2 Small-strain viscoelasticity 
+
+Within the scope of this work, we solely consider viscoelastic material behavior at small strains with one internal variable 
+
+q : cl B × T → L 2sym , (𝒙 , 𝑡 ) ↦ → q(𝒙 , 𝑡 ) of strain type. For simplicity, the functional dependencies on 𝒙 and 𝑡 are omitted in the following. 
+
+2.2.1 Generalized standard materials 
+
+A well-established approach to formulate a constitutive model for viscoelasticity utilizes the theory of GSMs by Halphen & Nguyen (1975) that traces back to pioneering works such as those of Coleman & Gurtin (1967), Coleman & Noll (1963) and Biot (1965) and many others. To define the model, we start to introduce the Helmholtz free energy (HFE) 
+
+𝛹 : L2sym × L 2sym → R≥0, (ε, q) ↦ → 𝛹 (ε, q) (3) from which the Cauchy stress and the driving force A of stress type, which is conjugated to q, follow as 
+
+σ := 𝜕𝛹 𝜕 ε and A := − 𝜕𝛹 𝜕 q ∈ L 2sym , (4) respectively. For ε = 0 and q = 0, the normalization conditions 
+
+𝜕𝛹 /𝜕 ε|(0,0) = 0 and 𝜕𝛹 /𝜕 q|(0,0) = 0 should hold. In addition to the HFE, we introduce the dual dissipation potential (DDP) 4
+
+𝛷 ∗ : L2sym × L 2sym → R≥0, (A, ε) ↦ → 𝛷 ∗ (A, ε) . (5) To imply thermodynamic consistency , i.e., compatibility with the Clausius-Duhem inequality, by the tensor-valued evolution equations 
+
+¤q = 𝜕𝛷 ∗
+
+𝜕 A (6) derived from 𝛹 and 𝛷 ∗, the following three well-known proper-ties are imposed: 
+
+𝛷 ∗ is convex w.r.t. A, (7a) 
+
+𝛷 ∗ (0, ε) = 0 ∀ ε ∈ L 2sym , and (7b) 
+
+𝜕𝛷 ∗
+
+𝜕 A A=0,ε
+
+= 0 ∀ ε ∈ L 2sym . (7c)     
+
+> 4In general the DDP can be introduced as a function of A,εand
+> q, see (Rosenkranz et al., 2024). Throughout this work, we neglect the explicit dependence on the internal variables, as this is also a common assumption. Please also note that, by using a Legendre-Fenchel transformation, a GSM formulation based on the dissipation potential can be obtained, cf. (Rosenkranz et al., 2023).
+
+4Calibration of neural viscoelastic models via full-field data A Preprint 
+
+With that it is straight forward to show that non-negative dissi-pation rates 𝐷 ≥ 0 are ensured by construction, cf. (Ottosen & Ristinmaa, 2005, p. 569). 
+
+2.2.2 Material symmetry 
+
+Beyond thermodynamic consistency , the constitutive model is required to comply with the principle of material symmetry ,thereby reflecting the structure of the material at a smaller length scale (Neumann & Meyer, 1885, Riemer et al., 2026). To this end, both the HFE and the DDP are formulated in terms of scalar-valued invariants 
+
+𝐼 𝛼 : L2sym × · · · × L 2sym → R, (s1 . . . s𝑛 ) ↦ → 𝐼 𝛼 (s1 . . . s𝑛 ) , (8) 
+
+𝛼 ∈ { 1, . . . , 𝑚 }, 𝑚 ∈ Z≥3, which depend in turn on the sym-metric 2nd order tensors s1, . . . , s𝑛 ∈ L 2sym , 𝑛 ∈ Z≥1. Each argument s𝛽 , 𝛽 ∈ { 1, . . . , 𝑛 }, may be identified with either ε,
+
+q, or A. By construction, every invariant 𝐼 𝛼 in Eq. (8) satisfies the invariance condition 
+
+𝐼 𝛼 (s1, . . . , s𝑛 ) = 𝐼 𝛼 (Q · s1 · Q⊤, . . . , Q · s𝑛 · Q⊤) ∀ Q ∈ G (9) where G ⊆ O( 3) denotes the symmetry group. As the present study is concerned exclusively with isotropic materials , G =
+
+O( 3). The corresponding invariants are then referred to as 
+
+isotropic invariants .5 In order to distinguish the invariants entering the HFE from those entering the DDP, each is endowed with the superscript (•) 𝛹 or (•) 𝛷 ∗
+
+, respectively. The two potentials are thus reintroduced as 
+
+𝛹 : L2sym × L 2sym → R≥0, (ε, q) ↦ → 𝛹 (I 𝛹 (ε, q)) (10a) 
+
+𝛷 ∗ : L2sym × L 2sym → R≥0, (A, ε) ↦ → 𝛷 ∗ (I 𝛷 ∗
+
+(A, ε)) , (10b) where the respective invariants are collected by the tuples 
+
+I𝛹 := (𝐼 𝛹  
+
+> 1
+
+, . . . , 𝐼 𝛹 𝑛 𝛹 ) ∈ R𝑛 𝛹 and I𝛷 ∗
+
+:= (𝐼 𝛷 ∗ 
+
+> 1
+
+, . . . , 𝐼 𝛷 ∗ 
+
+> 𝑛 𝛷 ∗
+
+) ∈ 
+
+R𝑛 𝛷 ∗ , 𝑛 𝛹 , 𝑛 𝛷 ∗ ∈ Z≥3.
+
+# 3 Physics-augmented neural network model 
+
+Having introduced the GSM framework underlying the model, we now specify the potentials, introduced in Eqs. (10a) and (10b), by means of PANNs. To this end, three NNs are em-ployed. Most of the modeling assumptions are adopted from Rosenkranz et al. (2024); there, however, a formulation based on the dissipation potential is used. We emphasize that the PANN presented in the following is of Maxwell type and there-fore does not represent the most general form of a viscoelastic model—not even within the framework already partially re-stricted in Sect. 2.2, for instance through the use of a single internal variable. 
+
+3.1 Helmholtz free energy 
+
+The HFE is assumed to be convex w.r.t. ε and to be additively decomposed into an equilibrium part 𝛹 eq,PANN and a non-
+
+> 5
+
+In the anisotropic case, G ⊂ O( 3). Nonetheless through the introduction of structural tensors in conjunction with the principle of isotropic extension , results from isotropic invariants can be used, see Apel (2004), Lokhin & Sedov (1963), Riemer et al. (2026), Xiao (1996), Zheng & Spencer (1993). 
+
+equilibrium part 𝛹 eq,PANN with 
+
+𝛹 eq,PANN : (ε) ↦ → 𝛹 eq,PANN (I 𝛹 eq 
+
+(ε)) and (11) 
+
+𝛹 neq,PANN : (ε, q) ↦ → 𝛹 neq,PANN (I 𝛹 neq 
+
+(ε − q
+
+|{z} 
+
+> =:p
+
+)) , (12) where p denotes the elastic strain. We thus introduce two PANNs, one for each part of the HFE. In the equations above, the tuples containing isotropic invariants for the equilibrium 
+
+and non-equilibrium parts are defined by 
+
+I𝛹 eq 
+
+(ε) := (𝐼 𝛹 eq  
+
+> 1
+
+(ε), 𝐼 𝛹 eq  
+
+> 2
+
+(ε), 𝐼 𝛹 eq  
+
+> 3
+
+(ε)) and (13) 
+
+I𝛹 neq 
+
+(p) := (𝐼 𝛹 neq  
+
+> 1
+
+(p), 𝐼 𝛹 neq  
+
+> 2
+
+(p), 𝐼 𝛹 neq  
+
+> 3
+
+(p)) , (14) with the isotropic invariants of a symmetric 2nd order tensor 
+
+s—in our case ε or p—given by 
+
+𝐼 • 
+
+> 1
+
+(s) := tr (s) , 𝐼 • 
+
+> 2
+
+(s) := tr (( Idev : s)2) and (15) 
+
+𝐼 • 
+
+> 3
+
+(s) := tr (s4) .
+
+As shown in App. B, the invariants given in Eq. (15) form a functional basis for the group O( 3) if s ∈ L 2sym ∩ L 2tr ≠0 is a symmetric and non-deviatoric tensor with L2tr ≠0 := {r ∈L2 | tr (r) ≠ 0}. Furthermore, the invariants are convex in s.6
+
+The PANN for the equilibrium part is given by 
+
+𝛹 eq,PANN (I 𝛹 eq 
+
+(ε)) = 𝛹 eq,NN (I 𝛹 eq 
+
+(ε)) (16) 
+
+− 𝛹 eq,NN (I 𝛹 eq 
+
+(0)) − 𝜕𝛹 eq,NN 
+
+𝜕𝐼 𝛹 eq    
+
+> 1𝐼 𝛹 eq 1(0)
+
+𝐼 𝛹 eq  
+
+> 1
+
+(ε) .The value 𝛹 eq,NN (I 𝛹 eq 
+
+(ε)) is the scalar-valued output of a component-wise non-decreasing FICNN (Amos et al., 2017, Kalina et al., 2026, Klein et al., 2021) 
+
+𝛹 eq,NN : ε ↦ → 𝛹 eq,NN (I 𝛹 eq 
+
+(ε)) (17) with the introduced strain-type invariants as input. Following Linden et al. (2023), two correction terms are subtracted from the network output 𝛹 eq,NN (I 𝛹 eq 
+
+(ε)) to ensure that both energy and stress contribution from the equilibrium part vanish in the undeformed state ε = 0. The entire PANN for the equilibrium part is visualized in Fig. 1. 
+
+Remark 2. Since the invariants are convex in ε, 𝛹 eq,NN is convex and component-wise non-decreasing, and 𝐼 𝛹 eq  
+
+> 1
+
+is linear in ε, the chosen potential 𝛹 eq,PANN given in Eq. (16) is convex in ε.Analogous to the equilibrium part , we define the PANN for the 
+
+non-equilibrium part by 
+
+𝛹 neq,PANN (I 𝛹 neq 
+
+(p)) = 𝛹 neq,NN (I 𝛹 neq 
+
+(p)) (18) 
+
+− 𝛹 neq,NN (I 𝛹 neq 
+
+(0)) − 𝜕𝛹 neq,NN 
+
+𝜕𝐼 𝛹 neq  
+
+> 10
+
+𝐼 𝛹 neq  
+
+> 1
+
+(p) ,
+
+> 6
+
+Convexity w.r.t. s ∈ L 2sym for invariants tr (s), tr (s2) and 𝐼 3 =
+
+tr (s4) is shown in (Rosenkranz et al., 2024). Since Idev : s is linear in 
+
+s, 𝐼 2 = tr (( Idev : s)2) inherits the convexity property of tr (s2) (Boyd & Vandenberghe, 2004, Sect. 3.2.2). 
+
+5Calibration of neural viscoelastic models via full-field data A Preprint 
+
+Figure 1: PANN model 𝛹 eq,PANN for the equilibrium part of the HFE. Here, for example, the NN has one hidden layer with four neurons. Additionally, we use an architecture with skip connections. Two correction terms 𝛹 eq,NN (I 𝛹 eq 
+
+(0)) and 𝜕𝛹 eq,NN     
+
+> 𝜕𝐼 𝛹 eq 1𝐼 𝛹 eq 1(0)
+
+𝐼 𝛹 eq  
+
+> 1
+
+(ε) are subtracted from the network output 𝛹 eq,NN (I 𝛹 eq 
+
+(ε)) , thereby guaranteeing a vanishing energy and stress contribution in the undeformed state ε = 0.
+
+with a second component-wise non-decreasing FICNN 
+
+𝛹 neq,NN : p ↦ → 𝛹 neq,NN (I 𝛹 neq 
+
+(p)) . (19) Since only the elastic strain p = ε − q enters the invariants, the constitutive model is of Maxwell type . As p is linear in ε, convexity of 𝛹 neq,PANN in the strain follows from the argumentation given in Remark 2. 
+
+3.2 Dual dissipation potential 
+
+For the DDP, an architecture similar to that of the two parts of the HFE is employed. To this end, we introduce an isotropic invariant set for (A, ε) that consists of the invariants 
+
+𝐼 𝛷 ∗ 
+
+> 1
+
+(A) := tr (A), 𝐼 𝛷 ∗ 
+
+> 2
+
+(A) := tr (( Idev : A)2),𝐼 𝛷 ∗ 
+
+> 3
+
+(A) := tr (A4), 𝐼 𝛷 ∗ 
+
+> 4
+
+(ε) := tr (ε),𝐼 𝛷 ∗ 
+
+> 5
+
+(ε) := tr (( Idev : ε)2) and 𝐼 𝛷 ∗ 
+
+> 6
+
+(ε) := tr (ε4) .(20) We collect the invariants given in Eq. (20) in the tuple 
+
+I𝛷 ∗
+
+(A, ε) :=
+
+
+
+𝐼 𝛷 ∗ 
+
+> 1
+
+(A), . . . , 𝐼 𝛷 ∗ 
+
+> 6
+
+(ε)
+
+
+
+. Note that the invariants in I𝛷 ∗
+
+are convex in A and ε.
+
+Remark 3. We want to point out that the invariants in Eq. (20) that are used to describe the DDP do not form a functional basis . This is the case because of Corollary 1 and missing 
+
+mixed invariants , i.e., invariants that depend on both A and ε,cf. (Boehler, 1977, Smith, 1971). The PANN for the DDP is defined as 
+
+𝛷 ∗,PANN (I 𝛷 ∗
+
+(A, ε)) = 𝛷 ∗,NN (I 𝛷 ∗
+
+(A, ε)) (21) 
+
+− 𝛷 ∗,NN (I 𝛷 ∗
+
+(0, ε)) − 𝜕𝛷 ∗,NN 
+
+𝜕𝐼 𝛷 ∗  
+
+> 1𝐼 𝛷 ∗
+> 1(0,ε)
+
+𝐼 𝛷 ∗ 
+
+> 1
+
+(A, ε) ,where the introduced NN is again a component-wise non-decreasing FICNN with the invariants collected in I𝛷 ∗
+
+acting as inputs. The NN is given by 
+
+𝛷 ∗,NN : (A, ε) ↦ → 𝛷 ∗,NN (I 𝛷 ∗
+
+(A, ε)) . (22) Convexity of 𝛷 ∗,PANN in A and ε follows by applying the argumentation given in Remark 2. 
+
+Remark 4. It should be noted that the convexity of the DDP in the strain ε is not strictly required in the GSM framework. It would therefore also be possible to use a partially input-convex neural network (PICNN), cf. (Amos et al., 2017, Friedrichs et al., 2026, Rosenkranz et al., 2024). Such an approach is more flexible, but the number of trainable variables in the network increases. Since the selected PANN model, which is based exclusively on FICNNs, has proven to be sufficiently flexible for the examples considered, we will not discuss PICNNs further here. 
+
+Remark 5. Due the required convexity and component-wise non-decreasingness of the NN potentials 𝛹 eq,NN , 𝛹 neq,PANN ,and 𝛷 ∗,NN , the weights of the three individual FICNNs have to be non-negative. A detailed discussion about this can be found in (Amos et al., 2017, Klein et al., 2021, Rosenkranz et al., 2024). To keep the notation clear, all trainable parameters, i.e., all weights and biases of all three FICNNs, are summarized in 𝜽 ∈ P 𝜃 , where the set P𝜃 ⊂ R𝑛 𝜃 , 𝑛 𝜃 ∈ Z>0. The set P𝜃 
+
+contains the weight constraints. For all FICNNs we use the convex and non-decreasing softplus activation function. 
+
+# 4 Equilibrium gap method 
+
+As discussed in the Sect. 1.2, numerous approaches are available for the calibration of constitutive models via full-field data. In the present work, we adopt a special case of the VFM, the EGM (Claire et al., 2004), to identify the material model’s parameter in an unsupervised manner. The parameters, collected in 𝜽 ,are in our case weights and biases of the FICNNs introduced in Sect. 3. The methodology is therefore similar to the NN-EUCLID framework by Thakolkaran et al. (2022). In our case, however, we consider a neural viscoelastic model instead of a hyperelastic one. Data for the EGM can be collected via experiments with full-field displacement measurement (Abbasi et al., 2026, Jailin et al., 2024), where the displacements are typically obtained via 6Calibration of neural viscoelastic models via full-field data A Preprint 
+
+optical techniques such as DIC. In the EGM, the displacement is required not just at a few discrete locations but at a sufficiently large number of points distributed across the region of interest (ROI), cf. Remark 1. Since in real setups DIC only allows to observe displacements on the sample surface—and in many setups only on one side—we will restrict ourselves to thin samples in the following. In this case, the ROI is therefore a 2D domain denoted by 𝛺 ⊂ R2 with boundary 𝜕𝛺 , i.e., the closure is cl 𝛺 := 𝛺 ∪ 𝜕𝛺 .We are working on the basis of the following assumptions and assume that the data listed below is known after the raw data has been preprocessed: (I) The specimen is thin compared with its in-plane char-acteristic length, so that a plane stress state is assumed throughout the entire domain. (II) A set of nodes with reference coordinates (𝑥 𝜆  
+
+> 1
+
+, 𝑥 𝜆  
+
+> 2
+
+) ∈ 
+
+𝛺 ∪ 𝜕𝛺 , 𝜆 ∈ { 1, . . . , 𝑛 nodes }, and a triangulation 
+
+thereof into 𝑒 ∈ { 1, . . . , 𝑛 el } elements is given. (III) In-plane displacements 𝑠 𝑢 𝜆  
+
+> 1
+
+, 𝑠 𝑢 𝜆  
+
+> 2
+
+∈ R at the nodes are known for all time steps 𝑠 ∈ { 1, . . . , 𝑛 steps }.(IV) The in-plane displacement field is approximated as continuous and piecewise linear over the triangulation ,i.e., constant strain triangle (CST) elements are used. (V) The global reaction forces 𝑠 𝐹 𝜅 normal to respective boundaries 𝜕𝛺 𝜅 with applied loading are known, 𝜅 ∈{1, . . . , 𝑛 force } with 𝑛 force ∈ Z≥1 denoting the number of reaction forces. The core idea of the EGM is to enforce the discretized weak form of the balance of linear momentum via loss terms that minimize the deviation from equilibrium . More strictly speaking, within the discretized (finite element) setting, this means enforcing equilibrium of the assembled nodal forces only approximately, i.e., as a soft constraint via the loss term, rather than exactly. 
+
+4.1 Two-dimensional finite element discretization 
+
+The optimization problem formulated for the EGM requires some parts of the finite element method (FEM). To clearly state that the quantities that are introduced in this section are 
+
+two-dimensional , we switch to index notation and use the lower case Latin letters 𝑎, 𝑏, 𝑐, 𝑑 ∈ { 1, 2} as subscripts. Let cl 𝛺 CST := {( 𝜉 1, 𝜉 2) ∈ R2 |0 ≤ 𝜉 1 ≤ 1, 0 ≤ 𝜉 2 ≤ 1 − 𝜉 1 }
+
+denote the closure (domain and boundary) of a CST element and 
+
+𝑁 𝛼 : cl 𝛺 CST → R, (𝜉 1, 𝜉 2) ↦ → 𝑁 𝛼 (𝜉 1, 𝜉 2) (23) the corresponding shape functions. The reference in-plane 
+
+coordinates of the nodes with local numbers 𝛼 ∈ { 1, 2, 3} of an element 𝑒 ∈ { 1, 2, . . . , 𝑛 el } are given by 𝑥 𝑒 𝛼 𝑏 ∈ R. Hence, the coordinates of the elemental Jacobian are defined by 
+
+𝐽 𝑒 𝑎𝑏 :=
+
+> 3
+
+∑︁ 
+
+> 𝛼 =1
+
+𝜕𝑁 𝛼 (𝜉 1, 𝜉 2)
+
+𝜕𝜉 𝑎 
+
+𝑥 𝑒 𝛼 𝑏 = const . (24) Due to the use of CST triangles, 𝐽 𝑒 𝑎𝑏 is element-wise constant. The determinant of the Jacobian’s matrix representation 𝑱 𝑒 ∈
+
+R2×2 is given by 𝐽 𝑒 := det 𝑱 𝑒 . The coordinates of the so-called B-matrix of element 𝑒 and the node with local node number 𝛼 
+
+are defined in index notation by 
+
+𝐵 𝑒 𝛼 𝑎𝑏𝑐 := sym 
+
+ 𝜕𝑁 𝛼 (𝜉 1, 𝜉 2)
+
+𝜕𝜉 𝑑 
+
+(𝐽 𝑒 𝑑𝑎 )−1𝛿 𝑏𝑐 
+
+
+
+= const , (25) where sym (•) denotes the symmetrization w.r.t. the indices 𝑎 
+
+and 𝑏 . Note that this quantity is also element-wise constant for the special choice of CST elements. 
+
+Remark 6. The quantities 𝐽 𝑒 𝑎𝑏 and 𝐵 𝑒 𝛼 𝑎𝑏𝑐 are evaluated at quadra-ture or Gauss points. To note this, an index 𝑔 ∈ { 1, 2, . . . , 𝑛 qp }
+
+could be added, i.e., 𝐽 𝑒𝑔 𝑎𝑏 and 𝐵 𝑒𝑔 𝛼 𝑎𝑏𝑐 . However, as we only con-sider CST elements , the number 𝑛 qp ∈ Z>0 of Gauss points is set to 𝑛 qp = 1 and the quadrature point to (𝜉 1, 𝜉 2) = ( 13 , 13 ). Hence, rendering the additional index 𝑔 not necessary. We rather keep notation simple and impose that the index 𝑒 marks not only the element, but also the evaluation at the single quadrature point of that element. Exceptions to that are local node values that have another index 𝛼 , such as the elemental nodal displacements 
+
+> 𝑠
+
+𝑢 𝑒 𝛼 𝑎 at a time step 𝑠 ∈ { 1, 2, . . . , 𝑛 steps }.To obtain the in-plane displacement fields 𝑠 𝑢 1 (𝑥 1, 𝑥 2) and 
+
+> 𝑠
+
+𝑢 2 (𝑥 1, 𝑥 2) at a time step 𝑠 , we apply assumptions (III) and (IV). Thus, the in-plane displacements in each CST element 𝑒 
+
+are approximated by 
+
+> 𝑠
+
+𝑢 𝑒 𝑎 (𝜉 1, 𝜉 2) :=
+
+> 3
+
+∑︁ 
+
+> 𝛼 =1
+> 𝑠
+
+𝑢 𝑒 𝛼 𝑎 𝑁 𝛼 (𝜉 1, 𝜉 2) . (26) Hence, the in-plane strains of an element are given by 
+
+> 𝑠
+
+𝜀 𝑒 𝑎𝑏 :=
+
+> 3
+
+∑︁ 
+
+> 𝛼 =1
+> 𝑠
+
+𝑢 𝑒 𝛼 𝑐 𝐵 𝑒 𝛼 𝑎𝑏𝑐 = const . (27) The local nodal forces of node 𝛼 in element 𝑒 follow from the integral  
+
+> 𝑠
+
+𝑓 𝑒 𝛼 𝑎 :=
+
+∫
+
+> 𝛺 CST
+
+𝜎 𝑏𝑐 (𝑠 ε(𝜉 1, 𝜉 2), 𝑠 q(𝜉 1, 𝜉 2)) 𝐵 𝑒 𝛼 𝑐𝑏𝑎 𝐽 𝑒 ℎ d𝐴 
+
+= 𝑠 𝜎 𝑒 𝑏𝑐 𝐵 𝑒 𝛼 𝑐𝑏𝑎 𝐽 𝑒 ℎ
+
+2 , (28) by numerical integration, where ℎ ∈ R>0 is the constant ref-erence thickness. To compute the local nodal forces 𝑠 𝑓 𝑒 𝛼 𝑎 ,the in-plane stresses 𝑠 𝜎 𝑒 𝑎𝑏 = 𝑠 𝜎 𝑎𝑏 (𝑠 ε𝑒 , 𝑠 q𝑒 ) in each element are required, where 𝑠 ε𝑒 and 𝑠 q𝑒 are strain tensor and internal variable at time step 𝑠 in element 𝑒 and 𝑠 𝜎 𝑎𝑏 = 𝑠 σ : (𝒆 𝑎 𝒆 𝑏 ).Since we only consider CST elements, strain and also internal variable are spatially constant in each element for a fixed time. Thus, the numerical integration according to Eq. (28) is exact. We discuss how 𝑠 ε𝑒 and 𝑠 q𝑒 are determined in the considered 
+
+plane stress setup to derive the in-plane stresses 𝑠 𝜎 𝑒 𝑎𝑏 in the next Section 4.2. Finally, we get the assembled nodal forces at a node with global number 𝜆 ∈ { 1, . . . , 𝑛 nodes } from the assembly process  
+
+> 𝑠
+
+𝑓 𝜆 𝑎 :=
+
+> 𝑛 el
+
+∑︁ 
+
+> 𝑒 =13
+
+∑︁  
+
+> 𝛼 =1
+> 𝑠
+
+𝑓 𝑒 𝛼 𝑎 𝐴 𝜆𝑒 𝛼 . (29) The quantity 𝐴 𝜆𝑒 𝛼 ∈ { 0, 1} in Eq. (29) takes either the value 1 or 0 depending on the connectivity given by the mesh. 7Calibration of neural viscoelastic models via full-field data A Preprint 
+
+4.2 Stress determination for a single time step 
+
+In order to calculate the local nodal forces 𝑠 𝑓 𝑒 𝛼 𝑎 at a time step 
+
+𝑠 , the in-plane stresses 𝑠 𝜎 𝑒 𝑎𝑏 must be determined by means of a material model, such as the PANN introduced in Sect. 3. According to Eq. (4), the calculation of stress 𝑠 σ𝑒 is possible under the condition that both three-dimensional strain 𝑠 ε𝑒 and internal variable 𝑠 q𝑒 are known for a time step 𝑠 . The latter can be determined via implicit time integration by finding the root of the residual  
+
+> 𝑠,𝑖
+
+R𝑒 := 𝑠 q𝑒 − 𝑠 −1q𝑒 − 𝑠 Δ𝑡 𝜕𝛷 ∗
+
+𝜕 A A=𝑠,𝑖 A𝑒 ,ε=𝑠 ε𝑒 
+
+, (30) where 𝑠 Δ𝑡 := 𝑠 𝑡 − 𝑠 −1𝑡 denotes the time step size between two consecutive times 𝑠 𝑡 and 𝑠 −1𝑡 . The coordinates of the residual are given by 𝑠,𝑖 𝑅 𝑒 𝑘𝑙 , 𝑘, 𝑙 ∈ { 1, 2, 3}. As noted in the Eq. (30) above, the three dimensional strain 𝑠 ε𝑒 is also required in this case. However, Eq. (27), and the in-plane nodal displacements 
+
+> 𝑠
+
+𝑢 𝑒 𝛼 𝑎 , give rise to only the in-plane strains 𝑠 𝜀 𝑒 𝑎𝑏 . By using the plane stress assumption (I), we can determine the missing out-of-plane strain component 𝑠 𝜀 𝑒  
+
+> 33
+
+and hence the full strain tensor 𝑠 ε𝑒 . In a real experimental setup, this quantity could be determined by stereo measurement using a second DIC system, cf. (Linden et al., 2025). On the other hand, 𝑠 𝜀 𝑒  
+
+> 33
+
+can also be calculated from the known constraint for a plane stress state .Thus, we introduce a second residual 
+
+> 𝑠,𝑖
+
+𝑅 𝑒 := 𝑠,𝑖 𝜎 𝑒  
+
+> 33
+
+=
+
+ 𝜕𝛹 𝜕 ε
+
+  
+
+> 33 ε=𝑠,𝑖 ε𝑒 ,q=𝑠,𝑖 q𝑒
+
+. (31) Accordingly, the two residuals in Eqs. (30) and (31) are solved in a monolithic manner by means of a Newton iteration at each quadrature point. 7
+
+At the first times step 𝑠 = 1, it holds 1ε𝑒 = 1q𝑒 := 0. To start the iteration ( 𝑖 = 1) for a subsequent time step, we set 𝑠, 1𝜀 𝑒  
+
+> 33
+
+:=
+
+> 𝑠 −1
+
+𝜀 𝑒  
+
+> 33
+
+and 𝑠 q𝑒 := 𝑠 −1q𝑒 . The solution is regarded as converged if the residual in Eq. (30) fulfills max 𝑒𝑘𝑙 |𝑠,𝑖 𝑅 𝑒 𝑘𝑙 | < 𝜖 q 
+
+> tol
+
+∈ R>0
+
+and the residual in Eq. (31) max 𝑒 |𝑠,𝑖 𝑅 𝑒 | < 𝜖 𝜎  
+
+> tol
+
+∈ R>0. We then set 𝑠 𝜀 𝑒  
+
+> 33
+
+:= 𝑠,𝑖 𝜀 𝑒 
+
+> 33
+
+, 𝑠 q𝑒 := 𝑠,𝑖 q𝑒 , 𝑠 R𝑒 := 𝑠,𝑖 R𝑒 and 𝑠 𝑅 𝑒 := 𝑠,𝑖 𝑅 𝑒 .
+
+4.3 Optimization problem 
+
+With the necessary concepts from the finite element discretiza-tion being introduced, we can start to formulate an optimization problem for inversely identifying the parameters 𝜽 . Thus, the main task is to formulate a suitable criterion—a loss function— whose minimization leads to a well-calibrated material model, in our case a viscoelastic PANN. Parallel to the description given in the following paragraphs, Fig. 2 summarizes the individual steps involved in the calculation of the loss. First, the Jacobian matrices 𝑱 𝑒 and the determinants 𝐽 𝑒 , the coordinates 𝐵 𝑒 𝛼 𝑎𝑏𝑐 of all B-matrices and from that the in-plane 
+
+> 7
+
+In the combined Newton iteration of the two residuals in Eqs. (30) and (31), a least squares method is used to calculate the incremental update. Owing to the non-symmetric coefficient matrix, a standard linear-system solver was less robust compared to the least squares method during calibration. 
+
+strains 𝑠 𝜀 𝑒 𝑎𝑏 are calculated from the given full-field data. This step needs to be performed only once before the optimization begins. The next steps are performed in each iteration of the optimizer. For the current parametrization 𝜽 ∈ P 𝜃 of the PANN, we compute the three-dimensional stress 
+
+> 𝑠
+
+σ𝑒 (𝜽 ) = σ(𝑠 𝜀 𝑒 
+
+> 11
+
+, 𝑠 𝜀 𝑒 
+
+> 22
+
+, 𝑠 𝜀 𝑒 
+
+> 12
+
+, 𝑠 𝜀 𝑒  
+
+> 33
+
+(𝜽 ), 𝑠 q𝑒 (𝜽 ), 𝜽 ) (32) in each element and time step as explained in Sect. 4.2. With that, local nodal forces 𝑠 𝑓 𝑒 𝛼 𝑎 (𝜽 ) and, consequently, assembled nodal forces 𝑠 𝑓 𝜆 𝑎 (𝜽 ) are calculated using Eqs. (28) and (29). 
+
+Sorting assembled nodal forces To formulate the loss func-tion, we must distinguish between two types of nodes: 
+
+• those located in the domain or on boundaries with homogeneous Neumann boundary conditions, and 
+
+• those located on boundaries with imposed reaction forces. To do so, we identify 𝑛 force ∈ Z≥1 boundaries 𝜕𝛺 disc  
+
+> 𝜅
+
+⊂ 𝜕𝛺 disc 
+
+of the discretized specimen cl 𝛺 disc = 𝛺 disc ∪ 𝜕𝛺 disc at which 
+
+global reaction forces are applied. Thereby, 𝜅 ∈ { 1, . . . , 𝑛 force }
+
+is the index of the boundary at which a global reaction force 
+
+> 𝑠
+
+𝑭 𝜅 ∈ L 1 with the normal component 𝑠 𝐹 𝜅 := 𝑠 𝐹 𝜅 𝑎 𝑛 𝜅 𝑎 is known 
+
+(V), see Fig. 2. The remaining part cl 𝛺 disc \ Ð𝑛 force  
+
+> 𝜅 =1
+
+𝜕𝛺 disc  
+
+> 𝜅
+
+of the discretized geometry is thus not associated with reaction forces resulting from applied loading. To identify the nodes laying on the force boundaries and those laying in the domain or on free boundaries, we introduce the sets 
+
+F ORCE 𝜅 := 𝜆 | ( 𝑥 𝜆  
+
+> 1
+
+, 𝑥 𝜆  
+
+> 2
+
+) ∈ 𝜕𝛺 disc  
+
+> 𝜅
+
+and (33) 
+
+F REE := 𝜆 | ( 𝑥 𝜆  
+
+> 1
+
+, 𝑥 𝜆  
+
+> 2
+
+) ∈ cl 𝛺 disc \ ∪ 𝑛 force  
+
+> 𝜅 =1
+
+𝜕𝛺 disc  
+
+> 𝜅
+
+, (34) respectively. 
+
+Loss function This finally enables us to formulate two key principles of the EGM: (a) The sum of assembled nodal forces 𝑠 𝑓 𝜆 𝑎 (𝜽 )𝑛 𝜅 𝑎 with 
+
+𝜆 ∈ F ORCE 𝜅 must equal the global reaction force 
+
+> 𝑠
+
+𝐹 𝜅 , and (b) assembled nodal forces 𝑠 𝑓 𝜆 (𝜽 ) with 𝜆 ∈ F REE must vanish. Both principles (a) and (b) follow directly from the discretized weak form of the balance of linear momentum that yields equilibrium of the forces. We fulfill them in a weak sense by determining an optimal parametrization 𝜽 ∈ P 𝜃 . To this end, we introduce the two associated loss terms 
+
+𝐿 force (𝜽 ) :=
+
+> 𝑛 force
+
+∑︁ 
+
+> 𝜅 =1
+> 𝑛 steps
+
+∑︁ 
+
+> 𝑠 =1
+
+1
+
+𝑛 𝜅 
+
+> 𝑠
+
+𝐹 𝜅 −∑︁  
+
+> 𝜆 ∈ F O R C E 𝜅
+> 𝑠
+
+𝑓 𝜆 𝑎 (𝜽 )𝑛 𝜅 𝑎 
+
+!2
+
+, (35a) 
+
+𝐿 free (𝜽 ) := 12𝑛 steps 𝑛 free 
+
+> 𝑛 steps
+
+∑︁ 
+
+> 𝑠 =1
+
+∑︁ 𝜆 ∈ F R E E  
+
+> 𝑠
+
+𝑓 𝜆 𝑎 (𝜽 )𝑠 𝑓 𝜆 𝑎 (𝜽 ) . (35b) Therein, the normalization factor for the force losses is defined as 𝑛 𝜅 := 𝑛 steps max 𝑠 |𝑠 𝐹 𝜅 |2 and 𝑛 free = |F REE| . With the 8Calibration of neural viscoelastic models via full-field data A Preprint 
+
+Figure 2: Forward pass and principle calculation of the loss contribution for two adjacent time steps. For a time step 𝑠 , global reaction forces 
+
+> 𝑠
+
+𝐹 𝜅 and in-plane strains 𝑠 𝜀 𝑒 𝑎𝑏 at the quadrature points are provided by the training data, while the internal variable 𝑠 −1q𝑒 at the quadrature point is given from the last time step. The nonlinear equations 𝑠 R𝑒 = 0 (Eq. (30)) and 𝑠 𝑅 𝑒 = 0 (Eq. (31)), arising from the implicit time integration 
+
+and the plane-stress condition , are solved in a Newton iteration, thereby determining the internal variable 𝑠 q𝑒 and the out-of-plane strain 𝑠 𝜀 𝑒  
+
+> 33
+
+of the current time step. After doing this for every time step, the in-plane stresses 𝑠 𝜎 𝑒 𝑎𝑏 , assembled nodal forces 𝑠 𝑓 𝜆 𝑎 , and finally the two loss contributions are computed in a vectorized manner over all time steps. Functional dependencies are omitted for clarity in this figure. 
+
+two introduced loss terms we arrive at the total loss given by 
+
+𝐿 EGM (𝜽 ) := 𝐿 force (𝜽 ) + 𝐿 free (𝜽 ). Based on this, we formulate the constrained optimization problem 
+
+ˆ𝜽 = argmin  
+
+> 𝜽 ∈ P 𝜃
+
+𝐿 EGM (𝜽 ) subject to 𝑠 R𝑒 = 0 and 𝑠 𝑅 𝑒 = 0 (36) for all 𝑠 ∈ { 1, . . . , 𝑛 steps }, 𝑒 ∈ { 1, . . . , 𝑛 el }. The optimization problem given in Eq. (36) is constrained by the non-negativity bounds of the weights in the PANN and the two residuals resulting from the time-discretized evolution equations and the 
+
+plane stress condition .In order to obtain the optimal parametrization ˆ𝜽 ∈ P 𝜃 , and hence the calibrated material model, we use the quasi-Newton optimizer SLSQP (sequential least squares programming). The parameter constraints P𝜃 are treated as bounds by the optimizer. The constraints imposed by the evolution equations and the 
+
+plane stress condition are incorporated by determining, at each epoch of the optimizer, the out-of-plane strains 𝑠 𝜀 𝑒  
+
+> 33
+
+(𝜽 ) and the internal variables 𝑠 q𝑒 (𝜽 ) at all quadrature points and for all time steps. These constraints are then taken into account when calculating the gradient d 𝐿 EGM (𝜽 )/ d𝜽 via automatic differentiation and the backward adjoint method (Akerson et al., 2025, Kumar et al., 2025, Seidl & Granzow, 2022). Details on the calculation of this gradient are provided in Appendix C. 
+
+Remark 7. Although the choice of activation functions and the imposed parameter constraints of the PANNs ensure physical admissibility of the learned potentials, the resulting constitutive equations remain highly nonlinear. As a consequence, numeri-cal difficulties may arise during the solution of the associated evolution equations during training. Thus, should convergence not be reached within the prescribed iteration limit when solving the optimization problem (36), the iterates 𝑠,𝑛 iter q𝑒 and 𝑠,𝑛 iter 𝜀 𝑒 
+
+> 33
+
+are nonetheless accepted as converged, i.e., 𝑠 q𝑒 := 𝑠,𝑛 iter q𝑒 and 
+
+> 𝑠
+
+𝜀 𝑒  
+
+> 33
+
+:= 𝑠,𝑛 iter 𝜀 𝑒 
+
+> 33
+
+. In this sense, we also set the two residuals to  
+
+> 𝑠
+
+R𝑒 := 𝑠,𝑛 iter R𝑒 and 𝑠 𝑅 𝑒 := 𝑠,𝑛 iter 𝑅 𝑒 . This is a deliberate design choice that permits the evolution of the internal variable to pro-ceed even when the parametrization of the potentials described by the PANNs are furnished in a numerically unfavorable form. For instance, for material parameters that preclude convergence. As described in (Kalina et al., 2026, Remark 10), such issues can arise in ODE-constrained optimization problems in the context of parameterizing PANNs. 
+
+Regularization for non-ideal data The proposed loss con-tributions in Eq. (35) work very well if the input data is ideal, i.e., obtained from a simulation. In real experiments, however, forces and displacements are subject to measurement noise. Non-ideal displacement data poses a considerable difficulty for the EGM, since the strains, or more generally the first spatial 9Calibration of neural viscoelastic models via full-field data A Preprint 
+
+derivative, must be computed from the displacements, which considerably amplifies the measurement error. This amplified error then propagates through the computation of stresses and nodal forces, rendering the objective pursued by the loss term 
+
+𝐿 free (𝜽 ) questionable, as local equilibrium cannot be achieved by a physically reasonable constitutive model. 8 The loss con-tribution 𝐿 force (𝜽 ), on the other hand, does not enforce local equilibrium, but equilibrium with the applied global reaction forces .Due the summation, errors in the individual assembled nodal forces 𝑠 𝑓 𝜆 𝑎 belonging to free nodes, i.e., 𝜆 ∈ F REE , are ex-pected to average out in the loss given in Eq. (35b). Nevertheless, we apply a method introduced by Jailin et al. (2026) to for-mulate a modified loss contribution 𝐿 free,mod (𝜽 ) and thereby make the proposed optimization problem more robust against measurement noise. Please note that there is no change to the loss contribution 𝐿 force (𝜽 ). The key idea is to apply a Gaussian kernel matrix 𝑮 ∈ R𝑛 nodes ×𝑛 nodes  
+
+> ≥0
+
+to the assembled nodal forces ,whose entries 𝐺 𝜆𝜇 ∈ R≥0 depend on the distance between the initial node positions 𝑥 𝜆 𝑎 . The modified assembled nodal forces 
+
+are thereby obtained as  
+
+> 𝑠
+
+𝑓 𝜇 𝑎, mod (𝜽 ) :=
+
+> 𝑛 nodes
+
+∑︁  
+
+> 𝜆 =1
+> 𝑠
+
+𝑓 𝜆 𝑎 (𝜽 )𝐺 𝜆𝜇 (37) 
+
+=
+
+> 𝑛 nodes
+
+∑︁  
+
+> 𝜆 =1
+> 𝑠
+
+𝑓 𝜆 𝑎 (𝜽 )
+
+exp − (𝑥 𝜇 𝑏 − 𝑥 𝜆 𝑏 )( 𝑥 𝜇 𝑏 − 𝑥 𝜆 𝑏 )
+
+𝛿 2
+
+!
+
+> 𝑛 nodes
+
+∑︁ 
+
+> 𝜌 =1
+
+exp 
+
+
+
+− (𝑥 𝜇 𝑐 − 𝑥 𝜌 𝑐 )( 𝑥 𝜇 𝑐 − 𝑥 𝜌 𝑐 )
+
+𝛿 2
+
+ .The factor 𝛿 = 𝛼 infl Δ𝑙 is computed from the average initial distance Δ𝑙 ∈ R>0 between the nodes of all elements and an influence factor 𝛼 infl ∈ R>0. After that, the modified assembled nodal forces belonging to the free nodes with indices 𝜇 ∈F REE are used to obtain the modified loss term 
+
+𝐿 free,mod (𝜽 ) := 12𝑛 steps 𝑛 free 
+
+> 𝑛 steps
+
+∑︁ 
+
+> 𝑡 =1
+
+∑︁ 𝜇 ∈ F R E E  
+
+> 𝑠
+
+𝑓 𝜇 𝑎, mod (𝜽 )𝑠 𝑓 𝜇 𝑎, mod (𝜽 ) .(38) 
+
+# 5 Numerical examples 
+
+To illustrate the performance of the proposed framework for training viscoelastic PANNs in an unsupervised manner via full-field data, we consider several numerical examples, including ideal and noisy data sets, in the following. In all numerical studies, each of the three element-wise non-decreasing FICNNs with skip connections consisted of a single hidden layer with two neurons and softplus activation func-tions. To ensure the desired properties (element-wise non-decreasingness and convexity), non-negativity constraints were 
+
+> 8In theory, there might exist a material model with a huge number of parameters that achieves almost perfect equilibrium of nodal forces, even with noisy input data. This, however, is not a desirable outcome, since it gives rise to overfitting, i.e., learning the noise rather than the material behavior.
+
+imposed on the weights in the hidden layer and the skip con-nections (Amos et al., 2017, Klein et al., 2021). Because the resulting number 𝑛 𝜃 of trainable parameters, 𝜽 ∈ P 𝜃 , was fairly small, we chose the SLSQP optimizer, which performs better than the ADAM optimizer—widely used in machine learning— for small to moderate network sizes, cf. (Kalina et al., 2024, Appendix G). To improve the efficacy of the training process, calibration was split into two steps: a reduced dataset comprising only the first 50 time steps was used to calibrate the PANN initially, after which the complete dataset was used for training. In both training steps, the convergence criterion, i.e., the function tolerance for SLSQP, was set to the extremely small value of 10 −32 , thus effectively limiting the optimization by the number of function evaluations instead. As a result, calibration was terminated almost exclusively by reaching the maximum number of function evaluations, rather than by satisfying the convergence criterion. For the first training step, using 50 time steps, the number of function evaluations was set to 2000, while for the subsequent step, using all time steps, it was set to 1000. The two convergence criteria in the combined Newton iteration, employed to compute 𝑠 q𝑒 and 𝑠 𝜀 𝑒 
+
+> 33
+
+, were defined by 𝜖 q 
+
+> tol
+
+= 10 −6
+
+and 𝜖 𝜎  
+
+> tol
+
+= 10 −12 . The maximum number of allowed Newton iterations was set to 𝑛 iter = 20. For all considered examples, training was conducted for ten different initializations. Subsequently, the model with the least training loss was selected and validated in each case. The implementation of the PANN model and the unsupervised calibration workflow was realized using Python, TensorFlow, and SciPy. 9 All computations were performed on an HPC cluster at TU Dresden; hardware details are given later. 
+
+Remark 8. It is known from the literature that training inelastic neural models via ODE-constrained optimization, as done in this work, can fail whenever an unfavorable set of the trainable parameters causes quantities such as stresses to drift toward infinity, resulting in NaN values, cf. (Holthusen & Kuhl, 2026, p. 20) or (Kalina et al., 2026, Remark 10). The SLSQP optimizer used here is comparatively robust against such scenarios. If the optimizer receives the value NaN, it can switch to a stable region of the parameters 𝜽 ∈ P 𝜃 . Only if NaN values occur in the very first training epoch does SLSQP terminate immediately. One way to prevent NaNs in this initial epoch is to choose the trainable parameters such that the initial relaxation times take on meaningful values (Kalina et al., 2026, Remark 9). For the cases considered here, however, it was sufficient to restrict the initialization of the weights to the interval [0, 0.1].
+
+5.1 Generation of data 
+
+To calibrate the PANN in an unsupervised manner using the EGM, synthetic training data, namely in-plane displacements 
+
+and global reaction forces normal to the boundaries, are gen-erated via finite element simulations. These simulations were performed by using an in-house finite element code. 
+
+> 9Once the final version of the article is published, the code will be made publicly available.
+
+10 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+5.1.1 Ground truth viscoelastic model 
+
+The ground truth (GT) material model employed is a classical linear viscoelastic Maxwell model with one internal variable, given by 
+
+𝛹 GT (ε, q) := 12 ε : Ceq : ε+ 12 (ε−q) : Cneq : (ε−q) (39a) 
+
+Ceq := 3𝐾 Isph + 2𝐺 Idev (39b) 
+
+Cneq := 3𝐾 0Isph + 2𝐺 0Idev (39c) 
+
+𝛷 ∗GT (A) := 12 A : V−1 : A (39d) 
+
+V−1 := 13𝜂 sph Isph + 12𝜂 dev Idev (39e) and material parameters 𝐾 = 5 MPa, 𝐺 = 3 MPa, 𝐾 0 = 10 MPa, 
+
+𝐺 0 = 7 MPa, 𝜂 sph = 4 MPa s and 𝜂 dev = 2 MPa s. 
+
+5.1.2 Training data 
+
+The uniaxial and biaxial specimens used to generate the training data are shown in Fig. 3; in each specimen, two ellipses were cut out to produce a wide range of strain and stress states (Linden et al., 2025). Each specimen has an initial thickness ℎ =
+
+1 mm. For the uniaxial specimen, displacements in the 𝑥 1-direction were applied at the left and right edges in the form of 
+
+random walks , so as to obtain as many different strain rates as possible during the synthetic experiment (As’ad & Farhat, 2023, Rosenkranz et al., 2024). These random walks were obtained by means of a scaling factor 𝑠 𝛼 1 ∈ [ 0, 1], 𝑠 ∈ { 1, . . . , 𝑛 steps }, that was varied in each time step. The temporal course was obtained using cubic splines, following the approach of Rosenkranz et al. (2024); see Fig. 3. Clamping in a testing machine was then simulated by additionally locking the displacement in the 
+
+𝑥 2-direction at the same edges. The same principle applied to the biaxial specimen, where clamping was simulated for each of the four arms: the displacement perpendicular to a given edge followed a random walk , as in the uniaxial case, while the displacement parallel to it was locked. For the left arm, for instance, this meant a random walk in the 𝑥 1-direction combined with a locked displacement in the 𝑥 2-direction. 
+
+5.1.3 Validation data 
+
+For validation, the synthetic biaxial experiment shown in Fig. 3, which was not part of the training data, was considered. In addition, quadratic triangular elements were used to discretize the validation specimen. Again, the reference thickness is given by ℎ = 1 mm. The trained PANN was embedded in a finite element code to solve the corresponding boundary value problem; the resulting stresses are compared against those obtained with the linear viscoelastic reference model in the following sections. 
+
+5.2 Training with ideal data 
+
+To review the performance of the optimization framework in conjunction with the PANN, ideal training data (without added artificial noise) were used first. Such data, obtained directly from the synthetic experiments, are not subject to the uncertainties present in real experiments; the displacements and global reaction forces computed with the finite element code using the reference model were therefore provided directly for training. The effect of noisy data is addressed in Sect. 5.3. Three datasets were considered for training: 
+
+• data from the uniaxial experiment in Fig. 3, 
+
+• data from the biaxial experiment in Fig. 3, and 
+
+• combined data from both the uniaxial and biaxial experiments in Fig. 3. Hardware details and approximate computation times per train-ing epoch are listed in Tab. 1.                  
+
+> Table 1: Number of cores, approximate RAM usage, and approximate computation times per epoch to calibrate the PANN for all of the three training data sets. The latter is specified for the approximate computation times per epoch for the pre-training with only 50 time steps, and the subsequent training with all 199 time steps. All trainings have been done on a machine with Intel Xeon Platinum 8470. Training data set Uniaxial Biaxial Uniaxial + Biaxial Number of cores 40 40 50 Approx. maximum RAM usage 15 GB 16 GB 24 GB Approx. Δ𝑡 epoch
+> using 50 time steps 5 s 5 s 8 s Approx. Δ𝑡 epoch
+> using 199 time steps 16 s 17 s 27 s
+
+Remark 9. We elaborate briefly on some technicalities regard-ing the results in Tab. 1 in order to put them into context. First, note that the main computation time per training epoch occurs in the forward pass, due to the Newton iteration. Because of the adjoint method , the backward pass is comparatively less demanding. In addition, different number of Newton iterations also change the required time per training epoch. A coarser mesh would also drastically reduce the computation time. Fur-thermore, the values reported in Tab. 1 for maximum RAM usage and computation time per training epoch vary between different initializations of the PANN, even for the same training data. These values are therefore marked as approximate. Fi-nally, even for the same initialization of the PANN and identical training data, different training results can be obtained: while the loss is identical during the first training epoch, it gradually drifts apart in subsequent epochs. Since all computations are performed on a machine using 40 to 50 cores, this behavior can be attributed to the non-associativity of floating-point op-erations combined with the non-deterministic order of parallel execution (Collange et al., 2015). 
+
+5.2.1 Training results 
+
+The SLSQP optimization terminated without failure for all three training data sets and all ten random initializations, yielding ten trained PANNs per data set. However, the quality of the resulting 11 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+Figure 3: Training: Uniaxial specimen with outer dimensions 100 mm × 100 mm, discretized into 5063 CST elements, and biaxial specimen with outer dimensions 200 mm × 200 mm, discretized into 6253 CST elements, from which training data was generated using the linear viscoelastic reference model given in Eqs. (39a)–(39e). The prescribed displacement ˆ 𝑢 = 1 mm on a respective boundary was multiplied by a scaling factor 𝑠 𝛼 1 or 𝑠 𝛼 2, 𝑠 ∈ { 1, 2, . . . , 199 }, as shown on the right of the respective specimen. Validation: The biaxial specimen at the bottom, with outer dimensions 841 .4 mm × 841 .4 mm, is discretized into 17277 quadratic triangular elements and used for validation. In this case, the scaling factors 𝑠 𝛼 1, 𝑠 𝛼 3, 𝑠 ∈ { 1, 2, . . . , 194 } are also shown on the right. 
+
+12 Calibration of neural viscoelastic models via full-field data A Preprint     
+
+> Figure 4: Loss courses during calibration of the PANN, for all ten initializations, using ideal training data generated from uniaxial and biaxial training specimens (see Fig. 3), respectively. The loss with the smallest final value per training data set is visualized in orange. In each column, the prediction of the calibrated PANN with the smallest associated loss for 𝜎 𝑘𝑙 is plotted against the reference values calculated with the GT material model. Additionally, the commonly used 𝑅 2-value is depicted. For details on the computation of the 𝑅 2-value please refer to Dammaß et al. (2025).
+
+calibration varied between initializations. For each data set, the PANN exhibiting the smallest final loss was therefore selected as the best-performing calibration. The corresponding losses are shown in Fig. 4. The stresses predicted by these selected PANNs agree very well with the reference stresses calculated using the GT material model, as shown in the 𝑅 2 plots provided in Fig. 4. In more detail, Fig. 5 depicts the predicted stress components over time at a representative quadrature point of the uniaxial specimen, all of which are fitted almost perfectly. Analogously, Fig. 6 shows that the coordinates of the internal variables are likewise predicted perfectly by the PANN when compared to the GT values. All remaining quantities, such as the thermodynamic driving forces, are predicted with comparable accuracy. This level of agreement held for all three training data sets. 
+
+5.2.2 Validation results 
+
+As discussed in Sect. 5.1.3, we validated a trained PANN by embedding it as the constitutive model in a finite element code and comparing the resulting stress response to that computed with the linear viscoelastic ground truth model. The boundary value problem considered was the validation specimen shown in Fig. 3. We carried out the simulation for the three best-performing PANNs, selected according to their respective loss values, obtained from the three training data sets. Compared to the linear viscoelastic reference model, which achieves convergence in just a single global Newton itera-tion for the boundary value problem under consideration, the PANN required around 6 to 10 iterations. This is an inevitable consequence of the nonlinearity introduced by activation func-tions within the FICNNs used to describe the potentials within the PANN. Aside from this observation, the difference in the predicted stresses between the PANN and the GT model is negli-gible: Fig. 7 illustrates this for a representative time step and the stress component 𝜎 PANN,ideal 11 , for all three training data sets. All other quantities, including the remaining stress components, the internal variable, and the displacements, are likewise predicted in very good agreement with the GT model. 
+
+Remark 10. Fig. 7 shows that the PANN can be trained from all three data sets almost perfectly. Therefore, an experiment with either a uniaxial or biaxial specimen seems sufficient. However, as elucidated by Dammaß et al. (2025), this does not apply to the finite strain case. Hence, both uniaxial and biaxial stress states are most likely necessary when calibrating from real 13 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+> Figure 5: Prediction of stress components by the PANN and reference values of the linear viscoelastic model at the marked quadrature point. The PANN was trained using ideal data obtained from the uniaxial data, see Fig. 3.
+
+experimental data at finite deformations. Note that uniaxial stress states are present in the biaxial specimen at the edges of the holes and in the arms for load application. 
+
+5.3 Training with noisy data 
+
+Compared to synthetic experiments, real experiments are always subject to uncertainty, since, for example, measured forces and displacements are corrupted by noise. This scenario is considered in the following. 
+
+5.3.1 Generation of artificial noise 
+
+To mimic the situation in a realistic experimental setup, artificial noise was added to the ideal training data, i.e., to the in-plane displacements and global reaction forces on the respective boundaries. We therefore adopted the method proposed by Linden et al. (2025) to impose artificial noise on full-field data. 
+
+Noisy reaction forces First, a noisy reaction force 𝑠 ˜𝐹 𝜅 , 𝜅 ∈{1, . . . , 𝑛 𝜅 } was obtained via  
+
+> 𝑠
+
+˜𝐹 𝜅 := 𝑠 𝐹 𝜅 𝑠 𝑟 𝜅 with 𝑠 𝑟 𝜅 ∼ U 𝜅 [1 − 10 −4; 1 + 10 −4] , (40) where U𝜅 [1 − 10 −4; 1 + 10 −4] denotes a uniform distribution. 
+
+Remark 11. For the uniaxial specimen, the same sample 𝑠 𝑟 𝜅 
+
+was chosen for the two reaction forces on the left and right boundary, since both are identical in magnitude. Consequently, in a real experiment it would suffice to measure the reaction force on only one side. This does not hold, however, for the biaxial specimen with clamping boundary conditions, where the reaction forces differ between opposite sides of the specimen, making a measurement on each of the four arms necessary. Ac-cordingly, four different sets of samples 𝑠 𝑟 𝜅 were used to impose noise on the global reaction forces of the biaxial specimen. 
+
+> Figure 6: Prediction of internal variables by the PANN and reference values of the linear viscoelastic model at the marked quadrature point. The PANN was trained using ideal data obtained from the uniaxial data, see Fig. 3.
+
+Noisy in-plane displacements The in-plane nodal displace-ments 𝑠 𝑢 𝜆 𝑎 were perturbed using distinct normalized Gaussian random fields (GRFs) for every time step 𝑠 and coordinate 𝑎 .These GRFs were generated on a 2048 × 2048 square grid with correlation length 𝑙 = 12048 . This grid was then interpolated onto the physical two-dimensional domain, defined by the min-imum and maximum nodal positions 𝑥 𝜆 𝑎 + 𝑠 𝑢 𝜆 𝑎 in the 𝑥 1- and 
+
+𝑥 2-direction across all time steps. Subsequently, the respective GRF 𝑠 𝑔 𝑎 (𝑥 𝜆 𝑎 + 𝑠 𝑢 𝜆 𝑎 ) was evaluated at the current positions of the global nodes. The noisy in-plane nodal displacements 𝑠 ˜𝑢 𝜆 𝑎 
+
+are then defined by  
+
+> 𝑠
+
+˜𝑢 𝜆 𝑎 := 𝑠 𝑢 𝜆 𝑎 + 𝑠 𝑔 𝑎 (𝑥 𝜆 𝑏 + 𝑠 𝑢 𝜆 𝑏 )Δℓ𝜂 , (41) where Δℓ ∈ R>0 denotes the length scale and 𝜂 ∈ R≥0 controls the amplitude of the noise. The length scale was set to Δℓ =
+
+100 mm for the uniaxial specimen and to Δℓ = 200 mm for the biaxial training specimen, while the amplitude was set to 
+
+𝜂 = 5 × 10 −5 in both cases. To illustrate the influence of the noise on the resulting strains, the strain component 𝜀 11 of the uniaxial specimen is considered. Fig. 8 shows this component at a representative time step for both ideal and noisy training data. 
+
+Influence length for assembled nodal forces Since in the case of non-ideal data, the loss is adopted slightly by spatial regularization of the assembled nodal forces , we have to choose a hyper parameter for this method, see Sect. 4.3. To this end, we chose the influence factor 𝛼 infl = 0.8, which has shown to yield robustness of the optimization procedure. 14 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+Figure 7: Stress differences 𝜎 PANN,ideal 11 − 𝜎 GT 11 and 𝜎 PANN,noisy 11 − 𝜎 GT 11 at time step 𝑠 = 141 of the validation boundary value problem in Fig. 3 between the calibrated PANN and the linear viscoelastic reference model (GT model). At the bottom the stress 𝜎 GT 11 of the GT model is shown. The PANN was trained with both ideal and noisy data obtained from the uniaxial experiment, the biaxial experiment, and the combined data of both synthetic experiments, respectively. 
+
+15 Calibration of neural viscoelastic models via full-field data A Preprint          
+
+> Figure 8: Ideal strain 𝜀 ideal 11 and noisy strain 𝜀 noisy 11 for time step 𝑠 =89 calculated by the ideal and noisy in-plane displacements of the uniaxial specimen training data.
+
+5.3.2 Results 
+
+As in the case of ideal data, the PANN was trained using ten initializations for each of the three datasets: noisy uniaxial, noisy biaxial, and the combination of both. For the noisy data, training terminated early for some of these initializations, because the least-squares method used to com-pute the update in the Newton scheme in the forward pass encountered an ill-conditioned coefficient matrix. In total, cali-bration completed successfully for five out of ten initializations in the case of the noisy uniaxial dataset, and for eight out of ten each in the case of the noisy biaxial and the combined noisy datasets. As only a limited number of calibrations can be executed, early termination could in principle also occur for the ideal data considered previously, even though it was not observed there. Among the calibrations that completed successfully, the PANN with the smallest loss was again selected as the best-performing model for each of the three datasets. These trained PANNs were subsequently employed in a finite element simulation of the validation boundary value problem shown in Fig. 3. The resulting stress component 𝜎 PANN,noisy 11 is compared in Fig. 7 to the GT values 𝜎 GT 11 obtained from the linear viscoelastic model. Compared to the case of ideal data, the absolute stress difference is now noticeably larger for all three trained PANNs. The best agreement is obtained for the PANN trained on both noisy uniaxial and biaxial data, followed by the PANN trained solely on noisy biaxial data, and lastly by the PANN trained solely on noisy uniaxial data. We assume that this ordering is governed more by the specific initialization than by different training data. Furthermore, as expected, the largest stress differences occur near the boundaries, where spatial displacement gradients are high. Aside from this, the overall stress prediction remains reasonably accurate. The remaining stress components predicted by the three PANNs exhibit a similar level of error when compared to the reference values. 
+
+# 6 Conclusion 
+
+In this work, an unsupervised learning framework for calibrating a PANN for small-strain viscoelasticity from full-field data is proposed. The approach relies solely on quantities accessible in real experiments— global reaction forces and surface displace-ments —and formulates an optimization problem based on the EGM that is constrained under a plane stress assumption and additionally by the evolution equations of internal variables. The underlying PANN is embedded in the GSM framework, combining invariant-based representations of the free energy and the DDP, such that thermodynamic consistency and material symmetry hold by construction. To reduce the training cost, the gradient of the target loss is evaluated via the backward adjoint method . The framework shows excellent agreement with synthetically generated data and reliably recovers the material response even in the presence of added artificial noise. In summary, the presented framework demonstrates that a ther-modynamically consistent viscoelastic PANN can be calibrated using only data that is measurable in real experiments, thereby closing the gap between physics-augmented neural inelasticity modeling and full-field experimental characterization. Its key advantage lies in the generality of the applied framework, which can be transferred in a straightforward manner to different con-stitutive settings and thus enable a systematic, largely automated approach to material modeling. Several extensions are planned for the future. Natural next steps include the calibration with real experimental data (Abbasi et al., 2026, Wiesheier et al., 2026), the extension to finite strains (Holthusen & Kuhl, 2026, Kalina et al., 2026), and the transfer of the approach to further inelastic material classes such as elasto-plasticity (Fuhg et al., 2023, Meyer & Ekre, 2023). 
+
+# CRediT authorship contribution statement 
+
+Brain M. Riemer: Conceptualization, Formal analysis, In-vestigation, Methodology, Software, Validation, Visualization, Writing – original draft, Writing – review & editing. Markus Kästner: Resources, Writing – review & editing, Funding acquisition. Karl A. Kalina: Supervision, Conceptualization, Formal analysis, Investigation, Methodology, Software, Vali-dation, Writing – original draft, Writing – review & editing, Funding acquisition. 
+
+# Usage of AI tools 
+
+In preparing this work, the authors partially used Claude Opus 4.8 and Claude Sonnet 5, generative AI tools, to improve the readability and language of the manuscript. After using these tools, the authors reviewed and revised the content as necessary and take full responsibility for the content of the published article. 16 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+# Acknowledgment 
+
+The authors thank the German Research Foundation (DFG) for the support within the Research Training Group GRK 2868 D 3–Project Number 493401063 and the project ANIVIS-NN with project number 571269372, grant KA 5978/2–1. A heartfelt thank also to Jörg Brummund for numerous thought-provoking comments. 
+
+# Data availability 
+
+Once the final version of the article is published, the code will be made publicly available. 
+
+# A Notation 
+
+Blackboard bold symbols are used for domains of numbers: the integers Z and the real numbers R. Any domain of number with a condition as a subscript consists only of elements that satisfy that condition. For example, Z≥0 := {𝑧 ∈ Z | 𝑧 ≥ 0}.The space of real hyper-matrices of order 𝑚 ∈ Z≥1 is denoted by R𝑛 1 ×𝑛 2 ×···× 𝑛 𝑖 , 𝑖 ∈ { 1, 2, . . . , 𝑚 }, 𝑛 1, 𝑛 2, . . . , 𝑛 𝑖 ∈ Z≥1, while 
+
+L𝑛 is the space of 𝑛 th order real tensors 𝑛 ∈ Z≥1. Fully symmetric or skew-symmetric 𝑛 th order tensors are elements of 
+
+L𝑛  
+
+> sym
+
+⊂ L 𝑛 and L𝑛  
+
+> skw
+
+⊂ L 𝑛 , respectively. Non-deviatoric real-valued 2nd order tensors are element of L2tr ≠0 ⊂ L 2 and positive definite real-valued 2nd order tensors element of L2 
+
+> 𝜆> 0
+
+⊂ L 2.We denote real-valued 0th, 1st, 2nd and 4th order tensors by 𝐴 
+
+𝑨 , A and A, while vectors are represented by 𝑨 and matrices by 𝑨 .The functional dependency on both spatial point 𝒙 ∈ L 1
+
+and time 𝑡 ∈ R≥0 of tensors and hyper-matrices is often omitted within this work. Nevertheless, evaluations at dis-crete times and iterations are marked by exclusive superscripts 
+
+𝑠 ∈ { 1, 2, . . . , 𝑛 steps } and 𝑖 ∈ { 1, 2, . . . 𝑛 iter } on the left of an symbol, where 𝑛 steps ∈ Z≥1 is the number of time steps and 
+
+𝑛 iter ∈ Z≥1 the maximum number of iterations. Furthermore, we use one more special superscript 𝑒 ∈ { 1, 2, . . . , 𝑛 el }, 𝑛 el ∈ Z≥1
+
+the number of elements, to show the affiliation to a specific finite element. For example, a 2nd order tensor evaluated at time step 𝑠 iteration 𝑖 for an element 𝑒 is denoted by 𝑠,𝑖 A𝑒 .In index notation, if not stated differently, indices 𝑎, 𝑏, 𝑐, 𝑑 ∈{1, 2} and 𝑘, 𝑙, . . . , 𝑟 ∈ { 1, 2, 3}. Einstein summation conven-tion applies to these lower case Latin letters. For illustration, 
+
+> 𝑠,𝑖
+
+A𝑒 := 𝑠,𝑖 𝐴 𝑒 𝑘𝑙𝑚𝑛 𝒆 𝑘 𝒆 𝑙 𝒆 𝑚 𝒆 𝑛 , where 𝒆 1, 𝒆 2 and 𝒆 3 are the stan-dard basis vectors of R3. Greek indices as well as the indices 𝑒 ,
+
+𝑖 and 𝑠 are excluded from the summation convention. The single and double contraction between tensors or hyper-matrices are denoted by · and :, e.g., A · B := 𝐴 𝑘𝑙 𝐵 𝑙𝑚 𝒆 𝑘 𝒆 𝑚 
+
+and A : B := 𝐴 𝑘𝑙 𝐵 𝑙𝑘 . In addition, A𝑚 denotes the 𝑚 -fold single contractions between each A, e.g., A3 := A · A · A.The trace and the symmetric part of 2nd order tensors or square matrices are denoted by tr (•) and sym (•) , respec-tively, and the transposition by (•) ⊤. The Nabla operator is defined by ∇ := 𝜕 𝜕𝑥 𝑘 𝒆 𝑘 . Furthermore, 𝛿 𝑘𝑙 denotes the Kronecker-Delta and Isym := 12 (𝛿 𝑘𝑚 𝛿 𝑙𝑛 + 𝛿 𝑘𝑛 𝛿 𝑙𝑚 )𝒆 𝑘 𝒆 𝑙 𝒆 𝑚 𝒆 𝑛 ,
+
+Isph := 13 𝛿 𝑘𝑙 𝛿 𝑚𝑛 𝒆 𝑘 𝒆 𝑙 𝒆 𝑚 𝒆 𝑛 and Idev := Isym − Isph the symmet-ric, sphere and deviatoric projector, respectively. The special orthogonal group and the orthogonal group are represented by 
+
+O( 3) := O( 3, R) and SO( 3) := SO( 3, R). The number of global nodes is denoted by 𝑛 nodes ∈ Z>0.
+
+# B Convex functional basis for a symmetric non-deviatoric 2nd order tensor and the orthogonal group 
+
+We show that a functional basis for a symmetric non-deviatoric 2nd order tensor s ∈ L 2sym ∩ L 2tr ≠0 ⊂ L 2sym and group O( 3) is constituted by the convex invariants 
+
+𝐼 1 : L2sym ∩ L 2tr ≠0 → R, s ↦ → 𝐼 1 (s) = tr (s), (42a) 
+
+𝐼 2 : L2sym ∩ L 2tr ≠0 → R, s ↦ → 𝐼 2 (s) = tr (( Idev : s)2) and (42b) 
+
+𝐼 3 : L2sym ∩ L 2tr ≠0 → R, s ↦ → 𝐼 3 (s) = tr (s4) . (42c) This claim requires the introduction of two more invariants 
+
+𝐾 : L2sym ∩ L 2tr ≠0 → R, s ↦ → 𝐾 (s) = tr (s2) and (43a) 
+
+𝐽 : L2sym ∩ L 2tr ≠0 → R, s ↦ → 𝐽 (s) = tr (s3) . (43b) On the other hand, for the more common case of a symmetric 2nd order tensor r ∈ L 2sym and group O( 3), the invariants in Eq. (42) do not form a functional basis , which is why the domain is restricted for 𝐼 1, 𝐼 2 and 𝐼 3 in Eq. (42). To note the difference in domain, we formally introduce the invariants ¯𝐼 1 : L2sym → R, r ↦ → ¯𝐼 1 (r) = tr (r), (44a) ¯𝐼 2 : L2sym → R, r ↦ → ¯𝐼 2 (r) = tr (( Idev : r)2), (44b) ¯𝐼 3 : L2sym → R, r ↦ → ¯𝐼 3 (r) = tr (r4) (44c) ¯𝐾 : L2sym → R, r ↦ → ¯𝐾 (r) = tr (r2) and (44d) ¯𝐽 : L2sym → R, r ↦ → ¯𝐽 (r) = tr (r3) . (44e) Please note that the invariants ¯ 𝐼 1, ¯𝐾 and ¯ 𝐽 constitute a well-known functional basis for the case of r ∈ L 2sym and O( 3), see Boehler (1977), Pennisi & Trovato (1987), Smith (1971). 
+
+Proposition 1. Let the invariants ¯𝐼 1, ¯𝐾 and ¯𝐽 , defined in Eq. (44), form a functional basis for r ∈ L 2sym and group O( 3).Then the invariants ¯ 𝐼 1, ¯𝐾 and ¯ 𝐼 3, defined in Eq. (44), do not form a functional basis for r ∈ L 2sym and group O( 3).
+
+Proof. We use the argumentation by Smith (1970) to show that the invariants ¯ 𝐼 1, ¯𝐾 and ¯ 𝐼 3 are not separating the group orbits and hence do not form a functional basis (Pipkin & Wineman, 1963). For the diagonal tensors r1 = diag (− 2, 1, 1)
+
+and r2 = diag (2, −1, −1), which belong to different group orbits, ¯ 𝐼 1 (r1) = ¯𝐼 1 (r2) = 0, ¯𝐾 (r1) = ¯𝐾 (r2) = 6, ¯ 𝐼 3 (r1) =
+
+¯𝐼 3 (r2) = 18, but ¯ 𝐽 (r1) = −6 and ¯ 𝐽 (r2) = 6. Thus, ¯ 𝐼 1, ¯ 𝐾 and ¯ 𝐼 3
+
+do not separate the group orbits. □
+
+Corollary 1. The invariants ¯ 𝐼 1, ¯ 𝐼 2 and ¯ 𝐼 3, defined in Eq. (44), do not form a functional basis for r ∈ L 2sym and group O( 3).17 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+Proof. This follows directly from the proof of Proposition 1, since the tensors r1 and r2 are deviatoric. Hence, ¯𝐾 (r1) =
+
+¯𝐼 2 (r1) and ¯ 𝐾 (r2) = ¯𝐼 2 (r2). □
+
+Lemma 1. The functional basis constituted by ¯𝐼 1, ¯𝐾 and ¯𝐽 , defined in Eq. (44), separate the group orbits for O( 3)
+
+and r ∈ L 2sym . Thus, the invariants 𝐼 1, 𝐾 and 𝐽 , defined in Eq. (42a) and Eq. (43), separate the group orbits for O( 3) and 
+
+s ∈ L 2sym ∩ L 2tr ≠0 ⊂ L 2sym .
+
+Proof. The fact that ¯ 𝐼 1, ¯ 𝐾 and ¯ 𝐽 separate the group orbits for 
+
+O( 3) and r ∈ L 2sym is well-known (Boehler, 1977, Pennisi & Trovato, 1987, Smith, 1971). Hence, they separate all group orbits where ¯ 𝐼 1 (r) ≠ 0. The elements of theses group orbits with ¯𝐼 1 (r) ≠ 0 build the proper subset L2sym ∩ L 2tr ≠0 ⊂ L 2sym . Thus, 
+
+𝐼 1, 𝐾 and 𝐽 , which are defined analogous to ¯ 𝐼 1, ¯ 𝐾 and ¯ 𝐽 , separate the group orbits for O( 3) and s ∈ L 2sym ∩ L 2tr ≠0 ⊂ L 2sym . □
+
+Proposition 2. The invariants 𝐼 1, 𝐼 2 and 𝐼 3, defined in Eq. (42), constitute a functional basis for s ∈ L 2sym ∩ L 2tr ≠0 ⊂ L 2sym and group O( 3).
+
+Proof. By inspection we find the syzygies 0 = 3𝐾 − 𝐼 21 − 3𝐼 2 (45a) 0 = 24 𝐽 𝐼 1 − 2𝐼 41 − 12 𝐼 21 𝐼 2 + 9𝐼 22 − 18 𝐼 3 . (45b) We note that {𝐼 1, 𝐾, 𝐽 } represents a functional basis for O( 3)
+
+and s ∈ L 2sym ∩ L 2tr ≠0 ⊂ L 2sym , see Lemma 1. From Eq. (45) follows that 𝐾 is expressible for arbitrary values of 𝐼 1 and 
+
+𝐼 2, while 𝐽 is only expressible for 𝐼 1 (s) ≠ 0. Since  s ∈L2sym ∩ L 2tr ≠0 : 𝐼 1 (s) = 0, there exists a functional dependency between every element of {𝐼 1, 𝐼 2, 𝐼 3 } and {𝐼 1, 𝐾, 𝐽 }. Hence, 
+
+{𝐼 1, 𝐼 2, 𝐼 3 } is a functional basis. □
+
+Corollary 2. The invariants 𝐼 1, 𝐼 2 and 𝐼 3, defined in Eq. (42), form a functional basis for O( 3) and a positive definite sym-metric 2nd order tensor s ∈ L 2 
+
+> 𝜆> 0
+
+⊂ L 2sym .
+
+Proof. Since 𝐼 1 (s) ≠ 0 ∀ s ∈ L 2
+
+> 𝜆> 0
+
+, this follows directly from the proof of Proposition 2. □
+
+# C Backward adjoint method 
+
+To enable efficient computation of the gradient d𝐿 EGM  
+
+> d𝜽
+
+, or  
+
+> d𝐿 EGM
+> d𝜃 𝛾
+
+in index notation, with respect to the trainable pa-rameters 𝜃 𝛾 , 𝛾 ∈ { 1, 2, . . . , 𝑛 𝜃 }, we use the backward ad-joint method . This approach avoids back-propagating through all Newton iteration steps, cf. (Akerson et al., 2025, Ku-mar et al., 2025, Seidl & Granzow, 2022). Instead it re-lies solely on information from the last Newton iteration of each time step 𝑠 ∈ {1, . . . , 𝑛 steps }, namely the residu-als 𝑠 𝑅 𝑒 𝜔 (𝑠 𝑦 𝑒 𝜌 (𝜃 𝛾 ), 𝑠 −1𝑦 𝑒 𝜌 (𝜃 𝛾 ), 𝜃 𝛾 ), where 𝜔, 𝜌 ∈ { 1, 2, . . . 𝑛 u },
+
+𝑛 u ∈ Z>0 the number of unknowns 𝑠 𝑦 𝑒 𝜌 that are computed itera-tively in every time step. In this work, 𝑛 u = 5 and 𝑠 𝑦 𝑒 𝜌 stores 
+
+> 𝑠
+
+𝜀 𝑒 
+
+> 33
+
+, 𝑠 𝑞 𝑒 
+
+> 11
+
+, 𝑠 𝑞 𝑒 
+
+> 22
+
+, 𝑠 𝑞 𝑒 
+
+> 33
+
+, and 𝑠 𝑞 𝑒 
+
+> 12
+
+.Furthermore, the backward adjoint method relies on the implicit function theorem together with the fact that d𝑠 𝑅 𝑒 𝜔  
+
+> d𝜃 𝛾
+
+≈ 0. 10 An alternative is the forward sensitivity method , which likewise avoids back-propagating through all Newton iterations. The advantage of the backward adjoint method over the forward sensitivity method , however, is that it introduces a new interme-diate quantity, 𝑠 𝜆 𝑒 𝜔 ∈ R, which we refer to as adjoint parameters. As a result, the backward adjoint method somewhat scales with the size of the vector of unknowns 𝑠 𝑦 𝑒 𝜌 computed through the Newton iteration, rather than with the size of 𝜃 𝛾 , as is the case for the forward sensitivity method . The backward adjoint method is therefore less demanding when the number of trainable parameters 𝜃 𝛾 is large, as is typically the case for NNs. In order to calculate the gradient d𝐿 EGM  
+
+> d𝜃 𝛾
+
+, first the linear systems of equations 
+
+𝑠 = 𝑛 steps :
+
+> 𝑛 u
+
+∑︁ 
+
+> 𝜌 =1
+
+𝜕 𝑛 steps 𝑅 𝑒 𝜔 
+
+𝜕 𝑛 steps 𝑦 𝑒 𝜌 𝑛 steps 𝜆 𝑒 𝜌 = − 𝜕𝐿 EGM 
+
+𝜕 𝑛 steps 𝑦 𝑒 𝜔 
+
+(46) 1 < 𝑠 < 𝑛 steps :
+
+> 𝑛 u
+
+∑︁ 
+
+> 𝜌 =1
+
+𝜕 𝑠 𝑅 𝑒 𝜔 
+
+𝜕 𝑠 𝑦 𝑒 𝜌 𝑠 𝜆 𝑒 𝜌 = −
+
+
+
+> 𝑛 u
+
+∑︁ 
+
+> 𝜌 =1
+> 𝑠 +1
+
+𝜆 𝑒 𝜌 
+
+𝜕 𝑠 +1𝑅 𝑒 𝜌 
+
+𝜕 𝑠 𝑦 𝑒 𝜔 
+
++ 𝜕𝐿 EGM 
+
+𝜕 𝑠 𝑦 𝑒 𝜔 
+
+
+
+must be solved for the adjoint parameters 𝑠 𝜆 𝑒 𝜌 . Because of robustness, we solve the systems of equations in Eq. (46) using a least squares method, cf. footnote 7. Subsequently the loss gradient w.r.t. 𝜃 𝛾 is computed by d𝐿 EGM 
+
+d𝜃 𝛾 
+
+=
+
+> 𝑛 steps
+
+∑︁ 
+
+> 𝑠 =2
+> 𝑛 el
+
+∑︁ 
+
+> 𝑒 =1
+
+
+
+𝜕𝐿 EGM 
+
+𝜕 𝑠 𝜎 𝑒 𝑎𝑏 
+
+𝜕 𝑠 𝜎 𝑒 𝑎𝑏 
+
+𝜕𝜃 𝛾 
+
++
+
+> 𝑛 u
+
+∑︁ 
+
+> 𝜌 =1
+> 𝑠
+
+𝜆 𝑒 𝜌 
+
+𝜕 𝑠 𝑅 𝑒 𝜌 
+
+𝜕𝜃 𝛾 
+
+
+
+, (47) where 𝜕𝐿 EGM  
+
+> 𝜕 𝑠 𝜎 𝑒 𝑎𝑏
+
+denotes the partial derivative of the loss w.r.t. the 
+
+two-dimensional stresses 𝑠 𝜎 𝑒 𝑎𝑏 and 𝜕𝐿 EGM   
+
+> 𝜕 𝑠 𝑦 𝑒 𝜔
+
+= 𝜕𝐿 EGM     
+
+> 𝜕 𝑠 𝜎 𝑒 𝑎𝑏
+> 𝜕 𝑠 𝜎 𝑒 𝑎𝑏
+> 𝜕 𝑠 𝑦 𝑒 𝜔
+
+. The dependence on the various assembled and local nodal forces is thus already accounted for in these two gradients. In summary, one forward and backward pass consists of the following steps: 1. Compute 𝑠 𝑦 𝑒 𝜔 and 𝐿 EGM .2. Calculate 𝜕𝐿 EGM  
+
+> 𝜕 𝑠 𝜎 𝑒 𝑎𝑏
+
+, 𝜕𝐿 EGM   
+
+> 𝜕 𝑠 𝑦 𝑒 𝜔
+
+, 𝜕 𝑠 𝑅 𝑒 𝜔   
+
+> 𝜕 𝑠 𝑦 𝑒 𝜌
+
+, 𝜕 𝑠 +1𝑅 𝑒 𝜌   
+
+> 𝜕 𝑠 𝑦 𝑒 𝜔
+
+and 𝜕 𝑠 𝜎 𝑒 𝑎𝑏 
+
+> 𝜕𝜃 𝛾
+
+using automatic differentiation, for fixed 𝑠 𝑦 𝑒 𝜔 .3. Determine 𝑠 𝜆 𝑒 𝜌 from the linear systems of equations in Eq. (46) sequentially, starting from the last time step 
+
+𝑛 steps .4. Compute the loss gradient in Eq. (47). 
+
+> 10
+
+For d𝑠 𝑅 𝑒 𝜔  
+
+> d𝜃 𝛾
+
+≈ 0 to hold, the Newton iteration must have converged. This cannot be guaranteed for arbitrary 𝜃 𝛾 during training, however; to allow the calibration process to continue, we nevertheless treat the result of the last iteration as converged. 
+
+18 Calibration of neural viscoelastic models via full-field data A Preprint 
+
+# References 
+
+Abbasi, A., Ricci, M., Carrara, P., Flaschel, M., Kumar, S., Marfia, S., & De Lorenzis, L. (2026). Discovery of Hyperelastic Consti-tutive Laws from Experimental Data with EUCLID. Experimen-tal Mechanics , 66(5), 877–908. https://doi.org/10.1007/ s11340-026-01290-6 
+
+Abdolazizi, K. P., Aydin, R. C., Cyron, C. J., & Linka, K. (2026). Thermodynamically consistent viscoelastic constitutive artificial neural networks: Automating the pipeline from experimental data to finite element simulations. Computer Methods in Applied Mechanics and Engineering , 460, 119080. https://doi.org/10.1016/j. cma.2026.119080 
+
+Abdolazizi, K. P., Linka, K., & Cyron, C. J. (2023). Viscoelastic Constitutive Artificial Neural Networks (vCANNs) – a framework for data-driven anisotropic nonlinear finite viscoelasticity. Journal of Computational Physics , 112704. https://doi.org/10.1016/ j.jcp.2023.112704 
+
+Akerson, A., Rajan, A., & Bhattacharya, K. (2025). Learning constitu-tive relations from experiments: 1. PDE constrained optimization. 
+
+Journal of the Mechanics and Physics of Solids , 201, 106128. 
+
+https://doi.org/10.1016/j.jmps.2025.106128 
+
+Aldakheel, F., Elsayed, E. S., Heider, Y., & Weeger, O. (2025). Physics-based machine learning for computational fracture mechan-ics. Machine Learning for Computational Science and Engineering ,1(1), 18. https://doi.org/10.1007/s44379-025-00019-x 
+
+Alheit, B., Kumar, S., & Peirlinck, M. (2026). CANN-EUCLID: Unsupervised constitutive artificial neural network model discovery from full-field data . https://doi.org/10.48550/arXiv.2606. 14565 
+
+Altenbach, H. (2018). Kontinuumsmechanik: Einführung in die mate-rialunabhängigen und materialabhängigen Gleichungen . Springer. 
+
+https://doi.org/10.1007/978-3-662-57504-8 
+
+Amos, B., Xu, L., & Kolter, J. Z. (2017). Input Convex Neural Networks . https://doi.org/10.48550/arXiv.1609.07152 .arXiv:1609.07152 [cs] Apel, N. (2004). Approaches to the Description of Anisotropic Material Behaviour at Finite Elastic and Plastic Deformations —Theory and Numerics — . Stuttgart. As’ad, F. & Farhat, C. (2023). A mechanics-informed neural network framework for data-driven nonlinear viscoelasticity. AIAA SCITECH 2023 forum . https://doi.org/DOI:10.2514/6.2023-0949 
+
+As’ad, F. & Farhat, C. (2026). A staggered training framework for mechanics-informed neural networks in tractable multiscale homogenization with application to woven fabrics. Computer Methods in Applied Mechanics and Engineering , 452, 118666. 
+
+https://doi.org/10.1016/j.cma.2025.118666 
+
+Avril, S., Bonnet, M., Bretelle, A.-S., Grédiac, M., Hild, F., Ienny, P., Latourte, F., Lemosse, D., Pagano, S., Pagnacco, E., & Pier-ron, F. (2008). Overview of Identification Methods of Mechan-ical Parameters Based on Full-field Measurements. Experimen-tal Mechanics , 48(4), 381–402. https://doi.org/10.1007/ s11340-008-9148-y 
+
+Bahmani, B. & Sun, W. (2024). Physics-constrained symbolic model discovery for polyconvex incompressible hyperelastic materials. In-ternational Journal for Numerical Methods in Engineering , n/a(n/a), e7473. https://doi.org/10.1002/nme.7473 
+
+Benady, A., Baranger, E., & Chamoin, L. (2024a). NN-mCRE: A modified constitutive relation error framework for unsupervised learning of nonlinear state laws with physics-augmented neural net-works. International Journal for Numerical Methods in Engineering ,125(8), e7439. https://doi.org/10.1002/nme.7439 
+
+Benady, A., Baranger, E., & Chamoin, L. (2024b). Unsuper-vised learning of history-dependent constitutive material laws with thermodynamically-consistent neural networks in the modi-fied Constitutive Relation Error framework. Computer Methods in Applied Mechanics and Engineering , 425, 116967. https: //doi.org/10.1016/j.cma.2024.116967 
+
+Biot, M. A. (1965). Mechanics of Incremental Deformations . John Wiley & Sons. Bock, F. E., Aydin, R. C., Cyron, C. J., Huber, N., Kalidindi, S. R., & Klusemann, B. (2019). A Review of the Application of Machine Learning and Data Mining Approaches in Continuum Materials Mechanics. Frontiers in Materials , 6, 110. https://doi.org/ 10.3389/fmats.2019.00110 
+
+Boehler, J. P. (1977). On Irreducible Representations for Isotropic Scalar Functions. ZAMM - Journal of Applied Mathematics and Mechanics / Zeitschrift für Angewandte Mathematik und Mechanik , 57(6), 323–327. 
+
+https://doi.org/10.1002/zamm.19770570608 . _eprint: https://onlinelibrary.wiley.com/doi/pdf/10.1002/zamm.19770570608 Boes, B., Simon, J.-W., & Holthusen, H. (2024). Accounting for plasticity: An extension of inelastic Constitutive Artificial Neural Networks . https://doi.org/10.48550/arXiv.2407.19326 
+
+Bourdyot, M., Compans, M., Langlois, R., Smaniotto, B., Baranger, E., & Jailin, C. (2026). Learning a hyperelastic constitutive model from 3D experimental data. Computer Methods in Applied Mechanics and Engineering , 450, 118592. https://doi.org/10.1016/j. cma.2025.118592 
+
+Boyd, S. & Vandenberghe, L. (2004). Convex Optimization . https:// doi.org/10.1017/CBO9780511804441 . ISBN: 9780511804441 Califano, F. & Ciambella, J. (2026). Enhancing nonlinear viscoelastic modeling of elastomers through neural networks: A deep rheological element. Mechanics of Materials , 212, 105525. https://doi. org/10.1016/j.mechmat.2025.105525 
+
+Chaurasiya, K. L., Dutta, S., Kumar, S., & Joshi, A. (2026). Hetero-EUCLID: Interpretable model discovery for heterogeneous hyper-elastic materials using stress-unsupervised learning. Computer Methods in Applied Mechanics and Engineering , 452, 118729. 
+
+https://doi.org/10.1016/j.cma.2026.118729 
+
+Chen, B., Starman, B., Halilovič, M., Berglund, L. A., & Coppi-eters, S. (2025). Finite Element Model Updating for Material Model Calibration: A Review and Guide to Practice. Archives of Computational Methods in Engineering , 32(4), 2035–2112. 
+
+https://doi.org/10.1007/s11831-024-10200-9 
+
+Chen, P. & Guilleminot, J. (2022). Polyconvex neural networks for hyperelastic constitutive models: A rectification approach. 
+
+Mechanics Research Communications , 125, 103993. https: //doi.org/10.1016/j.mechrescom.2022.103993 
+
+Claire, D., Hild, F., & Roux, S. (2004). A finite element formulation to identify damage fields: The equilibrium gap method. International Journal for Numerical Methods in Engineering , 61(2), 189–208. 
+
+https://doi.org/10.1002/nme.1057 
+
+Coleman, B. D. & Gurtin, M. E. (1967). Thermodynamics with Internal State Variables. The Journal of Chemical Physics , 47(2), 597–613. https://doi.org/10.1063/1.1711937 
+
+Coleman, B. D. & Noll, W. (1963). The thermodynamics of elastic materials with heat conduction and viscosity. Archive for Rational Mechanics and Analysis , 13(1), 167–178. 
+
+19 Calibration of neural viscoelastic models via full-field data A Preprint Collange, S., Defour, D., Graillat, S., & Iakymchuk, R. (2015). Nu-merical reproducibility for the parallel reduction on multi- and many-core architectures. Parallel Computing , 49, 83–97. Czarnecki, W. M., Osindero, S., Jaderberg, M., Swirszcz, G., & Pas-canu, R. (2017). Sobolev Training for Neural Networks. Advances in Neural Information Processing Systems , 4278–4287. Dammaß, F., Kalina, K. A., & Kästner, M. (2025). Neural networks meet phase-field: A hybrid fracture model. Computer Methods in Applied Mechanics and Engineering , 440, 117937. https: //doi.org/10.1016/j.cma.2025.117937 
+
+Dammaß, F., Kalina, K. A., & Kästner, M. (2025). When invariants matter: The role of I1 and I2 in neural network models of incom-pressible hyperelasticity . https://doi.org/10.48550/arXiv. 2503.20598 . arXiv:2503.20598 [cond-mat] Dornheim, J., Morand, L., Nallani, H. J., & Helm, D. (2023). Neural Networks for Constitutive Modeling: From Universal Function Approximators to Advanced Models and the Integration of Physics. 
+
+Archives of Computational Methods in Engineering . https://doi. org/10.1007/s11831-023-10009-y 
+
+Ferreira, B. P. & Bessa, M. A. (2026). Automatically Differen-tiable Model Updating (ADiMU): Conventional, hybrid, and neural network material model discovery including history-dependency. 
+
+Journal of the Mechanics and Physics of Solids , 206, 106408. 
+
+https://doi.org/10.1016/j.jmps.2025.106408 
+
+Flaschel, M., Kumar, S., & De Lorenzis, L. (2021). Unsupervised discovery of interpretable hyperelastic constitutive laws. Computer Methods in Applied Mechanics and Engineering , 381, 113852. 
+
+https://doi.org/10.1016/j.cma.2021.113852 
+
+Flaschel, M., Kumar, S., & De Lorenzis, L. (2023). Automated discovery of generalized standard material models with EUCLID. 
+
+Computer Methods in Applied Mechanics and Engineering , 405, 115867. https://doi.org/10.1016/j.cma.2022.115867 
+
+Flaschel, M., Steinmann, P., De Lorenzis, L., & Kuhl, E. (2025). Convex neural networks learn generalized standard material models. 
+
+Journal of the Mechanics and Physics of Solids , 200, 106103. 
+
+https://doi.org/10.1016/j.jmps.2025.106103 
+
+Friedrichs, K., Dammaß, F., Kalina, K. A., & Kästner, M. (2026). Precise, efficient and flexible modeling of crystallizing elastomers based on physics-augmented neural networks. Computer Methods in Applied Mechanics and Engineering , 455, 118852. https: //doi.org/10.1016/j.cma.2026.118852 
+
+Fuhg, J. N., Anantha Padmanabha, G., Bouklas, N., Bahmani, B., Sun, W., Vlassis, N. N., Flaschel, M., Carrara, P., & De Lorenzis, L. (2024). A Review on Data-Driven Constitutive Laws for Solids. 
+
+Archives of Computational Methods in Engineering . https://doi. org/10.1007/s11831-024-10196-2 
+
+Fuhg, J. N., Bouklas, N., & Jones, R. E. (2022). Learning hyperelastic anisotropy from data via a tensor basis neural network. Journal of the Mechanics and Physics of Solids , 168, 105022. https: //doi.org/10.1016/j.jmps.2022.105022 
+
+Fuhg, J. N., Hamel, C. M., Johnson, K., Jones, R., & Bouklas, N. (2023). Modular machine learning-based elastoplasticity: Generalization in the context of limited data. Computer Methods in Applied Mechanics and Engineering , 407, 115930. https://doi.org/10.1016/j. cma.2023.115930 
+
+Gavris, G. B. & Sun, W. (2025). Discovering neural elastoplas-ticity from kinematic observations. Proceedings of the Na-tional Academy of Sciences , 122(38), e2508732122. https: //doi.org/10.1073/pnas.2508732122 
+
+Gavris, G. B. & Sun, W. (2026). Discovering neural cohesive zone laws from displacement fields. Computer Methods in Applied Mechanics and Engineering , 452, 118733. https://doi.org/10.1016/j. cma.2026.118733 
+
+Geiger, J., Wagner, W., & Freitag, S. (2025). Multiscale mod-eling of viscoelastic shell structures with artificial neural net-works. Computational Mechanics . https://doi.org/10.1007/ s00466-025-02613-5 
+
+Geuken, G.-L., Kurzeja, P., Wiedemann, D., & Mosler, J. (2025). A novel neural network for isotropic polyconvex hyperelasticity satisfying the universal approximation theorem. Journal of the Mechanics and Physics of Solids , 203, 106209. https://doi. org/10.1016/j.jmps.2025.106209 
+
+Ghaboussi, J., Garrett, J. H., & Wu, X. (1991). Knowledge-Based Modeling of Material Behavior with Neural Networks. Journal of Engineering Mechanics , 117(1), 132–153. https://doi.org/10. 1061/(ASCE)0733-9399(1991)117:1(132) 
+
+Grédiac, M. (1989). Principe des travaux virtuels et identification. 
+
+Comptes rendus de l’Académie des sciences. Série 2, Mécanique, Physique, Chimie, Sciences de l’univers, Sciences de la Terre ,309(1), 1–5. Halphen, B. & Nguyen, Q. S. (1975). On Generalized Standard Materials. Journal de Mécanique , 14(1), 39–63. Haupt, P. (2000). Continuum Mechanics and Theory of Materials .Springer Berlin Heidelberg. He, X. & Chen, J.-S. (2022). Thermodynamically consistent machine-learned internal state variable approach for data-driven modeling of path-dependent materials. Computer Methods in Applied Mechanics and Engineering , 115348. https://doi.org/10.1016/j.cma. 2022.115348 
+
+Holthusen, H. & Kuhl, E. (2026). A complement to neural networks for anisotropic inelasticity at finite strains. Computer Methods in Applied Mechanics and Engineering , 450, 118612. https: //doi.org/10.1016/j.cma.2025.118612 
+
+Holthusen, H., Lamm, L., Brepols, T., Reese, S., & Kuhl, E. (2024a). Polyconvex inelastic constitutive artificial neural networks. 
+
+PAMM , 24(3), e202400032. https://doi.org/10.1002/pamm. 202400032 
+
+Holthusen, H., Lamm, L., Brepols, T., Reese, S., & Kuhl, E. (2024b). Theory and implementation of inelastic Constitutive Artificial Neu-ral Networks. Computer Methods in Applied Mechanics and En-gineering , 428, 117063. https://doi.org/10.1016/j.cma. 2024.117063 
+
+Holthusen, H., Linka, K., Kuhl, E., & Brepols, T. (2026). A generalized dual potential for inelastic Constitutive Artificial Neural Networks: A JAX implementation at finite strains. Journal of the Mechanics and Physics of Solids , 206, 106337. https://doi.org/10.1016/ j.jmps.2025.106337 
+
+Holzapfel, G. A. (2000). Nonlinear solid mechanics: a continuum approach for engineering . Wiley. Huang, S., He, Z., Chem, B., & Reina, C. (2022). Variational Onsager Neural Networks (VONNs): A thermodynamics-based variational learning strategy for non-equilibrium PDEs. Journal of the Mechanics and Physics of Solids , 163, 104856. https: //doi.org/10.1016/j.jmps.2022.104856 
+
+Jadoon, A. A., Kalina, K. A., Rausch, M. K., Jones, R., & Fuhg, J. N. (2025a). Inverse design of anisotropic microstructures using physics-augmented neural networks. Journal of the Mechanics and Physics of Solids , 203, 106161. https://doi.org/10.1016/j. jmps.2025.106161 
+
+20 Calibration of neural viscoelastic models via full-field data A Preprint Jadoon, A. A., Meyer, K. A., & Fuhg, J. N. (2025b). Automated model discovery of finite strain elastoplasticity from uniaxial experiments. 
+
+Computer Methods in Applied Mechanics and Engineering , 435, 117653. https://doi.org/10.1016/j.cma.2024.117653 
+
+Jailin, C., Benady, A., Legroux, R., & Baranger, E. (2024). Experimen-tal Learning of a Hyperelastic Behavior with a Physics-Augmented Neural Network. Experimental Mechanics , 64(9), 1465–1481. 
+
+https://doi.org/10.1007/s11340-024-01106-5 
+
+Jailin, C., Roux, S., Benady, A., & Baranger, E. (2026). Noise-bias compensation for the unsupervised learning of constitutive laws. 
+
+Comptes Rendus. Mécanique , 354(G1), 1–24. https://doi.org/ 10.5802/crmeca.342 
+
+Kalina, K. A., Brummund, J., & Kästner, M. (2026). A physics-augmented neural network framework for finite strain incompressible viscoelasticity. Computer Methods in Applied Mechanics and Engineering , 455, 118892. https://doi.org/10.1016/j.cma. 2026.118892 
+
+Kalina, K. A., Gebhart, P., Brummund, J., Linden, L., Sun, W., & Kästner, M. (2024). Neural network-based multiscale modeling of finite strain magneto-elasticity with relaxed convexity criteria. 
+
+Computer Methods in Applied Mechanics and Engineering , 421, 116739. https://doi.org/10.1016/j.cma.2023.116739 
+
+Kalina, K. A., Linden, L., Brummund, J., & Kästner, M. (2023). FE ANN : An efficient data-driven multiscale approach based on physics-constrained neural networks and automated data mining. 
+
+Computational Mechanics , 71, 827. https://doi.org/10.1007/ s00466-022-02260-0 
+
+Kalina, K. A., Linden, L., Brummund, J., Metsch, P., & Käst-ner, M. (2022). Automated constitutive modeling of isotropic hyperelasticity based on artificial neural networks. Computa-tional Mechanics , 69(1), 213–232. https://doi.org/10.1007/ s00466-021-02090-6 
+
+Klein, D. K., Fernández, M., Martin, R. J., Neff, P., & Weeger, O. (2021). Polyconvex anisotropic hyperelasticity with neural networks. Journal of the Mechanics and Physics of Solids , 104703. 
+
+https://doi.org/10.1016/j.jmps.2021.104703 
+
+Klein, D. K., Ortigosa, R., Martínez-Frutos, J., & Weeger, O. (2024). Nonlinear electro-elastic finite element analysis with neural network constitutive models. Computer Methods in Applied Mechanics and Engineering , 425, 116910. https://doi.org/10.1016/j.cma. 2024.116910 
+
+Knauf Narouie, V., Urrea-Quintero, J.-H., Cirak, F., & Wessels, H. (2026). Unsupervised Constitutive Model Discovery from Sparse and Noisy Data. Computer Methods in Applied Mechanics and Engineering , 452, 118722. https://doi.org/10.1016/j.cma. 2025.118722 
+
+Knipper, M., Ji, C., Brand, M., & Linka, K. (2026). Finite Element-Based Material Learning via Automatic Differentiation: Learning constitutive neural network models from full-field deformation data .
+
+https://doi.org/10.48550/arXiv.2606.05199 
+
+Kumar, S., Seidl, D. T., Granzow, B. N., Yang, J., & Fuhg, J. N. (2025). A comparative study of calibration techniques for finite strain elastoplasticity: Numerically-exact sensitivities for FEMU and VFM. 
+
+Computer Methods in Applied Mechanics and Engineering , 444, 118159. https://doi.org/10.1016/j.cma.2025.118159 
+
+Lenoir, N., Bornert, M., Desrues, J., Bésuelle, P., & Viggiani, G. (2007). Volumetric Digital Image Correlation Applied to X-ray Microtomography Images from Triaxial Compression Tests on Argillaceous Rock. Strain , 43(3), 193–205. https://doi.org/ 10.1111/j.1475-1305.2007.00348.x 
+
+Li, S., Li, L., & Chen, C. Q. (2026). Learning anisotropic hypere-lasticity with an unsupervised symmetry-aware equilibrium-based neural network. Computer Methods in Applied Mechanics and Engineering , 455, 118911. https://doi.org/10.1016/j.cma. 2026.118911 
+
+Linden, L., Kalina, K. A., Brummund, J., Riemer, B., & Kästner, M. (2025). A dual-stage constitutive modeling framework based on finite strain data-driven identification and physics-augmented neural networks. Computer Methods in Applied Mechanics and Engineering , 447, 118289. https://doi.org/10.1016/j.cma. 2025.118289 
+
+Linden, L., Klein, D. K., Kalina, K. A., Brummund, J., Weeger, O., & Kästner, M. (2023). Neural networks meet hyperelasticity: A guide to enforcing physics. Journal of the Mechanics and Physics of Solids , 179, 105363. https://doi.org/10.1016/j.jmps. 2023.105363 
+
+Linka, K., Hillgärtner, M., Abdolazizi, K. P., Aydin, R. C., Itskov, M., & Cyron, C. J. (2021). Constitutive artificial neural networks: A fast and general approach to predictive data-driven constitutive modeling by deep learning. Journal of Computational Physics , 429, 110010. https://doi.org/10.1016/j.jcp.2020.110010 
+
+Linka, K. & Kuhl, E. (2023). A new family of Constitutive Artificial Neural Networks towards automated model discovery. Computer Methods in Applied Mechanics and Engineering , 403, 115731. 
+
+https://doi.org/10.1016/j.cma.2022.115731 
+
+Liu, J., Latorre, M., & Marsden, A. L. (2021). A continuum and computational framework for viscoelastodynamics: I. Finite defor-mation linear models. Computer Methods in Applied Mechanics and Engineering , 385, 114059. https://doi.org/10.1016/j. cma.2021.114059 
+
+Lokhin, V. V. & Sedov, L. I. (1963). Nonlinear tensor functions of several tensor arguments. Journal of Applied Mathematics and Mechanics , 27(3), 597–629. https://doi.org/10.1016/ 0021-8928(63)90149-7 
+
+Lourenço, R., Georgieva, P., Cueto, E., & Andrade-Campos, A. (2024). An indirect training approach for implicit constitutive modelling using recurrent neural networks and the virtual fields method. 
+
+Computer Methods in Applied Mechanics and Engineering , 425, 116961. https://doi.org/10.1016/j.cma.2024.116961 
+
+Mahnken, R. & Stein, E. (1996). A unified approach for parameter identification of inelastic material models in the frame of the finite element method. Computer Methods in Applied Mechanics and Engineering , 136(3), 225–258. https://doi.org/10.1016/ 0045-7825(96)00991-7 
+
+Malik, A., Abendroth, M., Hütter, G., & Kiefer, B. (2021). A Hybrid Approach Employing Neural Networks to Simulate the Elasto-Plastic Deformation Behavior of 3D-Foam Structures. Advanced Engineering Materials , n/a(n/a), 2100641. https://doi.org/10. 1002/adem.202100641 
+
+Masi, F. & Einav, I. (2024). Neural integration for constitutive equations using small data. Computer Methods in Applied Mechanics and Engineering , 420, 116698. https://doi.org/10.1016/j.cma. 2023.116698 
+
+Masi, F., Stefanou, I., Vannucci, P., & Maffi-Berthier, V. (2021). Thermodynamics-based Artificial Neural Networks for constitutive modeling. Journal of the Mechanics and Physics of Solids , 147, 104277. https://doi.org/10.1016/j.jmps.2020.104277 
+
+Meng, S., Yousefi, A. A. K., & Avril, S. (2025). Machine-learning-based virtual fields method: Application to anisotropic hyperelastic-ity. Computer Methods in Applied Mechanics and Engineering , 434, 117580. https://doi.org/10.1016/j.cma.2024.117580 
+
+21 Calibration of neural viscoelastic models via full-field data A Preprint Meyer, K. A. & Ekre, F. (2023). Thermodynamically consistent neural network plasticity modeling and discovery of evolution laws. 
+
+Journal of the Mechanics and Physics of Solids , 180, 105416. 
+
+https://doi.org/10.1016/j.jmps.2023.105416 
+
+Moon, H., Cho, D., Yu, J., Yoon, J. W., & Ryu, S. (2026). Physics-Informed Discovery of Yield Functions in Plasticity via Convex Neural Representations . https://doi.org/10.48550/arXiv. 2606.19375 
+
+Neumann, F. E. & Meyer, O. E. (1885). Vorlesungen über die theorie der elasticität der festen körper und des lichtäthers, gehalten an der Universität Königsberg . Leipzig, B. G. Teubner. http://archive. org/details/vorlesungenberd01neumgoog 
+
+Ottosen, N. S. & Ristinmaa, M. (2005). The mechanics of constitutive modeling . Elsevier. Peirlinck, M., Linka, K., Hurtado, J. A., & Kuhl, E. (2024). On automated model discovery and a universal material subroutine for hyperelastic materials. Computer Methods in Applied Mechanics and Engineering , 418, 116534. https://doi.org/10.1016/j. cma.2023.116534 
+
+Pennisi, S. & Trovato, M. (1987). On the irreducibility of professor G.F. Smith’s representations for isotropic functions. International Journal of Engineering Science , 25(8), 1059–1065. https://doi. org/10.1016/0020-7225(87)90097-8 
+
+Pierron, F. (2023). Material Testing 2.0: A brief review. Strain , 59(3), e12434. https://doi.org/10.1111/str.12434 
+
+Pierron, F. & Grédiac, M. (2020). Towards Material Testing 2.0. A review of test design for identification of constitutive parameters from full-field measurements. Strain . https://doi.org/10. 1111/str.12370 
+
+Pierron, F. & Grédiac, M. (2012). The Virtual Fields Method: Ex-tracting Constitutive Mechanical Parameters from Full-field Defor-mation Measurements . Springer. https://doi.org/10.1007/ 978-1-4614-1824-5 
+
+Pipkin, A. C. & Wineman, A. S. (1963). Material symmetry restrictions on non-polynomial constitutive equations. Archive for Rational Mechanics and Analysis , 12(1), 420–426. https://doi.org/10. 1007/BF00281238 
+
+Raissi, M., Perdikaris, P., & Karniadakis, G. (2019). Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. 
+
+Journal of Computational Physics , 378, 686–707. https://doi. org/10.1016/j.jcp.2018.10.045 
+
+Riemer, B. M., Brummund, J., Kalina, K. A., Milor, A. H. G., Dammaß, F., & Kästner, M. (2026). Construction of minimal integrity bases for anisotropic hyperelasticity via structural tensors. 
+
+Journal of the Mechanics and Physics of Solids , 216, 106763. 
+
+https://doi.org/10.1016/j.jmps.2026.106763 
+
+Römer, U., Hartmann, S., Tröger, J.-A., Anton, D., Wessels, H., Flaschel, M., & De Lorenzis, L. (2024). Reduced and All-at-Once Approaches for Model Calibration and Discovery in Computational Solid Mechanics. Applied Mechanics Reviews , 1–51. https: //doi.org/10.1115/1.4066118 
+
+Rosenkranz, M., Kalina, K. A., Brummund, J., & Käst-ner, M. (2023). A comparative study on different neu-ral network architectures to model inelasticity. Interna-tional Journal for Numerical Methods in Engineering , 124(21), 4802–4840. https://doi.org/10.1002/nme.7319 . _eprint: https://onlinelibrary.wiley.com/doi/pdf/10.1002/nme.7319 Rosenkranz, M., Kalina, K. A., Brummund, J., Sun, W., & Kästner, M. (2024). Viscoelasticty with physics-augmented neural networks: model formulation and training methods without prescribed internal variables. Computational Mechanics , 74(6), 1279–1301. https: //doi.org/10.1007/s00466-024-02477-1 
+
+Roux, S. & Hild, F. (2020). Optimal procedure for the identification of constitutive parameters from experimentally measured displacement fields. International Journal of Solids and Structures , 184, 14–23. 
+
+https://doi.org/10.1016/j.ijsolstr.2018.11.008 
+
+Sakaridis, E., Roth, C. C., Jordan, B., & Mohr, D. (2024). Post-Necking full-field FEMU identification of anisotropic plasticity from flat notched tension experiments. International Journal of Solids and Structures , 305, 113076. https://doi.org/10.1016/ j.ijsolstr.2024.113076 
+
+Schröder, J., Neff, P., Maier, G., Rammerstorfer, F. G., Salençon, J., Schrefler, B., & Serafini, P., editors (2010). Poly-, Quasi-and Rank-One Convexity in Applied Mechanics , volume 516 of 
+
+CISM International Centre for Mechanical Sciences . Springer. 
+
+https://doi.org/10.1007/978-3-7091-0174-2 
+
+Seidl, D. T. & Granzow, B. N. (2022). Calibration of elastoplas-tic constitutive model parameters from full-field data with au-tomatic differentiation-based sensitivities. International Jour-nal for Numerical Methods in Engineering , 123(1), 69–100. 
+
+https://doi.org/10.1002/nme.6843 
+
+Settgast, C., Hütter, G., Kuna, M., & Abendroth, M. (2020). A hybrid approach to simulate the homogenized irreversible elastic-plastic deformations and damage of foams by neural networks. International Journal of Plasticity , 126, 102624. https://doi.org/10.1016/ j.ijplas.2019.11.003 
+
+Shi, R., Yang, H., Chen, J., Hackl, K., Avril, S., & He, Y. (2025). Deep learning without stress data on the discovery of multi-regional hyperelastic properties. Computational Mechanics , 76(1), 117–146. 
+
+https://doi.org/10.1007/s00466-024-02591-0 
+
+Shi, Z. & Luo, X. (2026). A thermodynamically consistent multi-internal-variable neural network framework for viscoelastic consti-tutive modeling. Computational Mechanics . https://doi.org/ 10.1007/s00466-026-02793-8 
+
+Smith, G. F. (1970). On a fundamental error in two papers of C.-C. Wang “On representations for isotropic functions, parts I and II”. Archive for Rational Mechanics and Analysis , 36(3), 161–165. 
+
+https://doi.org/10.1007/BF00272240 
+
+Smith, G. F. (1971). On isotropic functions of symmetric tensors, skew-symmetric tensors and vectors. International Journal of Engineering Science , 9(10), 899–916. https://doi.org/10. 1016/0020-7225(71)90023-1 
+
+Taç, V., Amiri-Hezaveh, A., Bechtel, G. N., Loftin, T., Rausch, M. K., Sahli Costabal, F., & Tepole, A. B. (2026). Fully data-driven inverse characterization of heterogeneous materials with hyper-network neural ODEs. npj Computational Materials . https: //doi.org/10.1038/s41524-026-02027-8 
+
+Taç, V., Linka, K., Sahli-Costabal, F., Kuhl, E., & Tepole, A. B. (2024). Benchmarking physics-informed frameworks for data-driven hyperelasticity. Computational Mechanics , 73(1), 49–65. 
+
+https://doi.org/10.1007/s00466-023-02355-2 
+
+Taç, V., Rausch, M. K., Sahli Costabal, F., & Tepole, A. B. (2023). Data-driven anisotropic finite viscoelasticity using neural ordinary differential equations. Computer Methods in Applied Mechanics and Engineering , 411, 116046. https://doi.org/10.1016/j. cma.2023.116046 
+
+22 Calibration of neural viscoelastic models via full-field data A Preprint Tac, V., Sahli Costabal, F., & Tepole, A. B. (2022). Data-driven tissue mechanics with polyconvex neural ordinary differential equations. 
+
+Computer Methods in Applied Mechanics and Engineering , 398, 115248. https://doi.org/10.1016/j.cma.2022.115248 
+
+Thakolkaran, P., Guo, Y., Saini, S., Peirlinck, M., Alheit, B., & Kumar, S. (2025). Can KAN CANs? Input-convex Kolmogorov-Arnold Networks (KANs) as hyperelastic constitutive artificial neural networks (CANs). Computer Methods in Applied Mechanics and Engineering , 443, 118089. https://doi.org/10.1016/j. cma.2025.118089 
+
+Thakolkaran, P., Joshi, A., Zheng, Y., Flaschel, M., De Lorenzis, L., & Kumar, S. (2022). NN-EUCLID: Deep-learning hyperelasticity with-out stress data. Journal of the Mechanics and Physics of Solids , 169, 105076. https://doi.org/10.1016/j.jmps.2022.105076 
+
+Upadhyay, K., Fuhg, J. N., Bouklas, N., & Ramesh, K. T. (2026). Physics-informed data-driven discovery of constitutive models with application to strain-rate-sensitive soft materials. Computa-tional Mechanics , 77(2), 357–386. https://doi.org/10.1007/ s00466-024-02497-x 
+
+van der Velden, T., Boes, B., Brepols, T., Kuhl, E., & Holthusen, H. (2026). A note on constitutive artificial neural networks for finite strain plasticity. Mechanics Research Communications , 155, 104707. 
+
+https://doi.org/10.1016/j.mechrescom.2026.104707 
+
+Vijayakumaran, H., Russ, J. B., Paulino, G. H., & Bessa, M. A. (2025). Consistent machine learning for topology optimization with microstructure-dependent neural network material models. 
+
+Journal of the Mechanics and Physics of Solids , 196, 106015. 
+
+https://doi.org/10.1016/j.jmps.2024.106015 
+
+Vlassis, N. N., Ma, R., & Sun, W. (2020). Geometric deep learning for computational mechanics Part I: Anisotropic hyperelasticity. 
+
+Computer Methods in Applied Mechanics and Engineering , 371, 113299. https://doi.org/10.1016/j.cma.2020.113299 
+
+Vlassis, N. N. & Sun, W. (2021a). Component-based machine learning paradigm for discovering rate-dependent and pressure-sensitive level-set plasticity models. Journal of Applied Mechanics , 1–13. 
+
+https://doi.org/10.1115/1.4052684 
+
+Vlassis, N. N. & Sun, W. (2021b). Sobolev training of thermodynamic-informed neural networks for interpretable elasto-plasticity models with level set hardening. Computer Methods in Applied Mechanics and Engineering , 377, 113695. https://doi.org/10.1016/j. cma.2021.113695 
+
+Wiesheier, S., Moreno-Mateos, M. A., & Steinmann, P. (2024). Versa-tile data-adaptive hyperelastic energy functions for soft materials. 
+
+Computer Methods in Applied Mechanics and Engineering , 430, 117208. https://doi.org/10.1016/j.cma.2024.117208 
+
+Wiesheier, S., Moreno-Mateos, M. A., & Steinmann, P. (2026). Data-adaptive spline-based viscoelasticity for soft solids. Computer Methods in Applied Mechanics and Engineering , 451, 118705. 
+
+https://doi.org/10.1016/j.cma.2025.118705 
+
+Wu, X., Zhang, Y., & Mao, S. (2025). Learning the physics-consistent material behavior from measurable data via PDE-constrained opti-mization. Computer Methods in Applied Mechanics and Engineer-ing , 437, 117748. https://doi.org/10.1016/j.cma.2025. 117748 
+
+Xiao, H. (1996). On Isotropic Extension of Anisotropic Tensor Functions. ZAMM - Journal of Applied Mathematics and Mechanics / Zeitschrift für Angewandte Mathematik und Mechanik , 76(4), 205– 214. https://doi.org/10.1002/zamm.19960760403 . _eprint: https://onlinelibrary.wiley.com/doi/pdf/10.1002/zamm.19960760403 Zheng, Q. S. & Spencer, A. J. M. (1993). Tensors which character-ize anisotropies. International Journal of Engineering Science ,31(5), 679–693. https://doi.org/10.1016/0020-7225(93) 90118-E 
+
+Šilhavý, M. (1997). The Mechanics and Thermodynamics of Continuous Media . Springer. https://doi.org/10.1007/ 978-3-662-03389-0 
+
+23

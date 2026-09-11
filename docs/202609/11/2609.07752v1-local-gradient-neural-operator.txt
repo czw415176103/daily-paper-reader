@@ -1,0 +1,1577 @@
+Title: Local gradient neural operator
+
+URL Source: https://arxiv.org/pdf/2609.07752v1
+
+Published Time: Wed, 09 Sep 2026 02:36:51 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Local Gradient Neural Operator 
+
+Baiming Zhang 
+
+Zhejiang University 
+
+baimingzhang@zju.edu.cn 
+
+Jinsong Tang 
+
+Nanjing University of Science and Technology 
+
+tangjs@njust.edu.cn 
+
+Ying Xu 
+
+Hefei University of Technology 
+
+yingxu@hfut.edu.cn 
+
+Lihua Chen 
+
+Zhejiang University 
+
+mecclh@zju.edu.cn 
+
+Shiying Xiong 
+
+Zhejiang University 
+
+shiying.xiong@zju.edu.cn 
+
+# ABSTRACT 
+
+Field temporal prediction and source identification constitute canonical problems in dynamical sys-tems. Conventional approaches to these problems depend on a thorough understanding of the gov-erning partial differential equations (PDEs). Recently, deep learning, as represented by neural oper-ators, has provided a data-driven paradigm for addressing such tasks. However, most existing global neural operators for PDEs require large training datasets and many learnable parameters, with lim-ited interpretability and generalization. We propose the local gradient neural operator (LGNO) as a lightweight and interpretable alternative for field temporal evolution prediction and source iden-tification in typical mechanical problems. The method builds on priors from nonlinear gradient discretization and uses multilayer perceptron convolutional layers to learn translation-invariant local kernels that resemble discrete stencils. A zero consistent stencil factorization separates coefficient learning from field reconstruction, rendering the learned operators more transparent. For problems with symmetries, network folding shares equivalent components and reduces parameter counts. We evaluate the method on PDE benchmarks covering linear and nonlinear, static and dynamic, and low and high dimensional cases. Results show that LGNO maintains accuracy, parameter efficiency, and rollout stability across these tasks, and further exhibits wide applicability to mechanical problems including diffusion, flow, and quantum phenomena. 
+
+Keywords: Dynamics prediction; Source identification; Partial differential equations; Local gradient neural operator 
+
+# 1 Introduction 
+
+Partial differential equations (PDEs) [1, 2, 3, 4, 5, 6] characterize diverse physical phenomena such as diffusion [7, 8, 9, 10, 11], solid deformation [12, 13, 14, 15, 16], fluid motion [17, 18, 19, 20, 21, 22], and quantum dynamics [23, 24, 25]. Two primary tasks arise in scientific and engineering applications. The first is field temporal evolution prediction [26, 27, 28], which extrapolates subsequent field distributions given instantaneous field data. The second is source identification [29, 30], which reconstructs unknown external excitations from measured field observations. Conventional numerical methods, including finite difference [31, 32, 33], finite element [34, 35, 36, 37], and finite volume schemes [38, 39, 40], require complete knowledge of PDE governing equations, coefficients, and discretization configurations, which are often inaccessible for black box engineering systems with unknown governing laws [41, 42, 43]. Deep learning has emerged as a data driven alternative for solving PDE-based problems [44, 45, 46, 47, 48, 49, 50]. Among such methods, physics-informed neural networks (PINNs) [51, 52, 53, 54, 55] incorporate PDE residual loss into training objectives and perform well in solving forward and inverse problems when the differential formula is fully known. PINNs require the PDE residual form, however, which limits their applicability when the PDE is unknown, and the pointwise fitting approach may present optimization challenges even when the PDE is known [56, 57, 58]. arXiv:2609.07752v1 [cs.LG] 7 Sep 2026 Local Gradient Neural Operator A P REPRINT 
+
+Neural operator learning provides a framework for learning mappings between function spaces directly from data, without requiring the explicit PDE form [59, 60, 61, 62, 63, 64]. Deep operator networks (DeepONets) [65, 66, 67, 68] utilize the branch-trunk architecture to approximate nonlinear PDE operators. Fourier neural operators (FNOs) [69, 70, 71, 72] and graph neural operators (GNOs) [73, 74, 75, 76] further enrich this framework. These methods perform well when sufficient training data are available. In the limited-data regime, however, learning a full-domain mapping from few samples may lead to overfitting and make it difficult to recover the intrinsic local operator law of PDEs. For many PDE governed physical fields, the temporal change or source response at one spatial location depends primarily on the field values in a small neighborhood [77, 78]. Global architectures also exhibit spectral bias toward smooth low-frequency components, which can affect their resolution of local gradient-sensitive structures [79, 80]. Motivated by the local discrete nature of differential operators, researchers have developed stencil-aware local neu-ral architectures. Multilayer perceptron convolution (MLPConv) [81] replaces a linear convolutional filter with a small nonlinear micro-network. PDE-Net [82] uses convolutional filters to approximate differential stencils and com-bines the resulting local derivative features through learnable nonlinear mappings. Convolutional neural operators (CNOs) [83] further extend local convolutional representations through multi-scale convolution hierarchies. These methods show that local stencil structures can be effectively incorporated into neural operator learning. The local-solution-operator informed neural network (LOINN) [84] model further adopts a one-pass forward modeling paradigm to infer physical field evolution from local neighborhood features, providing a lightweight solution for PDE solving under limited samples. Time-adaptive operator learning via neural Taylor expansion (TANTE) [85] introduces a dif-ferent form of locality by using neural Taylor expansion around the current state and adaptive time stepping to improve temporal rollout. A direct local window output, however, still does not explicitly emphasize the gradient-driven re-sponse of the underlying operator. Table 1 summarizes the structural differences between representative methods and the proposed approach. Table 1: Structural comparison between the selected baselines and LGNO. Here, ”operator form” distinguishes direct global mapping, local stencil mapping, and gradient-involved differential stencil reconstruction, while ”model size” gives a qualitative indication of the typical parameter scale. Method Representation Range Operator form Model size MLPConv [81] Local MLP Local Local stencil map Small DeepONet [65] Branch-trunk Global Direct map Large LOINN [84] One-shot operator learning Local Direct map Medium 
+
+LGNO Gradient-involved MLP Local Differential stencil Small 
+
+We propose a local gradient neural operator (LGNO) for black-box source and temporal prediction under limited training data. The method formulates both tasks as local mappings from neighborhood information to an operator response: for temporal prediction, the response is a time derivative or one-step update; for source prediction, the response is the unknown forcing or source term. The LGNO design uses local gradient oriented reconstruction instead of direct pointwise output. A sliding window extracts the neighborhood pattern around each grid point. A lightweight micro-network generates local kernel coef-ficients from this neighborhood. The target response is reconstructed through a pseudo-linear combination of these coefficients. This structure resembles a learnable nonlinear stencil. It offers sensitivity to local gradients, gives the learned coefficients a discretization interpretation, and reduces zero point drift. LGNO also exploits symmetry induced sample augmentation when the physical setting allows. In many PDE datasets, different field components, or coordinate directions may share the same operator law. Rather than feeding all symmet-ric components in parallel as independent channels, LGNO folds symmetry related samples into serial local training instances. This reduces the number of input channels and trainable parameters while increasing the effective number of local samples. This data expansion benefits the single sample or few sample regime. The method is evaluated on source and temporal prediction benchmarks, including diffusion, Burgers type dynam-ics, Navier-Stokes flow, Gross-Pitaevskii dynamics, and Schr¨ odinger-type evolution. Across these examples, LGNO operates as a black-box model without requiring the explicit PDE form or known physical coefficients. The remainder of this paper is organized as follows. Section 2 presents the proposed framework in detail. Section 3 describes numerical experiments and results. Section 4 concludes with a summary and future directions. The code associated with this work is publicly available at https://github.com/baiming-zhang/LGNO. 2Local Gradient Neural Operator A P REPRINT 
+
+# 2 The proposed LGNO framework 
+
+In this section, we first present the theoretical background and overall architecture of LGNO, then discuss several of its advantageous properties, with the detailed mathematical proofs relegated to the appendix. 
+
+2.1 Overview of the LGNO framework 
+
+Consider a d-dimensional bounded Lipschitz spatial domain Ω ⊂ Rd over the time interval [0 , T ]. The general continuous PDE formulation can be written as 
+
+∂tu(x, t ) + L x, u, ∇u, ∇2u, . . . , ∇ku = f (x, t ), (x, t ) ∈ Ω × [0 , T ]. (1) where x = ( x1, x 2, . . . , x d) stands for the spatial coordinate vector, and t ∈ [0 , T ] represents time with 0 and T .
+
+Ω×[0 , T ] defines the complete spatio-temporal solution domain for all physical quantities. u = u(x, t ) : Ω ×[0 , T ] →
+
+Rcu is the primary physical field. cu denotes the number of independent field components, which is decoupled from spatial dimension d. ∂tu(x, t ) is the first order time derivative of the field u. L x, u, ∇u, ∇2u, . . . , ∇ku is a generic k-th order spatial differential operator that encapsulates diffusion, advection, dispersion and nonlinear coupling effects. f = f (x, t ) is the spatio-temporally distributed external excitation vector or potential field. The PDE residual representation R[·; ·] can be further derived by rearranging all terms to one side of the equality, the original PDE is equivalent to a zero residual constraint: 
+
+R[u; f ]( x, t ) = ∂tu(x, t ) + L x, u, ∇u, ∇2u, . . . , ∇ku − f (x, t ) = 0 . (2) The semicolon in R[u; f ] distinguishes two independent input arguments: the primary field u and the source term f .Crucially, differential operators obey three basic properties: strict locality, compact stencil discretization and trans-lation equivariance, which serve as the foundation of the local stencil structure used below. Finite order differential operators are local in the sense that their evaluation at a point depends only on the field and finitely many of its deriva-tives in an arbitrarily small neighborhood of that point [77, 86]. Under standard finite difference discretization, this locality is represented by a finite neighboring stencil [78]. When the coefficients and the computational setting are spatially homogeneous, the resulting operator also commutes with translations, giving translation equivariance [87]. In spatially heterogeneous settings, exact translation equivariance may be broken, but the operator response can still be locally characterized and approximated by a local neural network with varying stencil weights [84]. Based on the basic properties of PDE and the local stencil representation of discretized PDE (A), we propose LGNO to learn a state dependent local stencil rule and assemble the resulting pointwise responses over the computational domain. Fig. 1 gives the workflow of the proposed LGNO framework considering the data-driven setting. Two learning tasks are considered in this work, as shown in Fig. 1(a). They use the same local reconstruction form but assign different roles to the input and target fields. In field temporal evolution prediction, the primary field u is given. The source related field f is used as an external input. The target is the local time derivative ∂tu. A general temporal evolution task Fevo is written as 
+
+Fevo : Zevo = ( x, u, f ) 7 → bYevo = ∂tu. (3) After predicting the time derivative, the field is advanced by a forward Euler update, following the standard time integration view used in neural ordinary differential equation formulations [88, 89]: 
+
+bun+1 = bun + bY n
+
+> evo
+
+∆t. (4) In source identification, the observed primary field u is the external input. The identification task Fsrc of unknown source related field is written as: 
+
+Fsrc : Zsrc = ( x, u) 7 → bYsrc = f . (5) Thus, f appears as an input in field temporal evolution prediction when it is prescribed, but becomes the output target in source identification. The two tasks of field temporal evolution prediction and source identification can be formulated under a unified nota-tional system through task specific operator mappings: 
+
+F⋆ : Z⋆ 7 → bY⋆, ⋆ ∈ { evo , src }. (6) For each task, Z⋆ denotes the task specific input field and bY⋆ denotes the target field. 3Local Gradient Neural Operator A P REPRINT Output 
+
+Temporal prediction  Source identification 
+
+𝜕𝜕𝑡𝑡𝒖𝒖  𝒙𝒙 , 𝑡𝑡 + ℒ 𝒙𝒙 , 𝒖𝒖 , ∇𝒖𝒖 , … , ∇𝑘𝑘 𝒖𝒖 = 𝒇𝒇  𝒙𝒙 , 𝑡𝑡 
+
+ℱsrc : 𝒙𝒙 , 𝒖𝒖 ↦ 𝒇𝒇 
+
+ℱ⋆: 𝒁𝒁 ⋆ ↦ � 𝒀𝒀 ⋆, ⋆∈ {src,  evo} 
+
+ℱevo : 𝒙𝒙 , 𝒖𝒖 , 𝒇𝒇 ↦ 𝜕𝜕𝑡𝑡𝒖𝒖 
+
+a Unified operator learning framework 
+
+b Local sliding window sampling 
+
+Stencil input 
+
+c Local gradient neural operator (LGNO) training 
+
+weight layer 
+
+𝒛𝒛 ⋆,𝑖𝑖 = 𝒁𝒁 ⋆,𝒋𝒋 
+
+SiLU 
+
+SiLU 
+
+𝒛𝒛 ⋆,𝑖𝑖 
+
+Φ𝜃𝜃 : 𝒛𝒛 ⋆,𝑖𝑖  ↦ 𝑮𝑮 ⋆,𝑖𝑖 𝜃𝜃  (𝒛𝒛 ⋆,𝑖𝑖 )
+
+𝒖𝒖 
+
+𝑮𝑮⋆ ,𝑖𝑖 𝜃𝜃  · 𝒖𝒖 Inner product 
+
+�𝒚𝒚⋆ ,𝑖𝑖 
+
+Stencil input 
+
+Point output 
+
+Local-to-global 
+
+reconstruction 
+
+Point output 
+
+Forward  Backward 
+
+�𝒀𝒀 ⋆(𝒁𝒁 , �𝜽𝜽 ) − 𝒀𝒀 ⋆true 2
+
+Loss 
+
+Backpropagation 
+
+d Prediction 
+
+�𝒖𝒖  𝑛𝑛+1  = �𝒖𝒖 𝑛𝑛  + �𝒀𝒀evo 𝑛𝑛  𝛥𝛥 𝑡𝑡 
+
+�𝒇𝒇  𝒙𝒙 = �𝒀𝒀src 
+
+weight layer 
+
+weight layer 
+
+�𝒀𝒀 ⋆ = �ℱℎ,⋆𝜃𝜃  (𝒁𝒁 ⋆)
+
+Φ𝜃𝜃 
+
+𝑗𝑗 ∈ 𝒮𝒮  𝑖𝑖 𝒮𝒮  𝑖𝑖 
+
+Figure 1: Unified operator learning framework of the proposed LGNO. The model learns a local stencil-based operator from sliding-window samples and assembles the pointwise responses into a global prediction. Temporal evolution prediction and field-source prediction use the same local-to-global numerical structure, but the task-specific input and target fields have different physical meanings. As indicated by this formulation, every single local window serves as one independent training sample, containing only the input field data within the stencil range and the target output value at the central grid point. Benefiting from the compact stencil discretization property of differential operators, the response of discrete operators at any grid node can be fully approximated using local window information rather than full domain field data. The training pipeline is visualized in Fig. 1(b) and (c). LGNO extracts sliding windows from task inputs and predicts stencil-like weights, and local outputs are aggregated into global predictions. Consider the corresponding task specific local input window which is defined as follows: 
+
+z⋆,i = Z⋆,j : j ∈ S (i) . (7) Based on Theorem A.1, the two tasks share the following stencil mapping form, giving the local output: 
+
+by⋆,i = bFθh,⋆ (z⋆,i ) = X
+
+> j∈S (i)
+
+Gθ⋆,i,j (z⋆,i ) · ui,j , ⋆ ∈ { evo , src }. (8) Here S(i) denotes the local stencil centered at grid point xi. Gθ⋆,i,j (z⋆,i ) is the local matrix coefficient mapping the primary field at node j to the target response at node i. Therefore, we train the shared MLPConv module to produce the state dependent stencil coefficients through this [81]: 
+
+Φθ : z⋆,i 7 → Gθ⋆,i,j (z⋆,i ) j∈S (i) . (9) Translation equivariance of the local architecture justifies the use of a shared local mapping across grid points. For any admissible translation vector ∆, define the translation operator by 
+
+T∆z⋆(x) = z⋆(x − ∆), T∆y⋆(x) = y⋆(x − ∆). (10) 4Local Gradient Neural Operator A P REPRINT 
+
+When the grid, boundary treatment, and calibrated operator are compatible with translations, the learned local operator is expected to satisfy: 
+
+bFθh,⋆ [T∆z⋆(x)] = bFθh,⋆ [z⋆(x − ∆)] = by⋆(x − ∆) = T∆ by⋆(x) = T∆ bFθh,⋆ [z⋆(x)] . (11) This property justifies using one shared local network to predict stencil coefficients at different grid points. The global output is assembled from local predictions, in the same local-to-global sense used in standard numerical discretizations: bY⋆ = {by⋆,i }i∈bΩ = { bFθh,⋆ (z⋆,i )}i∈bΩ, (12) where bΩ is the set of grid nodes in the domain Ω for which the prescribed stencil is well defined. Boundary nodes are treated according to the discretization used in each problem, e.g., via periodic wrapping. This local sampling strategy increases the number of usable training samples without requiring many full field trajec-tories. Since the same differential law is applied at different spatial locations, local windows extracted from one or a few fields can provide repeated observations of the same underlying operator rule. The trainable parameters θ are optimized by minimizing the discrepancy between the predicted responses bY⋆(Z; ˆθ)
+
+and the ground truth values Y true  
+
+> ⋆
+
+(x):
+
+θ∗ = arg min 
+
+> ˆθ
+
+bY⋆(Z; ˆθ) − Y true  
+
+> ⋆
+
+(x) 2
+
+. (13) This parameter sharing enforces a common local rule and reduces the number of trainable parameters. After training, the coefficient generator together with the stencil contraction defines the learned discrete operator bFθh,⋆ .The main architectural distinction is the separation between coefficient prediction and target reconstruction. Instead of directly outputting the single point nonlinear target field as MLPConv does, LGNO first predicts local stencil coefficients and then constructs the response through an explicit contraction with neighboring primary field values, preserving the first-order gradient effects of the local numerical structure of PDE discretizations. This decomposition reduces the burden on the nonlinear network, keeps the final reconstruction tied to a discrete stencil form, and makes the learned operator closer to classical finite difference or finite volume representations. This design embeds the locality of differential operators into the architecture rather than leaving it to be inferred from data alone, found useful in the tested small-sample regimes involving sharp gradients or strong nonlinearities. 
+
+2.2 Zero-consistent reconstruction and error estimate 
+
+LGNO uses a bias-free stencil contraction to enforce zero consistency on the calibrated local target. For many homo-geneous physical operators, the zero-field state naturally gives a zero operator response, so no additional correction is needed. This is the case for the benchmark targets used in the numerical experiments below, where the learned responses are defined as calibrated differential or source responses and therefore vanish when the contracted primary-field channels are zero. In more general settings, prescribed coordinates, background potentials, constant source terms, or other conditioning channels may induce a finite zero-state response even when the contracted primary field van-ishes. Such cases can be treated by subtracting the zero-state response before applying the bias-free reconstruction. The detailed derivation and proof are given in B. Let z0 
+
+> ⋆,i
+
+denote the zero-state local window, where the physical field channels are set to zero while coordinate infor-mation and other prescribed conditioning channels, if present, are retained. For the raw local response, the zero-state offset is removed by 
+
+Fh,⋆ (z⋆,i ) = Fraw  
+
+> h,⋆
+
+(z⋆,i ) − F raw 
+
+> h,⋆
+
+ z0
+
+> ⋆,i
+
+ . (14) The LGNO reconstruction is 
+
+by⋆,i = bFθh,⋆ (z⋆,i ) = X
+
+> j∈S (i)
+
+Gθ⋆,i,j (z⋆,i ) ui,j . (15) Since the reconstruction contains no additive bias and the contracted primary field values vanish in the zero-state window, it follows directly that 
+
+bFθh,⋆ 
+
+ z0
+
+> ⋆,i
+
+ = 0. (16) The resulting approximation error can be decomposed into a compact-stencil discretization error and a learned-coefficient error, following the standard separation between truncation error and approximation error in finite dif-ference analysis [90]: 
+
+RhF⋆[Z⋆] − bFθh,⋆ [Z⋆] ℓ2
+
+> h
+
+≤ Cdhp + C⋆εθ ∥u∥ℓ2 
+
+> h
+
+. (17) 5Local Gradient Neural Operator A P REPRINT 
+
+Thus, near the zero state, the bias-free contraction suppresses artificial output drift. For temporal evolution prediction, a standard stability argument for time-dependent numerical schemes gives the corresponding rollout error estimate [91, 92, 93]: 
+
+∥en∥ℓ2 
+
+> h
+
+≤ eLT ∥e0∥ℓ2 
+
+> h
+
++ eLT − 1
+
+L ζθ (h), T = n∆t. (18) When L = 0 , the second term is understood as T ζ θ (h).
+
+2.3 Symmetry-induced network folding and orbit augmentation 
+
+When a calibrated task operator preserves a physical symmetry, symmetry related samples describe the same operator law under the corresponding representation transformation. This follows the usual role of symmetry in physical laws and is also consistent with geometric data augmentation in computer vision, where transformed images, including translated, scaled, or rotated images, are used as additional training samples [94, 95, 96]. Let Γ be a compact symmetry group acting on the task-specific input and target fields through ρin and ρout . If 
+
+F⋆ [ρin (γ)Z⋆] = ρout (γ)F⋆ [Z⋆] , ∀γ ∈ Γ, (19) then a valid calibrated pair (Z⋆, Y⋆) gives the orbit-augmented pairs 
+
+(Z⋆, Y⋆) 7 → { (ρin (γ)Z⋆, ρ out (γ)Y⋆) : γ ∈ Γ} . (20) The same symmetry can also be used at the component level. For symmetry related components q ∈ Q , choose a canonical component q0 and a transformation γq mapping q to q0. With local window extraction z⋆,i = Ei[Z⋆], the folded local sample is written as 
+
+ez⋆,i,q = P in  
+
+> q0
+
+Ei [ρin (γq )Z⋆] , bey⋆,i,q = P out  
+
+> q0
+
+(ρout (γq )Y⋆)i . (21) The corresponding canonical local reconstruction is 
+
+bey⋆,i,q = X
+
+> j∈S (i)
+
+Gθ⋆,i,j (ez⋆,i,q ) eui,j,q , q ∈ Q . (22) Thus, orbit augmentation provides additional valid input and target pairs, while componentwise folding reduces sym-metry related components to a common local learning problem. This avoids separate parameterization of equivalent components, in line with the parameter sharing principle used in group equivariant neural networks [97]. The reduction is valid only when the calibrated target respects the same symmetry. When zero point calibration or residualization is applied, the resulting target must still transform under ρout . We therefore do not use folding in problems with symme-try breaking sources, potentials, anisotropy, or direction dependent forcing, unless these factors are explicitly included in the input representation. The derivation is given in C. 
+
+# 3 Results 
+
+We next demonstrate and discuss the performance of LGNO through a rich set of numerical examples, covering physical problems ranging from one-dimensional to three-dimensional, and involving both source identification and dynamic prediction of physical fields. 
+
+3.1 Statement of network architecture and data training 
+
+The LGNO PDE settings, sampling configurations, network sizes, and corresponding test relative L2 errors are re-ported in Table 2. The network parameters were optimized using Adam, with an adaptive learning rate scheduler that reduces the step size once the training loss reaches a plateau. Gradient clipping and early stopping were used to improve training stability. The complete results, including all tested models, hidden widths, parameter counts, training losses, test relative L2 errors, and error ratios, are provided in D. To ensure reproducibility, all experiments were conducted with fixed random seeds for data splitting, model initial-ization, and stochastic training procedures. The default random seed was set to 42 unless otherwise stated. We test the proposed method on a set of PDE benchmarks covering linear and nonlinear, source-identification and temporal-evolution cases. The test data were strictly excluded from training in all cases. Experiments were run on a workstation equipped with an Intel i9-14900K 24-core CPU and an NVIDIA RTX 4080 SUPER GPU. Moreover, we adopt a width controlled comparison, where the suffix “-k” denotes the hidden width of each model. This setting reduces the effect of parameter scaling and allows us to focus on the influence of architectural inductive bias. 6Local Gradient Neural Operator A P REPRINT 
+
+Table 2: Best performance of LGNO across PDE benchmarks 
+
+Benchmark Nonlinearity Type Parameters Test rel. L2
+
+1D Diffusion time 23 1.2% 
+
+2D Burgers ✓ space 105 5.0% 
+
+2D NS (two equations) ✓ time 1188 0.8% 
+
+2D SE (Gross-Pitaevskii) ✓ space 370 11 .6% 
+
+3D SE (Perturbed harmonic) time 988 0.3% 
+
+3.2 1D examples 1D Diffusion We consider the one dimensional periodic diffusion equation 
+
+∂u ∂t = κ ∂2u∂x 2 , x ∈ [0 , 1) , t ∈ [0 , 1] , (23) where κ = 0 .1. The equation is discretized on a uniform periodic grid with Nx = 32 spatial points and Nt = 300 
+
+temporal points. One trajectory is used for training and six independently generated trajectories are used for testing. (a)  True  LGNO-2  MLPConv-2  LOINN-2 (b) 
+
+-1 
+
+0
+
+1
+
+x
+
+t0 1
+
+0
+
+1
+
+x
+
+t0 1
+
+0
+
+x
+
+t0 1
+
+0
+
+1 1
+
+x
+
+t0 1
+
+0
+
+1
+
+x
+
+t0 1
+
+0
+
+1
+
+x
+
+t0 1
+
+0
+
+x
+
+t0 1
+
+0
+
+1 1
+
+x
+
+t0 1
+
+0
+
+1
+
+> DeepONet-2
+> OneShot-2
+> MLPConv-2
+> LGNO-2
+
+0 2000  4000 
+
+1 0 −1
+
+1 0 1
+
+1 0 3 LOINN-2 
+
+Figure 2: Training losses and rollout predictions for the one dimensional diffusion problem. (a) Training loss curves of LGNO-2, LOINN-2, MLPConv-2, and DeepONet-2. (b) Reference solutions and rollout predictions for two test cases. From left to right, the columns show the reference solution and the predictions of LGNO-2, MLPConv-2, and LOINN-2. The horizontal axis denotes time and the vertical axis denotes the spatial coordinate. We compare LGNO-2 with LOINN-2, MLPConv-2, and DeepONet-2. All models are trained on the same single trajectory. As shown in Fig. 2(a), the loss of LGNO-2 decreases rapidly after the initial stage and reaches a much lower value than those of the three baseline models. The diffusion operator has a compact three point stencil, which agrees well with the local structure used by LGNO. Fig. 2(b) shows the rollout results for two test cases. LGNO-2 reproduces the spatial patterns and their decay through-out the time interval. MLPConv-2 captures the general diffusion trend, but its amplitude and long time behavior differ from the reference solution. The prediction of LOINN-2 shows a larger deviation. DeepONet-2 is omitted from the rollout panels because its prediction error is much larger. Table 3: Rollout errors on the six test trajectories. Model Parameters Min. error Max. error Overall error Relative error LGNO-2 23 0.009 0.014 0.012 1.0×
+
+MLPConv-2 29 0.091 1.611 0.947 78 .3×
+
+LOINN-2 35 0.662 4.878 3.068 253 .7×
+
+DeepONet-2 95 5.284 42.573 23.492 1942 .6×
+
+Table 3 reports the rollout errors on the six test trajectories. LGNO-2 gives the lowest error in every case. Its overall relative L2 error is 1.21 × 10 −2, compared with 9.47 × 10 −1 for MLPConv-2, the most accurate baseline. This 7Local Gradient Neural Operator A P REPRINT 
+
+corresponds to an error reduction of approximately 98 .7% . The results suggest that the local zero consistent structure allows LGNO to recover the discrete diffusion operator from a single training trajectory. 
+
+3.3 2D examples 2D Navier–Stokes We test LGNO on a 2D projected incompressible Navier–Stokes benchmark in velocity form. After absorbing the pressure gradient into the effective forcing, the equations used for training are 
+
+ut + u ∂ xu + v ∂ y u = ν∆u + egu,vt + u ∂ xv + v ∂ y v = ν∆v + egv , (24) where (u, v ) are the two velocity components, ν = 0 .002 is the viscosity, and (egu, egv ) denotes the pressure absorbed forcing. For the present data set, the external forcing is zero, so this term represents the negative pressure gradient. The divergence-free structure is inherited from the data-generation procedure. The periodic domain [−1, 1) × [−1, 1) is discretized on a 32 × 32 grid. The trajectory contains 1000 frames with time step ∆t = 0 .002 , covering t ∈ [0 , 2.00) . Only the first 20 frames, t ∈ [0 , 0.04) , are used for training. Starting from the initial velocity field, each model is then rolled out autoregressively over the complete 1000-frame trajectory. 0 5000  10000  15000  20000     
+
+> 10−7
+> 10−5
+> 10−3
+> 10−1
+> DeepONet-16
+> MLPConv-16
+> LGNO-16
+> OneShot-16
+> Training loss
+
+Epoch 
+
+Truth 
+
+(b) 
+
+LGNO 
+
+(a) 
+
+Truth 
+
+LGNO               
+
+> t= 0.04 t= 0.4 t= 0.8 t= 1.2 t= 1.6 t= 2.0
+> Train Predict
+> -0.5 0.5
+> -0.25 0.25
+> DeepONet-16
+> MLPConv-16
+> LGNO-16
+> LOINN-16
+
+Figure 3: Learning and long time rollout of two-dimensional incompressible Navier–Stokes flow. (a) Training-loss curves of the compared models. (b) Reference and LGNO-16-predicted velocity fields. The first two rows show the horizontal velocity u, and the last two rows show the vertical velocity v. For each component, the upper row gives the reference solution and the lower row gives the LGNO-16 prediction. The model is trained using the first 20 frames, 
+
+t ∈ [0 , 0.04) , and rolled out to the final recorded time t = 2 .0. Snapshots are shown at t = 0 .04 , 0.4, 0.8, 1.2, 1.6, and 
+
+2.0.Fig. 3 summarizes the training behavior and the long time rollout result. As shown in Fig. 3(a), LGNO-16 reaches a low training error with a relatively small number of parameters. The rollout comparison in Fig. 3(b) further shows that, although the model is trained only about 2% of the full trajectory, it keeps the main vortex structures and remains stable until t = 2 .0. Rollout results of the baseline models are given in E. These results also show that a low training error, or even a low one step time-derivative error, is not sufficient for stable long time prediction. For example, LOINN-16 obtains the lowest training MSE, 3.06 × 10 −8, and the lowest one-step time-derivative relative L2 error, 2.50 × 10 −3, but its autoregressive rollout diverges. MLP-16 and FNO-16 also reach small training losses, while their rollout relative L2 errors increase to 1.34 and 5.14 , respectively. Table 4 summarizes the results for all tested configurations. The step error is computed from the saved one step time derivative test set of each implementation, and the rollout error is computed over both velocity components, all grid points, and all 1000 frames. LGNO-16 gives the best finite rollout relative L2 error, 8.14 × 10 −3, with only 1,188 
+
+trainable parameters. Increasing the LGNO width from 16 to 32 does not further improve the rollout accuracy too much in this case, while LGNO-8 still gives a competitive result with only 548 parameters. Among the baseline models, MLPConv-16 gives the lowest rollout relative L2 error, 1.74 × 10 −2.8Local Gradient Neural Operator A P REPRINT 
+
+Table 4: Accuracy and model size results for the 2D Navier–Stokes benchmark. “Train MSE” is the minimum training loss. “Step relative errors” measure the predicted time derivative of each step, and “rollout relative errors” measure the complete autoregressive velocity trajectory. Method Params Train MSE Step rel. L2 Rollout rel. L2
+
+LGNO-16 1,188 3.32 × 10 −7 1.38 × 10 −2 8.14 × 10 −3
+
+MLPConv-16 610 2.82 × 10 −6 2.76 × 10 −2 1.74 × 10 −2
+
+DeepONet-16 34 ,738 4.49 × 10 −3 1.44 1.01 
+
+LOINN-16 1,170 3.06 × 10 −8 2.50 × 10 −3 overflow 
+
+2D Burgers We further test LGNO on a scalar two-dimensional viscous Burgers-type advection–diffusion bench-mark. In this setting, the scalar field u is advected by the velocity (u, u ), and the nonlinear operator is written as 
+
+f = ( u, u ) · ∇ u − ν∆u = u ∂ xu + u ∂ y u − ν∆u, (25) where the viscosity is set to ν = 0 .01 . This benchmark is used as a nonlinear scalar operator-learning test case, rather than as the standard vector-valued two-component Burgers system. The data are generated on a 512 × 512 grid over the periodic domain [−1, 1) 2.To test data efficiency, we use only 5 samples in total, with 1 sample for training and 4 samples for testing. This extremely low-data setting makes generalization difficult and exposes the tendency of over-parameterized models to overfit. In the following comparison, we primarily consider the low-capacity setting with hidden size 8.0 10000  20000  30000  40000  50000       
+
+> 1 0 −2
+> 1 0 −1
+> 1 0 0
+> 1 0 1
+> 1 0 2DeepONet-8
+> OneShot-8
+> MLPConv-8
+> LGNO-8
+
+(a)  (b) 
+
+Epoch 
+
+> Training loss
+> Test  𝐿𝐿2  error
+
+Number of parameters (log scale) 
+
+Truth  LGNO-8  MLPConv-8  LOINN-8  DeepONet-8 (c) 
+
+> 1
+> -1
+
+-1 
+
+y
+
+x-1  1
+
+1
+
+-1 
+
+y
+
+x-1  1
+
+1
+
+-1 
+
+y
+
+x-1  1
+
+1
+
+-1 
+
+y
+
+x-1  1
+
+1
+
+-1 
+
+y
+
+x-1  1
+
+1 
+
+> DeepONet-8
+> LOINN-8
+> MLPConv-8
+> LGNO-8 LOINN-8
+> LOINN-16
+
+Figure 4: Performance comparison on the 2D Burgers equation with hidden size 8. (a) Training loss curves of the compared models. (b) Pareto plot showing the relation between model size and test error. (c) Qualitative comparison of operator predictions on a representative test sample, including the reference solution and four models with hidden size 8. Additional results are shown in appendix Fig. 10. Fig. 4 compares the performance of different models on the 2D Burgers benchmark focusing on hidden size 8, while Table 2 reports the best LGNO configuration at width 4. Fig. 4(a) shows the training loss curves of the compared models. MLPConv achieves a minimum training loss of 2.65 × 10 −3, which is lower than the 5.88 × 10 −3 obtained by LGNO. However, the Pareto plot in Fig. 4(b) shows that the lower training loss does not translate into better test accuracy. LGNO uses only 233 trainable parameters and reaches a test relative L2 error of 9.29 ×10 −2. In comparison, MLPConv, the best-performing baseline in this setting, uses 161 parameters but has a substantially larger test error of 9Local Gradient Neural Operator A P REPRINT 
+
+3.54 × 10 −1. Thus, LGNO reduces the test error by 73 .77% , corresponding to a 3.81 -fold reduction relative to the best baseline. This result indicates that LGNO achieves a better balance between model size and test accuracy. The qualitative comparison in Fig. 4(c) further supports this observation. On the representative test sample, the LGNO prediction shows the closest visual agreement with the reference solution, whereas the baseline models exhibit more noticeable deviations. These results suggest that, although MLPConv can fit the single training sample more closely, LGNO benefits from its local operator parameterization. Instead of directly fitting an input-output map, LGNO learns adaptive local weights in a stencil form, which helps reduce overfitting and improves test accuracy in the extremely low data regime. Additional prediction results under other operating conditions are provided in F. 
+
+2D Gross–Pitaevskii We next apply LGNO to the two dimensional Gross–Pitaevskii equation (GPE), which is commonly used to describe Bose–Einstein condensates: 
+
+f = ˆHψ = − ℏ2
+
+2m ∇2ψ + V (r)ψ + g|ψ|2ψ. (26) The data are generated on a 64 × 64 uniform grid over a rectangular periodic domain. Periodic boundary conditions are imposed on both the complex wavefunction ψ and the potential field V . The Hamiltonian action ˆHψ is computed using a periodic finite difference discretization, with the Laplacian evaluated by periodic stencil operations. The Gross–Pitaevskii operator acts on a complex wavefunction ψ. We first write 
+
+ψ = ψR + iψ I, ψR = Re( ψ), ψI = Im( ψ), (27) and define the amplitude-squared field 
+
+|ψ|2 = ψ2R + ψ2I . (28) The target is the Hamiltonian transformed field 
+
+ˆHψ = Re( ˆHψ ) + i Im( ˆHψ ). (29) Since the same real valued Hamiltonian operator acts on both the real and imaginary components, we do not treat 
+
+Re( ˆHψ ) and Im( ˆHψ ) as two unrelated output channels. Instead, the coefficient-generation network is shared between the two component wise branches. For the real component, the model uses the local stencil of ψR, together with the local conditioning information provided by V and |ψ|2, to predict 
+
+fR = Re( ˆHψ ). (30) The imaginary component is treated in the same way. Equivalently, the component wise local construction can be written as 
+
+[stencil( ψR), |ψ|2, V ] 7 −→ Re( ˆHψ ), [stencil( ψI), |ψ|2, V ] 7 −→ Im( ˆHψ ). (31) Thus, the real and imaginary branches share the same coefficient generation mechanism, consistent with the symmetry induced folding principle discussed in Section 2.3. This folding strategy improves sample efficiency in two ways. First, each local prediction is reduced from a cou-pled complex output problem to a component-wise scalar output problem, so the effective learning complexity is smaller than that of the original full channel formulation. Second, every complex valued training sample provides two structurally equivalent component wise learning problems, one for the real branch and one for the imaginary branch. Therefore, the model can exploit the shared Hamiltonian structure between the two components without introduc-ing separate coefficient generators. This design is especially useful for extremely small training sets, where directly learning the full complex operator may be underdetermined. The training set uses optical lattice potentials, whereas the test set includes four unseen potential types: hexagonal, deformed, bichromatic, and disorder. Details of the dataset construction and test potentials are given in G. This setting tests whether the model can generalize from one potential family to other periodic potentials not seen during training. The results presented in Fig. 5 show that LGNO is able to reconstruct the field source distributions under several unseen periodic potentials, although the bichromatic case remains more challenging than the other test cases. The optimized LGNO model uses a 5-point local stencil with hidden width 12 . Different from the previous explicit prior formulation, the V ψ term is not treated as a known physical contribution. Instead, V is used only as a local conditioning input to the coefficient generation MLP, and the full normalized stencil weights are learned from data. The model contains only 370 trainable parameters. The final overall test relative L2 error, computed by merging all 10 Local Gradient Neural Operator A P REPRINT (a) Real( �HΨ)
+
+(b) Imag( �HΨ)                
+
+> 00.98 098 .0
+> −83.7 0.0 83.7
+> 00.98 098 .0
+> −80.1 0.0 80.1
+> 00.98 098 .0
+> −68.2 0.0 68.2
+> 00.98 098 .0
+> −47.6 0.0 47.6
+> 00.98 098 .0
+> −80.2 0.0 80.2
+> 00.98 098 .0
+> −92.1 0.0 92.1
+> 00.98 098 .0
+> −88.4 0.0 88.4
+> 00.98 098 .0
+> −86.4 0.0 86.4
+> 00.98 098 .0
+> −83.7 0.0 83.7
+> 00.98 098 .0
+> −80.1 0.0 80.1
+> 00.98 098 .0
+> −68.2 0.0 68.2
+> 00.98 098 .0
+> −47.6 0.0 47.6
+> 00.98 098 .0
+> −80.2 0.0 80.2
+> 00.98 098 .0
+> −92.1 0.0 92.1
+> 00.98 098 .0
+> −88.4 0.0 88.4
+> 00.98 098 .0
+> −86.4 0.0 86.4
+
+Truth 
+
+LGNO 
+
+Truth 
+
+LGNO 
+
+hexagona l deformed  bichromatic  disorder 
+
+hexagona l deformed  bichromatic  disorder 
+
+Figure 5: Reference and predicted Gross–Pitaevskii operator responses on unseen periodic potentials, including hexag-onal, deformed, bichromatic, and disorder cases. (a) The real part of the source field. (b) The imaginary part of the source field. Table 5: Relative L2 errors (%) of LGNO on unseen 2D Gross–Pitaevskii test potentials. The average is computed as the arithmetic mean over the four test potentials. Component Hexagonal Deformed Bichromatic Disorder Average 
+
+Re( ˆHψ ) 4.51 1.78 10.19 1.03 4.38 
+
+Im( ˆHψ ) 4.40 1.93 21.57 1.83 7.43 four unseen test cases and both output components, is 11 .61% . The relative L2 errors for the real and imaginary components of each test potential are reported in Table 5. Among the four unseen test potentials, the disorder case gives the smallest real-part error, 1.03% , while the deformed case gives the smallest imaginary-part error, 1.93% . The deformed and disorder potentials are both predicted accu-rately, with errors below 2% for both components. The hexagonal case also remains stable, with errors of 4.51% and 
+
+4.40% for the real and imaginary parts, respectively. The bichromatic case is the most difficult extrapolation case, with errors of 10 .19% and 21 .57% for the real and imaginary parts, respectively. For the hexagonal, deformed, and disorder potentials, the relative errors are mostly below 5% , showing that the learned local stencil operator can generalize reasonably well from optical-lattice training potentials to several unseen periodic potential families. The larger error on the bichromatic potential indicates that this case introduces stronger out of distribution features, especially for the imaginary component. Therefore, the results suggest that the LGNO successfully captures the dominant local Hamiltonian structure, but its extrapolation accuracy depends on how closely the unseen potential family matches the local patterns observed during training. 11 Local Gradient Neural Operator A P REPRINT 
+
+3.4 3D examples 3D time dependent Schr¨ odinger equation We next test LGNO on the three dimensional time dependent Schr¨ odinger equation, 
+
+iℏ ∂ψ ∂t = ˆHψ = − ℏ2
+
+2m ∇2ψ + V (x, y, z ) ψ, (32) where ψ(x, y, z, t ) is the complex valued wavefunction and ˆH denotes the Hamiltonian operator. Here, we use dimen-sionless units with ℏ = 1 and m = 1 , so the kinetic term becomes − 12 ∇2ψ.The data are generated on a 16 × 16 × 16 Cartesian grid over [−2, 2] 3. Spatial derivatives are computed using second order central finite differences, and the wavefunction is advanced in time with an explicit Euler scheme. We generate one trajectory with Nt = 5000 time steps and ∆t = 10 −4. The first 20% of the trajectory is used for training, and the full time horizon is used to evaluate rollout behavior. The initial condition is a localized Gaussian wave packet with a plane wave phase in the x direction, 
+
+ψ(x, y, z, 0) = exp 
+
+
+
+− x2 + y2 + z2
+
+2σ2
+
+
+
+eik 0x, σ = 0 .8, k0 = 2 .0. (33) This gives a wave packet with nonzero momentum along the x direction. The external potential is defined as an anisotropic harmonic trap with a smooth sinusoidal perturbation, 
+
+V (x, y, z ) = 12
+
+ ω2
+
+> x
+
+x2 + ω2 
+
+> y
+
+y2 + ω2 
+
+> z
+
+z2 + α sin(2 x) cos(3 y) sin( z), (34) where (ωx, ω y , ω z ) = (1 .0, 1.5, 0.8) and α = 0 .3. This potential introduces both anisotropic confinement and spatial oscillations, leading to changes in the wave packet shape and phase over time. The local operator is represented by a three layer MLP with SiLU activations and hidden dimension 16 , applied pointwise on the grid. After training, the optimized LGNO model is adopted to predict the Hamiltonian operator response ˆHψ at different time instants. Fig. 6 summarizes the three dimensional learning results. As shown in Fig. 6(a), the curves of training loss and the learning rate schedule demonstrated a stable and convergent optimization process. Fig. 6(b) depicts the temporal variation of rollout error. The model is trained on early time data and evaluated on later frames, with the largest relative L2 error of 8.58 × 10 −3 appearing at the final frame t = 0 .5, while the total average relative L2 error is only 0.3%. Fig. 6(c) provides a visual check of the operator prediction at representative stages of the rollout. The predicted responses remain close to the reference solution with the reference field in both spatial morphology and amplitude distribution. Fig. 7 further shows the central xy -slice at z = 0 for the predicted field source. The reference and prediction share the same amplitude color scale, while the error is plotted separately. Slice-wise comparison confirms that the LGNO model reconstructs the primary three-dimensional operator response with high accuracy, achieving a maximum relative error of less than 5%. 
+
+3.5 Robustness 
+
+We further evaluate the robustness of LGNO on the two dimensional Burgers benchmark by perturbing the input field with multiplicative noise. For a clean input field u, the noisy field is defined as 
+
+unoisy = u(1 + αη ), (35) where η is generated from a uniform random field and then spatially smoothed. The parameter α controls the pertur-bation strength. In this experiment we consider 
+
+α ∈ { 0.00 , 0.01 , . . . , 0.10 }. (36) For each noise level, LGNO-8 and MLPConv-8 are trained under the same setting: hidden dimension 8, learning rate 
+
+10 −2, 10000 maximum epochs, and patience 1000 . MLPConv-8 is used as the local baseline because it has the closest stencil based structure among the compared methods. Fig. 8(a) shows that LGNO can be optimized consistently across all tested noise levels. Although the loss trajectories become less smooth as the perturbation increases, the model remains trainable throughout the whole range α ∈
+
+[0 , 0.10] . Fig. 8(b) gives the quantitative comparison with MLPConv-8. The reported errors are averaged over five 12 Local Gradient Neural Operator A P REPRINT Error 
+
+LGNO 
+
+Truth 
+
+t = 0  t = 0.1  t = 0.5 
+
+(c)                     
+
+> 01000 2000 3000 4000 5000 Frame
+> 10−4
+> 10−3
+> 10−2
+> Relative ErrorL2
+> Train Test
+> RelativeErrorL2
+> 020000 40000 Iteration
+> 10−8
+> 10−6
+> 10−4
+> 10−2Loss
+> Training Loss
+> Learning Rate
+> 10−5
+> 10−4
+> 10−3
+> 10−2
+> Learning Rate
+
+(a)  (b)    
+
+> Training Final prediction
+> ×10 -3 ×10 -3 ×10 -3
+
+Training loss 
+
+Learning rate 
+
+Relative L2 error 
+
+> Relative  L2 error
+> Learning rate
+
+Figure 6: 3D operator learning for the Schr¨ odinger system. (a) Training curves. The solid line shows the training loss, and the dashed line shows the learning rate schedule. (b) Rollout error over time. The model is trained on early time data and then evaluated on later frames. (c) Isosurface comparison of the operator-response amplitude |Hψ |. From top to bottom, the rows show the reference solution, the LGNO prediction, and the pointwise relative error. The columns correspond to t = 0 , t = 0 .1, and t = 0 .5. The first two snapshots are within the training interval, while the last one is the final predicted frame. independent evaluation seeds 447 –451 , and both models are tested on exactly the same noisy level inputs. LGNO-8 achieves a lower mean relative L2 error at every tested noise level. The advantage is large for weak and moderate perturbations, and it remains positive even at the strongest tested noise level α = 0 .10 , where LGNO-8 obtains an average error of 3.166 × 10 −1 compared with 3.853 × 10 −1 for MLPConv-8. The qualitative examples in Fig. 8(c) further support this observation. As the normalized noise ratio increases from 0
+
+to 1.0, the input field becomes progressively more perturbed. LGNO-8 still preserves the dominant spatial structure of the reference solution and avoids the larger local deviations observed in the baseline prediction. These results indicate that the learned local geometric operator remains effective when the input is corrupted by moderate multiplicative noise. Overall, the robustness experiment shows that LGNO-8 is stable under the tested perturbation range. Compared with the MLPConv-8 baseline, it produces lower average relative L2 error for all noise levels α = 0 .00 , . . . , 0.10 , with relative improvements ranging from 17 .8% at α = 0 .10 to 73 .6% at α = 0 .01 .13 Local Gradient Neural Operator A P REPRINT LGNO 
+
+Truth 
+
+Error 
+
+× 10 −4  × 10 −2 
+
+× 10 −4  × 10 −3  × 10 −2  × 10 −2 
+
+t = 0  t = 0.1  t = 0.2  t = 0.3  t = 0.4  t = 0.5 
+
+Figure 7: Hamiltonian operator prediction for the three-dimensional Schr¨ odinger equation with a symmetry-breaking potential. The central xy -slice at z = 0 is shown. From top to bottom, the rows give the reference solution, the LGNO prediction, and the absolute error. The reference and prediction use the same color scale for the amplitude | ˆHψ |, with values in [0 , 4] . The error is plotted with a separate color scale from 2.5 × 10 −4 to 5 × 10 −2.
+
+# 4 Conclusion 
+
+This work presented LGNO, a lightweight and interpretable local gradient neural operator for PDE source identifica-tion and temporal field prediction. By using gradient-aware stencil reconstruction, LGNO separates stencil coefficient learning from field reconstruction and embeds the locality of differential operators into the network design. Together with symmetry-induced folding and orbit augmentation, this structure improves sample efficiency and reduces redun-dant parameters under limited data. Numerical tests cover linear and nonlinear, static and dynamic, and low- and high-dimensional benchmarks against representative neural operator baselines. Under the unified low-data comparison protocol, LGNO reduces the test error by about 74 .5% on average. The reductions are especially clear in the 2D Burgers and 3D Schr¨ odinger cases, where the errors decrease by 85 .9% and 
+
+84 .2% , respectively. In the Navier–Stokes rollout test, LGNO reduces the error by 53 .2% compared with the best stable baseline. These results are obtained with compact models, using only 23 parameters for 1D diffusion, 105 for 2D Burgers, 370 for 2D Gross–Pitaevskii, and fewer than 1200 for the Navier–Stokes and Schr¨ odinger examples. The core modules of LGNO provide distinct practical benefits. Symmetry folding reuses equivalent field components to increase effective samples while controlling model size. Zero-consistent reconstruction removes static offsets and avoids artificial zero-state drift, while the error bound separates discretization and fitting errors. The Burgers noise tests further show that LGNO remains stable under moderate input perturbations. Future work will extend LGNO to-ward weakly nonlocal and multi-scale systems by incorporating lightweight global-context perception, while carefully balancing computational cost, parameter efficiency, and interpretability. 
+
+# Acknowledgement 
+
+The authors acknowledge the support of the National Natural Science Foundation of China (Grants No. 52505102, 12504544, 12525201, and 12432010). Baiming Zhang is supported by the Future Academic Star Program for Under-graduates at Zhejiang University. 14 Local Gradient Neural Operator A P REPRINT Noise level 
+
+> 0.0
+> 1.0
+> 2.0
+> 3.0
+> 4.0Relative test erro r L 2
+> LGNO MLPConv
+
+0 2000  4000  6000  8000  10000 Epoch 
+
+10 −1
+
+10 0
+
+10 1
+
+10 2 
+
+> Training loss
+> α=0.00
+> α=0.01
+> α=0.02
+> α=0.03 α=0.04
+> α=0.05
+> α=0.06
+> α=0.07
+> α=0.08
+> α=0.09
+> α=0.10
+
+Truth 
+
+LGNO-8 
+
+MLP 
+
+Conv-8 
+
+(c) 
+
+(a)  (b) 
+
+𝛼𝛼 = 0 𝛼𝛼 = 0.02  𝛼𝛼 = 0.04  𝛼𝛼 = 0.06  𝛼𝛼 = 0.08  𝛼𝛼 = 0.10 
+
+Noise 
+
+Figure 8: Robustness evaluation under multiplicative input noise. (a) LGNO training loss curves for noise levels 
+
+α = 0 .00 , . . . , 0.10 . (b) Mean relative L2 test error of LGNO-8 and MLPConv-8 over five evaluation seeds 447 –
+
+451 . Error bars visualize 0.3σ, where σ is the standard deviation across the five seeds. (c) Representative qualitative comparison at normalized noise ratios 0, 0.2, 0.4, 0.6, 0.8, 1.0, corresponding to α = 0 .00 , 0.02 , 0.04 , 0.06 , 0.08 , 0.10 .Each group shows the reference solution, the LGNO-8 prediction, and the baseline prediction. 
+
+# Data availability 
+
+All the datasets in the study are generated directly from the code. 
+
+# Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+# A Local stencil representation of discretized PDE operators 
+
+A finite-order local differential operator is evaluated from local field information. After compact-stencil discretization, this locality becomes a finite interaction pattern among neighboring grid values. For nonlinear or quasilinear operators, the local coupling coefficients may depend on the local state. 
+
+Theorem A.1. Let L be a finite-order local differential operator, and let Lh be a compact-stencil discretization of order m on a uniform grid 
+
+Gh = {xi}Ni=1 . (37) 
+
+For each interior node xi, assume that the stencil S(i) is finite and uniformly bounded independently of h. Define the local input window by 
+
+zL,i = {(xj , uj ) : j ∈ S (i)} . (38) 15 Local Gradient Neural Operator A P REPRINT 
+
+For j ∈ S (i), write ui,j := uj . Then the discrete response at xi depends only on zL,i :
+
+(Lh[u]) i = Ψ h (zL,i ) , (39) 
+
+for some local discrete rule Ψh. For smooth admissible fields, the consistency relation is 
+
+(RhL[u]) i = ( Lh[u]) i + O(hm), (40) 
+
+where Rh denotes restriction to the grid nodes. If the discrete operator is written in a state-dependent affine stencil form with respect to the contracted primary-field values, then 
+
+(Lh[u]) i = X
+
+> j∈S (i)
+
+Ki,j (zL,i ) ui,j + bi, (41) 
+
+where Ki,j (zL,i ) ∈ RcL×cu is the local coupling block from stencil node j to the response at node i. Here, cu is the number of primary-field components and cL is the number of response components of Lh[u]. The additive term 
+
+bi ∈ RcL is independent of the contracted primary-field values, although it may depend on the grid node or fixed prescribed quantities. If the operator, grid, and discretization are translation equivariant away from boundaries, the same interior local rule may be reused across grid points. Proof. By strict locality, L[u]( xi) is determined by the finite jet of u at xi. A compact-stencil discretization approxi-mates this local jet by finite combinations of nodal values in S(i). Hence the discrete response depends only on zL,i ,which gives Eq. (39). The consistency estimate in Eq. (40) follows from the assumed discretization order m. If the local discrete dependence is represented in affine stencil form, the corresponding coefficient blocks can be collected as Ki,j (zL,i ), giving Eq. (41). Under translation-equivariant interior settings, this local rule can be shared without assigning independent rules to different interior nodes. Vectorizing Eq. (41) over all valid grid nodes gives 
+
+Lh[u] = Ah(uh)uh + bh, (42) where 
+
+uh = Rhu. (43) For a fixed grid, the coordinate dependence in the local rules is included in the discrete operator Ah. The matrix 
+
+Ah(uh) is block sparse and satisfies 
+
+Ai,j (uh) = 0 whenever j / ∈ S (i). (44) Combining Eqs. (40) and (42) yields 
+
+RhL[u] = Ah(uh)uh + bh + O(hm). (45) 
+
+# B Proofs of zero-consistent reconstruction and error estimates 
+
+Zero-point calibration and bias-free reconstruction For a local window centered at xi, let z0 
+
+> ⋆,i
+
+denote the zero-state window in which the contracted primary-field values are set to zero, while coordinates and other prescribed conditioning channels, if present, are retained. The raw local response is 
+
+yraw  
+
+> ⋆,i
+
+= Fraw  
+
+> h,⋆
+
+(z⋆,i ) . (46) When the zero-state response is finite, define the zero-state offset by 
+
+b0 
+
+> ⋆,i
+
+= Fraw 
+
+> h,⋆
+
+ z0
+
+> ⋆,i
+
+ . (47) The calibrated local target is obtained by subtracting this offset: 
+
+y⋆,i = yraw  
+
+> ⋆,i
+
+− b0
+
+> ⋆,i
+
+. (48) Equivalently, 
+
+Fh,⋆ (z⋆,i ) = Fraw  
+
+> h,⋆
+
+(z⋆,i ) − F raw 
+
+> h,⋆
+
+ z0
+
+> ⋆,i
+
+ . (49) Substituting z⋆,i = z0 
+
+> ⋆,i
+
+into Eq. (49) gives 
+
+Fh,⋆ 
+
+ z0
+
+> ⋆,i
+
+ = Fraw 
+
+> h,⋆
+
+ z0
+
+> ⋆,i
+
+ − F raw 
+
+> h,⋆
+
+ z0
+
+> ⋆,i
+
+ = 0. (50) 16 Local Gradient Neural Operator A P REPRINT 
+
+The offset b0 
+
+> ⋆,i
+
+can be interpreted as a background response at the zero physical field. In a homogeneous problem with translation equivariance, such a background response is translation invariant. To see this, let T∆ denote a spatial translation and let Z0 
+
+> ⋆
+
+be the global zero-state input. If 
+
+Fraw  
+
+> h,⋆
+
+[T∆Z⋆] = T∆Fraw  
+
+> h,⋆
+
+[Z⋆] , (51) and the zero-state input is translation invariant, namely 
+
+T∆Z0 
+
+> ⋆
+
+= Z0 
+
+> ⋆
+
+, (52) then 
+
+Fraw 
+
+> h,⋆
+
+Z0
+
+> ⋆
+
+ = Fraw 
+
+> h,⋆
+
+T∆Z0
+
+> ⋆
+
+ = T∆Fraw 
+
+> h,⋆
+
+Z0
+
+> ⋆
+
+ . (53) Thus the zero-state response is unchanged by translation. On a uniform grid, this means that the zero-state offset is the same at translated nodes, 
+
+b0 
+
+> ⋆,i +∆
+
+= b0
+
+> ⋆,i
+
+. (54) It is therefore a translation invariant background drift rather than a response generated by local field variation. If coordinate-dependent sources, prescribed potentials, anisotropy, or direction-dependent forcing are present, the zero-state response may depend on these conditioning variables instead of being spatially constant. The pointwise calibra-tion in Eq. (49) removes this prescribed offset before the local field-dependent operator is learned. The LGNO local reconstruction then uses a bias-free stencil contraction: 
+
+by⋆,i = bFθh,⋆ (z⋆,i ) = X
+
+> j∈S (i)
+
+Gθ⋆,i,j (z⋆,i ) ui,j . (55) By definition of z0
+
+> ⋆,i
+
+,
+
+z⋆,i = z0 
+
+> ⋆,i
+
+=⇒ ui,j = 0, j ∈ S (i). (56) Therefore, 
+
+bFθh,⋆ 
+
+ z0
+
+> ⋆,i
+
+ = X
+
+> j∈S (i)
+
+Gθ⋆,i,j 
+
+ z0
+
+> ⋆,i
+
+ ui,j = 0. (57) This proves Eq. (16). Hence the zero-state output is removed first by calibration and then enforced by the reconstruc-tion structure. Physically, the learned stencil cannot create a translation invariant background drift when no contracted primary-field values are present. 
+
+Error decomposition Assume that the calibrated compact-stencil operator admits the exact coefficient form 
+
+(Fh,⋆ [Z⋆]) i = Fh,⋆ (z⋆,i ) = X
+
+> j∈S (i)
+
+G∗ 
+
+> ⋆,i,j
+
+(z⋆,i ) ui,j . (58) The assembled LGNO operator is 
+
+ bFθh,⋆ [Z⋆]
+
+
+
+> i
+
+= bFθh,⋆ (z⋆,i ) = X
+
+> j∈S (i)
+
+Gθ⋆,i,j (z⋆,i ) ui,j . (59) For an admissible compact set of local windows K⋆, define 
+
+εθ = sup 
+
+> z⋆,i ∈K ⋆
+
+max  
+
+> j∈S (i)
+
+Gθ⋆,i,j (z⋆,i ) − G∗ 
+
+> ⋆,i,j
+
+(z⋆,i ) 2 . (60) The discrete norm is 
+
+∥v∥2
+
+> ℓ2
+> h
+
+= hd X
+
+> i
+
+|vi|2. (61) The total error satisfies 
+
+RhF⋆[Z⋆] − bFθh,⋆ [Z⋆] = ( RhF⋆[Z⋆] − F h,⋆ [Z⋆]) + 
+
+
+
+Fh,⋆ [Z⋆] − bFθh,⋆ [Z⋆]
+
+
+
+. (62) Using the assumed discretization estimate and the triangle inequality, 
+
+RhF⋆[Z⋆] − bFθh,⋆ [Z⋆] ℓ2
+
+> h
+
+≤ Cdhp + Fh,⋆ [Z⋆] − bFθh,⋆ [Z⋆] ℓ2
+
+> h
+
+. (63) For each valid grid node, Eqs. (58) and (59) give 
+
+
+
+Fh,⋆ [Z⋆] − bFθh,⋆ [Z⋆]
+
+ 
+
+> i
+
+= X
+
+> j∈S (i)
+
+ G∗ 
+
+> ⋆,i,j
+
+(z⋆,i ) − Gθ⋆,i,j (z⋆,i ) ui,j . (64) 17 Local Gradient Neural Operator A P REPRINT 
+
+From Eq. (60), 
+
+G∗ 
+
+> ⋆,i,j
+
+(z⋆,i ) − Gθ⋆,i,j (z⋆,i ) 2 ≤ εθ . (65) Let 
+
+s = max  
+
+> i
+
+|S (i)|. (66) Then Cauchy–Schwarz gives 
+
+Fh,⋆ [Z⋆] − bFθh,⋆ [Z⋆]
+
+
+
+> i
+> 2
+
+≤ sε 2
+
+> θ
+
+X
+
+> j∈S (i)
+
+|ui,j |2. (67) Multiplying by hd, summing over all valid nodes, and using the uniformly bounded stencil overlap, 
+
+Fh,⋆ [Z⋆] − bFθh,⋆ [Z⋆] ℓ2
+
+> h
+
+≤ C⋆εθ ∥u∥ℓ2 
+
+> h
+
+, (68) where C⋆ is independent of h and θ. Combining Eqs. (63) and (68) yields 
+
+RhF⋆[Z⋆] − bFθh,⋆ [Z⋆] ℓ2
+
+> h
+
+≤ Cdhp + C⋆εθ ∥u∥ℓ2 
+
+> h
+
+. (69) This proves Eq. (17). 
+
+Rollout estimate For temporal evolution prediction, define 
+
+Zn 
+
+> evo
+
+= ( x, un, f n), bZn 
+
+> evo
+
+= ( x, bun, f n). (70) The exact and learned one-step updates are 
+
+un+1 = un + ∆ tFh, evo (un, f n), (71) and 
+
+bun+1 = bun + ∆ t bFθh, evo [ bZn
+
+> evo
+
+]. (72) Let 
+
+en = un − bun. (73) Assume that Fh, evo is Lipschitz continuous in the primary field for fixed source-related input: 
+
+∥F h, evo (u, f ) − F h, evo (v, f )∥ℓ2
+
+> h
+
+≤ L∥u − v∥ℓ2 
+
+> h
+
+. (74) Assume also the one-step approximation bound 
+
+Fh, evo (u, f ) − bFθh, evo [Zevo ] ℓ2
+
+> h
+
+≤ ζθ (h). (75) Using Eqs. (71)–(73), 
+
+en+1 = en + ∆ t
+
+
+
+Fh, evo (un, f n) − bFθh, evo [ bZn
+
+> evo
+
+]
+
+
+
+= en + ∆ t (Fh, evo (un, f n) − F h, evo (bun, f n)) + ∆ t
+
+
+
+Fh, evo (bun, f n) − bFθh, evo [ bZn
+
+> evo
+
+]
+
+
+
+.
+
+(76) Taking the ℓ2 
+
+> h
+
+norm and applying Eqs. (74) and (75), 
+
+∥en+1 ∥ℓ2 
+
+> h
+
+≤ (1 + ∆ tL )∥en∥ℓ2 
+
+> h
+
++ ∆ tζ θ (h). (77) Iteration gives 
+
+∥en∥ℓ2 
+
+> h
+
+≤ (1 + ∆ tL )n∥e0∥ℓ2 
+
+> h
+
++ ∆ tζ θ (h)
+
+> n−1
+
+X
+
+> m=0
+
+(1 + ∆ tL )m. (78) For L > 0, n−1X
+
+> m=0
+
+(1 + ∆ tL )m = (1 + ∆ tL )n − 1∆tL . (79) Since T = n∆t,
+
+(1 + ∆ tL )n ≤ eLT . (80) 18 Local Gradient Neural Operator A P REPRINT 
+
+Combining Eqs. (78)–(80), 
+
+∥en∥ℓ2 
+
+> h
+
+≤ eLT ∥e0∥ℓ2 
+
+> h
+
++ eLT − 1
+
+L ζθ (h), T = n∆t. (81) This proves Eq. (18). When L = 0 , Eq. (77) reduces to 
+
+∥en+1 ∥ℓ2 
+
+> h
+
+≤ ∥ en∥ℓ2 
+
+> h
+
++ ∆ tζ θ (h). (82) Thus, 
+
+∥en∥ℓ2 
+
+> h
+
+≤ ∥ e0∥ℓ2 
+
+> h
+
++ T ζ θ (h). (83) The second term in Eq. (18) is therefore interpreted as T ζ θ (h).The rollout estimate is conditional on a bounded admissible trajectory, the Lipschitz bound in Eq. (74), and the one-step bound in Eq. (75). Together with Eq. (17), it links the autoregressive error to the compact-stencil discretization error hp and the learned coefficient error εθ .
+
+# C Derivation of symmetry-induced network folding 
+
+This appendix derives Eqs. (20)–(22) and clarifies the assumptions under which componentwise folding is valid. Let 
+
+Y⋆ = F⋆ [Z⋆] (84) be a calibrated input-target pair. Here F⋆ denotes the exact calibrated task operator, whereas bFθ⋆ denotes the learned LGNO approximation. Therefore, quantities generated by F⋆ are exact targets and are not marked with a hat. Quanti-ties generated by bFθ⋆ are model predictions and are marked with a hat. Assume that the calibrated task operator is Γ-equivariant: 
+
+F⋆ [ρin (γ)Z⋆] = ρout (γ)F⋆ [Z⋆] , ∀γ ∈ Γ. (85) Substituting Eq. (84) into Eq. (85) gives 
+
+F⋆ [ρin (γ)Z⋆] = ρout (γ)Y⋆. (86) Hence 
+
+(ρin (γ)Z⋆, ρ out (γ)Y⋆) (87) is also generated by the same calibrated operator. Varying γ ∈ Γ gives the orbit of valid input-target pairs in Eq. (20). If Γ is continuous, this orbit is usually used in practice by sampling a finite number of group actions. We next derive the componentwise folding relation. Let Q be a set of target components, field channels, or coordinate directions lying in the same Γ-orbit. Fix a canonical component q0 ∈ Q . For each q ∈ Q , assume that there exists a transformation γq ∈ Γ that maps the q-component to the canonical component q0. This assumption is required for folding; if no such canonical map exists, the components should not be folded. Let Ei denote local window extraction: 
+
+z⋆,i = Ei [Z⋆] . (88) We assume that the transformations used for folding are admissible for the grid and boundary treatment, so that applying the group action and then extracting a local window is well defined. For transformations that do not map grid nodes exactly to grid nodes, the representation ρin is understood to include the interpolation or resampling used by the discretization. Applying γq to the input field and then extracting the local window gives 
+
+z(γq ) 
+
+> ⋆,i
+
+= Ei [ρin (γq )Z⋆] . (89) The corresponding transformed target follows from Eq. (86): 
+
+y(γq ) 
+
+> ⋆,i
+
+= ( ρout (γq )Y⋆)i = ( F⋆ [ρin (γq )Z⋆]) i . (90) Thus the transformed target is still an exact target generated by the same calibrated operator, so it does not carry a hat. Let P in  
+
+> q0
+
+and P out  
+
+> q0
+
+denote the projections onto the canonical input and target components after the symmetry action. The folded local input and target are defined by 
+
+ez⋆,i,q = P in  
+
+> q0
+
+z(γq ) 
+
+> ⋆,i
+
+= P in  
+
+> q0
+
+Ei [ρin (γq )Z⋆] , bey⋆,i,q = P out  
+
+> q0
+
+y(γq ) 
+
+> ⋆,i
+
+= P out  
+
+> q0
+
+(ρout (γq )Y⋆)i . (91) 19 Local Gradient Neural Operator A P REPRINT 
+
+This gives Eq. (21). Combining Eqs. (90) and (91) gives 
+
+bey⋆,i,q = P out  
+
+> q0
+
+(F⋆ [ρin (γq )Z⋆]) i . (92) Therefore, the folded target is the canonical component of the exact output produced by the same calibrated operator acting on the transformed input. By locality, this canonical output component depends only on the corresponding folded local window and the prescribed conditioning channels. Hence all folded samples can be treated as samples of the same canonical local learning problem. It remains to define the primary-field values contracted in the LGNO stencil. Since the primary field u is contained in Z⋆, the group action on u is induced by ρin . Denote this induced action by ρu, and let Eu 
+
+> i
+
+denote the primary-field part of the local window extraction. For j ∈ S (i), define 
+
+eui,j,q = P u 
+
+> q0
+
+Eu 
+
+> i
+
+[ρu(γq )u] 
+
+> j
+
+, j ∈ S (i), (93) where P u 
+
+> q0
+
+selects the canonical primary-field channels after the symmetry action. Under the compact-stencil representation of the calibrated local operator, there exists an exact canonical coefficient rule G∗ 
+
+> ⋆,i,j
+
+such that 
+
+bey⋆,i,q = X
+
+> j∈S (i)
+
+G∗ 
+
+> ⋆,i,j
+
+(ez⋆,i,q ) eui,j,q . (94) Here bey⋆,i,q is the exact folded target, so it is not marked with a hat. LGNO replaces the exact coefficient rule by a learned coefficient generator: 
+
+Φθ : ez⋆,i,q 7 → Gθ⋆,i,j (ez⋆,i,q ) j∈S (i) . (95) The model prediction for the folded local target is therefore 
+
+bbey⋆,i,q = X
+
+> j∈S (i)
+
+Gθ⋆,i,j (ez⋆,i,q ) eui,j,q , q ∈ Q . (96) This gives Eq. (22). The hat on bbey⋆,i,q indicates that this quantity is produced by the learned LGNO reconstruction, not by the exact calibrated operator. The construction requires three conditions. First, the calibrated task operator must satisfy the equivariance relation in Eq. (85). Second, the components in Q must be related by admissible group actions so that a canonical component 
+
+q0 is well defined. Third, the local stencil and boundary treatment must be compatible with the transformations used for folding. If zero-point calibration or residualization is used, the calibrated target must still transform under ρout . If symmetry-breaking sources, potentials, anisotropy, or direction-dependent forcing are present and are not included in an equivariant input representation, the folded samples no longer correspond to the same canonical local operator law. 
+
+# D Detailed benchmark prediction results of selected models 
+
+This appendix reports the benchmark prediction results for the four representative models used in the focused com-parison: MLPConv, DeepONet, LOINN, and LGNO. These methods cover a local stencil map, a global branch–trunk operator map, a few-shot local operator-learning model, and the proposed differential-stencil reconstruction. For con-ciseness, the main paper reports a compact LGNO-only summary for the principal benchmark cases analyzed in the main discussion, as shown in Table 2. The detailed tables below retain all available configurations of these four models across the 1D, 2D, and 3D benchmarks. For each case, we report the number of trainable parameters, the final training loss, the test relative L2 error, and the error ratio with respect to the best-performing model in the same benchmark. All selected models were evaluated using the same unified experimental scripts and data-processing pipeline across the different benchmark problems. No benchmark-specific redesign or extensive case-by-case hyperparameter tuning was performed for the retained baseline methods. The comparison is therefore intended to reflect model behavior under a common low-data protocol rather than the fully optimized limit of each architecture. Against these baselines, LGNO uses a local coefficient generator together with a differential-stencil reconstruction. This restricted comparison helps isolate how direct operator mapping and differential local reconstruction behave when only one trajectory or a small number of samples is available. The reported results should therefore be interpreted under this unified experimental setting, while the main conclusions focus on the observed accuracy parameter trade-off and local generalization behavior of LGNO. 20 Local Gradient Neural Operator A P REPRINT 
+
+Table 6: Benchmark prediction results of selected models. Benchmark Method Hidden Parameters Training loss Test rel. L2 Error ratio 1D Diffusion 
+
+LGNO 2 23 5.891 × 10 −4 0.012 1.0 ×
+
+LGNO 4 51 2.395 × 10 −3 0.025 2.0 ×
+
+MLPConv 4 41 0.014 0.053 4.4 ×
+
+LOINN 4 85 0.126 0.857 70.9 ×
+
+MLPConv 2 29 27.306 0.947 78.3 ×
+
+LOINN 2 35 74.060 3.068 253.7 ×
+
+DeepONet 4 221 165.298 5.615 464.3 ×
+
+DeepONet 2 95 178.280 23.492 1942.6 ×
+
+2D Burgers 
+
+LGNO 4 105 5.076 × 10 −3 0.050 1.0 ×
+
+LGNO 8 233 6.446 × 10 −3 0.093 1.9 ×
+
+MLPConv 4 65 3.754 × 10 −3 0.380 7.7 ×
+
+LOINN 4 85 0.020 0.463 9.4 ×
+
+DeepONet 8 175 585 0.099 1.003 20.3 ×
+
+2D Navier–Stokes 
+
+LGNO 16 1188 3.371 × 10 −7 0.008 1.0 ×
+
+LGNO 8 548 8.170 × 10 −7 0.010 1.3 ×
+
+MLPConv 16 610 2.882 × 10 −6 0.017 2.1 ×
+
+DeepONet 16 34 738 4.491 × 10 −3 1.014 124.7 ×
+
+LOINN 16 1170 3.135 × 10 −8 – –2D Schr¨ odinger (Gross–Pitaevskii) 
+
+LGNO(folded) 12 370 2.510 × 10 −5 0.116 1.0 ×
+
+LGNO(folded) 24 1018 2.393 × 10 −4 0.283 2.4 ×
+
+LGNO(unfolded) 12 500 2.836 × 10 −5 0.379 3.3 ×
+
+DeepONet 12 148 598 1.182 1.067 9.2 ×
+
+LOINN 12 674 1.217 3.085 26.6 ×
+
+MLPConv 12 518 0.592 3.548 30.6 ×
+
+3D Schr¨ odinger (Perturbed Harmonic) 
+
+LGNO 16 988 9.790 × 10 −10 0.003 1.0 ×
+
+MLPConv 16 1618 9.563 × 10 −7 0.019 6.2 ×
+
+LOINN 16 1890 7.975 × 10 −7 0.027 8.7 ×
+
+DeepONet 16 198 594 8.447 × 10 −3 1.122 358.4 ×
+
+# E Additional results for the 2D Navier–Stokes system 
+
+As a supplement to Paragraph 3.3, where the concise comparison between LGNO-16 and MLPConv-16 has been presented, Fig. 9 provides more detailed visual comparisons for the 2D Navier–Stokes example. The baseline models such as MLPConv and DeepONet are able to reproduce the main flow structures at early rollout times, but their predictions become progressively less accurate as the rollout proceeds. In later snapshots, visible errors appear in both velocity components, including blurred local structures, weakened vortical features, and misplaced flow patterns. These additional visual results complement the quantitative comparison reported in the main text and further illustrate the long-time rollout advantage of LGNO. 
+
+# F Additional results for the 2D Burgers equation 
+
+As a supplement to the concise comparison presented in Section 3.3, Fig. 10 provides additional qualitative compar-isons on the 2D Burgers test set. In these examples, LGNO-8 remains closer to the reference solution, especially in regions with sharper spatial variations. 
+
+# G Dataset examples for the 2D Gross–Pitaevskii equation 
+
+As a supplement to Section 3.3, Fig. 11 illustrates the dataset construction for the 2D Gross–Pitaevskii equation. The training data are generated with an optical lattice potential, while the test set uses four different periodic potential types, namely hexagonal, deformed, bichromatic, and disorder potentials. This train–test split is designed to evaluate how the learned operator generalizes to potential fields that are not observed during training. 21 Local Gradient Neural Operator A P REPRINT (a) 
+
+MLPConv 
+
+DeepONet 
+
+(b) 
+
+MLPConv 
+
+DeepONet 
+
+t = 0.8 
+
+t = 0.8 
+
+t = 1.2 
+
+t = 1.2 
+
+t = 1.6 
+
+t = 1.6 
+
+t = 2.0 
+
+t = 2.0 
+
+Figure 9: Baseline predictions for the 2D Navier–Stokes system. Rows correspond to MLPConv and DeepONet. Columns show snapshots at t = 0 .8, 1.2, 1.6, 2.0. (a) Horizontal velocity component u. (b) Vertical velocity compo-nent v.Truth  LGNO  MLPConv  LOINN  DeepONet FNO GNO  CNO 
+
+Figure 10: Additional test examples for the 2D Burgers equation. From left to right: reference solution, LGNO-8, MLPConv-8, LOINN-8, GNO-8, FNO-8, CNO-8, and DeepONet-8. 22 Local Gradient Neural Operator A P REPRINT x      
+
+> y
+> x
+> y
+> x
+> y
+> x
+> y
+> 𝑉𝑉 Re( �𝐻𝐻𝛹𝛹 )Im( �𝐻𝐻𝛹𝛹 )|�𝐻𝐻𝛹𝛹 |
+
+(a) 
+
+(b)  Hexagonal  Deformed  Bichromatic  Disorder 
+
+> x
+> y
+> x
+> y
+> x
+> y
+> x
+> y
+
+Figure 11: Dataset for the 2D Gross–Pitaevskii equation. (a) Training sample generated from an optical lattice poten-tial. From left to right: potential field V , real part Re( ˆHψ ), imaginary part Im( ˆHψ ), and magnitude | ˆHψ |. (b) Test potentials used in the experiments: hexagonal, deformed, bichromatic, and disorder potentials. 
+
+# H Robustness results 
+
+As discussed in Section 3.5, the robustness test evaluates the sensitivity of LGNO-8 and MLPConv-8 to multiplicative input noise. Table 7 provides the complete case-wise results for the five evaluation seeds 447 –451 , together with the average relative L2 error at each noise level. Overall, LGNO-8 achieves a lower mean error than MLPConv-8 for all tested noise amplitudes α ∈ [0 , 0.10] . In the low-noise regime, α ≤ 0.02 , LGNO-8 shows a large average advantage of about 71% –74% , indicating that the local gradient-based operator representation remains substantially more accurate when the perturbation is weak. As the noise level increases, the advantage gradually decreases but remains positive. For α = 0 .10 , MLPConv-8 performs better in two individual cases, while LGNO-8 still attains the smaller average error, with an 18% relative advantage. These results support the observation in Section 3.5 that LGNO preserves stronger average robustness under moderate input perturbations, although the margin becomes smaller as the noise amplitude increases. 23 Local Gradient Neural Operator A P REPRINT 
+
+Table 7: Case-wise comparison of relative L2 errors under different noise levels. Case 1–5 correspond to evaluation seeds 447 − 451 , respectively. For each case, the lower error between LGNO-8 and MLPConv-8 is highlighted in blue. The column “Avg.” reports the mean error over the five cases at each noise level. The last column reports the relative advantage computed from the mean error, (eMLPConv − eLGNO )/e MLPConv . Positive values indicate lower average error for LGNO-8. 
+
+α Method Case 1 Case 2 Case 3 Case 4 Case 5 Avg. Advantage 0.00 LGNO-8 0.118 0.042 0.106 0.128 0.112 0.101 +71% 
+
+MLPConv-8 0.454 0.069 0.268 0.557 0.382 0.346 0.01 LGNO-8 0.105 0.045 0.094 0.112 0.099 0.091 +74% 
+
+MLPConv-8 0.453 0.073 0.266 0.557 0.381 0.346 0.02 LGNO-8 0.114 0.056 0.106 0.119 0.108 0.100 +71% 
+
+MLPConv-8 0.449 0.078 0.265 0.553 0.377 0.345 0.03 LGNO-8 0.296 0.068 0.190 0.439 0.250 0.249 +30% 
+
+MLPConv-8 0.460 0.089 0.280 0.562 0.388 0.356 0.04 LGNO-8 0.090 0.087 0.093 0.155 0.081 0.101 +72% 
+
+MLPConv-8 0.457 0.101 0.279 0.560 0.386 0.356 0.05 LGNO-8 0.166 0.103 0.158 0.186 0.156 0.154 +57% 
+
+MLPConv-8 0.458 0.118 0.285 0.560 0.388 0.361 0.06 LGNO-8 0.108 0.122 0.139 0.103 0.111 0.117 +68% 
+
+MLPConv-8 0.456 0.131 0.289 0.558 0.386 0.364 0.07 LGNO-8 0.115 0.138 0.158 0.107 0.122 0.128 +66% 
+
+MLPConv-8 0.461 0.146 0.301 0.561 0.393 0.372 0.08 LGNO-8 0.128 0.155 0.167 0.171 0.128 0.150 +60% 
+
+MLPConv-8 0.462 0.162 0.309 0.561 0.395 0.378 0.09 LGNO-8 0.168 0.172 0.208 0.174 0.170 0.178 +52% 
+
+MLPConv-8 0.451 0.178 0.309 0.552 0.386 0.375 0.10 LGNO-8 0.276 0.346 0.366 0.285 0.310 0.317 +18% 
+
+MLPConv-8 0.459 0.193 0.322 0.557 0.395 0.385 
+
+# References 
+
+[1] Feida Jiang, Neil S. Trudinger, and Qiao-Qiao Xu. On a class of cauchy problems with applications in nonlinear partial differential equations. J. Differ. Equ. , 475:114525, 2026. ISSN 0022-0396. doi: 10.1016/j.jde.2026.114 525. [2] M. Huzaifa Yaseen, Rida Hashmi, Najla A. Mohammed, and Hala A Hejazi. Differential invariants of systems of two nonlinear elliptic partial differential equations by lie symmetry method. J. Geom. Phys. , 218:105650, 2025. ISSN 0393-0440. doi: 10.1016/j.geomphys.2025.105650. [3] Yuhao Zhang, Haifei Liu, Xiaoqiang Li, Yingjie Zhao, and Jianxin Liu. Study on solving partial differential equations governing steady point current source field using m-rpim. Comput. Math. Appl. , 200:431–447, 2025. ISSN 0898-1221. doi: 10.1016/j.camwa.2025.10.017. [4] Saeed Ahmed Rajput, Shakeel Ahmed Kamboh, Khuda Bux Amur, and Afaque Ahmed Bhutto. Improved explicit finite difference method for extended shallow water partial differential equation. Partial Differ. Equ. Appl. Math. ,16:101316, 2025. ISSN 2666-8181. doi: 10.1016/j.padiff.2025.101316. [5] Jan M. Schaßberger, Gudrun Th¨ ater, and Lutz Gr¨ oll. On the numerical calculation of transfer functions of linear time-invariant partial differential equations. IFAC J. Syst. Control , 36:100402, 2026. ISSN 2468-6018. doi: 10.1016/j.ifacsc.2026.100402. [6] Fabio Difonzo, Michael Holst, Morteza Kimiaei, Vyacheslav Kungurtsev, and Songqiang Qiu. Towards real time control of water engineering with nonlinear hyperbolic partial differential equations. J. Comput. Sci. , 100: 102945, 2026. ISSN 1877-7503. doi: 10.1016/j.jocs.2026.102945. 24 Local Gradient Neural Operator A P REPRINT 
+
+[7] Qian Zhang, Marco Meloni, Jian Feng, and Jianguo Cai. Diffusion behavior of local motion in miura origami structures. Commun. Nonlinear Sci. Numer. Simul. , 161:110205, 2026. ISSN 1007-5704. doi: 10.1016/j.cnsns. 2026.110205. [8] Ryo Shirakawa, Yusuke Yamashita, Ryudo Tsukizaki, and Kazutaka Nishiyama. Predictor-corrector method for solving anisotropic diffusion equation in magnetized plasmas. J. Comput. Phys. , 562:115006, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.115006. [9] Hanlin Guo, Li Yin, and Xia Cui. A high-order spatio-temporal method for nonlinear reaction-diffusion systems containing self- and cross-diffusion on arbitrary polygonal meshes. J. Comput. Phys. , 564:115143, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.115143. [10] Weibin Wang, Feng Deng, Wenshan Yu, and Shengping Shen. The transient mechanics thermal diffusion cou-pling model of a bar. Int. J. Mech. Sci. , 312:111203, 2026. ISSN 0020-7403. doi: 10.1016/j.ijmecsci.2026.1112 03. [11] Lianjing Hao, Chaoyang Sun, Huijun Liang, Chunhui Wang, Lingyun Qian, and Qingsong Han. Modeling of element diffusion behavior in bimetallic compound layer. Int. J. Mech. Sci. , 290:110108, 2025. ISSN 0020-7403. doi: 10.1016/j.ijmecsci.2025.110108. [12] Zonglin Li, Ju Chen, Qiang Tian, and Haiyan Hu. Three-dimensional soft discrete element method for large-scale simulations of soft spheres. J. Comput. Phys. , 551:114681, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.114 681. [13] Lingqi Zeng, Haibo Liu, Shengming Dong, Hao Zhang, Lianqi Cheng, Tianran Liu, Kuo Liu, and Yongqing Wang. Machining deformation modeling for shell-plate thin-walled structures with multi-source stresses. Int. J. Mech. Sci. , 326:111879, 2026. ISSN 0020-7403. doi: 10.1016/j.ijmecsci.2026.111879. [14] Yifan Qin, Qiang Tian, Minghe Shan, and Haiyan Hu. Numerical modeling of fluid-structure interactions by using a hybrid method of ib-lbm and ancf. J. Fluids Struct. , 137:104378, 2025. ISSN 0889-9746. doi: 10.1016/ j.jfluidstructs.2025.104378. [15] Jinsong Tang, Linfang Qian, Jia Ma, Longmiao Chen, Guangsong Chen, Zhiqun Chen, and Wenkuan Huang. Knowledge-dominated and data-driven rigid-flexible coupling dynamics for rotating flexible structure. Knowl.-Based Syst. , 296:111853, 2024. ISSN 0950-7051. doi: 10.1016/j.knosys.2024.111853. [16] Animesh Kundu and Atanu Banerjee. Coupled thermomechanical modelling of shape memory alloy structures undergoing large deformation. Int. J. Mech. Sci. , 220:107102, 2022. ISSN 0020-7403. doi: 10.1016/j.ijmecsci .2022.107102. [17] Hao Chen, Shiwei Zhao, and Jidong Zhao. Heterogeneous hybrid resolved–unresolved cfd–dem coupling for fluid–particle interactions. Int. J. Mech. Sci. , 309:110992, 2026. ISSN 0020-7403. doi: 10.1016/j.ijmecsci.202 5.110992. [18] Haotian Xue, Jia Xia, and Yuxuan Gu. An implicit immersed boundary-lattice boltzmann method for power-law fluids with moving boundaries. Eur. J. Mech. B Fluids , 120:204593, 2026. ISSN 0997-7546. doi: 10.1016/j.eu romechflu.2026.204593. [19] Yanru Wang, Lei Pang, Zhenkun Li, Yukun Yan, Linlin Kang, Qinghai Zhang, and Shiying Xiong. Quaternionic lifting of spherical clebsch maps in helical flows. Sci. China Phys. Mech. Astron. , 69:284711, 2026. doi: 10.1007/s11433-026-2992-92. [20] Xuekai Dong, David Nieto Simavilla, Jie Ouyang, Xiaodong Wang, and Marco Ellero. A generic-guided active learning sph method for viscoelastic fluids using gaussian process regression. J. Comput. Phys. , 557:114837, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.114837. [21] Yunfan Huang and Moran Wang. Electrokinetic multiphase hydrodynamics. Appl. Phys. Rev. , 12(3), 2025. doi: 10.1063/5.0271535. [22] Wenbo Gong, Wenhai Lei, Tian Tian, Jiangtao Zheng, Yang Liu, Yuedi Wang, Yang Ju, and Moran Wang. A dynamic network model for forced imbibition considering competition between main-meniscus flow and corner flow. Water Resour. Res. , 61(7):e2025WR040146, 2025. [23] Arnab Acharya, Titir Mukherjee, Deepshikha Singh, and Soumitro Banerjee. Nonlinear dynamics of quantum analogs of classical impact oscillators. Phys. D: Nonlinear Phenom. , 488:135092, 2026. ISSN 0167-2789. doi: 10.1016/j.physd.2025.135092. [24] Quantum mechanical closure of partial differential equations with symmetries. J. Comput. Phys. , 562:114992, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.114992. 25 Local Gradient Neural Operator A P REPRINT 
+
+[25] Daniel Puzzuoli, Sophia Fuhui Lin, Moein Malekakhlagh, Emily Pritchett, Benjamin Rosand, and Christopher J. Wood. Algorithms for perturbative analysis and simulation of quantum dynamics. J. Comput. Phys. , 489:112262, 2023. ISSN 0021-9991. doi: 10.1016/j.jcp.2023.112262. [26] H. Men, J. Zhang, Y. Mao, X. Li, G. Zhao, and H. Liu. Multiple spatio-temporal attention network: A deep convolutional network for spatio-temporal evolution prediction of flow fields. Comput. Phys. Commun. , 315: 109685, 2025. doi: 10.1016/j.cpc.2025.109685. [27] M. S. Eshaghi, N. Valizadeh, C. Anitescu, Y. Wang, X. Zhuang, and T. Rabczuk. Multi-head neural operator for modelling interfacial dynamics. Int. J. Mech. Sci. , page 111363. , 2026. doi: 10.1016/j.ijmecsci.2026.111363. [28] S. Li, G. Tang, Y. Liu, and S. Xiang. Dynamic spindle thermal error prediction: a multi-view spatio-temporal graph neural network approach. Measurement , page 122317. , 2026. doi: 10.1016/j.measurement.2026.122317. [29] J. Paix˜ ao and P. Serranho. Hybrid approaches for the inverse source identification problem in a known penetrable obstacle from far-field data. Comput. Math. Appl. , 210:227–244, 2026. doi: 10.1016/j.camwa.2026.03.010. [30] Hongzhi Tang, Jinhui Jiang, Yinshen Wang, Boran Lin, and Deli Zhang. Stability analysis and multi-sensor placement optimization for dynamic load identification using the kalman filter method. Mech. Syst. Signal Pro-cess. , 257:114497, 2026. ISSN 0888-3270. doi: 10.1016/j.ymssp.2026.114497. [31] Ivan Javier S´ anchez-Galvis and Daniel O. Trad. Finite-difference in orthogonal curvilinear coordinates for elas-todynamic simulations in complex topography. Comput. Geosci. , 215:106218, 2026. ISSN 0098-3004. doi: 10.1016/j.cageo.2026.106218. [32] Antonio M. Vargas. A generalized finite difference method with quadratic temporal interpolation for fractional viscoelastic wave propagation on irregular meshes. Comput. Struct. , 330:108337, 2026. ISSN 0045-7949. doi: 10.1016/j.compstruc.2026.108337. [33] L. Xu, S. Ding, and K. Wu. Gql-based physical-constraint-preserving high-order finite difference schemes for special relativistic hydrodynamics in arbitrary dimensions. J. Comput. Phys. , page 115184. , 2026. doi: 10.101 6/j.jcp.2026.115184. [34] Seunghwan Park, Jaeho Jung, and Phill-Seung Lee. Towards improving the self-updated four-node finite element. 
+
+Comput. Struct. , 321:108014, 2026. ISSN 0045-7949. doi: 10.1016/j.compstruc.2025.108014. [35] Jinsong Tang, Guangsong Chen, and Yao Ge. A novel edge center-based gradient-smoothing element method for 2d and 3d coupled thermoelasticity analyses. Comput. Struct. , 275:106920, 2023. ISSN 0045-7949. doi: 10.1016/j.compstruc.2022.106920. [36] J. Jiang and W. Chen. Dynamic behaviors of general composite beams using mixed finite elements. Int. J. Mech. Sci. , 281:109687, 2024. doi: 10.1016/j.ijmecsci.2024.109687. [37] Hyung-Gyu Choi and Phill-Seung Lee. The simplified mitc4+ shell element and its performance in linear and nonlinear analysis. Comput. Struct. , 290:107177, 2024. ISSN 0045-7949. doi: 10.1016/j.compstruc.2023.107 177. [38] Huimin Zuo and Jun Zhu. High-order finite volume hybrid mr-weno schemes with new tvb discontinuity detec-tors on triangular meshes. J. Comput. Phys. , 564:115147, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.115 147. [39] Zhao-Ren Li, Jiang-Nan Zhu, Quan Wen, Wen-Tao Ji, and Wen-Quan Tao. A novel least-squares gradient and interpolation scheme based on the finite volume method. J. Comput. Phys. , 556:114817, 2026. ISSN 0021-9991. doi: 10.1016/j.jcp.2026.114817. [40] T. Flint, P. Cardiff, J. Q. da Fonseca, and P. Shanthraj. Eulerian finite volume framework for extreme multiphase plastic deformation. Int. J. Mech. Sci. , page 111794. , 2026. doi: 10.1016/j.ijmecsci.2026.111794. [41] Z. Hou, H. Hao, Y. Liang, and C. Pan. An efficient semi-analytical framework for moving load identification with arbitrary boundary conditions. Eng. Struct. , 360:122821, 2026. doi: 10.1016/j.engstruct.2026.122821. [42] S. Xu, X. Wei, D. Cen, X. Meng, X. Jia, T. Li, and J. Liu. High-precision identification of robot dynamics model and collision detection considering multi-source uncertainties. Mech. Syst. Signal Process. , 257:114548, 2026. doi: 10.1016/j.ymssp.2026.114548. [43] Xi Wang, Zhen-Yu Yin, Wei Wu, and He-Hua Zhu. Neural network-augmented differentiable finite element method for boundary value problems. Int. J. Mech. Sci. , 285:109783, 2025. doi: 10.1016/j.ijmecsci.2024.109783. [44] J. Han, A. Jentzen, and W. E. Solving high-dimensional partial differential equations using deep learning. Proc. Natl. Acad. Sci. U.S.A. , 115:8505–8510, 2018. doi: 10.1073/pnas.1718942115. 26 Local Gradient Neural Operator A P REPRINT 
+
+[45] X.-Y. Liu, M. Zhu, L. Lu, H. Sun, and J.-X. Wang. Multi-resolution partial differential equations preserved learning framework for spatiotemporal dynamics. Commun. Phys. , 7:31, 2024. doi: 10.1038/s42005-024-01521 -z. [46] C. Park, S. Saha, J. Guo, H. Zhang, X. Xie, M. A. Bessa, D. Qian, W. Chen, G. J. Wanger, J. Cao, et al. Unifying machine learning and interpolation theory via interpolating neural networks. Nat. Commun. , 16:8753, 2025. doi: 10.1038/s41467-025-63790-8. [47] J. Tang, J. Xiong, A. Minaeian, Y. Jie, and S. Xiong. A quantum-inspired deep neural network framework for physically constrained PDEs. Sci. China Phys. Mech. Astron. , 68:104703, 2025. doi: 10.1007/s11433-025-264 9-9. [48] B.-X. Sun, C.-X. Liu, G.-L. Yu, J. Li, and Z. Liu. A novel physics-informed neural network via field mapping. 
+
+Int. J. Mech. Sci. , page 111462. , 2026. doi: 10.1016/j.ijmecsci.2026.111462. [49] G. Zhu, X. Hu, R. Bao, and W. Chen. Continuous high-throughput characterization of mechanical properties via deep learning. Int. J. Mech. Sci. , 291:110137, 2025. doi: 10.1016/j.ijmecsci.2025.110137. [50] W. Zhang, M. Xia, and J. Kou. A scientometric investigation of artificial intelligence for fluid mechanics: Emerging topics and active groups. Prog. Aerosp. Sci. , 157:101130, 2025. doi: 10.1016/j.paerosci.2025.101130. [51] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang. Physics-informed machine learning. Nat. Rev. Phys. , 3:422–440, 2021. doi: 10.1038/s42254-021-00314-5. [52] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. ,378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. [53] M. Raissi and G. E. Karniadakis. Hidden physics models: Machine learning of nonlinear partial differential equations. J. Comput. Phys. , 357:125–141, 2018. doi: 10.1016/j.jcp.2017.11.039. [54] W. Xiong, X. Long, S. PA Bordas, and C. Jiang. The deep finite element method: A deep learning framework integrating the physics-informed neural networks with the finite element method. Comput. Methods Appl. Mech. Eng. , 436:117681, 2025. doi: 10.1016/j.cma.2024.117681. [55] Z.-T. Zhao, W. Huang, Z. Mao, C.-Y. Liu, and Y.-B. Niu. Physics-informed neural networks for supersonic flow over cones. Comput. Phys. Commun. , page 109782. , 2025. doi: 10.1016/j.cpc.2025.109782. [56] L. Lu, X. Meng, Z. Mao, and G. E. Karniadakis. DeepXDE: A deep learning library for solving differential equations. SIAM Rev. , 63:208–228, 2021. doi: 10.1137/19M1274067. [57] S. Wang, X. Yu, and P. Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. J. Comput. Phys. , 449:110768, 2022. doi: 10.1016/j.jcp.2021.110768. [58] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, and A. Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM/IMS J. Data Sci. , 1:1–27, 2024. doi: 10.1145/3648506. [59] Y. Wang, J. Bai, Z. Lin, Q. Wang, C. Anitescu, J. Sun, M. S. Eshaghi, Y. Gu, X. Feng, X. Zhuang, T. Rabczuk, and Y. Liu. Artificial Intelligence For Partial Differential Equations In Computational Mechanics: A Review. 
+
+Appl. Mech. Rev. , pages 1–81. , 2026. doi: 10.1115/1.4071710. [60] Y. Wang, X. Kong, L. Deng, and H. Sun. Separated-variable physics informed neural operators for solving dynamic PDEs. Mech. Syst. Signal Process. , 251:114195, 2026. doi: 10.1016/j.ymssp.2026.114195. [61] Z. Zou, X. Meng, and G. Em Karniadakis. Uncertainty quantification for noisy inputs–outputs in physics-informed neural networks and neural operators. Comput. Methods Appl. Mech. Eng. , 433:117479, 2025. doi: 10.1016/j.cma.2024.117479. [62] K. Azizzadenesheli, N. Kovachki, Z. Li, M. Liu-Schiaffini, J. Kossaifi, and A. Anandkumar. Neural operators for accelerating scientific simulations and design. Nat. Rev. Phys. , 6:320–328, 2024. doi: 10.1038/s42254-024 -00712-5. [63] M. Lu, C. Lin, M. Maxey, G. Em Karniadakis, and Z. Li. Bridging scales in multiscale bubble growth dynamics with correlated fluctuations using neural operator learning. Int. J. Multiph. Flow , 180:104959, 2024. doi: 10.1 016/j.ijmultiphaseflow.2024.104959. [64] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. J. Mach. Learn. Res. , 24:1–97, 2023. [65] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nat. Mach. Intell. , 3:218–229, 2021. doi: 10.1038/s42256-0 21-00302-5. 27 Local Gradient Neural Operator A P REPRINT 
+
+[66] D. R. Sarkar, V. Kag, B. Pal, and S. Goswami. Learning hidden physics and system parameters with deep operator networks. Comput. Methods Appl. Mech. Eng. , 456:118926, 2026. doi: 10.1016/j.cma.2026.118926. [67] E. Kiyani, A. M. Deshpande, M. Limaye, Z. Gao, Z. Zou, S. A. Pradeep, S. Pilla, G. Li, Z. Li, and G. Em Karniadakis. Probabilistic predictions of process-induced deformation in carbon/epoxy composites using a deep operator network. Compos. Part B Eng. , page 113952. , 2026. ISSN 1359-8368. doi: 10.1016/j.compositesb.20 26.113952. [68] Anna Ivagnes, Giovanni Stabile, and Gianluigi Rozza. Data-driven closure strategies for parametrized reduced-order models via deep operator networks. Comput. Methods Appl. Mech. Eng. , 455:118900, 2026. ISSN 0045-7825. doi: 10.1016/j.cma.2026.118900. [69] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. Fourier Neural Operator for Parametric Partial Differential Equations. In International Conference on Learning Representations ,2021. [70] S. Liu, H. Liu, T. Zhang, and X. Liu. Ms-iuffno: Multi-scale implicit u-net enhanced factorized fourier neural operator for solving geometric pdes. Comput. Methods Appl. Mech. Eng. , 437:117761, 2025. doi: 10.1016/j.cm a.2025.117761. [71] K. Li and W. Ye. D-fno: A decomposed fourier neural operator for large-scale parametric partial differential equations. Comput. Methods Appl. Mech. Eng. , 436:117732, 2025. doi: 10.1016/j.cma.2025.117732. [72] R. Yu. An inverse scattering inspired fourier neural operator for time-dependent pde learning. J. Comput. Phys. ,page 115081. , 2026. doi: 10.1016/j.jcp.2026.115081. [73] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. Neural operator: Graph kernel network for partial differential equations. In ICLR 2020 Workshop on Integration of Deep Neural Models and Differential Equations , 2020. [74] S. Sarkar and S. Chakraborty. Spatio-spectral graph neural operator for solving computational mechanics prob-lems on irregular domain and unstructured grid. Comput. Methods Appl. Mech. Eng. , 435:117659, 2025. doi: 10.1016/j.cma.2024.117659. [75] D.-T. Vo and J. Lee. Attention-based graph neural operators for learning parametric response mappings in discrete structures. Eng. Appl. Artif. Intell. , 180:115232, 2026. doi: 10.1016/j.engappai.2026.115232. [76] S. Sarkar and S. Chakraborty. Physics-and geometry-aware spatio-spectral graph neural operator for time-independent and time-dependent pdes. J. Comput. Phys. , page 115029. , 2026. doi: 10.1016/j.jcp.2026.115029. [77] J. Peetre. Une caract´ erisation abstraite des op´ erateurs diff´ erentiels. Math. Scand. , 7:211–218, 1959. doi: 10.714 6/math.scand.a-10574. [78] R. Courant, K. Friedrichs, and H. Lewy. ¨ Uber die partiellen Differenzengleichungen der mathematischen Physik. 
+
+Math. Ann. , 100:32–74, 1928. doi: 10.1007/BF01448839. [79] S. Goswami, A. Bora, Y. Yu, and G. E. Karniadakis. Physics-informed deep neural operator networks. In 
+
+Machine learning in modeling and simulation: methods and applications , pages 219–254. Springer, 2023. doi: 10.1007/978-3-031-36644-4 6. [80] T. Rabczuk and K.-J. Bathe. Machine learning in modeling and simulation . Springer, 2023. doi: 10.1007/978-3 -031-36644-4. [81] M. Lin, Q. Chen, and S. Yan. Network In Network. In International Conference on Learning Representations ,2014. [82] Z. Long, Y. Lu, X. Ma, and B. Dong. PDE-Net: Learning PDEs from data. In Proceedings of the 35th In-ternational Conference on Machine Learning , volume 80 of Proceedings of Machine Learning Research , pages 3208–3216. PMLR, 2018. [83] B. Raonic, R. Molinaro, T. De Ryck, T. Rohner, F. Bartolucci, R. Alaifari, S. Mishra, and E. de B´ ezenac. Convolu-tional Neural Operators for robust and accurate learning of PDEs. In Advances in Neural Information Processing Systems , volume 36, pages 77187–77200. Curran Associates, Inc., 2023. [84] A. Jiao, H. He, R. Ranade, J. Pathak, and L. Lu. One-shot learning for solution operators of partial differential equations. Nat. Commun. , 16:8386, 2025. doi: 10.1038/s41467-025-63076-z. [85] Z. Wu, S. Wang, S. Zhang, S. He, M. Zhu, A. Jiao, L. Lu, and D. van Dijk. TANTE: Time-adaptive operator learning via neural Taylor expansion. J. Comput. Phys. , 562:115041, 2026. doi: 10.1016/j.jcp.2026.115041. [86] J. Peetre. R´ ectification ` a l’article “Une caract´ erisation abstraite des op´ erateurs diff´ erentiels”. Math. Scand. , 8: 116–120, 1960. doi: 10.7146/math.scand.a-10598. 28 Local Gradient Neural Operator A P REPRINT 
+
+[87] L. H¨ ormander. Estimates for translation invariant operators in Lp spaces. Acta Math. , 104:93–140, 1960. doi: 10.1007/BF02547187. [88] R. T. Q. Chen, Y. Rubanova, J. Bettencourt, and D. K. Duvenaud. Neural Ordinary Differential Equations. In 
+
+Advances in Neural Information Processing Systems , volume 31, pages 6571–6583, 2018. [89] J. Tang, Y. Tong, L. Chen, S. Cai, and S. Xiong. Integrating neural networks with numerical schemes for dynamical systems: A review. Neurocomputing , 637:130122, 2025. doi: 10.1016/j.neucom.2025.130122. [90] R. J. LeVeque. Finite Difference Methods for Ordinary and Partial Differential Equations: Steady-State and Time-Dependent Problems . Society for Industrial and Applied Mathematics, Philadelphia, 2007. doi: 10.1137/ 1.9780898717839. [91] G. Birke, C. Engwer, J. Giesselmann, and S. May. Error analysis of a first-order DoD cut cell method for 2D unsteady advection. J. Sci. Comput. , 106:1, 2026. doi: 10.1007/s10915-025-03091-w. [92] X. Qi, G. Dewhirst, and Y. Yan. An efficient tamed Milstein scheme for the stochastic Allen-Cahn equation with multiplicative noise. J. Sci. Comput. , 107:10, 2026. doi: 10.1007/s10915-026-03218-7. [93] P. Paraschis and G. E. Zouraris. Linearly implicit finite element methods approximating the solution to the nonlinear Schr¨ odinger equation with a Schamel-type nonlinearity. J. Sci. Comput. , 108:15, 2026. doi: 10.1007/ s10915-026-03328-2. [94] E. Noether. Invariante Variationsprobleme. Nachr. Ges. Wiss. G¨ ottingen Math.-Phys. Kl. , 1918:235–257, 1918. [95] Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner. Gradient-based learning applied to document recognition. Proc. IEEE , 86:2278–2324, 1998. doi: 10.1109/5.726791. [96] S. Chen, E. Dobriban, and J. H. Lee. A Group-Theoretic Framework for Data Augmentation. J. Mach. Learn. Res. , 21:1–71, 2020. [97] T. S. Cohen and M. Welling. Group Equivariant Convolutional Networks. In Proceedings of the 33rd Inter-national Conference on Machine Learning , volume 48 of Proceedings of Machine Learning Research , pages 2990–2999. PMLR, 2016. 29

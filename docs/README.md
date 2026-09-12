@@ -48,17 +48,17 @@
 <section class="dpr-home-dashboard-card dpr-home-report-card">
   <div class="dpr-home-dashboard-header">
     <div>
-      <span class="dpr-home-dashboard-kicker">2026-09-11</span>
+      <span class="dpr-home-dashboard-kicker">2026-09-12</span>
       <h3 class="dpr-home-dashboard-title">今日汇总</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">共 5 篇</strong>
+    <strong class="dpr-home-dashboard-count">共 0 篇</strong>
   </div>
   <dl class="dpr-home-dashboard-stats">
     <div class="dpr-home-dashboard-stat"><dt>累计更新</dt><dd>1 次</dd></div>
-    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>5</dd></div>
+    <div class="dpr-home-dashboard-stat"><dt>精读</dt><dd>0</dd></div>
     <div class="dpr-home-dashboard-stat"><dt>速读</dt><dd>0</dd></div>
   </dl>
-  <p class="dpr-home-dashboard-body">最近更新：2026-09-11 21:18:21 UTC<br>状态：成功</p>
+  <p class="dpr-home-dashboard-body">最近更新：2026-09-12 21:28:11 UTC<br>状态：成功</p>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-brief-card">
   <div class="dpr-home-dashboard-header">
@@ -69,9 +69,7 @@
     <strong class="dpr-home-dashboard-count">AI</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<p>2026-09-11日报：5篇全精读，已列出的重点包括LLM智能体技能对齐与真实世界可形变物体物理建模。</p>
-<p>最值得看的是《SkillAlign: Aligning Skill Interfaces for LLM-based Agents》（8.0/10）和《PhysReal: Learning Real-World Deformable Object Physics via Hybrid Constitutive Modeling》（8.0/10），分别指向智能体技能接口统一与真实可形变物体物理学习。</p>
-<p>普通读者可先读这两篇的摘要与实验结论，再关注智能体工具调用和仿真到现实迁移方向的后续进展。</p>
+<p>今日无新推荐，系统未产出可展示论文。</p>
   </div>
 </section>
 <section class="dpr-home-dashboard-card dpr-home-deep-card">
@@ -80,12 +78,12 @@
       <span class="dpr-home-dashboard-kicker">今日累计</span>
       <h3 class="dpr-home-dashboard-title">精读推荐</h3>
     </div>
-    <strong class="dpr-home-dashboard-count">5 篇</strong>
+    <strong class="dpr-home-dashboard-count">0 篇</strong>
   </div>
   <div class="dpr-home-dashboard-body">
-<ul class="dpr-home-dashboard-paper-list"><li><span class="dpr-home-dashboard-paper-title" title="SkillAlign: Aligning Skill Interfaces for LLM-based Agents">SkillAlign: Aligning Skill Interfaces for LLM-based Agents</span></li><li><span class="dpr-home-dashboard-paper-title" title="PhysReal: Learning Real-World Deformable Object Physics via Hybrid Constitutive Modeling">PhysReal: Learning Real-World Deformable Object Physics via Hybrid Constitutive Modeling</span></li><li><span class="dpr-home-dashboard-paper-title" title="Decentralized Safe Multi-Agent Reinforcement Learning via Predictive Shielding">Decentralized Safe Multi-Agent Reinforcement Learning via Predictive Shielding</span></li></ul>
+<p class="dpr-home-dashboard-empty">今日暂无推荐。</p>
   </div>
-  <div class="dpr-home-dashboard-tags"><span class="dpr-home-dashboard-tag">physics-ml <strong>3</strong></span><span class="dpr-home-dashboard-tag">cfd-agent <strong>2</strong></span></div>
+
 </section>
 <section class="dpr-home-dashboard-card dpr-home-skim-card">
   <div class="dpr-home-dashboard-header">
